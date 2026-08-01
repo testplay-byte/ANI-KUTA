@@ -1,0 +1,27 @@
+# Android / Gradle (scoped under android/)
+android/.gradle/
+android/**/build/
+android/local.properties
+android/captures/
+android/.cxx/
+android/.externalNativeBuild/
+android/**/*.iml
+android/.idea/
+
+# Keystores (NEVER commit)
+*.keystore
+*.jks
+keystore.properties
+
+# Dashboard (Next.js)
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/
+
+# Secrets
+*.env
+!dashboard/.env.example
+secrets.properties
+
+# OS
+.DS_Store

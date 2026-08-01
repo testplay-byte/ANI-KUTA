@@ -1,0 +1,82 @@
+# ANI-KUTA — APK Build
+#
+# Hard rules (NON-NEGOTIABLE):
+#   - Builds ONLY arm64-v8a and armeabi-v7a ABIs.
+#     Set in android/app/build.gradle.kts (ndk.abiFilters) AND verified post-build below.
+#   - Never build locally; this workflow is the only build path.
+#
+# Status:
+#   - Debug build: active.
+#   - Release build + signing: TODO Phase 2 (see AGENT-CONTEXT/planning/README.md).
+
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+        with:
+          min-wrapper-count: 1
+          allow-snapshots: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Verify ABIs (only arm64-v8a + armeabi-v7a allowed)
+        working-directory: .
+        run: |
+          set -e
+          echo "Checking APK lib/ folders..."
+          found_bad=0
+          shopt -s nullglob globstar
+          for apk in android/app/build/outputs/apk/**/*.apk; do
+            [ -f "$apk" ] || continue
+            echo "Inspecting: $apk"
+            # Fail if ANY lib/<abi>/ exists other than the two allowed.
+            bad=$(unzip -Z1 "$apk" | grep -E '^lib/[^/]+/' || true)
+            for entry in $bad; do
+              abi=$(echo "$entry" | cut -d'/' -f2)
+              case "$abi" in
+                arm64-v8a|armeabi-v7a) ;;
+                *) echo "::error::Forbidden ABI '$abi' found in $apk ($entry)"; found_bad=1 ;;
+              esac
+            done
+          done
+          exit $found_bad
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: anikuta-apk
+          path: android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
