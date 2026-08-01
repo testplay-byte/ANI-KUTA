@@ -94,6 +94,42 @@
 - **Status:** ✅ Confirmed by user.
 - **Date:** Phase 0 (restructure).
 
+### D-016 — Dashboard = visual documentation for the USER
+- **What:** The web dashboard is documentation meant for the user (not the agent) to understand the system. Modular, filterable, shows modules/screens/plans/decisions/progress/architecture with trees, graphs, workflow diagrams.
+- **Why:** User requirement.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (dashboard spec).
+
+### D-017 — Dashboard design language (DESIGN.md, strictly followed + dark mode)
+- **What:** Design language defined in `DASHBOARD/webpage/DESIGN.md` (user-provided, tested). Strictly followed on all pages. Includes a dark mode toggle at the top. Cream tones, rounded corners. Flexible for future improvement.
+- **Why:** User requirement.
+- **Status:** 🚧 Pending — `design.md` not yet uploaded by user. Demo webpage paused.
+- **Date:** Phase 0 (dashboard spec).
+
+### D-018 — Sub-agents build the webpage; main agent owns AGENT-CONTEXT
+- **What:** Webpage work delegated to sub-agents. Sub-agents work ONLY in `DASHBOARD/webpage/` — never touch `AGENT-CONTEXT/`. Main agent does all AGENT-CONTEXT updates.
+- **Why:** User requirement — separation of concerns.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (dashboard spec).
+
+### D-019 — Session-end push to GitHub (environment is ephemeral)
+- **What:** Every session ends with all changes committed + pushed to GitHub. The environment can clear randomly; GitHub is the source of truth.
+- **Why:** User requirement — prevent work loss.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (dashboard spec).
+
+### D-020 — SESSION.md as the per-session bootstrap file
+- **What:** A single file (`AGENT-CONTEXT/SESSION.md`) read at the start of every session. Contains: key rules reminder, the task loop, after-task update list, session-end checklist, current blockers.
+- **Why:** User requirement — quick context for the agent each session.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (dashboard spec).
+
+### D-021 — User uses speech-to-text
+- **What:** The user dictates messages via speech-to-text. Transcription errors may occur. Agent corrects obvious errors from context; if unclear, stops and asks.
+- **Why:** User requirement — avoid moving in wrong direction on misheard instructions.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (dashboard spec).
+
 ## Pending Decisions (need user input)
 
 ### Q1 — What does the app actually do? ⏳

@@ -5,8 +5,9 @@
 ## 🔝 Top-Level (read every session)
 | File | Purpose |
 |------|---------|
-| `master.md` | Entry point. Project summary + what to read. **Read first.** |
-| `CORE_RULES.md` | Non-negotiable rules. Wins over everything. |
+| `SESSION.md` | 60-second session bootstrap: key rules + the loop + end-of-session checklist. **Read first.** |
+| `master.md` | Project orientation: what ANI-KUTA is, folder layout, what to read. |
+| `CORE_RULES.md` | Non-negotiable rules (16 sections). Wins over everything. |
 | `workflow.md` | The task execution loop (Understand→Verify→Implement→Verify→Move On) + project phases. |
 
 ## 🌐 Workspace-Level
@@ -30,6 +31,7 @@
 | `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, module graph, UI/backend separation. |
 | `knowledge/module-map.md` | Every module: name, job, dependencies. |
 | `knowledge/ui-customization.md` | How UI customization works. |
+| `knowledge/dashboard.md` | Dashboard approach: purpose, content, deployment, update process, sub-agent rules. |
 | `knowledge/old-vs-new.md` | Comparison with the old project (when available). |
 
 ## 🛠️ skills/
@@ -42,9 +44,10 @@
 ---
 
 ## Reading Order for a New Agent
-1. `master.md`
-2. `CORE_RULES.md`
-3. `memory/progress.md`
-4. `workflow.md` (when starting a task)
-5. The specific `knowledge/` or `skills/` file relevant to the task.
-6. (Optional) `/home/z/my-project/worklog.md` for sub-agent execution detail.
+1. `SESSION.md` (quick-start)
+2. `master.md` (project orientation)
+3. `CORE_RULES.md` (the rules)
+4. `memory/progress.md` (live status)
+5. `workflow.md` (when starting a task)
+6. The specific `knowledge/` or `skills/` file relevant to the task.
+7. (Optional) `/home/z/my-project/worklog.md` for sub-agent execution detail.

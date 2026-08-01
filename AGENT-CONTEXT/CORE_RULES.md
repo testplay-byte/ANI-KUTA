@@ -152,3 +152,42 @@ ANIKUTA-PROJECT/
 - **To add a skill**: (1) understand it fully, (2) verify it's reliable + useful, (3) sub-agent review if non-trivial, (4) write it with concrete examples (no generic philosophy), (5) add to `skills/README.md` index.
 - **To create a new skill yourself**: must have a solid reason + solid backing. Use sub-agents to verify. If unsure, don't add it.
 - Skills are **reference material**, not dependencies. The agent reads them on demand.
+
+---
+
+## 13. User Uses Speech-to-Text
+
+- The user often dictates messages via speech-to-text. Transcription errors happen (misheard words, dropped words, odd phrasing).
+- **If a request feels off or ambiguous**: try to correct obvious transcription errors from context. If still unclear → **stop and highlight it with the user** before proceeding. Do not move in the wrong direction on a misheard instruction.
+- Common tells: homophones ("their/there"), numbers spelled out, slightly wrong technical terms. Use project context to disambiguate.
+- When in doubt: ask. A 10-second clarification beats an hour of wrong work.
+
+---
+
+## 14. Sub-Agent Delegation Scope
+
+- The main agent delegates webpage work to **sub-agents** (analysis, documentation, page creation).
+- **Sub-agents working on the webpage work ONLY inside `DASHBOARD/webpage/`.** They must NOT touch `AGENT-CONTEXT/` — no random documentation, no rule edits, no memory updates.
+- Sub-agents do: webpage creation, webpage analysis, webpage documentation (inside `DASHBOARD/webpage/` only).
+- The **main agent** is responsible for all `AGENT-CONTEXT/` updates (progress, decisions, lessons, rules) after sub-agent work completes.
+- When launching a webpage sub-agent: tell it explicitly "work only in `DASHBOARD/webpage/`, do not modify `AGENT-CONTEXT/`."
+
+---
+
+## 15. Session-End Backup (Push to GitHub)
+
+- ⚠️ **This environment can clear out randomly.** Work not pushed to GitHub can be lost.
+- **Every session MUST end with all changes committed and pushed to GitHub.** No exceptions.
+- Before declaring a session done: `git status` must be clean, `git push` must be done.
+- If the environment was cleared and re-cloned at session start: read `memory/progress.md` first to know where things stand, then continue.
+- This rule exists because the environment is ephemeral; GitHub is the source of truth.
+
+---
+
+## 16. Web Dashboard Design Language
+
+- The dashboard's design language is defined in **`DASHBOARD/webpage/DESIGN.md`**.
+- It is **strictly followed** on all pages, all components, all parts of the dashboard. No deviations.
+- Includes a **dark mode toggle** at the top of every page.
+- To modify the design language: edit `DESIGN.md`, get user confirmation for non-trivial changes, keep it flexible for future improvement.
+- See `knowledge/dashboard.md` for the full dashboard approach (purpose, content, deployment, update process).

@@ -22,3 +22,4 @@
 - [MISTAKE] GitHub tokens embedded in git remote URLs leak via `.git/config`. Use credential store instead. (source: Task 10, 2026-08-01)
 - [INSIGHT] When consolidating docs, grep for stale cross-references that point to removed files — they break silently. (source: Task 3 review, 2026-08-01)
 - [MISTAKE] `kotlinOptions { }` inside `android { }` is deprecated in Kotlin 2.0+. Use top-level `kotlin { compilerOptions { } }`. (source: Task 7, 2026-08-01)
+- [INSIGHT] When the user says "I provided X file" but it's not in the upload folder, STOP and flag it — never fabricate the missing content. Do the independent work; pause the dependent work. (source: self, 2026-08-01, design.md missing)

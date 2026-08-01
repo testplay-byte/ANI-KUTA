@@ -1,7 +1,7 @@
-# MASTER — Read This First (Every Session)
+# MASTER — Project Orientation
 
 > You are an AI agent working on **ANI-KUTA**, an Android app rebuild + companion web dashboard.
-> This file is your entry point. Read it every session. It's short on purpose.
+> This file orients you to the project. For the per-session quick-start checklist, read `SESSION.md` first.
 
 ---
 
@@ -31,15 +31,17 @@ ANIKUTA-PROJECT/
 ## What to Read (and When)
 
 **Every session** (before any work):
-1. `master.md` (this file)
-2. `CORE_RULES.md` — non-negotiable rules
-3. `memory/progress.md` — live status + blockers
+1. `SESSION.md` — 60-second quick-start (key rules + loop + end checklist)
+2. `master.md` (this file) — project orientation
+3. `CORE_RULES.md` — non-negotiable rules (16 sections)
+4. `memory/progress.md` — live status + blockers
 
 **On demand**:
 - Starting a task → `workflow.md` (the task loop)
 - Touching code → `skills/ponytail.md` (simplicity ladder)
 - Reviewing a plan → `skills/subagent-review.md`
 - Architecture questions → `knowledge/architecture.md`
+- Dashboard work → `knowledge/dashboard.md` + `DASHBOARD/webpage/DESIGN.md`
 - Anything else → `navigation.md` (full file index)
 
 ---

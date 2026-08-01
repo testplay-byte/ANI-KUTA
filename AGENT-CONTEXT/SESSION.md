@@ -1,0 +1,66 @@
+# SESSION — Read This At The Start Of Every Session
+
+> A 60-second orientation. Read this FIRST, every time, before any work.
+> It reminds you of the key rules and the session loop. For detail, follow the links.
+
+---
+
+## ⚡ Who You Are
+You are the AI agent for **ANI-KUTA** (Android app rebuild + companion web dashboard).
+GitHub: `testplay-byte/ANI-KUTA`. Project root: `ANIKUTA-PROJECT/`.
+
+## 📂 If The Environment Was Just Cloned
+1. `cd /home/z/my-project/ANIKUTA-PROJECT` (if missing → re-clone from GitHub).
+2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers.
+3. Read `AGENT-CONTEXT/memory/decisions.md` → "Pending Decisions" section.
+4. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task.
+
+## 🔑 Key Rules (full detail in `CORE_RULES.md`)
+- **No assumptions.** Unsure → ask the user. Never guess.
+- **Don't sugarcoat.** If a request has an issue, flag it directly. Don't blindly agree.
+- **User uses speech-to-text.** If a request feels off, correct obvious errors from context; if still unclear → stop and ask.
+- **APK builds: GitHub Actions only.** ABIs: `arm64-v8a` + `armeabi-v7a` only. Never local.
+- **Sub-agents for webpage work** → they work ONLY in `DASHBOARD/webpage/`, never `AGENT-CONTEXT/`.
+- **Keep it simple.** Stdlib/native before new deps. No over-engineering. (See `skills/ponytail.md`.)
+- **Be honest.** Short, simple, to the point. Use emojis + formatting for clarity.
+
+## 🔄 The Task Loop (full detail in `workflow.md`)
+```
+UNDERSTAND → VERIFY → IMPLEMENT → VERIFY → MOVE ON
+```
+1. Understand the request. Read progress + lessons.
+2. Verify: research, comprehend, confirm with user for non-trivial changes. Sub-agent review for big tasks.
+3. Implement: frontend first, then backend. Modular. Document as you go.
+4. Verify: lint/build/agent-browser. Root-cause any bugs.
+5. Move on: update `progress.md`, `decisions.md`, `lessons-learned.md`. Notify via ntfy. Summarize to user.
+
+## 📝 After Every Task (Update These)
+- `memory/progress.md` — live status.
+- `memory/decisions.md` — if a decision was made.
+- `memory/lessons-learned.md` — if you made/corrected a mistake.
+- `memory/changelog.md` — if a phase advanced.
+- Relevant `knowledge/` files — if project knowledge changed.
+
+## 🚨 Session-End Checklist (NON-NEGOTIABLE)
+- [ ] All work committed (`git add -A && git commit`).
+- [ ] Pushed to GitHub (`git push`). **The environment can clear randomly — unpushed work is lost.**
+- [ ] `git status` is clean.
+- [ ] ntfy.sh notification sent (topic `TASKISDONE`).
+- [ ] Short formatted summary given to the user.
+
+## 📦 Project Folders
+```
+ANIKUTA-PROJECT/
+├── AGENT-CONTEXT/      # YOUR memory + rules (you maintain this)
+├── APP/ani-kuta/       # Android app (Gradle + Kotlin + Compose)
+├── DASHBOARD/webpage/  # Next.js dashboard → GitHub Pages (sub-agents build this)
+└── .github/workflows/  # CI
+```
+
+## ❓ Currently Blocked On
+- **design.md** — user is providing the dashboard design language file. Demo webpage paused until it arrives.
+- Q1/Q2 — old project reference (for Phase 1 architecture).
+- See `memory/decisions.md` → "Pending Decisions" for full list.
+
+---
+*This file is the quick-start. For everything else, see `navigation.md`.*
