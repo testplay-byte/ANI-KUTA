@@ -1,13 +1,13 @@
 # ANI-KUTA — APK Build
 #
-# Hard rules (NON-NEGOTIABLE):
+# Hard rules (NON-NEGOTIABLE — see AGENT-CONTEXT/CORE_RULES.md §8):
 #   - Builds ONLY arm64-v8a and armeabi-v7a ABIs.
-#     Set in android/app/build.gradle.kts (ndk.abiFilters) AND verified post-build below.
+#     Set in APP/ani-kuta/app/build.gradle.kts (ndk.abiFilters) AND verified post-build below.
 #   - Never build locally; this workflow is the only build path.
 #
 # Status:
 #   - Debug build: active.
-#   - Release build + signing: TODO Phase 2 (see AGENT-CONTEXT/planning/README.md).
+#   - Release build + signing: TODO Phase 2 (see AGENT-CONTEXT/workflow.md).
 
 name: Build APK
 
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: android
+        working-directory: APP/ani-kuta
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,10 +59,9 @@ jobs:
           echo "Checking APK lib/ folders..."
           found_bad=0
           shopt -s nullglob globstar
-          for apk in android/app/build/outputs/apk/**/*.apk; do
+          for apk in APP/ani-kuta/app/build/outputs/apk/**/*.apk; do
             [ -f "$apk" ] || continue
             echo "Inspecting: $apk"
-            # Fail if ANY lib/<abi>/ exists other than the two allowed.
             bad=$(unzip -Z1 "$apk" | grep -E '^lib/[^/]+/' || true)
             for entry in $bad; do
               abi=$(echo "$entry" | cut -d'/' -f2)
@@ -78,5 +77,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: anikuta-apk
-          path: android/app/build/outputs/apk/**/*.apk
+          path: APP/ani-kuta/app/build/outputs/apk/**/*.apk
           if-no-files-found: error

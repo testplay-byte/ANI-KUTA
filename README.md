@@ -5,19 +5,19 @@ Android application **ANI-KUTA**, rebuilt from scratch with proper planning, doc
 ## Repository layout
 ```
 ANIKUTA-PROJECT/
-├── AGENT-CONTEXT/      # Agent memory, rules, knowledge, planning (versioned here)
-├── android/            # Android app (Gradle + Kotlin + Jetpack Compose)
-├── dashboard/          # Next.js visualization dashboard (planned → GitHub Pages)
+├── AGENT-CONTEXT/      # Agent memory + rules (versioned here — read master.md first)
+├── APP/ani-kuta/       # Android app (Gradle + Kotlin + Jetpack Compose)
+├── DASHBOARD/webpage/  # Next.js visualization dashboard (planned → GitHub Pages)
 └── .github/workflows/  # CI: build APK (+ deploy dashboard, planned)
 ```
 
-> New here? Read `AGENT-CONTEXT/master.md` first, then `AGENT-CONTEXT/navigation.md`.
+> New here? Read `AGENT-CONTEXT/master.md` first, then `AGENT-CONTEXT/CORE_RULES.md`.
 
 ## Build
 - APKs are built **only** via GitHub Actions (`.github/workflows/build-apk.yml`).
-- Target ABIs: `arm64-v8a` and `armeabi-v7a` only (enforced in `app/build.gradle.kts` + verified in CI).
+- Target ABIs: `arm64-v8a` and `armeabi-v7a` only (enforced in `APP/ani-kuta/app/build.gradle.kts` + verified in CI).
 - App ID: `com.confused.anikuta`
 
 ## Status
-Phase 0 — Environment & Rules Setup (demo build to verify CI).
+Phase 0 — Environment & Rules Setup (demo CI green).
 See `AGENT-CONTEXT/memory/progress.md` for live status.

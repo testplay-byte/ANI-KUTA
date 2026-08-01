@@ -35,10 +35,10 @@
 - **Date:** Phase 0.
 
 ### D-006 — Companion web dashboard (full Next.js project → GitHub Pages)
-- **What:** A full Next.js project at `ANIKUTA-PROJECT/dashboard/`. GitHub Actions builds and publishes it to **GitHub Pages** on every push.
+- **What:** A full Next.js project at `ANIKUTA-PROJECT/DASHBOARD/webpage/`. GitHub Actions builds and publishes it to **GitHub Pages** on every push.
 - **Why:** User wants a visual representation of project logic, modules, progress, decisions — managed and kept up to date.
 - **Status:** ✅ Confirmed by user.
-- **Date:** Phase 0.
+- **Date:** Phase 0 (path updated in D-011).
 
 ### D-007 — App ID = com.confused.anikuta
 - **What:** Android applicationId / namespace = `com.confused.anikuta`.
@@ -58,11 +58,58 @@
 - **Status:** ✅ Confirmed by user.
 - **Date:** Phase 0.
 
-### D-010 — Project folder structure: ANIKUTA-PROJECT/
-- **What:** Single root folder `ANIKUTA-PROJECT/` containing `AGENT-CONTEXT/`, `android/`, `dashboard/`, `.github/workflows/`. The whole folder is the git repo pushed to `testplay-byte/ANI-KUTA`.
+### D-010 — Project folder structure: ANIKUTA-PROJECT/ (original)
+- **What:** Single root folder `ANIKUTA-PROJECT/` containing `AGENT-CONTEXT/`, `android/`, `dashboard/`, `.github/workflows/`.
 - **Why:** User requirement — one project folder holding everything.
-- **Status:** ✅ Confirmed by user.
+- **Status:** ~~superseded by D-011~~.
 - **Date:** Phase 0.
 
+### D-011 — Restructured folder layout (current)
+- **What:** `ANIKUTA-PROJECT/` now contains: `AGENT-CONTEXT/` (overhauled — CORE_RULES.md, workflow.md, no more planning/questions/rules folders), `APP/ani-kuta/` (Android, was `android/`), `DASHBOARD/webpage/` (Next.js, was `dashboard/`), `.github/workflows/`.
+- **Why:** User requirement — better manageability, code separated from dashboard, AGENT-CONTEXT consolidated into core rules.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (restructure).
+
+### D-012 — CORE_RULES.md as single rules source
+- **What:** All former `rules/*.md` files consolidated into `AGENT-CONTEXT/CORE_RULES.md`. Removed `rules/` folder.
+- **Why:** User requirement — one non-negotiable core-rules file, no fragmentation.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (restructure).
+
+### D-013 — workflow.md as canonical task loop
+- **What:** `workflow.md` (Understand→Verify→Implement→Verify→Move On) is THE task procedure. `master.md` operating loop and `CORE_RULES.md` dev-flow point to it.
+- **Why:** Avoid three overlapping process descriptions.
+- **Status:** ✅ Confirmed by user (implied by spec).
+- **Date:** Phase 0 (restructure).
+
+### D-014 — Self-learning system (lessons-learned.md)
+- **What:** `memory/lessons-learned.md` logs one-line lessons when the user corrects the agent or the agent catches its own mistake. Recurring patterns promote to a rule in CORE_RULES.md.
+- **Why:** User requirement — constant learning from mistakes, future iterations free from past issues.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (restructure).
+
+### D-015 — ntfy.sh task notification
+- **What:** After every task, send a notification via `curl ... https://ntfy.sh/TASKISDONE`. Topic is public — no secrets in message body.
+- **Why:** User requirement.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (restructure).
+
 ## Pending Decisions (need user input)
-All open items live in **`questions/open-questions.md`** (single source of truth). See that file.
+
+### Q1 — What does the app actually do? ⏳
+❓ What is ANI-KUTA? Main features and screens?
+- User will share the older GitHub project for analysis. Waiting on link/path.
+
+### Q2 — Where is the old project? ⏳
+❓ Share repo link or path to the previous (working) version.
+- Reference only, won't copy code.
+
+### Q10 — Dashboard scope ⏳
+❓ Confirm starter scope for the Next.js dashboard (deployed to GitHub Pages):
+- ⭐ Recommended (read-only to start):
+  - Module map (visual graph of all modules + dependencies)
+  - Progress (read from `memory/progress.md`)
+  - Decisions log (read from `memory/decisions.md`)
+  - Blockers / open questions (read from this file)
+  - Logic / data flow diagram
+- Interactive editing later. Confirm or adjust.

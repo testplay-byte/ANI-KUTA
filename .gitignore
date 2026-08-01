@@ -1,26 +1,25 @@
-# Android / Gradle (scoped under android/)
-android/.gradle/
-android/**/build/
-android/local.properties
-android/captures/
-android/.cxx/
-android/.externalNativeBuild/
-android/**/*.iml
-android/.idea/
+# Android / Gradle (scoped under APP/ani-kuta/)
+APP/ani-kuta/.gradle/
+APP/ani-kuta/**/build/
+APP/ani-kuta/local.properties
+APP/ani-kuta/captures/
+APP/ani-kuta/.cxx/
+APP/ani-kuta/.externalNativeBuild/
+APP/ani-kuta/**/*.iml
+APP/ani-kuta/.idea/
+
+# Dashboard (Next.js)
+DASHBOARD/webpage/node_modules/
+DASHBOARD/webpage/.next/
+DASHBOARD/webpage/out/
 
 # Keystores (NEVER commit)
 *.keystore
 *.jks
 keystore.properties
 
-# Dashboard (Next.js)
-dashboard/node_modules/
-dashboard/.next/
-dashboard/out/
-
 # Secrets
 *.env
-!dashboard/.env.example
 secrets.properties
 
 # OS

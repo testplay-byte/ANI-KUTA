@@ -6,26 +6,28 @@
 > `memory/changelog.md` = immutable narrative of completed phases. Don't duplicate — link.
 
 ## Current Phase
-**Phase 0 — Environment & Rules Setup** 🚧 (demo build to verify CI)
+**Phase 0 — done.** Phase 1 (architecture) pending — blocked on old project reference.
 
 ## What's Done
-- [x] Restructured into single `ANIKUTA-PROJECT/` folder (AGENT-CONTEXT + android + dashboard slot + workflows).
-- [x] AGENT-CONTEXT now lives INSIDE the repo (versioned on GitHub) per user decision.
-- [x] Scaffolded minimal Android demo: Gradle (Kotlin DSL) + Kotlin 2.0.21 + Compose, app id `com.confused.anikuta`, abiFilters arm64-v8a+armeabi-v7a, minSdk 24 / targetSdk 35.
-- [x] Gradle wrapper (8.11.1) committed; .gitattributes enforces LF on gradlew.
-- [x] CI workflow `build-apk.yml`: wrapper validation, debug build, ABI verification (fails on any forbidden lib/<abi>/), concurrency + timeout.
-- [x] Sub-agent review (Task ID 7): 1 critical + 11 important + 10 minor flaws found, verified, and fixed (icon color API level, mipmap fallback, core-ktx bump, kotlinOptions deprecation, dark mode, gitattributes, concurrency, timeout, Gradle bump, README accuracy).
-- [x] Updated AGENT-CONTEXT docs: master.md (new layout + app ID), decisions.md (D-003..D-010), open-questions.md (answered set).
+- [x] Restructured into `ANIKUTA-PROJECT/` (single root folder, versioned on GitHub).
+- [x] AGENT-CONTEXT lives inside the repo (versioned) per user decision.
+- [x] Android demo scaffolded under `APP/ani-kuta/`: Gradle + Kotlin 2.0.21 + Compose, app id `com.confused.anikuta`, abiFilters arm64-v8a + armeabi-v7a, minSdk 24 / targetSdk 35.
+- [x] CI workflow `build-apk.yml`: wrapper validation, debug build, ABI verification, concurrency + timeout. **First push → CI green** ✅.
+- [x] AGENT-CONTEXT overhauled: `CORE_RULES.md`, `workflow.md`, rewritten `master.md`, `memory/lessons-learned.md`, `knowledge/architecture.md`, `skills/ponytail.md`. Removed `planning/`, `questions/`, `rules/` (consolidated). Sub-agent reviewed.
+- [x] Code folders restructured: `android/` → `APP/ani-kuta/`; `DASHBOARD/webpage/` created (Next.js, planned).
 
 ## What's Next
-1. Commit + push to GitHub → verify CI builds the demo APK green.
-2. If green: scaffold the Next.js dashboard + Pages deploy workflow.
-3. Get user to share the old project (Q1/Q2) → begin Phase 1 (architecture planning).
+1. Push this restructure → verify CI still green with new paths.
+2. Get user to share the old project (Q1/Q2) → begin Phase 1 (architecture planning).
+3. Scaffold the Next.js dashboard + Pages deploy workflow (after Q10 scope confirmed).
 
-## Blockers
-- Need old project reference (Q1/Q2) before Phase 1 architecture planning.
+## Blockers / Open Questions
+⚠️ Q1/Q2/Q10 open — full detail in `memory/decisions.md` → "Pending Decisions".
+- Q1: What does the app do? (need old project to analyze)
+- Q2: Where is the old project? (repo link/path)
+- Q10: Dashboard scope — confirm starter scope (module map + progress + decisions + flow diagram, read-only).
 
 ## Last Updated
 - Session: web-3a43f99b-57b3-4d89-a26a-63737d005c8f
 - By: main agent
-- Note: Restructured to ANIKUTA-PROJECT; Android demo scaffolded + sub-agent reviewed; about to push and verify CI.
+- Note: AGENT-CONTEXT overhauled per user's core-rules spec; about to push + verify CI.
