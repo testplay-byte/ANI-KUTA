@@ -3,6 +3,8 @@ package com.confused.anikuta.feature.animelibrary
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,34 +20,35 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.SearchOff
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,27 +74,28 @@ import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SearchField
 import com.confused.anikuta.core.designsystem.theme.Motion
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * Library screen — the user's personal anime collection.
  *
  * Faithfully recreates the old project's Library UI:
- * 1. CollapsingHeader (pinned) — title "Library" + search button + options button
- * 2. Search bar (animated — appears when search pill is tapped)
- * 3. LazyVerticalGrid or LazyColumn — the library items
- * 4. ScrollBlurOverlay — gradient scrim at the header's bottom edge
- *
- * Features:
- * - Grid/list view toggle (compact grid + list)
- * - Sort by title, score, date added
- * - Search within library (animated search bar)
- * - Empty state with icon + title + description
- * - Smooth animations (card scale on press, header collapse, scroll blur)
+ * 1. CollapsingHeader (pinned) — title "Library" + HeaderActionGroup
+ *    (search + settings buttons in ONE combined pill container, surfaceVariant bg,
+ *    rounded 50, 34dp icons). Per user: "align the search button with the settings
+ *    button together so that both of those are inside our dedicated background,
+ *    like a container."
+ * 2. Animated search bar (fade in/out when search toggled) using SearchField.
+ * 3. 3-column compact grid with cover + gradient title overlay.
+ *    OR list view (horizontal rows with thumbnail + title + year + score).
+ * 4. ScrollBlurOverlay at the header's bottom edge.
+ * 5. Empty state with proper icon.
+ * 6. Bottom-up sheet for library settings (Sort options + Display mode toggle).
  *
  * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing, scale on press).
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
- * DESIGN-LANGUAGE.md: lime accent, warm darks, translucent cards, scroll blur.
+ * All text uses fontFamily = RobotoFamily; titles/labels use FontWeight.ExtraBold.
  */
 @Composable
 fun LibraryScreen(
@@ -106,6 +111,7 @@ fun LibraryScreen(
     val listState = rememberLazyListState()
 
     var showSearchBar by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
 
     val collapsed = if (isGridMode) {
         gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 20
@@ -120,41 +126,18 @@ fun LibraryScreen(
                 title = "Library",
                 collapsed = collapsed,
                 actions = {
-                    // Search button
-                    HeaderActionButton(
-                        icon = Icons.Filled.Search,
-                        contentDescription = "Search",
-                        onClick = { showSearchBar = !showSearchBar },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    // Options/sort button
-                    HeaderActionButton(
-                        icon = Icons.Filled.Tune,
-                        contentDescription = "Sort: ${sortType.displayName}",
-                        onClick = {
-                            val next = when (sortType) {
-                                LibrarySortType.TITLE -> LibrarySortType.SCORE
-                                LibrarySortType.SCORE -> LibrarySortType.DATE_ADDED
-                                LibrarySortType.DATE_ADDED -> LibrarySortType.TITLE
-                            }
-                            viewModel.setSortType(next)
-                        },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    // View toggle
-                    HeaderActionButton(
-                        icon = if (isGridMode) Icons.Filled.List else Icons.Filled.GridView,
-                        contentDescription = if (isGridMode) "List view" else "Grid view",
-                        onClick = { viewModel.toggleViewMode() },
+                    HeaderActionGroup(
+                        onSearch = { showSearchBar = !showSearchBar },
+                        onSettings = { showSettingsSheet = true },
                     )
                 },
             )
 
-            // ── Search bar (animated) ──
+            // ── Search bar (animated — fades in/out) ──
             AnimatedVisibility(
                 visible = showSearchBar,
-                enter = fadeIn(tween(Motion.DurationShort)),
-                exit = fadeOut(tween(Motion.DurationShort)),
+                enter = fadeIn(tween(Motion.DurationStandard, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(Motion.DurationShort, easing = FastOutSlowInEasing)),
             ) {
                 Row(
                     modifier = Modifier
@@ -187,7 +170,9 @@ fun LibraryScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     }
 
                     is LibraryState.Empty -> EmptyState(
@@ -202,8 +187,10 @@ fun LibraryScreen(
                     ) {
                         Text(
                             s.message,
+                            fontFamily = RobotoFamily,
                             color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
 
@@ -222,7 +209,7 @@ fun LibraryScreen(
                     }
                 }
 
-                // ── Scroll blur overlay ──
+                // ── Scroll blur overlay (fades in when content scrolls under header) ──
                 ScrollBlurOverlay(
                     scrollOffset = {
                         if (isGridMode) {
@@ -238,16 +225,70 @@ fun LibraryScreen(
                 )
             }
         }
+
+        // ── Library settings bottom sheet ──
+        if (showSettingsSheet) {
+            LibrarySettingsSheet(
+                sortType = sortType,
+                isGridMode = isGridMode,
+                onSortChange = { viewModel.setSortType(it) },
+                onDisplayModeChange = { viewModel.setDisplayMode(it) },
+                onDismiss = { showSettingsSheet = false },
+            )
+        }
     }
 }
 
-// ── Header action button (pill icon button) ──
+// ── HeaderActionGroup: combined search + settings pill container ──
+
+/**
+ * A shared pill-shaped container holding the search + settings buttons together.
+ *
+ * Per user: "align the search button with the settings button together so that
+ * both of those are inside our dedicated background, like a container, so that
+ * they both look joined together."
+ *
+ * Mirrors the old project's HeaderActionGroup exactly:
+ * - Surface: surfaceVariant, RoundedCornerShape(50)
+ * - Inner Row: 4dp padding, 2dp spacing
+ * - Each button: 34dp circle, transparent bg, 18dp icon
+ */
+@Composable
+private fun HeaderActionGroup(
+    onSearch: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(50),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            HeaderActionButton(
+                icon = Icons.Filled.Search,
+                contentDescription = "Search library",
+                onClick = onSearch,
+                inGroup = true,
+            )
+            HeaderActionButton(
+                icon = Icons.Filled.Tune,
+                contentDescription = "Library settings",
+                onClick = onSettings,
+                inGroup = true,
+            )
+        }
+    }
+}
 
 @Composable
 private fun HeaderActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
+    inGroup: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -257,11 +298,129 @@ private fun HeaderActionButton(
         label = "headerBtnScale",
     )
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = CircleShape,
+    Box(
         modifier = Modifier
-            .size(36.dp)
+            .size(34.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .background(if (inGroup) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+// ── Library settings bottom sheet ──
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibrarySettingsSheet(
+    sortType: LibrarySortType,
+    isGridMode: Boolean,
+    onSortChange: (LibrarySortType) -> Unit,
+    onDisplayModeChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .navigationBarsPadding(),
+        ) {
+            // Title
+            Text(
+                text = "Library Options",
+                fontFamily = RobotoFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(16.dp))
+
+            // ── Sort section ──
+            Text(
+                text = "SORT",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            )
+            LibrarySortType.entries.forEach { sort ->
+                OptionSheetRow(
+                    label = sort.displayName,
+                    isSelected = sort == sortType,
+                    onClick = { onSortChange(sort) },
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // ── Display mode section ──
+            Text(
+                text = "DISPLAY MODE",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            )
+            OptionSheetRow(
+                label = "Compact Grid",
+                isSelected = isGridMode,
+                onClick = { onDisplayModeChange(true) },
+            )
+            Spacer(Modifier.height(4.dp))
+            OptionSheetRow(
+                label = "List",
+                isSelected = !isGridMode,
+                onClick = { onDisplayModeChange(false) },
+            )
+
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun OptionSheetRow(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.98f else 1f,
+        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
+        label = "optionRowScale",
+    )
+
+    Surface(
+        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                else Color.Transparent,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clickable(
                 interactionSource = interactionSource,
@@ -269,13 +428,36 @@ private fun HeaderActionButton(
                 onClick = onClick,
             ),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
             )
+            if (isSelected) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(50),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .padding(4.dp)
+                            .size(14.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -285,7 +467,7 @@ private fun HeaderActionButton(
 @Composable
 private fun LibraryGrid(
     anime: List<AniListAnime>,
-    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    gridState: LazyGridState,
     onNavigateToDetails: (Int) -> Unit,
 ) {
     LazyVerticalGrid(
@@ -337,7 +519,7 @@ private fun LibraryGridCard(anime: AniListAnime, onClick: (Int) -> Unit) {
                 .clip(RoundedCornerShape(12.dp)),
         )
 
-        // Title overlay at bottom with gradient (like old project compact grid)
+        // Title overlay at bottom with gradient (compact grid style)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -360,8 +542,9 @@ private fun LibraryGridCard(anime: AniListAnime, onClick: (Int) -> Unit) {
             )
             Text(
                 text = anime.displayName,
+                fontFamily = RobotoFamily,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -376,7 +559,7 @@ private fun LibraryGridCard(anime: AniListAnime, onClick: (Int) -> Unit) {
 @Composable
 private fun LibraryList(
     anime: List<AniListAnime>,
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    listState: LazyListState,
     onNavigateToDetails: (Int) -> Unit,
 ) {
     LazyColumn(
@@ -434,8 +617,9 @@ private fun LibraryListRow(anime: AniListAnime, onClick: (Int) -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 anime.displayName,
+                fontFamily = RobotoFamily,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -444,16 +628,19 @@ private fun LibraryListRow(anime: AniListAnime, onClick: (Int) -> Unit) {
             anime.seasonYear?.let { year ->
                 Text(
                     "$year",
+                    fontFamily = RobotoFamily,
                     fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             anime.averageScore?.let { score ->
                 Text(
                     "★ $score",
+                    fontFamily = RobotoFamily,
                     fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }

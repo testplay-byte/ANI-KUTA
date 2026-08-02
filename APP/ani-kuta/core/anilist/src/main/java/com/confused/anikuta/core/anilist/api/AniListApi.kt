@@ -2,6 +2,7 @@ package com.confused.anikuta.core.anilist.api
 
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.anilist.model.DetailsResponse
+import com.confused.anikuta.core.anilist.model.SearchResponse
 import com.confused.anikuta.core.anilist.model.TrendingResponse
 import com.confused.anikuta.core.common.DispatcherProvider
 import com.confused.anikuta.core.common.Logger
@@ -74,11 +75,69 @@ class AniListApi(
             json.decodeFromString<DetailsResponse>(response).data.Media
         }
 
+    /**
+     * Search anime on AniList by query string.
+     *
+     * @param query Search term (matched against romaji/english/native titles).
+     * @param page 1-indexed page number for pagination.
+     * @param perPage Results per page (default 20).
+     * @param sort AniList sort enum string (e.g. "POPULARITY_DESC", "SCORE_DESC",
+     *   "START_DATE_DESC", "TITLE_ROMAJI", "TRENDING_DESC", "FAVOURITES_DESC").
+     */
+    suspend fun searchAnime(
+        query: String,
+        page: Int = 1,
+        perPage: Int = 20,
+        sort: String = "POPULARITY_DESC",
+    ): List<AniListAnime> = withContext(dispatchers.io) {
+        // GraphQL variables — passed via the variables field so the user query
+        // is properly escaped (no string interpolation injection risk).
+        val gqlQuery = """
+            query (${'$'}search: String, ${'$'}page: Int, ${'$'}perPage: Int, ${'$'}sort: [MediaSort]) {
+                Page(page: ${'$'}page, perPage: ${'$'}perPage) {
+                    media(type: ANIME, search: ${'$'}search, sort: ${'$'}sort) {
+                        id
+                        title { romaji english }
+                        coverImage { large extraLarge }
+                        averageScore
+                        episodes
+                        seasonYear
+                    }
+                }
+            }
+        """.trimIndent()
+
+        val variables = buildJsonObject {
+            put("search", query)
+            put("page", page)
+            put("perPage", perPage)
+            put("sort", sort)
+        }
+
+        Logger.d("Anikuta:Core:AniList") { "searchAnime(q='$query', page=$page, sort=$sort)" }
+
+        val response = executeQueryWithVariables(gqlQuery, variables)
+        json.decodeFromString<SearchResponse>(response).data.Page.media
+    }
+
     private fun executeQuery(query: String): String {
         val requestBody = buildJsonObject {
             put("query", query)
         }.toString().toRequestBody(jsonMediaType)
 
+        return executeRequest(requestBody)
+    }
+
+    private fun executeQueryWithVariables(query: String, variables: kotlinx.serialization.json.JsonObject): String {
+        val requestBody = buildJsonObject {
+            put("query", query)
+            put("variables", variables)
+        }.toString().toRequestBody(jsonMediaType)
+
+        return executeRequest(requestBody)
+    }
+
+    private fun executeRequest(requestBody: okhttp3.RequestBody): String {
         val request = Request.Builder()
             .url(endpoint)
             .post(requestBody)

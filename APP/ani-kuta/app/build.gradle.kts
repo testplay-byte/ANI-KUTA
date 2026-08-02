@@ -42,6 +42,8 @@ dependencies {
     implementation(project(":feature:anime-details:impl"))
     implementation(project(":feature:anime-library:api"))
     implementation(project(":feature:anime-library:impl"))
+    implementation(project(":feature:anime-search:api"))
+    implementation(project(":feature:anime-search:impl"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
@@ -55,6 +57,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.foundation)
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation(libs.androidx.ui.tooling)
 
     // Navigation 3

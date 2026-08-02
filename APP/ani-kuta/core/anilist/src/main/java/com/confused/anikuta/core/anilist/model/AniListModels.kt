@@ -47,3 +47,7 @@ data class DetailsResponse(val data: DetailsData)
 
 @Serializable
 data class DetailsData(val Media: AniListAnime)
+
+// Search response (reuses TrendingData/Page shape — AniList returns the same Media list)
+@Serializable
+data class SearchResponse(val data: TrendingData)

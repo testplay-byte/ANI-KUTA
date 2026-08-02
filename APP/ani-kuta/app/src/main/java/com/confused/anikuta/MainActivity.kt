@@ -4,11 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -22,7 +17,6 @@ import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
-import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
 import com.confused.anikuta.feature.animebrowse.BrowseScreen
@@ -30,6 +24,9 @@ import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
 import com.confused.anikuta.feature.animelibrary.LibraryScreen
+import com.confused.anikuta.feature.animesearch.AnimeSearchKey
+import com.confused.anikuta.feature.animesearch.SearchScreen
+import kotlinx.serialization.Serializable
 
 class MainActivity : ComponentActivity() {
 
@@ -43,6 +40,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/**
+ * NavKey for the More screen. Lives in `:app` (not a feature module) because
+ * the More screen composes entries from multiple feature modules, so it can't
+ * live in `:feature:more` (would violate "feature modules never import from
+ * other feature modules").
+ */
+@Serializable
+object MoreKey : NavKey
 
 /**
  * ANI-KUTA navigation root.
@@ -90,6 +96,12 @@ fun AppRoot() {
                     backstack.add(AnimeDetailsKey(animeId))
                 }
             )
+            is AnimeSearchKey -> SearchScreen(
+                onNavigateToDetails = { animeId ->
+                    backstack.add(AnimeDetailsKey(animeId))
+                }
+            )
+            is MoreKey -> MoreScreen()
             else -> {}
         }
 
@@ -103,8 +115,8 @@ fun AppRoot() {
                 when (route) {
                     "browse" -> backstack.add(AnimeBrowseKey)
                     "library" -> backstack.add(AnimeLibraryKeyImpl)
-                    "search" -> backstack.add(AnimeBrowseKey) // Placeholder — Phase 4c
-                    "more" -> backstack.add(AnimeBrowseKey) // Placeholder — Phase 4d
+                    "search" -> backstack.add(AnimeSearchKey)
+                    "more" -> backstack.add(MoreKey)
                 }
             },
             modifier = Modifier.align(Alignment.BottomCenter),

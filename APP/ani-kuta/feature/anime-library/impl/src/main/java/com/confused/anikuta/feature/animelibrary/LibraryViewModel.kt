@@ -142,6 +142,11 @@ class LibraryViewModel(
         _isGridMode.value = !_isGridMode.value
     }
 
+    /** Set the display mode directly (used by the Library settings sheet). */
+    fun setDisplayMode(isGrid: Boolean) {
+        _isGridMode.value = isGrid
+    }
+
     private fun applyFilters() {
         val current = _state.value
         if (current !is LibraryState.Success) return
