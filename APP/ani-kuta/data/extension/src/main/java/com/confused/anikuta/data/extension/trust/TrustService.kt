@@ -62,8 +62,9 @@ class TrustService(
 
     /**
      * Get all trusted fingerprints (for display in settings).
+     * Returns a snapshot copy — mutations don't affect the internal set.
      */
-    fun getTrustedFingerprints(): Set<String> = trustedFingerprints.toSet()
+    fun getAllTrusted(): Set<String> = trustedFingerprints.toSet()
 
     private fun persist() {
         store.putString(KEY_TRUSTED_FINGERPRINTS, trustedFingerprints.joinToString(SEPARATOR))
