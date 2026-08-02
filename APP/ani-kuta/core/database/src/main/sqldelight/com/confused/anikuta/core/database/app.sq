@@ -1,0 +1,14 @@
+-- ANIKUTA database schema
+-- Phase 2: minimal schema (ready for Phase 3 identity system).
+-- This table is a simple key-value store for app metadata (schema version, cached flags, etc.).
+
+CREATE TABLE IF NOT EXISTS app_metadata (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+setMetadata:
+INSERT OR REPLACE INTO app_metadata(key, value) VALUES (?, ?);
+
+getMetadata:
+SELECT value FROM app_metadata WHERE key = ?;

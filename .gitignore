@@ -1,5 +1,5 @@
 # Android / Gradle (scoped under APP/ani-kuta/)
-APP/ani-kuta/.gradle/
+APP/ani-kuta/**/.gradle/
 APP/ani-kuta/**/build/
 APP/ani-kuta/local.properties
 APP/ani-kuta/captures/

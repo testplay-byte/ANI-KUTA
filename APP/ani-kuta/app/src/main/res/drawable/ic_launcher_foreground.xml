@@ -3,8 +3,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- play triangle, evokes media/animation -->
     <path
-        android:fillColor="#FFFFFFFF"
+        android:fillColor="#FF14111F"
         android:pathData="M42,34 L74,54 L42,74 Z" />
 </vector>

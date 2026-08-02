@@ -1,67 +1,56 @@
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.compose.compiler)
+    id("anikuta.android.application.compose")
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
     namespace = "com.confused.anikuta"
-    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.confused.anikuta"
-        minSdk = 24
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
-
-        // HARD RULE: only these two ABIs. Verified post-build in CI.
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
-    }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    buildFeatures {
-        compose = true
-    }
-
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-}
-
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 }
 
 dependencies {
+    // Core modules
+    implementation(project(":core:common"))
+    implementation(project(":core:designsystem"))
+    implementation(project(":core:database"))
+    implementation(project(":core:preferences"))
+    implementation(project(":core:navigation-api"))
+    implementation(project(":core:network"))
+    implementation(project(":core:anilist"))
+
+    // Feature modules (impl — the app wires them)
+    implementation(project(":feature:anime-browse:api"))
+    implementation(project(":feature:anime-browse:impl"))
+    implementation(project(":feature:anime-details:api"))
+    implementation(project(":feature:anime-details:impl"))
+
+    // AndroidX
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+
+    // Compose
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
-    implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.compose.foundation)
     debugImplementation(libs.androidx.ui.tooling)
+
+    // Navigation 3
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+
+    // Koin
+    implementation(platform(libs.koin.bom))
+    implementation(libs.koin.core)
+    implementation(libs.koin.android)
+    implementation(libs.koin.compose.viewmodel)
+
+    // Coroutines
+    implementation(libs.kotlinx.coroutines.android)
 }

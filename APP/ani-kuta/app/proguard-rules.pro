@@ -1,3 +1,3 @@
-# Keep Kotlin metadata and Compose runtime
+# Keep Kotlin metadata
 -keep class kotlin.Metadata { *; }
 -dontwarn org.jetbrains.annotations.**

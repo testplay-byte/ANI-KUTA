@@ -1,4 +1,0 @@
-<resources>
-    <!-- Material You override on API 31+ -->
-    <color name="ic_launcher_background">@android:color/system_accent1_500</color>
-</resources>

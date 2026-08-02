@@ -1,3 +1,7 @@
 <resources>
-    <style name="Theme.ANIKUTA" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.ANIKUTA" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#14111F</item>
+        <item name="android:statusBarColor">#14111F</item>
+        <item name="android:navigationBarColor">#14111F</item>
+    </style>
 </resources>
