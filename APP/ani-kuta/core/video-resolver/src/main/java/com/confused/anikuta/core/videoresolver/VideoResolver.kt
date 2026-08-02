@@ -4,6 +4,7 @@ import com.confused.anikuta.core.common.Logger
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.util.awaitSingle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -43,7 +44,8 @@ class VideoResolver {
                 name = "Episode"
             }
 
-            val videos = source.fetchVideoList(episode)
+            // fetchVideoList returns Observable<List<Video>> (RxJava) — use the suspend wrapper
+            val videos = source.fetchVideoList(episode).awaitSingle()
             Logger.d(TAG) { "Fetched ${videos.size} videos" }
 
             if (videos.isEmpty()) {

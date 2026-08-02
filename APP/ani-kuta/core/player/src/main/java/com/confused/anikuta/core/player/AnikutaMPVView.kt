@@ -48,14 +48,15 @@ class AnikutaMPVView(
 
     override fun observeProperties() {
         // Register property observers — MPV will call back when these change
-        MPVLib.observeProperty("time-pos", "Integer")
-        MPVLib.observeProperty("duration", "Integer")
-        MPVLib.observeProperty("pause", "Boolean")
-        MPVLib.observeProperty("paused-for-cache", "Boolean")
-        MPVLib.observeProperty("speed", "Double")
-        MPVLib.observeProperty("sid", "String")
-        MPVLib.observeProperty("aid", "String")
-        MPVLib.observeProperty("track-list/count", "Integer")
+        // Format constants from MPVLib.mpvFormat (Int values)
+        MPVLib.observeProperty("time-pos", MPVLib.mpvFormat.MPV_FORMAT_INT64)
+        MPVLib.observeProperty("duration", MPVLib.mpvFormat.MPV_FORMAT_INT64)
+        MPVLib.observeProperty("pause", MPVLib.mpvFormat.MPV_FORMAT_FLAG)
+        MPVLib.observeProperty("paused-for-cache", MPVLib.mpvFormat.MPV_FORMAT_FLAG)
+        MPVLib.observeProperty("speed", MPVLib.mpvFormat.MPV_FORMAT_DOUBLE)
+        MPVLib.observeProperty("sid", MPVLib.mpvFormat.MPV_FORMAT_STRING)
+        MPVLib.observeProperty("aid", MPVLib.mpvFormat.MPV_FORMAT_STRING)
+        MPVLib.observeProperty("track-list/count", MPVLib.mpvFormat.MPV_FORMAT_INT64)
     }
 
     override fun postInitOptions() {
