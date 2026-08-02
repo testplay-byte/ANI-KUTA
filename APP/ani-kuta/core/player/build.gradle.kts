@@ -44,5 +44,6 @@ dependencies {
     // Coroutines + serialization
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.rxjava)
     implementation(libs.logcat)
 }

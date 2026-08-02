@@ -1,6 +1,7 @@
 package com.confused.anikuta.core.videoresolver
 
 import com.confused.anikuta.core.common.Logger
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import kotlinx.coroutines.flow.Flow
@@ -10,11 +11,8 @@ import kotlinx.coroutines.flow.flow
  * Resolves playable video URLs from extension sources.
  *
  * Calls the extension source's `fetchVideoList` → extracts playable URLs.
- * Some sources use anti-scraping (PNG headers, obfuscated HLS) — the
- * resolver handles these transparently.
  *
  * CORE_RULES §20: All operations logged with tag "Anikuta:Core:VideoResolver".
- *
  * Architecture plan I10: :feature:anime-watch:impl mediates between
  * :core:video-resolver and :core:player. The two core modules are unaware of each other.
  */
@@ -39,7 +37,13 @@ class VideoResolver {
         emit(ResolverState.Loading())
 
         try {
-            val videos = source.fetchVideoList(episodeUrl)
+            // Create an SEpisode from the URL (the source needs it to fetch videos)
+            val episode = SEpisode.create().apply {
+                url = episodeUrl
+                name = "Episode"
+            }
+
+            val videos = source.fetchVideoList(episode)
             Logger.d(TAG) { "Fetched ${videos.size} videos" }
 
             if (videos.isEmpty()) {
@@ -67,15 +71,12 @@ class VideoResolver {
 
     /**
      * Parse the quality label from a Video.
-     * Priority: video.quality > parsed from URL > "Default".
      */
     private fun parseQuality(video: Video): String {
-        // Video.quality is set by the extension (e.g., "1080p", "720p")
         if (video.quality.isNotBlank()) {
             return video.quality
         }
 
-        // Try to parse from URL (e.g., "1080" in the filename)
         val url = video.url.lowercase()
         val qualityPattern = Regex("(\\d{3,4})p")
         qualityPattern.find(url)?.let { return "${it.groupValues[1]}p" }

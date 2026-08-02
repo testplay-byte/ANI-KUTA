@@ -40,6 +40,31 @@ class AnikutaMPVView(
 
     var isExiting = false
 
+    // ── Abstract method implementations from BaseMPVView ──
+
+    override fun initOptions(vo: String) {
+        // No custom init options needed — configured via PlayerInitializer.writeConfig()
+    }
+
+    override fun observeProperties() {
+        // Register property observers — MPV will call back when these change
+        MPVLib.observeProperty("time-pos", "Integer")
+        MPVLib.observeProperty("duration", "Integer")
+        MPVLib.observeProperty("pause", "Boolean")
+        MPVLib.observeProperty("paused-for-cache", "Boolean")
+        MPVLib.observeProperty("speed", "Double")
+        MPVLib.observeProperty("sid", "String")
+        MPVLib.observeProperty("aid", "String")
+        MPVLib.observeProperty("track-list/count", "Integer")
+    }
+
+    override fun postInitOptions() {
+        // Post-init configuration — applied after MPV is initialized
+        // Subtitle margins (from old project — subtitle rendering fix)
+        MPVLib.setPropertyString("sub-ass-force-margins", "yes")
+        MPVLib.setPropertyString("sub-use-margins", "yes")
+    }
+
     // ── Property helpers ──
 
     private fun getPropertyInt(property: String): Int? =
