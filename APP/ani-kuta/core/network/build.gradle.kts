@@ -7,6 +7,6 @@ android {
 }
 
 dependencies {
-    implementation(libs.okhttp)
+    api(libs.okhttp)  // OkHttpClient is part of this module's public API (return type of create())
     implementation(libs.okhttp.logging.interceptor)
 }
