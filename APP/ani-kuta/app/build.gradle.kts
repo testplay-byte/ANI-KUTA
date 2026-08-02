@@ -24,6 +24,10 @@ dependencies {
     implementation(project(":core:activity-tracker"))
     implementation(project(":core:provider-api"))
     implementation(project(":core:source-api"))
+    implementation(project(":core:player-mpv-lib"))
+    implementation(project(":core:player"))
+    implementation(project(":core:video-resolver"))
+    implementation(project(":core:download"))
 
     // Data modules
     implementation(project(":data:extension"))

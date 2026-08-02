@@ -33,6 +33,10 @@ include(":core:watch-progress")
 include(":core:activity-tracker")
 include(":core:provider-api")
 include(":core:source-api")
+include(":core:player-mpv-lib")
+include(":core:player")
+include(":core:video-resolver")
+include(":core:download")
 
 // ── :data ──
 include(":data:extension")

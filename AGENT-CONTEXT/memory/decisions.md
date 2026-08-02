@@ -298,6 +298,25 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Confirmed by user (CORE_RULES.md §22 + §23).
 - **Date:** Phase 3 (refined).
 
+### D-049 — Video caching for instant resume
+- **What:** Cache ~1 minute before + 1 minute after the user's last watch position in local storage. When the user resumes a previously-watched video, playback starts instantly from the cached segment (no buffering). The actual video stream loads in the background while the cached segment plays.
+- **Why:** User requirement — buttery smooth experience, no buffering on resume.
+- **Status:** ✅ Confirmed by user. Planned for Phase 3c (document now, implement in player module).
+- **Date:** Phase 3c.
+- **Implementation:** MPV supports cache via `stream-cache-dir` + `cache-secs` properties. Configure cache to cover the resume position. The cache persists on disk between sessions.
+
+### D-050 — Fix player companion hack
+- **What:** The old project's `AnikutaMPVView` uses a companion `lateinit var playerPreferences` because XML-inflated views can't use Koin constructor injection. We will fix this by using a different approach: either Koin's `KoinComponent` interface, or passing preferences via a factory method, or using Compose's `AndroidView` with a programmatic view creation (no XML inflation).
+- **Why:** User requirement — "properly handle the controls and all other issues too, like using Companion mode."
+- **Status:** ✅ Confirmed by user. Will be fixed during player port.
+- **Date:** Phase 3c.
+
+### D-051 — FFmpeg dependency
+- **What:** Use `com.github.jmir1:ffmpeg-kit:1.18` (the old project's proven dependency). Research found no better alternative for Android — FFmpegKit is the standard, the jmir1 fork maintains it after the original was deprecated. libmpv.so dynamically links against FFmpeg, so it's required.
+- **Why:** User asked to research alternatives. No better option found. APK size increase (~30-50MB) is acceptable for a media app.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 3c.
+
 ### D-037 — Highly customizable UI (KEY requirement)
 - **What:** The UI must be highly customizable. Theme engine, layout options, behavior toggles. Per-content-type customization. Future-proof.
 - **Why:** User requirement — stated as key multiple times.

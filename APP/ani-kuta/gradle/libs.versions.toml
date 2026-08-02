@@ -42,6 +42,14 @@ injekt = "91edab2317"
 androidxPreference = "1.2.1"
 kotlinxSerializationJsonOkio = "1.7.3"
 
+# Player (MPV + FFmpeg)
+mpvLib = "1.18.n"
+ffmpegKit = "1.18"
+smartException = "0.2.1"
+seeker = "1.2.2"
+mediaSession = "1.4.1"
+trueTypeParser = "2.1.4"
+
 [libraries]
 # AndroidX
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -97,6 +105,14 @@ nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanoht
 injekt = { group = "com.github.mihonapp", name = "injekt", version.ref = "injekt" }
 androidx-preference-ktx = { group = "androidx.preference", name = "preference-ktx", version.ref = "androidxPreference" }
 kotlinx-serialization-json-okio = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json-okio", version.ref = "kotlinxSerializationJsonOkio" }
+
+# Player (MPV + FFmpeg)
+mpv-lib = { group = "com.github.aniyomiorg", name = "aniyomi-mpv-lib", version.ref = "mpvLib" }
+ffmpeg-kit = { group = "com.github.jmir1", name = "ffmpeg-kit", version.ref = "ffmpegKit" }
+smart-exception = { group = "com.arthenica", name = "smart-exception-java", version.ref = "smartException" }
+seeker = { group = "io.github.2307vivek", name = "seeker", version.ref = "seeker" }
+androidx-media = { group = "androidx.media", name = "media", version.ref = "mediaSession" }
+truetype-parser = { group = "io.github.yubyf", name = "truetypeparser-light", version.ref = "trueTypeParser" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
