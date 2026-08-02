@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (toggled by .dark on <html>) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * MEMORY OS Design System — CSS Variables.
+ * See DESIGN.md §9 for the canonical variable list.
+ * Variables swap on html.dark for theme switching.
+ */
+:root {
+  --c-primary: #6366f1;
+  --c-success: #14b8a6;
+  --c-warning: #f59e0b;
+  --c-danger: #ff6b6b;
+  --c-secondary: #8b5cf6;
+
+  --c-text-primary: #1a1a1a;
+  --c-text-secondary: #8a8784;
+  --c-border: #e8e2da;
+  --c-bg-page: #ede9e3;
+  --c-bg-card: #f9f5f0;
+  --c-bg-card-alt: #fffdfa;
+  --c-bg-chip: #f5f1eb;
+
+  --shadow-card: 0 2px 20px rgba(0, 0, 0, 0.04);
+  --shadow-card-subtle: 0 1px 6px rgba(0, 0, 0, 0.04);
+}
+
+html.dark {
+  --c-text-primary: #f5f1eb;
+  --c-text-secondary: #a8a39c;
+  --c-border: #3a3733;
+  --c-bg-page: #1a1917;
+  --c-bg-card: #252320;
+  --c-bg-card-alt: #2a2825;
+  --c-bg-chip: #302d29;
+
+  --shadow-card: 0 2px 20px rgba(0, 0, 0, 0.35);
+  --shadow-card-subtle: 0 1px 6px rgba(0, 0, 0, 0.3);
+}
+
+/*
+ * Register tokens as Tailwind utilities (inline → swaps with CSS variables).
+ * Now usable as: bg-bg-page, text-text-primary, border-border, bg-primary, etc.
+ */
+@theme inline {
+  --color-primary: var(--c-primary);
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
+  --color-secondary: var(--c-secondary);
+
+  --color-text-primary: var(--c-text-primary);
+  --color-text-secondary: var(--c-text-secondary);
+  --color-border: var(--c-border);
+  --color-bg-page: var(--c-bg-page);
+  --color-bg-card: var(--c-bg-card);
+  --color-bg-card-alt: var(--c-bg-card-alt);
+  --color-bg-chip: var(--c-bg-chip);
+
+  --radius-sm: 12px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono: var(--font-jetbrains-mono), monospace;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--c-bg-page);
+    color: var(--c-text-primary);
+    font-family: var(--font-inter), -apple-system, BlinkMacSystemFont,
+      "Segoe UI", sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    transition: background-color 0.2s ease-out, color 0.2s ease-out;
+  }
+
+  ::selection {
+    background-color: rgba(99, 102, 241, 0.2);
+  }
+
+  /* Subtle scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--c-border);
+    border-radius: 9999px;
+    border: 2px solid var(--c-bg-page);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--c-text-secondary);
+  }
+}
+
+@layer utilities {
+  /* Typographic helpers (DESIGN.md §3.4) */
+  .tracking-extra-tight {
+    letter-spacing: -0.02em;
+  }
+  .tracking-tight {
+    letter-spacing: -0.01em;
+  }
+  .tracking-wide {
+    letter-spacing: 0.025em;
+  }
+
+  .font-mono {
+    font-family: var(--font-jetbrains-mono), monospace;
+  }
+
+  /* Fade-in animation (DESIGN.md §7) */
+  .animate-fade-in {
+    animation: fade-in 0.35s ease-out;
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Card shadow utility (DESIGN.md §10) */
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  .shadow-card-subtle {
+    box-shadow: var(--shadow-card-subtle);
+  }
+}

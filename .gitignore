@@ -13,6 +13,16 @@ DASHBOARD/webpage/node_modules/
 DASHBOARD/webpage/.next/
 DASHBOARD/webpage/out/
 
+# Old project reference (build artifacts only — source IS committed for reference)
+REFERENCES/old-kuta/**/build/
+REFERENCES/old-kuta/**/.gradle/
+REFERENCES/old-kuta/**/local.properties
+REFERENCES/old-kuta/**/.cxx/
+REFERENCES/old-kuta/**/.externalNativeBuild/
+REFERENCES/old-kuta/**/.idea/
+REFERENCES/old-kuta/**/*.iml
+REFERENCES/old-kuta/**/.git/
+
 # Keystores (NEVER commit)
 *.keystore
 *.jks

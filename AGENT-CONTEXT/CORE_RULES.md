@@ -191,3 +191,28 @@ ANIKUTA-PROJECT/
 - Includes a **dark mode toggle** at the top of every page.
 - To modify the design language: edit `DESIGN.md`, get user confirmation for non-trivial changes, keep it flexible for future improvement.
 - See `knowledge/dashboard.md` for the full dashboard approach (purpose, content, deployment, update process).
+
+---
+
+## 17. Naming Consistency
+
+- Keep naming schemes **consistent** across the project so searching is fast and reliable.
+- **Files**: `kebab-case` for markdown/data files (`lessons-learned.md`, `open-questions.md`). `PascalCase` for Kotlin/TS classes. `camelCase` for functions/variables.
+- **Folders**: `kebab-case` (`old-kuta`, `ani-kuta`). Uppercase for top-level project zones (`APP/`, `DASHBOARD/`, `REFERENCES/`, `AGENT-CONTEXT/`).
+- **Modules**: `:lower:case:colon` in Gradle (`:core:ui`). `com.confused.anikuta.<module>` for packages.
+- **Decisions**: `D-NNN` (zero-padded, sequential). **Questions**: `Q-NNN`. **Tasks**: `Task NN`.
+- **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`).
+- If you need to rename something: update **all** references. Grep before and after.
+- When creating a new file/folder/module: check existing naming patterns first. Match them.
+
+---
+
+## 18. Take As Much Time As Needed
+
+- **Quality over speed.** Take as much time as a task needs to be done properly.
+- Do not rush through steps to "finish faster." A rushed job creates rework.
+- If a task is taking longer than expected: that's OK. Communicate progress to the user.
+- **Do not skip steps** in the workflow (Understand → Verify → Implement → Verify → Move On) to save time.
+- Sub-agent reviews, verification, documentation — all take time. They are not optional.
+- "Done fast but wrong" is worse than "done slow but right."
+- The only deadline is: **push to GitHub at session end** (§15). Everything else is quality-bound.
