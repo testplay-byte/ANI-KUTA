@@ -3,6 +3,8 @@ package com.confused.anikuta.feature.animelibrary
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -23,58 +25,72 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.EmptyState
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.component.SearchField
 import com.confused.anikuta.core.designsystem.theme.Motion
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * Library screen — the user's personal anime collection.
  *
+ * Faithfully recreates the old project's Library UI:
+ * 1. CollapsingHeader (pinned) — title "Library" + search button + options button
+ * 2. Search bar (animated — appears when search pill is tapped)
+ * 3. LazyVerticalGrid or LazyColumn — the library items
+ * 4. ScrollBlurOverlay — gradient scrim at the header's bottom edge
+ *
  * Features:
- * - Grid/list view toggle
+ * - Grid/list view toggle (compact grid + list)
  * - Sort by title, score, date added
- * - Search within library
- * - Empty state with call-to-action
- * - Smooth animations (§22)
+ * - Search within library (animated search bar)
+ * - Empty state with icon + title + description
+ * - Smooth animations (card scale on press, header collapse, scroll blur)
  *
- * CORE_RULES §22: smooth animations — card scale on press, no ripple, fade-in content.
- * CORE_RULES §23: reactive state — UI updates when library changes.
- * DESIGN-LANGUAGE.md: lime accent, warm darks, 16dp rounded corners, translucent surfaces.
- *
- * Customizable: grid columns, view mode, sort type are all user-configurable (D-037).
+ * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing, scale on press).
+ * CORE_RULES §23: reactive state (StateFlow from ViewModel).
+ * DESIGN-LANGUAGE.md: lime accent, warm darks, translucent cards, scroll blur.
  */
 @Composable
 fun LibraryScreen(
@@ -86,176 +102,179 @@ fun LibraryScreen(
     val sortType by viewModel.sortType.collectAsState()
     val isGridMode by viewModel.isGridMode.collectAsState()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-    ) {
+    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
+
+    var showSearchBar by remember { mutableStateOf(false) }
+
+    val collapsed = if (isGridMode) {
+        gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 20
+    } else {
+        listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ── Header: search + sort + view toggle ──
-            LibraryHeader(
-                searchQuery = searchQuery,
-                onSearchChange = viewModel::setSearchQuery,
-                sortType = sortType,
-                onSortChange = viewModel::setSortType,
-                isGridMode = isGridMode,
-                onToggleView = viewModel::toggleViewMode,
+            // ── Collapsing header (pinned) ──
+            CollapsingHeader(
+                title = "Library",
+                collapsed = collapsed,
+                actions = {
+                    // Search button
+                    HeaderActionButton(
+                        icon = Icons.Filled.Search,
+                        contentDescription = "Search",
+                        onClick = { showSearchBar = !showSearchBar },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    // Options/sort button
+                    HeaderActionButton(
+                        icon = Icons.Filled.Tune,
+                        contentDescription = "Sort: ${sortType.displayName}",
+                        onClick = {
+                            val next = when (sortType) {
+                                LibrarySortType.TITLE -> LibrarySortType.SCORE
+                                LibrarySortType.SCORE -> LibrarySortType.DATE_ADDED
+                                LibrarySortType.DATE_ADDED -> LibrarySortType.TITLE
+                            }
+                            viewModel.setSortType(next)
+                        },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    // View toggle
+                    HeaderActionButton(
+                        icon = if (isGridMode) Icons.Filled.List else Icons.Filled.GridView,
+                        contentDescription = if (isGridMode) "List view" else "Grid view",
+                        onClick = { viewModel.toggleViewMode() },
+                    )
+                },
             )
 
-            // ── Content ──
-            when (val s = state) {
-                is LibraryState.Loading -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+            // ── Search bar (animated) ──
+            AnimatedVisibility(
+                visible = showSearchBar,
+                enter = fadeIn(tween(Motion.DurationShort)),
+                exit = fadeOut(tween(Motion.DurationShort)),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
-
-                is LibraryState.Empty -> EmptyLibraryState()
-
-                is LibraryState.Error -> Box(
-                    modifier = Modifier.fillMaxSize().padding(32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        s.message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
+                    SearchField(
+                        query = searchQuery,
+                        onQueryChange = viewModel::setSearchQuery,
+                        placeholder = "Search library",
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    HeaderActionButton(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Close search",
+                        onClick = {
+                            showSearchBar = false
+                            viewModel.setSearchQuery("")
+                        },
                     )
                 }
+            }
 
-                is LibraryState.Success -> {
-                    if (s.anime.isEmpty()) {
-                        EmptyLibraryState()
-                    } else if (isGridMode) {
-                        LibraryGrid(s.anime, onNavigateToDetails)
-                    } else {
-                        LibraryList(s.anime, onNavigateToDetails)
+            // ── Content ──
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (val s = state) {
+                    is LibraryState.Loading -> Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    is LibraryState.Empty -> EmptyState(
+                        title = "Your library is empty",
+                        description = "Browse anime and add them to your library.",
+                        icon = Icons.AutoMirrored.Filled.MenuBook,
+                    )
+
+                    is LibraryState.Error -> Box(
+                        modifier = Modifier.fillMaxSize().padding(32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            s.message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+
+                    is LibraryState.Success -> {
+                        if (s.anime.isEmpty()) {
+                            EmptyState(
+                                title = "No anime found",
+                                description = "Try a different search query.",
+                                icon = Icons.Filled.SearchOff,
+                            )
+                        } else if (isGridMode) {
+                            LibraryGrid(s.anime, gridState, onNavigateToDetails)
+                        } else {
+                            LibraryList(s.anime, listState, onNavigateToDetails)
+                        }
                     }
                 }
+
+                // ── Scroll blur overlay ──
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (isGridMode) {
+                            if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                            else gridState.firstVisibleItemScrollOffset.toFloat()
+                        } else {
+                            if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                            else listState.firstVisibleItemScrollOffset.toFloat()
+                        }
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
     }
 }
 
-// ── Header ──
+// ── Header action button (pill icon button) ──
 
 @Composable
-private fun LibraryHeader(
-    searchQuery: String,
-    onSearchChange: (String) -> Unit,
-    sortType: LibrarySortType,
-    onSortChange: (LibrarySortType) -> Unit,
-    isGridMode: Boolean,
-    onToggleView: () -> Unit,
+private fun HeaderActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
 ) {
-    Row(
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.9f else 1f,
+        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
+        label = "headerBtnScale",
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = CircleShape,
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // Search field
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchChange,
-            placeholder = {
-                Text(
-                    "Search library...",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            },
-            leadingIcon = {
-                Icon(
-                    Icons.Filled.Search,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Clear search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { onSearchChange("") },
-                    )
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = MaterialTheme.colorScheme.onBackground,
-                unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            .size(36.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
             ),
-            modifier = Modifier.weight(1f),
-        )
-
-        // Sort button
-        val interactionSource = remember { MutableInteractionSource() }
-        val isPressed by interactionSource.collectIsPressedAsState()
-        val scale by animateFloatAsState(
-            targetValue = if (isPressed) 0.9f else 1f,
-            animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
-            label = "sortScale",
-        )
-
-        Box(
-            modifier = Modifier
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    onClick = {
-                        // Cycle through sort types
-                        val next = when (sortType) {
-                            LibrarySortType.TITLE -> LibrarySortType.SCORE
-                            LibrarySortType.SCORE -> LibrarySortType.DATE_ADDED
-                            LibrarySortType.DATE_ADDED -> LibrarySortType.TITLE
-                        }
-                        onSortChange(next)
-                    },
-                )
-                .padding(10.dp),
-        ) {
+    ) {
+        Box(contentAlignment = Alignment.Center) {
             Icon(
-                Icons.Filled.Sort,
-                contentDescription = "Sort: ${sortType.displayName}",
+                imageVector = icon,
+                contentDescription = contentDescription,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-
-        // View toggle button
-        val viewInteraction = remember { MutableInteractionSource() }
-        val viewPressed by viewInteraction.collectIsPressedAsState()
-        val viewScale by animateFloatAsState(
-            targetValue = if (viewPressed) 0.9f else 1f,
-            animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
-            label = "viewScale",
-        )
-
-        Box(
-            modifier = Modifier
-                .graphicsLayer { scaleX = viewScale; scaleY = viewScale }
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(
-                    interactionSource = viewInteraction,
-                    indication = null,
-                    onClick = onToggleView,
-                )
-                .padding(10.dp),
-        ) {
-            Icon(
-                if (isGridMode) Icons.Filled.List else Icons.Filled.GridView,
-                contentDescription = if (isGridMode) "Switch to list" else "Switch to grid",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -266,27 +285,29 @@ private fun LibraryHeader(
 @Composable
 private fun LibraryGrid(
     anime: List<AniListAnime>,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onNavigateToDetails: (Int) -> Unit,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+        state = gridState,
+        columns = GridCells.Fixed(3),
         contentPadding = PaddingValues(
             start = 12.dp,
             end = 12.dp,
             top = 4.dp,
             bottom = 90.dp,
         ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(anime, key = { it.id }) { item ->
-            LibraryCard(item, onNavigateToDetails)
+            LibraryGridCard(item, onNavigateToDetails)
         }
     }
 }
 
 @Composable
-private fun LibraryCard(anime: AniListAnime, onClick: (Int) -> Unit) {
+private fun LibraryGridCard(anime: AniListAnime, onClick: (Int) -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -295,43 +316,56 @@ private fun LibraryCard(anime: AniListAnime, onClick: (Int) -> Unit) {
         label = "cardScale",
     )
 
-    Column(
+    Box(
         modifier = Modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = { onClick(anime.id) },
             ),
     ) {
+        // Cover image — 2:3 aspect ratio
         AsyncImage(
             model = anime.coverUrl,
             contentDescription = anime.displayName,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(16.dp)),
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(12.dp)),
         )
 
-        Text(
-            text = anime.displayName,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
-        )
-
-        anime.averageScore?.let { score ->
+        // Title overlay at bottom with gradient (like old project compact grid)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f),
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                MaterialTheme.colorScheme.surface,
+                            ),
+                        ),
+                    ),
+            )
             Text(
-                text = "★ $score",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+                text = anime.displayName,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 2.dp, top = 2.dp),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
             )
         }
     }
@@ -342,25 +376,27 @@ private fun LibraryCard(anime: AniListAnime, onClick: (Int) -> Unit) {
 @Composable
 private fun LibraryList(
     anime: List<AniListAnime>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     onNavigateToDetails: (Int) -> Unit,
 ) {
     LazyColumn(
+        state = listState,
         contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
+            start = 16.dp,
+            end = 16.dp,
             top = 4.dp,
             bottom = 90.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(anime, key = { it.id }) { item ->
-            LibraryRow(item, onNavigateToDetails)
+            LibraryListRow(item, onNavigateToDetails)
         }
     }
 }
 
 @Composable
-private fun LibraryRow(anime: AniListAnime, onClick: (Int) -> Unit) {
+private fun LibraryListRow(anime: AniListAnime, onClick: (Int) -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -398,7 +434,7 @@ private fun LibraryRow(anime: AniListAnime, onClick: (Int) -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 anime.displayName,
-                style = MaterialTheme.typography.bodyMedium,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 2,
@@ -408,45 +444,18 @@ private fun LibraryRow(anime: AniListAnime, onClick: (Int) -> Unit) {
             anime.seasonYear?.let { year ->
                 Text(
                     "$year",
-                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             anime.averageScore?.let { score ->
                 Text(
                     "★ $score",
-                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-        }
-    }
-}
-
-// ── Empty state ──
-
-@Composable
-private fun EmptyLibraryState() {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                "Your library is empty",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Browse and add anime to your library",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
