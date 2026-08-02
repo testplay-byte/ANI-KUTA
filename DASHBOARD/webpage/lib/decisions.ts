@@ -3,7 +3,9 @@
  * Each decision has options, each option has pros (teal) and cons (rose),
  * plus a recommendation badge.
  *
- * Source: task specification (Task ID 4 — webpage v2 rebuild).
+ * Updated with research-backed recommendations (Task ID 9-DASH).
+ * Source: research findings on KMP readiness, multi-ecosystem identity,
+ * base app selection (Animiru), navigation 3, and multi-extension architecture.
  */
 
 export interface DecisionOption {
@@ -52,31 +54,40 @@ export const decisions: Decision[] = [
     status: "needs-input",
     question: "How should we implement the ads system?",
     context:
-      "The user wants an ads system with full tracking (how many ads shown, when, to whom). The old project had ads on many pages (popup on opening anime entries). We need to design this properly — not copy-paste.",
+      "The user wants a proper, customizable, multi-format ad system (redirect, video, interstitial + extensible). It is part of a bigger user-activity-tracking system (user's own data, on-device). Smart active detection of when to show ads.",
     options: [
       {
-        name: "Modular Ad System (like old project)",
+        name: "Two modules: :core:ads + :core:activity-tracker",
         pros: [
-          "Proven pattern",
-          "Modular (:core:ads)",
-          "Customizable ad types",
-          "On-device tracking (privacy-friendly)",
+          "AdFormat interface (extensible to new formats)",
+          "JSON placement config (no code changes to tune placements)",
+          "Per-interaction state (supports concurrent ads)",
+          "SQLDelight event-log for tracking",
+          "ActivityDetector for smart active detection",
+          "On-device, privacy-friendly (user's own data)",
         ],
         cons: [
           "Complex to build",
-          "Need to design tracking DB schema",
-          "Ad placement rules need careful UX",
+          "Needs careful UX for ad placement",
         ],
         recommended: true,
       },
       {
         name: "Simple Interstitial Only",
         pros: ["Fast to build", "Less code", "Easy to understand"],
-        cons: ["Limited ad types", "Less tracking detail", "Hard to extend later"],
+        cons: [
+          "Limited ad types",
+          "Less tracking detail",
+          "Hard to extend later",
+        ],
       },
       {
         name: "Third-party Ad SDK (AdMob etc.)",
-        pros: ["Ready-made", "Revenue tracking built-in", "Less maintenance"],
+        pros: [
+          "Ready-made",
+          "Revenue tracking built-in",
+          "Less maintenance",
+        ],
         cons: [
           "Privacy concerns",
           "Google dependency",
@@ -90,40 +101,52 @@ export const decisions: Decision[] = [
     id: "D-DI",
     title: "Dependency Injection",
     status: "needs-input",
-    question: "Koin + Hilt (dual), Hilt only, or Koin only?",
+    question: "Koin, Hilt, or dual DI?",
     context:
-      "The old project used Koin (for app) + Injekt (for Aniyomi extension compat). Our tech stack decided Hilt. Need to reconcile: extension compat may require Koin. Injekt was needed because Keiyoushi extensions call Injekt.get<T>().",
+      "Research found Injekt is Aniyomi-only (Mangayomi/Cloudstream/Kotatsu don't use it). Koin is KMP-ready (Hilt is Android-only). Koin Annotations 2.x matches Hilt's compile-time safety. Koin's List<T> multi-binding is cleaner. Koin was proven in the old project.",
     options: [
       {
-        name: "Hilt (app) + Koin (extension compat only)",
+        name: "Koin 4.x + Koin Annotations 2.x + Injekt (isolated)",
         pros: [
-          "Modern standard (Hilt)",
-          "Extension compat preserved",
-          "Clean separation",
+          "KMP-ready (Hilt is Android-only)",
+          "Compile-time safety (Koin Annotations 2.x matches Hilt)",
+          "Clean List<T> multi-binding registries",
+          "Proven in old project",
+          "Agent-friendly (simple DSL, easy to reason about)",
         ],
-        cons: ["Two DI systems", "Learning curve", "Setup complexity"],
+        cons: [
+          "Two DI systems (Koin + Injekt)",
+          "Injekt is needed but isolated to ~3 locations",
+        ],
         recommended: true,
       },
       {
-        name: "Koin only (like old project)",
+        name: "Hilt + Koin (dual)",
         pros: [
-          "Single system",
-          "Proven in old project",
-          "Simpler setup",
-          "Multiplatform-ready",
+          "Hilt for app code (Android-standard)",
+          "Koin where KMP is needed",
+          "Compile-time safety via Hilt",
         ],
         cons: [
-          "Not Android-standard",
-          "Less compile-time safety than Hilt",
-          "Injekt still needed for extensions",
+          "Two primary DI systems (heavier than isolated Injekt)",
+          "Hilt is Android-only — blocks KMP migration",
+          "More setup complexity",
         ],
       },
       {
-        name: "Hilt only (isolate extensions)",
+        name: "Koin only",
+        pros: ["Single system", "Simpler setup", "KMP-ready"],
+        cons: [
+          "Loses Koin Annotations compile-time safety (without opt-in)",
+          "Injekt still needed for Aniyomi extensions",
+        ],
+      },
+      {
+        name: "Hilt only",
         pros: ["Single modern system", "Compile-time safety", "Standard Android"],
         cons: [
-          "Extension compat harder",
-          "May need wrapper layer",
+          "Android-only — blocks KMP",
+          "Extension compat harder (Injekt wrapper needed)",
           "Risk of breaking extension loading",
         ],
       },
@@ -133,230 +156,172 @@ export const decisions: Decision[] = [
     id: "D-DB",
     title: "Room vs SQLDelight",
     status: "needs-input",
-    question: "Room or SQLDelight for local persistence?",
+    question: "Room or SQLDelight?",
     context:
-      "Our tech stack decided Room. Old project used SQLDelight (proven, works well). Need to confirm the switch.",
+      "Animiru (the chosen base) + Aniyomi + the old ANIKUTA project ALL use SQLDelight. SQLDelight supports partial unique indexes (Room doesn't) — needed for the identity system. SQLDelight also supports data-transforming migrations, faster builds, and is KMP-ready. Switching to Room would mean a 2-3 week refactor for zero functional gain.",
     options: [
       {
-        name: "Room",
+        name: "SQLDelight 2.x (stay)",
         pros: [
-          "Android-standard",
-          "Compile-time query checking",
-          "Great IDE support",
-          "Live data / Flow support",
-          "Large community",
+          "Proven across Animiru, Aniyomi, and old ANIKUTA",
+          "Partial unique indexes (Room lacks)",
+          "Data-transforming migrations",
+          "Faster builds (no annotation processor)",
+          "KMP-ready",
+          "Zero migration effort (already used by base)",
         ],
         cons: [
-          "Annotation processor (slower builds)",
-          "Less type-safe SQL than SQLDelight",
-          "Boilerplate for complex queries",
+          "Smaller community than Room",
+          "Less IDE support than Room",
         ],
         recommended: true,
       },
       {
-        name: "SQLDelight (keep from old project)",
+        name: "Room",
         pros: [
-          "Type-safe SQL",
-          "Kotlin-native",
-          "Multiplatform-ready",
-          "Proven in old project",
-          "No annotation processor",
+          "Android-standard",
+          "Great IDE support",
+          "Large community",
         ],
         cons: [
-          "Smaller community",
-          "Less IDE support",
-          "Schema migrations harder",
-          "Not Android-standard",
+          "No partial unique indexes (identity system needs them)",
+          "autoMigration can't do dedup migrations",
+          "Annotation processor (slower builds)",
+          "2-3 week refactor for zero functional gain",
         ],
       },
     ],
   },
   {
     id: "D-NAV",
-    title: "Voyager vs Compose Navigation",
+    title: "Navigation Library",
     status: "needs-input",
-    question: "Voyager or Jetpack Compose Navigation?",
+    question: "Voyager or Compose Navigation?",
     context:
-      "Old project used Voyager 1.0.1 (hand-rolled state machine before that). Voyager 1.0.1 has a known gap: lacks rememberNavigator(), back stack lost on Activity recreate. Need to pick the right option for the new project.",
+      "Nav3's back stack is a StateFlow<List<NavKey>> saved via rememberSaveable — the old Voyager bug (back stack lost on Activity recreate) is structurally impossible. Nav3 supports type-safe @Serializable routes and an official api/impl modular split. It went stable in Nov 2025 (cutting-edge but production-ready).",
     options: [
       {
-        name: "Voyager (newer version)",
+        name: "Jetpack Navigation 3 (Nav3)",
         pros: [
-          "Simple API",
-          "Built for Compose",
-          "Screen-based",
-          "Good for tabbed apps",
-          "Active development",
+          "Back-stack bug is structurally impossible",
+          "Type-safe @Serializable routes",
+          "Official modular api/impl split",
+          "Dynamic tabs",
+          "Deep linking",
+          "Agent-friendly (predictable model)",
         ],
         cons: [
-          "Smaller community than Compose Nav",
-          "Version compatibility risk",
-          "Known gaps in older versions",
+          "Very new (stable Nov 2025)",
+          "Smaller community than Nav2",
         ],
         recommended: true,
       },
       {
-        name: "Jetpack Compose Navigation",
-        pros: [
-          "Official Google library",
-          "Large community",
-          "Deep linking",
-          "Type-safe routes (new API)",
-          "Well-documented",
-        ],
+        name: "Voyager",
+        pros: ["Simple API", "Screen-based", "Built for Compose"],
         cons: [
-          "More verbose",
-          "Steeper learning curve",
-          "Tabbed nav needs extra setup",
-          "Less screen-oriented",
+          "Slow-maintenance / stalled development",
+          "Back-stack bug (lost on Activity recreate)",
         ],
       },
       {
-        name: "Navigation Compose Hilt (with typed routes)",
-        pros: ["Most modern", "Type-safe", "Hilt integration", "Official"],
-        cons: ["Newest API (less examples)", "More setup"],
+        name: "Nav2 (Jetpack Compose Navigation)",
+        pros: ["Official Google library", "Large community", "Well-documented"],
+        cons: [
+          "Will be deprecated (Nav3 is the successor)",
+          "More verbose than Nav3",
+        ],
       },
     ],
   },
   {
     id: "D-EXT",
     title: "Aniyomi Extension Compatibility",
-    status: "needs-input",
-    question: "Should we maintain Aniyomi extension compatibility?",
+    status: "confirmed",
+    question: "Keep Aniyomi extension compatibility?",
     context:
-      "Aniyomi extensions are APK files that provide anime sources. The old project shipped eu.kanade.tachiyomi.animesource.* package for binary compat. This lets users install existing Aniyomi extensions. BUT: Aniyomi is now unmaintained (lead dev left Apr 2026). We're considering switching to Anikku or Animiru (both Aniyomi forks, both extension-compatible).",
+      "Keep Aniyomi extension compatibility. Reference forks (not Aniyomi directly, since Aniyomi is unmaintained). Future plan: add Mangayomi, sora, cloudstream, and kotatsu extension ecosystems. Need an ExtensionProvider abstraction to support multiple ecosystems side-by-side.",
     options: [
       {
-        name: "Yes, keep Aniyomi extension compat",
+        name: "Yes, keep + plan multi-extension",
         pros: [
           "Huge extension ecosystem (100+ sources)",
+          "Future-proof (multi-ecosystem via ExtensionProvider)",
           "Users can install existing extensions",
-          "Proven pattern",
-          "Anikku/Animiru also use these extensions",
         ],
         cons: [
           "Binary compat constraint shapes :core:source-api",
-          "Must ship eu.kanade.* package",
-          "Injekt dependency",
-          "Tied to Aniyomi's API design",
+          "Injekt dependency required for Aniyomi extensions",
         ],
         recommended: true,
-      },
-      {
-        name: "No, build custom extension system",
-        pros: [
-          "Full design freedom",
-          "No legacy constraints",
-          "Modern API design",
-        ],
-        cons: [
-          "No existing extensions",
-          "Must build every source from scratch",
-          "Huge effort",
-          "Kills the main value proposition",
-        ],
       },
     ],
   },
   {
     id: "D-BASE",
-    title: "Base App: Aniyomi vs Anikku vs Animiru",
-    status: "needs-input",
-    question: "Which base app should we reference for the rebuild?",
+    title: "Base App",
+    status: "confirmed",
+    question: "Which base app?",
     context:
-      "Aniyomi (current base) is effectively unmaintained since Apr 2026. Three active alternatives exist:\n\n• Anikku (~944 stars, by Komikku maintainer, most features, Aniyomi-ext-compat, v0.1.4 Jun 2026)\n• Animiru (~824 stars, anime-only, single maintainer Quickdesh, Aniyomi-ext-compat, active Jul 2026)\n• AnymeX (~1133 stars, Flutter cross-platform — RULED OUT by user)\n\nAnimiru is anime-only (no manga baggage). Anikku is more feature-rich. Both are Aniyomi forks with extension compat.",
+      "Animiru was chosen (anime-only, clean, active, Aniyomi-ext-compat). Aniyomi is effectively unmaintained (lead dev left Apr 2026). Anikku was considered but not chosen. AnymeX was ruled out (Flutter, not Kotlin/Compose).",
     options: [
       {
-        name: "Anikku (feature-rich, Komikku maintainer)",
-        pros: [
-          "Most stars among active forks",
-          "Most features",
-          "Respected maintainer",
-          "Aniyomi-ext-compat",
-          "Regular releases",
-          "Merge-anime + auto-sync features",
-        ],
-        cons: [
-          "v0.1.x (pre-1.0)",
-          "Inherits Aniyomi tech debt",
-          "Some niche features",
-          "Heavier than Animiru",
-        ],
-        recommended: true,
-      },
-      {
-        name: "Animiru (anime-only, clean)",
+        name: "Animiru",
         pros: [
           "Clean anime-only focus",
-          "Lighter weight",
-          "Endorsed on aniyomi.org",
-          "Aniyomi-ext-compat",
-          "Active",
+          "Active development",
+          "Aniyomi extension-compatible",
         ],
         cons: [
           "Single maintainer (bus factor)",
-          "Smaller community",
-          "No manga reader (if ever wanted)",
         ],
-      },
-      {
-        name: "Stay with Aniyomi (current base)",
-        pros: ["Already analyzed", "Familiar"],
-        cons: [
-          "❌ Effectively unmaintained since Apr 2026",
-          "Lead dev left",
-          "Lagging on bug fixes",
-          "Outdated Compose/Android versions",
-        ],
+        recommended: true,
       },
     ],
   },
   {
     id: "D-IDENTITY",
-    title: "Two-Tier Identity System",
+    title: "Identity System Redesign",
     status: "needs-input",
-    question: "Keep, improve, or replace the two-tier identity (ContentId/LocalId)?",
+    question: "How to redesign the identity system?",
     context:
-      "The old project used LocalId (per-source) + ContentId (survives source switches). All cross-cutting stores (watch progress, downloads, metadata, tracking) keyed by contentId|episodeNumber. This is powerful but adds complexity. The user said 'we might use it or handle things better.'",
+      "The old ContentId/LocalId two-tier system only handles one ecosystem and is AniList-reliant. The new project needs: support for 5+ ecosystems, 3 content types, tracker-optional operation, and cross-ecosystem source switching. Proposed redesign: ContentUID (the app's UUID) + ExternalReference (links to external systems like AniList, MAL, source-specific IDs) with confidence levels + user merge/split operations.",
     options: [
       {
-        name: "Keep two-tier identity (improve implementation)",
+        name: "Graph-based: ContentUID + ExternalReference",
         pros: [
-          "Source-agnostic data (switch sources without losing progress)",
-          "Proven pattern",
-          "Supports extension-only anime",
-          "Clean cross-cutting stores",
+          "Multi-ecosystem (5+ supported)",
+          "Tracker-optional (AniList not required)",
+          "Confidence levels on references",
+          "User merge/split operations",
+          "Clean separation of app identity vs external identity",
         ],
         cons: [
-          "Complexity",
+          "Complex to build",
+          "Needs fuzzy matching",
           "Migration system needed",
-          "Extra abstraction layer",
         ],
         recommended: true,
       },
       {
-        name: "Simplify to single ID (AniList-based)",
+        name: "Keep old two-tier (improve)",
         pros: [
-          "Simpler",
-          "No migration needed",
-          "Easier to understand",
+          "Proven pattern",
+          "Less new design work",
         ],
         cons: [
-          "Breaks when switching sources",
-          "Extension-only anime can't work",
-          "Loses watch progress on source switch",
+          "Single-ecosystem only",
+          "AniList-reliant",
+          "Can't handle cross-ecosystem source switching cleanly",
         ],
       },
       {
-        name: "Redesign with a better abstraction",
-        pros: [
-          "Could be cleaner",
-          "Learn from old project's mistakes",
-        ],
+        name: "Simplify to single ID",
+        pros: ["Simpler", "Less abstraction"],
         cons: [
-          "Requires deep design thinking",
-          "Risk of over-engineering",
-          "Unproven",
+          "Breaks on source switch",
+          "Extension-only content can't work",
+          "Loses progress on ecosystem switch",
         ],
       },
     ],
@@ -365,32 +330,19 @@ export const decisions: Decision[] = [
     id: "D-NOTIF",
     title: "Notifications System",
     status: "confirmed",
-    question: "When to implement episode-release notifications?",
+    question: "When to implement notifications?",
     context:
-      "User said timing is up to the agent. Notifications require a tracking system for new episode releases (polling sources or push). The old project had :core:notification as an empty stub (removed Phase 9). ADR-014 planned this.",
+      "Confirmed for Phase 3-4. A new-episode-detection system must be built first (notifications depend on it).",
     options: [
       {
-        name: "Build in Phase 3-4 (after core + features)",
+        name: "Phase 3-4 (episode detection first)",
         pros: [
           "Core features first",
-          "Notification system needs data layer ready",
-          "Can use feature flags to enable later",
+          "Episode-detection system provides the data notifications need",
+          "Feature flags can enable later",
         ],
         cons: ["Users wait for notifications"],
         recommended: true,
-      },
-      {
-        name: "Build from the start (Phase 2)",
-        pros: ["Users get notifications early"],
-        cons: [
-          "Blocks core feature development",
-          "May need rework as data layer evolves",
-        ],
-      },
-      {
-        name: "Defer to post-launch",
-        pros: ["Focus on MVP first"],
-        cons: ["Users complain about missing notifications"],
       },
     ],
   },
@@ -398,19 +350,66 @@ export const decisions: Decision[] = [
     id: "D-MANGA",
     title: "Manga Reader",
     status: "confirmed",
-    question: "Include manga reader functionality?",
+    question: "Manga reader?",
     context:
-      "User confirmed: manga reader is SKIPPED for now. Can be added later using a different GitHub repo as base (since Aniyomi's manga reader is outdated). Anime functionality is the focus.",
+      "NOT skipped — properly implemented later, modular. Future scope is 3 content types: video (anime), image (manga), text (novels). Anime is the focus now; manga and novels come later as modular feature modules.",
     options: [
       {
-        name: "Skip manga reader (anime-only)",
+        name: "Modular, later (3 content types planned)",
         pros: [
-          "Focused scope",
-          "Faster development",
-          "Can add later",
-          "User confirmed",
+          "Focused scope now (anime)",
+          "Modular — manga added later without rework",
+          "Future scope = 3 content types (video/image/text)",
         ],
-        cons: ["No manga support"],
+        cons: ["No manga support at launch"],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-MULTIEXT",
+    title: "Multi-Extension Architecture",
+    status: "confirmed",
+    question: "Multi-extension architecture?",
+    context:
+      "The app must support multiple extension ecosystems: Aniyomi + Mangayomi + sora + cloudstream + kotatsu. An ExtensionProvider abstraction is required, with one implementation per ecosystem.",
+    options: [
+      {
+        name: "ExtensionProvider interface + one impl per ecosystem",
+        pros: [
+          "Supports Aniyomi, Mangayomi, sora, cloudstream, kotatsu",
+          "Clean abstraction (ExtensionProvider interface)",
+          "One impl per ecosystem (isolated complexity)",
+          "Add new ecosystems without touching core",
+        ],
+        cons: [
+          "More upfront design work",
+          "Each ecosystem's quirks must be wrapped",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-CONTENT",
+    title: "Multi-Content-Type Architecture",
+    status: "confirmed",
+    question: "Multi-content-type architecture?",
+    context:
+      "Three content types are planned: VIDEO (anime), IMAGE (manga), TEXT (novels). Anime ships now; manga and novels come later as modular feature modules.",
+    options: [
+      {
+        name: "ContentType enum + per-type feature modules",
+        pros: [
+          "Clear 3-type model: VIDEO / IMAGE / TEXT",
+          "Per-type feature modules (add manga/novels without rework)",
+          "Anime now, manga + novels later (modular)",
+          "Consistent handling across content types",
+        ],
+        cons: [
+          "More upfront abstraction",
+          "Each type needs its own reader/player module",
+        ],
         recommended: true,
       },
     ],

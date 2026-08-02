@@ -58,9 +58,10 @@ ANIKUTA-PROJECT/
 ```
 
 ## ❓ Currently Blocked On
-- **Q1/Q2** — old project reference. User will share a link → download to `REFERENCES/old-kuta/` → analyze → document in `REFERENCES/old-kuta/DOCUMENTATION/` → begin Phase 1.
-- See `memory/decisions.md` → "Pending Decisions" for full list.
-- Dashboard demo is built and deploying to GitHub Pages (`https://testplay-byte.github.io/ANI-KUTA/`).
+- **5 architecture recommendations** awaiting user review (D-032 Identity, D-033 Ads, D-034 DI, D-035 DB, D-036 Nav).
+- See the Decisions page: `https://testplay-byte.github.io/ANI-KUTA/decisions`
+- Full detail in `REFERENCES/old-kuta/DOCUMENTATION/14-architecture-recommendations.md`.
+- Once confirmed → write Phase 1 Architecture Plan → sub-agent review → begin Phase 2 (scaffold).
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*
