@@ -10,6 +10,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:tracker-api"))
+    implementation(project(":core:preferences"))
     implementation(project(":core:anilist"))
     implementation(project(":core:database"))
     implementation(project(":core:activity-tracker"))
