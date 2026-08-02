@@ -7,8 +7,9 @@ plugins {
 }
 
 dependencies {
-    implementation(libs.plugins.android.application.get().toString())
-    implementation(libs.plugins.android.library.get().toString())
-    implementation(libs.plugins.kotlin.android.get().toString())
-    implementation(libs.plugins.kotlin.compose.get().toString())
+    // Maven artifact coordinates (NOT plugin IDs) for the Gradle plugins.
+    // These are needed so the precompiled script plugins can apply them.
+    implementation("com.android.tools.build:gradle:${libs.versions.agp.get()}")
+    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:${libs.versions.kotlin.get()}")
+    implementation("org.jetbrains.kotlin:compose-compiler-gradle-plugin:${libs.versions.kotlin.get()}")
 }
