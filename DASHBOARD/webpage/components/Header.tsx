@@ -102,12 +102,9 @@ export function Header() {
   return (
     <header
       className="
-        sticky top-0 lg:top-3 z-50
-        mx-2 mt-2 lg:mx-0 lg:mt-0
-        rounded-[16px]
-        border border-border
-        bg-surface/80 backdrop-blur-xl
-        shadow-card-subtle
+        sticky top-0 z-50
+        border-b border-border
+        bg-surface/95 backdrop-blur-xl
         animate-fade-in
       "
     >
