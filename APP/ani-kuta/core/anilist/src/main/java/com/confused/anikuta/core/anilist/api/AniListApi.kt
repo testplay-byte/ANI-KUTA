@@ -7,6 +7,8 @@ import com.confused.anikuta.core.common.DispatcherProvider
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -73,8 +75,9 @@ class AniListApi(
         }
 
     private fun executeQuery(query: String): String {
-        val requestBody = """{"query":${json.encodeToString(kotlinx.serialization.builtins.serializer(), query)}}"""
-            .toRequestBody(jsonMediaType)
+        val requestBody = buildJsonObject {
+            put("query", query)
+        }.toString().toRequestBody(jsonMediaType)
 
         val request = Request.Builder()
             .url(endpoint)
