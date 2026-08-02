@@ -78,7 +78,7 @@ fun AppRoot() {
                 ContentTransform(
                     fadeIn(tween(Motion.DurationStandard)),
                     fadeOut(tween(Motion.DurationShort)),
-                    1,
+                    1f,
                 )
             },
             label = "screenTransition",
