@@ -58,10 +58,9 @@ ANIKUTA-PROJECT/
 ```
 
 ## ❓ Currently Blocked On
-- **5 architecture recommendations** awaiting user review (D-032 Identity, D-033 Ads, D-034 DI, D-035 DB, D-036 Nav).
-- See the Decisions page: `https://testplay-byte.github.io/ANI-KUTA/decisions`
-- Full detail in `REFERENCES/old-kuta/DOCUMENTATION/14-architecture-recommendations.md`.
-- Once confirmed → write Phase 1 Architecture Plan → sub-agent review → begin Phase 2 (scaffold).
+- **Phase 1 Architecture Plan** awaiting user review → `REFERENCES/old-kuta/DOCUMENTATION/16-phase1-architecture-plan.md`.
+- All decisions confirmed. Plan sub-agent reviewed (4 critical + 10 important flaws fixed).
+- Once confirmed → begin **Phase 2 (scaffold)**: 12 modules, app launches → Browse → Details.
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*

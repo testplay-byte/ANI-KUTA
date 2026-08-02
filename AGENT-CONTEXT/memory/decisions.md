@@ -208,34 +208,52 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Date:** Phase 1.
 - **Implications:** Need an `ExtensionProvider` abstraction. Each ecosystem (Aniyomi, Mangayomi, etc.) = one provider impl. Database stores which provider a source came from.
 
-### D-032 — Two-tier identity: COMPLETE REDESIGN → Graph-based model
-- **What:** Replace ContentId/LocalId with a graph-based identity: `ContentUID` (app's stable UUID) + `ExternalReference` (links to external systems). Supports 5+ ecosystems, 3 content types, tracker-optional, source switching across ecosystems, user merge/split with confidence levels.
-- **Why:** Old system only handles one ecosystem + AniList-reliant. New system is future-proof.
-- **Status:** 🚧 Design proposed (see `REFERENCES/old-kuta/DOCUMENTATION/14-architecture-recommendations.md` §5). Awaiting user confirmation.
+### D-032 — Identity system: flexible + switchable (backup/restore compat critical)
+- **What:** The identity system must be **flexible and switchable** — not locked into one design. The graph-based model (ContentUID + ExternalReference) is the starting point, but it must be easy to evolve. **Backup/restore compat with other apps** (Aniyomi, Animiru, Mangayomi, etc.) is critical — users must be able to import data from those apps seamlessly.
+- **Why:** User requirement — identity is complex; wants flexibility. Backup/restore from other apps is a key UX requirement (no bad experience for migrating users).
+- **Status:** ✅ Confirmed by user (flexible + switchable + backup/restore compat). Design to be detailed in the Architecture Plan.
 - **Date:** Phase 1.
 
-### D-033 — Ads system: modular, customizable, multi-format
-- **What:** Two modules: `:core:ads` (AdFormat interface + AdPlacement JSON registry + AdManager) + `:core:activity-tracker` (SQLDelight event-log). Handles redirect/video/interstitial + extensible. Per-interaction state. ActivityDetector for active detection.
-- **Why:** User requirement — ads wanted, done properly with full on-device tracking.
-- **Status:** 🚧 Design proposed (see `14-architecture-recommendations.md` §4 + `13-ads-research.md`). Awaiting user confirmation.
+### D-033 — Ads system: modular, customizable, multi-format (DEFERRED, designed)
+- **What:** Two modules (`:core:ads` + `:core:activity-tracker`). AdFormat interface handles redirect/video/interstitial/**banner** + extensible. JSON placement registry. Per-interaction state. ActivityDetector. This is a **future plan** — not the focus now, but the architecture must accommodate it.
+- **Why:** User requirement — ads wanted, done properly. Banner ads added to the format list per user request. Implementation deferred.
+- **Status:** ✅ Confirmed (design accepted, implementation deferred). Architecture must leave room for it.
 - **Date:** Phase 1.
 
 ### D-034 — Dependency injection: Koin 4.x + Koin Annotations 2.x + Injekt (isolated)
-- **What:** Koin for host app. Injekt isolated to Aniyomi extension compat only (`App.onCreate()` + `:core:source-api` + `:data:extension-aniyomi`). Do NOT use Hilt.
-- **Why:** Injekt is Aniyomi-only (other ecosystems don't use it). Koin is KMP-ready (Hilt is Android-only). Koin Annotations 2.x matches Hilt's compile-time safety. Koin's `List<T>` multi-binding is cleaner. Proven in old project (24 modules, zero incidents). Agent-friendly.
-- **Status:** 🚧 Recommended (see `11-di-research.md`). Awaiting user confirmation. Supersedes D-009.
+- **What:** Koin for host app. Injekt isolated to Aniyomi extension compat only. Do NOT use Hilt.
+- **Why:** Injekt is Aniyomi-only. Koin is KMP-ready. Koin Annotations 2.x matches Hilt's compile-time safety. Koin's `List<T>` multi-binding is cleaner. Proven in old project.
+- **Status:** ✅ Confirmed by user.
 - **Date:** Phase 1.
 
 ### D-035 — Database: SQLDelight 2.x (stay, NOT Room)
 - **What:** Stay on SQLDelight 2.x. Do NOT switch to Room.
-- **Why:** Animiru (base) + Aniyomi + old ANIKUTA all use SQLDelight. SQLDelight supports partial unique indexes (Room doesn't) — needed for identity system. Data-transforming migrations (Room's autoMigration can't). Faster builds (compiler plugin, no KSP). KMP-ready.
-- **Status:** 🚧 Recommended (see `10-db-research.md`). Awaiting user confirmation. Supersedes D-009.
+- **Why:** Animiru + Aniyomi + old project all use SQLDelight. Partial unique indexes needed for identity system. Data-transforming migrations. Faster builds. KMP-ready.
+- **Status:** ✅ Confirmed by user.
 - **Date:** Phase 1.
 
 ### D-036 — Navigation: Jetpack Navigation 3 (Nav3)
-- **What:** Use `androidx.navigation3` 1.0.0+ (stable Nov 2025). NOT Voyager. NOT Nav2.
-- **Why:** Nav3's back stack is `StateFlow<List<NavKey>>` saved via `rememberSaveable` — the old Voyager bug (back stack lost on Activity recreate) is structurally impossible. Type-safe `@Serializable NavKey` routes. Official `api`/`impl` modular split. Dynamic tabs. First-class deep linking. Agent-friendly.
-- **Status:** 🚧 Recommended (see `12-nav-research.md`). Awaiting user confirmation. Note: Nav3 is cutting-edge (stable Nov 2025) — user should confirm comfort level.
+- **What:** Use `androidx.navigation3` 1.0.0+. NOT Voyager. NOT Nav2.
+- **Why:** Back-stack bug structurally impossible. Type-safe routes. Modular api/impl split. Dynamic tabs. Deep linking. Agent-friendly.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 1.
+
+### D-039 — Activity tracking: 365-day default, unlimited option
+- **What:** Activity tracking retains data for **365 days by default** (not 90). User can set to **unlimited** (their preference — they want to know their full watch history).
+- **Why:** User requirement — wants full history access.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 1.
+
+### D-040 — Filtered console logging (CORE_RULES.md §20)
+- **What:** Proper filtered console logging for everything. Log levels (VERBOSE/DEBUG/INFO/WARN/ERROR). Per-module Logcat tags. Toggleable for performance (release builds off, debug on). Central `Logger` wrapper in `:core:common`.
+- **Why:** User requirement — debugging, error tracking, understanding what happened.
+- **Status:** ✅ Confirmed by user (CORE_RULES.md §20).
+- **Date:** Phase 1.
+
+### D-041 — Backup/restore: multi-app import compat
+- **What:** The backup/restore system must support importing data from other apps: Aniyomi (`.tachibk`), Animiru, Mangayomi, and potentially others. Users migrating from those apps must have a seamless experience.
+- **Why:** User requirement — no bad experience for migrating users.
+- **Status:** ✅ Confirmed by user. Research needed on each app's backup format.
 - **Date:** Phase 1.
 
 ### D-037 — Highly customizable UI (KEY requirement)

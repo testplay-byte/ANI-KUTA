@@ -225,3 +225,20 @@ ANIKUTA-PROJECT/
 - The full-stack-dev agent handles: building pages, adding components, updating styling, wiring data, fixing build issues — all inside `DASHBOARD/webpage/`.
 - The main agent defines the task, gives the sub-agent the DESIGN.md context, verifies the result, then updates `AGENT-CONTEXT/` (the sub-agent never touches AGENT-CONTEXT).
 - This produced excellent results for the initial dashboard build; it is now the standard for all webpage work.
+
+---
+
+## 20. Filtered Console Logging
+
+- **Proper console logging for everything.** Every significant action, state change, error, and network call must be logged with enough context to understand what happened and where.
+- **Filtered**: Use log levels (VERBOSE / DEBUG / INFO / WARN / ERROR). Logcat tags per module (`Anikuta:Core:Database`, `Anikuta:Feature:Watch`, etc.). The user/developer can filter by tag + level.
+- **Toggleable**: Logging can be turned OFF for performance (release builds). Controlled by a build config flag (`BuildConfig.DEBUG` default) + a runtime toggle in Settings for beta/debug builds.
+- **What to log**:
+  - ✅ INFO: screen navigation, user actions (tap, search), feature start/end.
+  - ✅ DEBUG: repository queries, cache hits/misses, state transitions, DI module init.
+  - ✅ WARN: recoverable errors (retry, fallback), deprecated API usage.
+  - ✅ ERROR: exceptions, failed network calls, DB errors, with stack traces.
+  - ✅ VERBOSE: detailed flow tracing (only when debugging a specific issue).
+- **What NOT to log**: user credentials, tokens, personal data, full request/response bodies (log URLs + status codes only).
+- **Implementation**: Use a central `Logger` wrapper (in `:core:common`) that respects the level + tag + toggle. Never call `Log.d()` directly — always go through `Logger`.
+- **Performance**: When logging is OFF, the Logger is a no-op (zero overhead). Use `if (Logger.isEnabled)` guards around expensive log message construction.
