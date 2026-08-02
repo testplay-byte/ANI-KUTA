@@ -1,0 +1,27 @@
+-- Downloaded episode files on disk
+-- Per APP/ani-kuta/DOCUMENTATION/database/downloads.md
+
+CREATE TABLE IF NOT EXISTS downloaded_episode (
+    episode_key TEXT NOT NULL PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    quality TEXT,
+    downloaded_at INTEGER NOT NULL
+);
+
+insertDownloadedEpisode:
+INSERT OR REPLACE INTO downloaded_episode(
+    episode_key, file_path, file_size, quality, downloaded_at
+) VALUES (?, ?, ?, ?, ?);
+
+getDownloadedEpisode:
+SELECT * FROM downloaded_episode WHERE episode_key = ?;
+
+getAllDownloadedEpisodes:
+SELECT * FROM downloaded_episode ORDER BY downloaded_at DESC;
+
+isEpisodeDownloaded:
+SELECT EXISTS(SELECT 1 FROM downloaded_episode WHERE episode_key = ?);
+
+deleteDownloadedEpisode:
+DELETE FROM downloaded_episode WHERE episode_key = ?;

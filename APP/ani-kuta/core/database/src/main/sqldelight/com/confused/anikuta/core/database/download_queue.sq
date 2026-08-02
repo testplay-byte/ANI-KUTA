@@ -1,0 +1,40 @@
+-- Download queue table
+-- Per APP/ani-kuta/DOCUMENTATION/database/downloads.md
+
+CREATE TABLE IF NOT EXISTS download_queue (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    episode_key TEXT NOT NULL,
+    state TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    queued_at INTEGER NOT NULL,
+    started_at INTEGER,
+    completed_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_download_state ON download_queue(state);
+
+insertDownloadQueue:
+INSERT INTO download_queue(episode_key, state, queued_at)
+VALUES (?, 'QUEUED', ?);
+
+updateDownloadState:
+UPDATE download_queue
+SET state = ?, progress = ?, error_message = ?, started_at = ?, completed_at = ?
+WHERE id = ?;
+
+getDownloadQueue:
+SELECT * FROM download_queue
+WHERE state IN ('QUEUED', 'DOWNLOADING', 'PAUSED')
+ORDER BY queued_at ASC;
+
+getDownloadQueueByState:
+SELECT * FROM download_queue
+WHERE state = ?
+ORDER BY queued_at ASC;
+
+deleteDownloadQueue:
+DELETE FROM download_queue WHERE id = ?;
+
+deleteDownloadQueueByEpisode:
+DELETE FROM download_queue WHERE episode_key = ?;
