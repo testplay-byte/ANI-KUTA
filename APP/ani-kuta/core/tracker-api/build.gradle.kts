@@ -8,5 +8,5 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
-    implementation(libs.kotlinx.coroutines.core)
+    api(libs.kotlinx.coroutines.core)  // Flow/StateFlow used in public API (Tracker interface + BaseTracker)
 }

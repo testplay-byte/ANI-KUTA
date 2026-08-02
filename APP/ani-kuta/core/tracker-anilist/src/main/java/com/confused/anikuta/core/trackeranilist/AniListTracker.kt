@@ -52,7 +52,7 @@ class AniListTracker(
 
     init {
         // Restore login state on init
-        val token = accessToken
+        val token = accessToken ?: ""
         if (token.isNotBlank()) {
             _loginState.value = TrackLoginState.LoggedIn(username)
             Logger.i(TAG) { "Restored login: $username" }
