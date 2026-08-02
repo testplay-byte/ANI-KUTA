@@ -58,10 +58,8 @@ ANIKUTA-PROJECT/
 ```
 
 ## ❓ Currently Blocked On
-- **Phase 1 Architecture Plan** awaiting user review → `APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md`.
-- All decisions confirmed. Plan sub-agent reviewed (4 critical + 10 important flaws fixed).
-- App Design Language doc being created → `APP/ani-kuta/DESIGN-LANGUAGE.md`.
-- Once confirmed → begin **Phase 2 (scaffold)**: 12 modules, app launches → Browse → Details.
+- Nothing. Phase 2 scaffold is complete + CI green.
+- Ready for Phase 3 (core modules: identity, source-api, extension-aniyomi, player, etc.) when user confirms.
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*
