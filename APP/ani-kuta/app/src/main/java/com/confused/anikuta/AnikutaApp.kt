@@ -19,6 +19,7 @@ import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.data.extension.extensionModule
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
+import com.confused.anikuta.feature.animelibrary.di.libraryModule
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -41,6 +42,7 @@ class AnikutaApp : Application() {
                 anilistModule,
                 browseModule,
                 detailsModule,
+                libraryModule,
                 activityTrackerModule,
                 extensionModule,
                 playerModule,

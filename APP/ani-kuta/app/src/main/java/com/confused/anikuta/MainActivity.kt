@@ -9,7 +9,6 @@ import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -19,7 +18,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
@@ -30,6 +28,8 @@ import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
 import com.confused.anikuta.feature.animebrowse.BrowseScreen
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
+import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
+import com.confused.anikuta.feature.animelibrary.LibraryScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -50,8 +50,13 @@ class MainActivity : ComponentActivity() {
  * Phase 4a: Bottom navigation with 4 tabs (Browse, Library, Search, More).
  * The bottom nav is a floating pill overlay — content scrolls behind it.
  *
- * CORE_RULES §22: smooth animations on tab switches (fade transition).
- * CORE_RULES §23: reactive state (StateFlow from ViewModels).
+ * FIX: Removed AnimatedContent — it was disposing ViewModels on navigation,
+ * causing the Browse page to crash/blank when returning from Details.
+ * Using a simple when() block instead (like Phase 2). Animations will be
+ * added per-screen (fade-in on content) rather than on the container level.
+ *
+ * CORE_RULES §22: animations handled per-screen, not at container level.
+ * CORE_RULES §23: reactive state — ViewModels survive navigation.
  */
 @Composable
 fun AppRoot() {
@@ -71,29 +76,21 @@ fun AppRoot() {
     val currentKey = backstack.last()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Content (scrolls behind the nav bar)
-        AnimatedContent(
-            targetState = currentKey,
-            transitionSpec = {
-                ContentTransform(
-                    fadeIn(tween(Motion.DurationStandard)),
-                    fadeOut(tween(Motion.DurationShort)),
-                    1f,
-                )
-            },
-            label = "screenTransition",
-            contentKey = { it::class },
-        ) { key ->
-            when (key) {
-                is AnimeBrowseKey -> BrowseScreen(
-                    onNavigate = { navKey -> backstack.add(navKey) }
-                )
-                is AnimeDetailsKey -> DetailsScreen(
-                    animeId = key.animeId,
-                    onBack = { backstack.removeAt(backstack.lastIndex) }
-                )
-                else -> {}
-            }
+        // Content — simple when() block (no AnimatedContent to avoid ViewModel disposal)
+        when (currentKey) {
+            is AnimeBrowseKey -> BrowseScreen(
+                onNavigate = { navKey -> backstack.add(navKey) }
+            )
+            is AnimeDetailsKey -> DetailsScreen(
+                animeId = currentKey.animeId,
+                onBack = { backstack.removeAt(backstack.lastIndex) }
+            )
+            is AnimeLibraryKeyImpl -> LibraryScreen(
+                onNavigateToDetails = { animeId ->
+                    backstack.add(AnimeDetailsKey(animeId))
+                }
+            )
+            else -> {}
         }
 
         // Bottom navigation (floating pill overlay)
@@ -105,7 +102,7 @@ fun AppRoot() {
                 backstack.clear()
                 when (route) {
                     "browse" -> backstack.add(AnimeBrowseKey)
-                    "library" -> backstack.add(AnimeBrowseKey) // Placeholder — Phase 4c
+                    "library" -> backstack.add(AnimeLibraryKeyImpl)
                     "search" -> backstack.add(AnimeBrowseKey) // Placeholder — Phase 4c
                     "more" -> backstack.add(AnimeBrowseKey) // Placeholder — Phase 4d
                 }

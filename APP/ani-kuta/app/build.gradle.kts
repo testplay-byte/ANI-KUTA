@@ -40,6 +40,8 @@ dependencies {
     implementation(project(":feature:anime-browse:impl"))
     implementation(project(":feature:anime-details:api"))
     implementation(project(":feature:anime-details:impl"))
+    implementation(project(":feature:anime-library:api"))
+    implementation(project(":feature:anime-library:impl"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
