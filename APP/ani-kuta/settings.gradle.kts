@@ -34,6 +34,9 @@ include(":core:activity-tracker")
 include(":core:provider-api")
 include(":core:source-api")
 
+// ── :data ──
+include(":data:extension")
+
 // ── :feature (api/impl split per Nav3 Pattern B) ──
 include(":feature:anime-browse:api")
 include(":feature:anime-browse:impl")

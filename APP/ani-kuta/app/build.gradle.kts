@@ -25,6 +25,9 @@ dependencies {
     implementation(project(":core:provider-api"))
     implementation(project(":core:source-api"))
 
+    // Data modules
+    implementation(project(":data:extension"))
+
     // Feature modules (impl — the app wires them)
     implementation(project(":feature:anime-browse:api"))
     implementation(project(":feature:anime-browse:impl"))

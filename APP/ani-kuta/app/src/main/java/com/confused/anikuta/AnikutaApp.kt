@@ -11,6 +11,7 @@ import com.confused.anikuta.core.network.HttpClientFactory
 import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
+import com.confused.anikuta.data.extension.extensionModule
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
 import okhttp3.OkHttpClient
@@ -36,6 +37,7 @@ class AnikutaApp : Application() {
                 browseModule,
                 detailsModule,
                 activityTrackerModule,
+                extensionModule,
                 appModule,
             )
         }
