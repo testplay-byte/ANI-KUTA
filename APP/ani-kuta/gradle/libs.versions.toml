@@ -17,7 +17,7 @@ navigation3 = "1.1.5"
 koin = "4.2.2"
 
 # Persistence
-sqldelight = "2.3.2"
+sqldelight = "2.0.2"
 
 # Networking
 okhttp = "4.12.0"

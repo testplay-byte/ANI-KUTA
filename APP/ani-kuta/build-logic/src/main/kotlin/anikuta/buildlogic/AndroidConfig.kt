@@ -6,9 +6,9 @@ package anikuta.buildlogic
  */
 object AndroidConfig {
     const val applicationId = "com.confused.anikuta"
-    const val compileSdk = 35
+    const val compileSdk = 36  // Nav3 1.1.5 requires SDK 36
     const val minSdk = 24
-    const val targetSdk = 35
+    const val targetSdk = 36
     const val versionCode = 1
     const val versionName = "0.1.0"
 
