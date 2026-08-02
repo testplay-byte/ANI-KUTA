@@ -256,6 +256,48 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Confirmed by user. Research needed on each app's backup format.
 - **Date:** Phase 1.
 
+### D-042 — Defer identity system + complex DB to Phase 4+
+- **What:** The complex identity system (ContentUID + ExternalReference + matching engine + merge/split) is DEFERRED to Phase 4+. Basic DB tables (extensions, metadata cache, activity tracking, user customizations) are kept in Phase 3.
+- **Why:** User wants to understand the data + other logic first before committing to the identity system. Needs proper care.
+- **Status:** ✅ Confirmed by user (pending the contradiction flag in 18-phase3-plan.md).
+- **Date:** Phase 3 (refined).
+
+### D-043 — Extensions: use "Animiru" naming, NO default repos
+- **What:** Extension modules use "Animiru" naming (not "Aniyomi"). The `eu.kanade.tachiyomi.*` package stays (binary compat). NO default extension repo URLs — user adds their own.
+- **Why:** User requirement — Animiru is the base app. No default repos for user control.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 3 (refined).
+
+### D-044 — Player: copy from old project + separate MPV lib module
+- **What:** Copy the old project's player (it's perfect). Wrap `aniyomi-mpv-lib` AAR as a separate `:core:player-mpv-lib` module so players can be swapped easily.
+- **Why:** User likes the old player. Separate module for future-proofing.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 3 (refined).
+
+### D-045 — Internal tracking system is a KEY priority
+- **What:** Build a full-fledged internal tracking system (`:core:activity-tracker`) that records everything the user does. This is the user's priority — comes BEFORE AniList tracker sync. Tracks: watch events, time of day, peak hours, ratings, searches, downloads, library changes.
+- **Why:** User requirement — wants their own stats, beautiful results, backup-able.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 3 (refined).
+
+### D-046 — Metadata fetching split by content type
+- **What:** Metadata fetching is split into multiple modules: `:core:metadata-anime` (now), `:core:metadata-movies` (future), `:core:metadata-manga` (future). Plus local metadata (user customizations: custom thumbnail, title, description per episode).
+- **Why:** User requirement — future-proofing for multiple content types + user customization.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 3 (refined).
+
+### D-047 — Backup/restore: DEFER entirely
+- **What:** Backup/restore is deferred to Phase 5+. Needs the identity system + all data tables first. Don't copy-paste from old project — rebuild properly.
+- **Why:** User requirement — needs proper setup first.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 3 (refined).
+
+### D-048 — UI: buttery smooth animations + live verification
+- **What:** UI must have buttery smooth animations (scrolling, transitions, button feedback). Data changes must be verified AND reflected live on screen (optimistic updates, Flow-based, no manual refresh).
+- **Why:** User requirement — rich quality features.
+- **Status:** ✅ Confirmed by user (CORE_RULES.md §22 + §23).
+- **Date:** Phase 3 (refined).
+
 ### D-037 — Highly customizable UI (KEY requirement)
 - **What:** The UI must be highly customizable. Theme engine, layout options, behavior toggles. Per-content-type customization. Future-proof.
 - **Why:** User requirement — stated as key multiple times.

@@ -269,3 +269,45 @@ ANIKUTA-PROJECT/
 ### Verification
 - After writing a doc, verify its location matches the table above.
 - If you find a doc in the wrong zone: move it + update all cross-references (grep for the old path).
+
+---
+
+## 22. UI / UX Quality — Buttery Smooth Animations
+
+> The user is a great fan of rich, buttery-smooth animations and beautiful, minimalistic UI. This is a quality bar, not an afterthought.
+
+### Animation Requirements
+- **Scrolling**: smooth scroll effects (parallax, fade-in on scroll, collapsible headers that animate). Never janky.
+- **Screen transitions**: animated screen switches (fade, slide, shared element transitions where appropriate). Never instant cuts.
+- **Button clicks**: MUST give user feedback — ripple, scale-down on press, color change, haptic. Never a dead tap.
+- **Loading states**: smooth skeletons / shimmer, not jarring spinners where possible.
+- **State changes**: animate UI state changes (expand/collapse, appear/disappear) — never pop in/out.
+
+### Design Aesthetic
+- **Simple, minimalistic, good-looking.** Not cluttered. Every element earns its place.
+- **Follow `APP/ani-kuta/DESIGN-LANGUAGE.md` strictly.** It captures the old project's proven aesthetic (lime accent, warm darks, translucent cards, floating pill nav, scroll blur).
+- **The design language is a living document.** When the user mentions UI improvements, update `DESIGN-LANGUAGE.md` AND propagate to the code.
+
+### Performance
+- **60fps target.** Animations must not drop frames. Use Compose's animation APIs correctly (`AnimatedVisibility`, `animateContentSize`, `SharedTransitionLayout`).
+- **No heavy work on the main thread** during animation. Offload to IO/background.
+- **Test on low-end devices** (not just emulators).
+
+---
+
+## 23. Live Data Verification
+
+> When the user makes a change, it must be verified AND reflected live on screen. No "change + manual refresh."
+
+### Rules
+1. **Every user action has immediate visual feedback.** If the user taps "Add to Library," the UI updates instantly (optimistic update), then confirms with the backend.
+2. **Data changes propagate live.** Use `Flow`/`StateFlow` throughout. The UI observes state and recomposes automatically. Never poll.
+3. **Verify changes persisted.** After a write, verify it landed (read-back or DB callback). If it failed, roll back the optimistic update + show an error.
+4. **No silent failures.** If a save fails, the user MUST know. Toast/snackbar with the error + retry option.
+5. **Cross-screen consistency.** If the user adds an anime to their library on the Details screen, the Library screen must reflect it without a manual refresh (shared state via Flow).
+
+### Implementation
+- Repositories return `Flow<T>` for reads (reactive).
+- Writes return `Result<T>` (success/failure) — handle both in the ViewModel.
+- ViewModels expose `StateFlow<UiState>` — UI collects and renders.
+- Optimistic updates: update the UI state immediately, then confirm with the backend. Roll back on failure.

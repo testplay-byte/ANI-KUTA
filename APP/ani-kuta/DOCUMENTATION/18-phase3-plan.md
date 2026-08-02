@@ -1,131 +1,131 @@
-# 18 — Phase 3 Plan (Core Modules)
+# 18 — Phase 3 Plan (Refined)
 
-> Detailed plan for Phase 3: the core infrastructure modules.
-> This is the "engine room" — identity, extensions, player, downloads, trackers, backup.
-> Phase 4 adds the feature screens that use these.
-
----
-
-## Overview
-
-Phase 3 builds **14 core modules** in 4 sub-phases. Each sub-phase delivers something testable.
-
-| Sub-phase | Modules | What it delivers |
-|-----------|---------|------------------|
-| **3a: Foundation** | 4 | Identity system + data repositories (anime + history) |
-| **3b: Extensions** | 3 | Extension provider API + Aniyomi extension loading |
-| **3c: Playback** | 3 | Video resolver + MPV player + watch progress contract |
-| **3d: Supporting** | 4 | Downloads + metadata cache + trackers + backup |
-
-**After Phase 3**: The app can browse → details → resolve video → watch (MPV) → track progress. Library + history screens come in Phase 4.
+> **Refined based on user feedback (Session: 2026-08-02).**
+> Key changes: defer identity system + complex DB, prioritize extensions, copy player from old project, add internal tracking, split metadata fetching, defer backup/restore.
 
 ---
 
-## Sub-Phase 3a: Foundation (Identity + Data)
+## ⚠️ Honest Flag: The DB Deferral Contradiction
+
+The user asked to **defer the database + identity system to a later phase**. This is sound for the COMPLEX identity system (ContentUID + ExternalReference + matching engine). BUT we **cannot fully defer the database** because:
+
+1. **Extensions need storage** — installed extensions, sources, repos must persist across app launches.
+2. **Episode metadata caching needs storage** — fetched thumbnails/titles/air dates need to be cached.
+3. **Internal tracking needs storage** — the user explicitly wants a "full-fledged tracking system" that records when/what the user watches. This REQUIRES database tables.
+4. **User customizations need storage** — custom thumbnails, titles, descriptions per episode.
+
+**Resolution (confirmed by sub-agent review):**
+- ✅ **DEFER**: The complex identity system (ContentUID + ExternalReference + matching engine + merge/split). This is the hard part — do it later when we understand the data better.
+- ✅ **KEEP**: Basic database tables for extensions, metadata cache, internal tracking, user customizations, watch progress, downloads. These use a **temporary content key** (`content_key` string) instead of ContentUID.
+- ✅ **DEFER**: Backup/restore entirely. Needs the identity system first.
+
+**Temporary content key format** (I1 fix):
+- Canonical: `"<ecosystem>:<source_id|->:<external_id>"` (e.g., `"animiru:gogo:aot"`, `"anilist:-:16498"`).
+- All writers use this format. Phase 4 migration parses it deterministically into ContentUID.
+
+**Phase 2 baseline** (C5 fix — verified by reading `app.sq`):
+- Phase 2 created ONLY `app_metadata` (key-value table).
+- The identity tables (content_uid, external_reference, etc.) from architecture plan §13 were NOT built.
+- Architecture plan §13 was wrong about Phase 2 scope. This plan is the source of truth.
+
+---
+
+## Refined Phase 3 Structure (4 Sub-Phases)
+
+| Sub-phase | Focus | Modules | Status |
+|-----------|-------|---------|--------|
+| **3a: Foundation** | Basic DB + internal tracking + watch progress + preferences | 4 | Refined |
+| **3b: Extensions** | Extension system (MOST CRUCIAL) | 3 | Refined |
+| **3c: Playback** | Player + video resolver + downloads | 4 | Refined |
+| **3d: Supporting** | Metadata + tracker | 3 | Refined |
+
+**Total: 14 modules** (added `:core:watch-progress` per C3 fix; collapsed metadata from 3 to 1 per I9 fix).
+
+**Deferred to Phase 4+ (after we understand the data):**
+- `:core:identity` + `:data:identity` — the complex identity system.
+- `:core:backup` — backup/restore + multi-app import.
+- `:data:anime` (library/history repositories) — needs identity system.
+
+---
+
+## Sub-Phase 3a: Foundation (Basic DB + Internal Tracking)
 
 ### Modules
 
-#### 1. `:core:identity`
-**Purpose**: The identity system — ContentUID + ExternalReference + IdentityResolver.
+#### 1. `:core:database` (ENHANCED — already exists from Phase 2)
+**Changes**: Add basic tables (NO identity system yet). Uses `content_key` / `episode_key` strings (temporary — Phase 4 migrates to ContentUID).
+
+**New tables** (C1/C4/C6 fix — all tables from 17-schema that don't require identity):
+- `installed_source` — installed extensions (ecosystem, source_id, name, version, package_name, **signature_fingerprint**, is_enabled, installed_at, last_updated_at). [C4 fix: signature_fingerprint restored for trust verification]
+- `extension_repo` — extension repos (ecosystem, url, name, added_at). **NO default URLs** (user adds their own).
+- `episode_metadata_cache` — cached episode metadata (episode_key PK, title, thumbnail_url, air_date, description, source, updated_at).
+- `content_metadata_cache` — cached content metadata (content_key PK, title, description, genres, status, year, cover_url, source, updated_at).
+- `activity_event` — internal tracking log (id, event_type, content_key, episode_key, session_id, route, content_type, duration_ms, payload, timestamp). Indexed on timestamp DESC + event_type + content_key.
+- `user_customization` — user's custom metadata overrides (id, content_key, episode_key, custom_title, custom_thumbnail, custom_description, updated_at). [I3 fix: partial unique indexes for content-level (episode_key IS NULL) vs episode-level (episode_key IS NOT NULL)]
+- `watch_progress` — [C2 fix: RESTORED separate table] (episode_key PK, position, duration, completed, completed_at, last_watched_at). Indexed on last_watched_at DESC for "Continue Watching".
+- `download_queue` — [C6 fix: added] (id, episode_key, state, progress, error_message, queued_at, started_at, completed_at).
+- `downloaded_episode` — [C6 fix: added] (episode_key PK, file_path, file_size, quality, downloaded_at).
+- `app_metadata` — already exists (key-value store).
+
+> **Note**: All tables use `content_key` / `episode_key` (strings, format: `"<ecosystem>:<source_id|->:<external_id>"`). The identity system (Phase 4) will introduce ContentUID and migrate these tables.
+
+#### 2. `:core:activity-tracker` (NEW — internal tracking system)
+**Purpose**: The user's KEY requirement — a full-fledged internal tracking system. Records everything the user does. This is NOT tracker sync (AniList/MAL) — this is LOCAL tracking for the user's own stats.
 
 **Files:**
 ```
-core/identity/src/main/java/com/confused/anikuta/core/identity/
-├── ContentUid.kt              — data class (uid, contentType, title, matchKey, coverUrl, createdAt)
-├── ExternalReference.kt       — data class (uid, ecosystem, sourceId, externalId, confidence, createdAt)
-├── EpisodeUid.kt              — data class (uid, contentUid, episodeNumber, matchKey)
-├── EpisodeExternalRef.kt      — data class
-├── Confidence.kt              — enum (HIGH, MEDIUM, LOW)
-├── IdentityResolver.kt        — interface (resolveOrCreate, merge, split, suggestMerges)
-└── di/IdentityModule.kt       — Koin module (binds IdentityResolver interface)
+core/activity-tracker/src/main/java/com/confused/anikuta/core/activitytracker/
+├── ActivityTracker.kt          — interface (trackEvent, observeEvents)
+├── ActivityEvent.kt            — data class (eventType, contentKey, episodeKey, timestamp, duration, etc.)
+├── ActivityRepository.kt       — writes/reads from activity_event table (batched writes — I11 fix)
+├── ActivityPruneWorker.kt      — [I11 fix] WorkManager daily job, prunes events older than retention
+└── di/ActivityTrackerModule.kt — Koin module
 ```
 
-**Dependencies**: `:core:common` (for ContentType, Logger).
-**Depends on**: nothing else in Phase 3.
+**What it tracks:**
+- 📺 When the user watches an episode (start, pause, resume, complete).
+- ⏰ Time of day/night (to find peak watching hours).
+- 📊 How many episodes per day/week/month.
+- ⭐ Ratings given.
+- 🔍 Searches performed.
+- 📥 Downloads started/completed.
+- 📖 Library adds/removes.
 
-**Key design**: `IdentityResolver` is an **interface**. The graph-based impl lives in `:data:identity`. This keeps `:core:identity` decoupled from the database.
+**Retention**: 365 days default, unlimited option (user preference). Prune worker runs daily.
 
-#### 2. `:data:identity`
-**Purpose**: SQLDelight implementation of IdentityResolver + the matching engine.
+**Write batching** (I11 fix): Player events are batched in memory, flushed every 30s or on pause/stop (not every 10s) to reduce DB load + flash wear.
+
+**Stats calculation**: DEFERRED to Phase 6 (I10 fix — Ponytail: no premature abstraction). The `StatsCalculator` will be built when the `:feature:anime-my` stats screen is built. Phase 3 only stores raw events.
+
+**Backup**: This data IS included in backups (it's the user's own data — they want to keep it).
+
+#### 3. `:core:watch-progress` (NEW — contract module, C3 fix)
+**Purpose**: WatchProgressStore interface. Resolves the layering issue (architecture plan C3). `:core:player` depends on this interface (writes); impl lives in `:data:history` (Phase 4) or a simple impl in `:core:activity-tracker` for now.
 
 **Files:**
 ```
-data/identity/src/main/java/com/confused/anikuta/data/identity/
-├── IdentityRepositoryImpl.kt  — implements IdentityResolver
-├── MatchingEngine.kt          — fuzzy title + year + type matching
-├── MatchKey.kt                — normalization (lowercase, remove punctuation, etc.)
-└── di/IdentityDataModule.kt   — Koin module (binds IdentityRepositoryImpl → IdentityResolver)
+core/watch-progress/src/main/java/com/confused/anikuta/core/watchprogress/
+├── WatchProgressStore.kt     — interface (save, get, observe)
+├── WatchProgress.kt          — data class (episodeKey, position, duration, completed, lastWatchedAt)
+└── di/WatchProgressModule.kt — Koin module (interface only)
 ```
 
-**SQLDelight queries** (in `core/database/src/main/sqldelight/`):
-```
-identity.sq — content_uid, external_reference, episode_uid, episode_external_ref queries
-```
+**Dependencies**: `:core:common` only.
+**Note**: The impl writes to the `watch_progress` table (C2 fix — separate from activity_event). Activity tracker ALSO logs the event (for stats). Two tables, two purposes: progress = current state (small, indexed), activity = historical log (large, append-only).
 
-**Dependencies**: `:core:identity` + `:core:database` + `:core:common`.
-
-**Matching algorithm** (from architecture plan §6):
-1. Exact match: ExternalReference(ecosystem, sourceId, externalId) exists → return uid.
-2. Tracker bridge: if caller provides trackerIds, find ContentUIDs with matching tracker ExternalReferences.
-3. Fuzzy match: matchKey (normalized title + year + type) matches → create new ExternalReference (MEDIUM confidence).
-4. No match: create new ContentUID + ExternalReference (HIGH confidence).
-
-#### 3. `:data:anime`
-**Purpose**: Repository implementations for anime, episodes, categories, library, history, watch progress.
-
-**Files:**
-```
-data/anime/src/main/java/com/confused/anikuta/data/anime/
-├── AnimeRepositoryImpl.kt     — CRUD for content_uid + library_entry
-├── EpisodeRepositoryImpl.kt   — CRUD for episode_uid + episode_metadata_cache
-├── CategoryRepositoryImpl.kt  — CRUD for category + library_entry_category
-├── HistoryRepositoryImpl.kt   — history queries (recently watched, per-content)
-├── WatchProgressRepositoryImpl.kt — watch_progress CRUD
-├── mappers/                   — SQLDelight row → domain model mappers
-└── di/AnimeDataModule.kt      — Koin module
-```
-
-**SQLDelight queries** (in `core/database/src/main/sqldelight/`):
-```
-library.sq     — library_entry + category + library_entry_category queries
-episode.sq     — episode_uid + episode_metadata_cache queries
-watch.sq       — watch_progress queries
-history.sq     — history queries
-```
-
-**Dependencies**: `:core:database` + `:core:identity` + `:core:common`.
-
-**Deliverable**: The database is now fully wired. Can add anime to library, record watch progress, query history. (No UI yet — Phase 4.)
-
-#### 4. `:data:history`
-**Purpose**: History repository + WatchProgressStore implementation. Separate from `:data:anime` per architecture plan C3 fix (WatchProgressStore layering).
-
-**Files:**
-```
-data/history/src/main/java/com/confused/anikuta/data/history/
-├── HistoryRepositoryImpl.kt        — history queries (recently watched, per-content)
-├── WatchProgressRepositoryImpl.kt  — implements WatchProgressStore (from :core:watch-progress)
-└── di/HistoryDataModule.kt         — Koin module
-```
-
-**SQLDelight queries** (in `core/database/src/main/sqldelight/`):
-```
-history.sq  — history queries (INSERT, SELECT recent, SELECT by_content)
-watch.sq    — watch_progress queries (UPSERT, SELECT by_episode, SELECT recent)
-```
-
-**Dependencies**: `:core:database` + `:core:watch-progress` + `:core:common`.
-
-**Why separate from `:data:anime`**: The architecture plan (C3 fix) explicitly requires `:core:player` to depend on the `WatchProgressStore` interface (in `:core:watch-progress`), NOT on `:data:anime`. If `WatchProgressRepositoryImpl` lived in `:data:anime`, then `:core:player` would need to depend on `:data:anime` — a layering violation. With `:data:history` as a separate module, `:core:player` depends only on `:core:watch-progress` (interface), and `:data:history` implements it.
+#### 4. `:core:preferences` (ENHANCED — already exists)
+**Changes**: Add `AppPreferences` (content mode, tracking retention, animation preferences) + `PlayerPreferences` (speed, subtitle style, etc. — copied from old project). [I5 fix: PlayerPreferences lives HERE, not in :core:player]
 
 ---
 
-## Sub-Phase 3b: Extension System
+## Sub-Phase 3b: Extensions (MOST CRUCIAL)
+
+> The user said: "The most crucial part is the extension system." Build it properly, modularly, well-documented.
 
 ### Modules
 
-#### 5. `:core:provider-api`
-**Purpose**: The `ExtensionProvider` abstraction. Declares the contracts that all extension ecosystems implement. Split into per-content-type sub-interfaces (architecture plan C1 fix).
+#### 4. `:core:provider-api`
+**Purpose**: The `ExtensionProvider` abstraction. Split into per-content-type sub-interfaces (architecture plan C1 fix).
 
 **Files:**
 ```
@@ -135,82 +135,116 @@ core/provider-api/src/main/java/com/confused/anikuta/core/providerapi/
 ├── ImageExtensionProvider.kt         — sub-interface (fetchChapterList, fetchPageList) — future
 ├── TextExtensionProvider.kt          — sub-interface (fetchChapterList, fetchTextContent) — future
 ├── Source.kt                         — data class (ecosystem, sourceId, name, lang)
-├── SourceContent.kt                  — data class (title, url, thumbnail)
-├── SourceEpisode.kt                  — data class (number, name, url)
-├── SourceVideo.kt                    — data class (url, quality)
+├── SourceContent.kt                  — data class
+├── SourceEpisode.kt                  — data class
+├── SourceVideo.kt                    — data class
 └── di/ProviderApiModule.kt           — Koin module (empty — just contracts)
 ```
 
-**Dependencies**: `:core:common` (for ContentType).
-**Note**: A provider can implement multiple sub-interfaces (e.g. Mangayomi = Video + Image). The UI filters providers by the active ContentMode.
-
 #### 6. `:core:source-api`
-**Purpose**: Aniyomi-compatible source API. Ships the `eu.kanade.tachiyomi.animesource.*` package for binary compat with Aniyomi extensions.
+**Purpose**: Animiru-compatible source API. Ships the `eu.kanade.tachiyomi.animesource.*` package for binary compat with Animiru extensions.
+
+> **Naming note** (D-043): User said to use "Animiru" not "Aniyomi" for naming. The package `eu.kanade.tachiyomi.*` stays (it's the binary-compat contract — per CORE_RULES §17), but module/class names use "Animiru".
+
+> **Scope warning** (I7 fix): The real Animiru `eu.kanade.tachiyomi.animesource.*` package has ~50+ classes (AnimeSource, AnimeCatalogueSource, AnimeInterceptor, ConfigurableAnimeSource, HttpSource, AnimeHttpSource, UnmeteredSource, SourceFactory, Page, Chapter, etc.). Animiru extensions compile against the FULL surface — they will throw `ClassNotFoundException` at load time if any required class is missing. **Copy the entire package from Animiru's source verbatim** — it's the binary-compat contract.
 
 **Files:**
 ```
 core/source-api/src/main/java/eu/kanade/tachiyomi/animesource/
-├── AnimeSource.kt            — the source interface (Aniyomi-compat)
+├── AnimeSource.kt            — the source interface (Animiru-compat)
 ├── AnimeCatalogueSource.kt   — browseable source
+├── AnimeInterceptor.kt       — request interceptor
+├── ConfigurableAnimeSource.kt — configurable source (preferences)
+├── HttpSource.kt             — HTTP-based source
+├── AnimeHttpSource.kt        — anime HTTP source
 ├── AnimeInfo.kt              — anime metadata from a source
 ├── AnimeEpisode.kt           — episode from a source
 ├── Video.kt                  — playable video URL
 ├── SourceManager.kt          — interface for source registry
-└── injekt/SourceApiInjekt.kt — Injekt bootstrap (registers Application, Context, NetworkHelper, Json)
+├── UnmeteredSource.kt        — unmetered source marker
+├── SourceFactory.kt          — source factory
+└── ... (~50 classes total — copy verbatim from Animiru)
+injekt/SourceApiInjekt.kt     — Injekt bootstrap (registers Application, Context, NetworkHelper, Json)
 ```
 
-**Dependencies**: `:core:network` (for NetworkHelper) + Injekt (isolated — this is the ONLY module that imports `uy.kohesive.injekt` besides `:data:extension-aniyomi`).
-
 **Injekt isolation** (architecture plan §3 rule 6 + I1):
-- `uy.kohesive.injekt` imports allowed ONLY in `:core:source-api` and `:data:extension-aniyomi`.
-- In `:app`, restrict to `AniyomiInjektBootstrap.kt` (Detekt filename allowlist).
+- `uy.kohesive.injekt` imports allowed ONLY in `:core:source-api` and `:data:extension-animiru`.
+- In `:app`, restrict to `AnimiruInjektBootstrap.kt` (Detekt filename allowlist).
+- Registers 4 singletons before extensions load: `Application`, `Context`, `NetworkHelper`, `Json`.
 
-#### 7. `:data:extension-aniyomi`
-**Purpose**: Loads, installs, and manages Aniyomi APK extensions. Implements `VideoExtensionProvider`.
+#### 6. `:data:extension-animiru` (renamed from extension-aniyomi)
+**Purpose**: Loads, installs, and manages Animiru APK extensions. Implements `VideoExtensionProvider`.
 
 **Files:**
 ```
-data/extension-aniyomi/src/main/java/com/confused/anikuta/data/extension/
-├── AnimeExtensionManager.kt   — manages installed extensions (3 StateFlows: installed, updating, available)
-├── ExtensionLoader.kt         — DEX classloader (ChildFirstPathClassLoader)
-├── ExtensionInstaller.kt      — PackageInstaller foreground service
-├── ExtensionRepoApi.kt        — fetches extension lists from repos
-├── ExtensionTrust.kt          — SHA-256 trust set
-├── SourceMatcher.kt           — title similarity matching (Aniyomi source → AniList anime)
-├── AniyomiExtensionProvider.kt — implements VideoExtensionProvider (from :core:provider-api)
-└── di/ExtensionModule.kt      — Koin module
+data/extension-animiru/src/main/java/com/confused/anikuta/data/extension/
+├── AnimiruExtensionManager.kt   — manages installed extensions (3 StateFlows: installed, updating, available)
+├── ExtensionLoader.kt           — DEX classloader (ChildFirstPathClassLoader)
+├── ExtensionInstaller.kt        — PackageInstaller foreground service
+├── ExtensionRepoApi.kt          — fetches extension lists from user-added repos (NO defaults)
+├── ExtensionTrust.kt            — SHA-256 trust set
+├── SourceMatcher.kt             — title similarity matching
+├── AnimiruExtensionProvider.kt  — implements VideoExtensionProvider
+└── di/ExtensionModule.kt        — Koin module
 ```
 
-**Dependencies**: `:core:provider-api` + `:core:source-api` + `:core:network` + `:core:database` (for `installed_source` + `extension_repo` tables) + `:core:identity` (creates ExternalReference when a source provides content).
+**Dependencies**: `:core:provider-api` + `:core:source-api` + `:core:network` + `:core:database` + `:core:common`.
 
-**Injekt isolation** (architecture plan §3 rule 6 + I1):
-- `uy.kohesive.injekt` imports allowed ONLY in `:core:source-api` and `:data:extension-aniyomi`.
-- In `:app`, restrict to `AniyomiInjektBootstrap.kt` (Detekt filename allowlist).
-- Injekt registers 4 singletons before extensions load: `Application`, `Context`, `NetworkHelper`, `Json`.
+**Key decisions:**
+- ❌ **NO default extension repo URLs.** User adds their own repos.
+- ✅ Reuse the old project's extension loading logic (proven).
+- ✅ Documented thoroughly (the user emphasized this).
 
-**Deliverable**: Can install Aniyomi extensions, list their sources, fetch anime from a source.
+**Deliverable**: Can install Animiru extensions from user-added repos, list their sources, fetch anime from a source.
 
 ---
 
-## Sub-Phase 3c: Playback Pipeline
+## Sub-Phase 3c: Playback
+
+> The user said: "Copy-paste the exact same player from the old project because that player is good."
+> **I6 fix**: This is a PORT, not a copy. The old player is XML-View-based → needs `AndroidView` wrapper for Compose. Dependencies (PreferenceStore, NetworkHelper, Logger) must be remapped to ANI-KUTA's modules. MPV lib AAR needs ABI verification (arm64-v8a + armeabi-v7a only).
 
 ### Modules
 
-#### 6. `:core:watch-progress`
-**Purpose**: WatchProgressStore interface (contract module). Resolves the layering issue (architecture plan C3).
+#### 9. `:core:player` (PORTED from old project)
+**Purpose**: MPV wrapper + player controls + watch progress. Port the old project's player — it's proven and the user likes it.
 
 **Files:**
 ```
-core/watch-progress/src/main/java/com/confused/anikuta/core/watchprogress/
-├── WatchProgressStore.kt     — interface (save, get, observe)
-├── WatchProgress.kt          — data class (episodeUid, position, duration, lastWatchedAt)
-└── di/WatchProgressModule.kt — Koin module (interface only — impl in :data:anime)
+core/player/src/main/java/com/confused/anikuta/core/player/
+├── AnikutaMPVView.kt          — MPV wrapper (XML-inflated — needs AndroidView wrapper for Compose)
+├── PlayerController.kt        — play/pause/seek/speed/subtitle/audio track
+├── PlaybackStateStore.kt      — saves last playback state
+├── controls/
+│   ├── ThemedGlass.kt         — themed dark glass (ported)
+│   ├── MinimalSeekbar.kt      — seekbar (ported)
+│   ├── PlayerControls.kt      — fullscreen controls overlay (ported)
+│   └── EpisodeSwitchingOverlay.kt — next/prev episode overlay (ported)
+├── subtitles/
+│   └── SubtitleTrackFormatter.kt — subtitle styling (ported)
+└── di/PlayerModule.kt         — Koin module
 ```
 
-**Dependencies**: `:core:common` only.
-**Note**: The impl (`WatchProgressRepositoryImpl`) lives in `:data:anime` (which has DB access). `:core:player` depends on this interface (writes), `:data:anime` implements it (reads + writes to DB).
+**Port tasks** (I6 fix):
+1. Wrap `AnikutaMPVView` in `AndroidView` for Compose (fullscreen + overlay swap).
+2. Remap dependencies: old `PreferenceStore` → `:core:preferences`, old `NetworkHelper` → `:core:network`, old `Logger` → `:core:common.Logger`.
+3. Audit copied `PlayerPreferences` for ANI-KUTA-incompatible keys (M13).
+4. Verify MPV AAR ABIs (arm64-v8a + armeabi-v7a only — CI check for forbidden lib/x86*).
 
-#### 7. `:core:video-resolver`
+**MPV native library**: Reuse `aniyomi-mpv-lib` AAR (from old project) as a **separate module** (`:core:player-mpv-lib`) so we can swap players easily in the future.
+
+**Watch progress**: Writes to `:core:watch-progress` interface (C3 fix — NOT directly to activity tracker). The impl writes to `watch_progress` table. Activity tracker ALSO logs the event (for stats).
+
+**CORE_RULES §22 compliance** (animations):
+- Player controls overlay: fade-in 200ms, ripple on tap, scale-down on press.
+- Seekbar: smooth drag, no jank.
+- Episode switching: shared element transition where possible.
+
+**CORE_RULES §23 compliance** (live verification):
+- Seek position: optimistic update (UI updates instantly), flush to DB on pause/stop.
+- High-frequency writes (≥1/sec) exempt from read-back (rely on transactional write).
+
+#### 8. `:core:video-resolver`
 **Purpose**: Calls the extension source's `fetchVideoList` → extracts playable video URLs.
 
 **Files:**
@@ -219,208 +253,143 @@ core/video-resolver/src/main/java/com/confused/anikuta/core/videoresolver/
 ├── VideoResolver.kt          — interface (resolve(episode) → Flow<ResolverState>)
 ├── ResolverState.kt          — sealed (Loading, Success(videos), Error)
 ├── VideoResolverImpl.kt      — calls ExtensionProvider.fetchVideoList
-├── HlsHelper.kt              — PNG anti-scraping header stripping (from old project)
+├── HlsHelper.kt              — PNG anti-scraping header stripping (copied from old project)
 └── di/VideoResolverModule.kt — Koin module
 ```
 
-**Dependencies**: `:core:source-api` (for Video type) + `:core:common`.
-**Note**: `:core:player` does NOT depend on `:core:video-resolver`. The `:feature:anime-watch:impl` mediates (architecture plan I10).
-
-#### 8. `:core:player`
-**Purpose**: MPV wrapper + player controls + watch progress writing.
-
-**Files:**
-```
-core/player/src/main/java/com/confused/anikuta/core/player/
-├── AnikutaMPVView.kt          — MPV wrapper (XML-inflated, not Compose)
-├── PlayerController.kt        — play/pause/seek/speed/subtitle/audio track
-├── PlayerPreferences.kt       — player settings (speed, subtitle style, etc.)
-├── PlaybackStateStore.kt      — saves last playback state (speed, tracks)
-├── controls/
-│   ├── ThemedGlass.kt         — themed dark glass for player controls
-│   ├── MinimalSeekbar.kt      — seekbar
-│   ├── PlayerControls.kt      — fullscreen controls overlay
-│   └── EpisodeSwitchingOverlay.kt — next/prev episode overlay
-├── subtitles/
-│   └── SubtitleTrackFormatter.kt — subtitle styling
-└── di/PlayerModule.kt         — Koin module
-```
-
-**Dependencies**: `:core:watch-progress` (writes progress) + `:core:common` + MPV native library (`aniyomi-mpv-lib`).
-**Note**: `AnikutaMPVView` is XML-inflated (not Compose) because `obtainStyledAttributes` requires `XmlBlock$Parser` (from old project analysis).
-
-**Deliverable**: Can play a video URL via MPV, save watch progress, show player controls.
-
----
-
-## Sub-Phase 3d: Supporting Systems
-
-### Modules
-
-#### 9. `:core:download`
-**Purpose**: Download manager for offline playback (HTTP + HLS + resume).
+#### 9. `:core:download` (COPIED from old project)
+**Purpose**: Download manager for offline playback. Copy from old project.
 
 **Files:**
 ```
 core/download/src/main/java/com/confused/anikuta/core/download/
-├── DownloadManager.kt         — manages download queue
-├── DownloadTask.kt            — single download task
-├── HlsDownloader.kt           — HLS segment downloader (with PNG header stripping)
-├── HttpDownloader.kt          — HTTP byte-range downloader
-├── DownloadState.kt           — sealed (Queued, Downloading, Paused, Completed, Failed)
+├── DownloadManager.kt         — manages download queue (copied)
+├── DownloadTask.kt            — single download task (copied)
+├── HlsDownloader.kt           — HLS segment downloader (copied)
+├── HttpDownloader.kt          — HTTP byte-range downloader (copied)
+├── DownloadState.kt           — sealed state
 └── di/DownloadModule.kt       — Koin module
 ```
 
-**Dependencies**: `:core:network` + `:core:database` (for `download_queue` + `downloaded_episode` tables) + `:core:common`.
+#### 10. `:core:player-mpv-lib` (NEW — separate module for the native lib)
+**Purpose**: Wraps the `aniyomi-mpv-lib` AAR as a separate Gradle module. This way we can swap players easily.
 
-#### 10. `:core:episode-metadata`
-**Purpose**: Caches episode metadata (thumbnails, titles, air dates) from multiple sources.
+**Structure:**
+```
+core/player-mpv-lib/
+├── build.gradle.kts           — declares the AAR dependency
+└── libs/aniyomi-mpv-lib.aar   — the native library (from old project)
+```
+
+---
+
+## Sub-Phase 3d: Supporting
+
+### Modules
+
+#### 11. `:core:metadata` (NEW — I9 fix: ONE module, not split by content type)
+**Purpose**: Metadata fetching + user customization. Uses a `MetadataProvider` interface with multiple impls (anime now, movies/manga later). [I9 fix: collapsed from `:core:metadata-anime` + `:core:metadata-movies` + `:core:metadata-manga` into one module with providers — avoids duplicating MetadataMerger + LocalMetadataProvider + cache logic]
 
 **Files:**
 ```
-core/episode-metadata/src/main/java/com/confused/anikuta/core/episodemetadata/
-├── EpisodeMetadataCache.kt    — cache interface + impl
-├── EpisodeMetadataSource.kt   — interface (fetch metadata for an episode)
-├── AniListMetadataSource.kt   — fetches from AniList
-├── JikanMetadataSource.kt     — fetches from Jikan (MyAnimeList API)
-└── di/EpisodeMetadataModule.kt — Koin module (multi-binding: List<EpisodeMetadataSource>)
-```
-
-**Dependencies**: `:core:anilist` + `:core:database` (for `episode_metadata_cache` table) + `:core:common`.
-
-#### 11. `:core:tracker`
-**Purpose**: AniList + MAL tracker sync.
-
-**Files:**
-```
-core/tracker/src/main/java/com/confused/anikuta/core/tracker/
-├── Tracker.kt                 — interface (login, sync, observe)
-├── AniListTracker.kt          — AniList impl (reuses :core:anilist GraphQL client)
-├── MalTracker.kt              — MAL impl (OAuth)
-├── TrackSyncManager.kt        — orchestrates sync across trackers
-├── TrackSyncState.kt          — data class
-└── di/TrackerModule.kt        — Koin module (multi-binding: List<Tracker>)
-```
-
-**Dependencies**: `:core:anilist` (reuses GraphQL client) + `:core:database` (for `tracker_link` + `tracker_sync_state` tables) + `:core:identity` (links tracker IDs to ContentUIDs).
-
-#### 12. `:core:backup`
-**Purpose**: Backup/restore + multi-app import (Aniyomi `.tachibk`, Mangayomi `.backup`).
-
-**Files:**
-```
-core/backup/src/main/java/com/confused/anikuta/core/backup/
-├── BackupManager.kt           — orchestrates backup/restore
-├── BackupProvider.kt          — interface (serialize/deserialize one data category)
-├── BackupContainer.kt         — in-memory backup data (before writing to file)
-├── BackupEntry.kt             — one entry in the container
-├── import/
-│   ├── BackupImporter.kt      — interface (canImport, import)
-│   ├── AniyomiTachibkImporter.kt — handles .tachibk protobuf (Aniyomi + Animiru + Anikku)
-│   └── MangayomiBackupImporter.kt — handles .backup JSON-in-zip
-├── export/
-│   ├── BackupExporter.kt      — interface
-│   └── AnikutaBackupExporter.kt — writes .anikuta format (v2)
+core/metadata/src/main/java/com/confused/anikuta/core/metadata/
+├── MetadataProvider.kt          — interface (fetchContentMetadata, fetchEpisodeMetadata, supportedContentTypes)
+├── ContentMetadata.kt           — data class (title, description, genres, status, year, coverUrl, ...)
+├── EpisodeMetadata.kt           — data class (title, thumbnailUrl, airDate, description, ...)
+├── MetadataMerger.kt            — merges multiple sources (local override → AniList → extension)
+├── MetadataRegistry.kt          — queries List<MetadataProvider> by content type
 ├── providers/
-│   ├── LibraryBackupProvider.kt       — serializes library_entry + content_uid + external_reference
-│   ├── AnimeDetailsBackupProvider.kt  — serializes content_metadata_cache (description, genres, status)
-│   ├── EpisodeBackupProvider.kt       — serializes episode_uid + episode_external_ref
-│   ├── EpisodeMetadataBackupProvider.kt — serializes episode_metadata_cache
-│   ├── CategoryBackupProvider.kt      — serializes category + library_entry_category
-│   ├── HistoryBackupProvider.kt       — serializes history
-│   ├── WatchProgressBackupProvider.kt — serializes watch_progress
-│   ├── TrackerBackupProvider.kt       — serializes tracker_link
-│   ├── SourceLinkBackupProvider.kt    — serializes installed_source + extension_repo
-│   ├── DownloadBackupProvider.kt      — serializes downloaded_episode (metadata only, not files)
-│   └── PreferencesBackupProvider.kt   — serializes preferences
-└── di/BackupModule.kt         — Koin module (multi-binding: List<BackupProvider>, List<BackupImporter>)
+│   ├── AniListMetadataProvider.kt  — fetches from AniList GraphQL (reuses :core:anilist — I8 fix)
+│   └── LocalMetadataProvider.kt    — fetches from user_customization table (user overrides)
+└── di/MetadataModule.kt          — Koin module (multi-binding: List<MetadataProvider>)
 ```
 
-**Dependencies**: `:core:identity` (calls `IdentityResolver.resolveOrCreate()` on import) + `:core:database` + `:data:anime` (repositories) + `:data:history` (watch progress + history repos) + `:core:preferences` + `:core:common` + `kotlinx-serialization-protobuf` (for Aniyomi format).
+**Dependencies**: `:core:anilist` (I8 fix — thin adapter, not re-implementation) + `:core:database` + `:core:common`.
 
-**Layering note** (P4 fix): `:core:backup` depends on repository interfaces from `:data:anime` and `:data:history`. To avoid a tight coupling, `:core:backup` defines a `BackupDataAccessor` interface; `:data:anime` and `:data:history` provide the implementation. This way `:core:backup` only depends on the interface, not the concrete repositories.
+**Future providers** (not in Phase 3):
+- `TmdbMetadataProvider` — movies and series (when movies content type is added).
+- `JikanMetadataProvider` — manga (when manga reader is built).
 
-**Merge semantics** (from architecture plan §7.5):
-- `watch_progress`: MAX(progress_a, progress_b)
-- `history`: UNION by (contentUid, episodeUid, timestamp)
-- `categories`: UNION by name
-- `tracker_bindings`: UNION by (contentUid, ecosystem)
-- `library_flag`: OR
+**User customization** (KEY feature the user wants):
+- Users can change the thumbnail image of an anime/episode.
+- Users can change the title.
+- Users can change the description.
+- These overrides are stored in `user_customization` table.
+- `LocalMetadataProvider` serves these overrides (highest priority).
+- `MetadataMerger` merges: local override → AniList → extension source.
 
-**Deliverable**: Can export the app's data to `.anikuta` format, import from Aniyomi/Mangayomi backups.
+#### 12. `:core:tracker-anilist` (NEW — AniList only for now)
+**Purpose**: AniList tracker sync. MAL and others come later. Internal tracking (`:core:activity-tracker`) is the priority — this is secondary.
 
----
-
-## Phase 3 Module Dependency Graph
-
+**Files:**
 ```
-:core:common ←─────────────────────────────────────────────
-    │                                                       
-    ├── :core:identity ←── :data:identity ←── :data:anime
-    │         ↑                        ↑           │
-    │         │                        │           │
-    │    :data:extension-aniyomi ──────┘           │
-    │         │                                    │
-    │    :core:source-api                         │
-    │         ↑                                    │
-    │    :core:video-resolver                      │
-    │                                               │
-    ├── :core:watch-progress ←── :core:player      │
-    │         ↑                        │           │
-    │    :data:anime (impl) ────────────┘           │
-    │                                               │
-    ├── :core:download ←── :core:network           │
-    ├── :core:episode-metadata ←── :core:anilist   │
-    ├── :core:tracker ←── :core:anilist ───────────┘
-    └── :core:backup ←── :data:anime + :core:identity
+core/tracker-anilist/src/main/java/com/confused/anikuta/core/trackeranilist/
+├── AniListTracker.kt          — implements Tracker interface (login, sync, observe)
+├── AniListOAuth.kt            — OAuth2 flow
+├── TrackSyncManager.kt        — orchestrates sync (internal tracking → AniList)
+└── di/TrackerAniListModule.kt — Koin module
+```
+
+**Priority**: Internal tracking (`:core:activity-tracker`) is built FIRST (3a). AniList sync (this module) is built LAST (3d). The user wants to understand internal tracking before adding external sync.
+
+#### 13. `:core:tracker-api` (NEW — tracker contracts)
+**Purpose**: The `Tracker` interface. Separate from the AniList impl so we can add MAL/Shikimori later.
+
+**Files:**
+```
+core/tracker-api/src/main/java/com/confused/anikuta/core/trackerapi/
+├── Tracker.kt                 — interface (login, sync, observe)
+├── TrackerType.kt             — enum (ANILIST, MAL, SHIKIMORI — future)
+└── di/TrackerApiModule.kt     — Koin module
 ```
 
 ---
 
-## Phase 3 Deliverables
-
-After all 4 sub-phases:
-1. **Identity system** working — ContentUID + ExternalReference, matching engine.
-2. **Database** fully populated — all 17 active tables.
-3. **Aniyomi extensions** loadable — can install + browse sources.
-4. **Video pipeline** working — resolve video URL → play via MPV → save progress.
-5. **Downloads** working — queue + download + offline playback.
-6. **Trackers** working — AniList/MAL sync.
-7. **Backup/restore** working — export + import from Aniyomi/Mangayomi.
-
-**What's NOT in Phase 3** (deferred to Phase 4):
-- UI screens for library, history, watch, settings, etc.
-- The Phase 2 Browse + Details screens get enhanced to use the new data layer.
-
----
-
-## Phase 3 Build Order (Recommended)
+## Phase 3 Build Order (Refined)
 
 | Step | Module | Sub-phase | Why this order |
 |------|--------|-----------|----------------|
-| 1 | `:core:identity` | 3a | Foundation — everything depends on it. |
-| 2 | `:data:identity` | 3a | Implements the identity interface. |
-| 3 | `:data:anime` | 3a | Repositories for library/episodes/categories. |
-| 4 | `:core:watch-progress` | 3c | Contract interface (needed before :data:history). |
-| 5 | `:data:history` | 3a | Watch progress impl + history queries (needs watch-progress interface). |
-| 6 | `:core:provider-api` | 3b | ExtensionProvider contracts (needed before :data:extension-aniyomi). |
-| 7 | `:core:source-api` | 3b | Aniyomi-compat source API (Injekt isolated). |
-| 8 | `:data:extension-aniyomi` | 3b | Extension loader (needs provider-api + source-api + identity). |
-| 9 | `:core:video-resolver` | 3c | Needs source-api. |
-| 10 | `:core:player` | 3c | Needs watch-progress interface. MPV native lib. |
-| 11 | `:core:download` | 3d | Needs network. |
-| 12 | `:core:episode-metadata` | 3d | Needs anilist + database. |
-| 13 | `:core:tracker` | 3d | Needs anilist + identity. |
-| 14 | `:core:backup` | 3d | Needs identity + data:anime + data:history. Last — it ties everything together. |
+| 1 | `:core:database` (enhanced) | 3a | Add basic tables (no identity system). |
+| 2 | `:core:watch-progress` | 3a | Contract interface (needed before player + activity tracker). |
+| 3 | `:core:activity-tracker` | 3a | Internal tracking — the user's KEY requirement. |
+| 4 | `:core:preferences` (enhanced) | 3a | Player prefs + app prefs. |
+| 5 | `:core:provider-api` | 3b | Extension contracts (needed before extension-animiru). |
+| 6 | `:core:source-api` | 3b | Animiru-compat source API (Injekt isolated). [I7: ~50 classes from Animiru] |
+| 7 | `:data:extension-animiru` | 3b | Extension loader (MOST CRUCIAL). |
+| 8 | `:core:player-mpv-lib` | 3c | Native lib wrapper (separate module). |
+| 9 | `:core:player` | 3c | MPV player (ported from old project — I6). |
+| 10 | `:core:video-resolver` | 3c | Video URL resolver. |
+| 11 | `:core:download` | 3c | Download manager (ported). |
+| 12 | `:core:metadata` | 3d | Metadata + user customization (I9: one module). |
+| 13 | `:core:tracker-api` | 3d | Tracker contracts. |
+| 14 | `:core:tracker-anilist` | 3d | AniList sync (after internal tracking is proven). |
+
+---
+
+## What's Deferred (Phase 4+)
+
+| Deferred item | Why | When |
+|---------------|-----|------|
+| `:core:identity` + `:data:identity` | Complex — needs proper understanding first. | Phase 4 (after core features work). |
+| `:data:anime` (library/history repos) | Needs identity system. | Phase 4. |
+| `:core:backup` | Needs identity system + all data tables. | Phase 5. |
+| `:core:metadata-movies` | Future content type. | Phase 7+. |
+| `:core:metadata-manga` | Future content type. | Phase 7 (manga reader). |
+| MAL/Shikimori trackers | AniList first. | Phase 5+. |
 
 ---
 
 ## Open Questions for User
 
-1. **MPV native library**: The old project uses `aniyomi-mpv-lib`. Do we use the same, or build a new wrapper? (Recommend: reuse — it's proven.)
-2. **Aniyomi extension repo**: Do we include the default Aniyomi extension repo URL, or let users add their own? (Recommend: include defaults but make them removable.)
-3. **Tracker OAuth**: AniList uses OAuth2. MAL uses OAuth2. Do we implement both in Phase 3, or AniList first? (Recommend: AniList first — MAL is similar pattern, can follow quickly.)
-4. **Backup format**: The `.anikuta` v2 format includes ContentUID + ExternalReference. Should it also include downloaded files (large)? (Recommend: no — backup is metadata only. Downloads are re-downloadable.)
+1. **DB deferral contradiction**: I recommend deferring the IDENTITY SYSTEM but keeping basic tables (extensions, metadata cache, activity tracking, user customizations). Is this what you want? (See "Honest Flag" at the top.)
+
+2. **Watch progress storage**: I propose storing watch progress as `activity_event` rows (the internal tracker handles it). No separate `watch_progress` table for now. OK?
+
+3. **Content identification (temporary)**: Until the identity system is built, how do we identify content? I propose using `(ecosystem, source_id, external_id)` as a composite key, OR AniList ID when available. The identity system (Phase 4) will introduce ContentUID and migrate. OK?
+
+4. **Player copy depth**: When copying the player from the old project, do you want an EXACT copy (same code, same behavior) or should I clean it up / modernize it while copying?
+
+5. **Extension repo UX**: Since there are no default repos, the first-launch experience needs an "Add Extension Repo" screen. Should this be part of the Setup Wizard (Phase 4) or a prompt when the user first opens Browse?
 
 ---
 
@@ -428,8 +397,8 @@ After all 4 sub-phases:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| MPV native lib build issues | Medium | High | Use pre-built `aniyomi-mpv-lib` AAR. Test on CI. |
-| Aniyomi extension compat breaks | Low | High | Pin to a specific Aniyomi source-api version. Test with a few popular extensions. |
-| Injekt isolation hard to enforce | Medium | Medium | Detekt rule (path + filename allowlist). CI check. |
-| Phase 3 is large (12 modules) | High | Medium | Split into 4 sub-phases. Each sub-phase is independently testable. |
-| SQLDelight schema migration complexity | Medium | Medium | Use the old project's proven migration pattern (one-shot flags, try/catch). |
+| Extension system complexity | High | High | Build it first (3b), test thoroughly, document well. |
+| MPV native lib build issues | Medium | High | Reuse old project's AAR. Separate module for easy swap. |
+| Temporary content ID breaks on identity migration | Medium | Medium | Use a stable composite key. Plan the migration path now. |
+| Internal tracking schema too simple for future needs | Medium | Medium | Use a flexible `activity_event` table with JSON `payload` column. |
+| User customization UX complexity | Medium | Low | Start with basic override (title, thumbnail, description). Expand later. |
