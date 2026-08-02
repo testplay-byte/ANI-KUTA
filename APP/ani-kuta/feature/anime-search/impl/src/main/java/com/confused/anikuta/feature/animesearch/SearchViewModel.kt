@@ -40,6 +40,7 @@ class SearchViewModel(
     companion object {
         private const val TAG = "Anikuta:Feature:Search"
         private const val KEY_RECENT_SEARCHES = "search_recent_anilist"
+        private const val KEY_RECENTS_COLLAPSED = "search_recents_collapsed"
         private const val DEBOUNCE_MS = 350L
         private const val MAX_RECENTS = 10
     }
@@ -59,9 +60,46 @@ class SearchViewModel(
     private val _recents = MutableStateFlow<List<String>>(emptyList())
     val recents: StateFlow<List<String>> = _recents.asStateFlow()
 
+    // ── Filters (UI-only for now — applied filter state lives in the VM so
+    //    the FilterSheet edits a pending copy + Apply syncs. Phase 5 will wire
+    //    these to AniList's filter GraphQL args.) ──
+    private val _pendingFilters = MutableStateFlow(SearchFilters.Empty)
+    val pendingFilters: StateFlow<SearchFilters> = _pendingFilters.asStateFlow()
+
+    private val _appliedFilters = MutableStateFlow(SearchFilters.Empty)
+    val appliedFilters: StateFlow<SearchFilters> = _appliedFilters.asStateFlow()
+
+    /** Recent-searches card collapsed state (persisted across sessions). */
+    private val _recentsCollapsed = MutableStateFlow(
+        preferenceStore.getBoolean(KEY_RECENTS_COLLAPSED, false),
+    )
+    val recentsCollapsed: StateFlow<Boolean> = _recentsCollapsed.asStateFlow()
+
     init {
         loadRecents()
         observeQuery()
+    }
+
+    // ── Filter handlers ──
+
+    fun onPendingFiltersChange(filters: SearchFilters) {
+        _pendingFilters.value = filters
+    }
+
+    fun onClearAllFilters() {
+        _pendingFilters.value = SearchFilters.Empty
+        _appliedFilters.value = SearchFilters.Empty
+    }
+
+    fun onApplyFilters() {
+        _appliedFilters.value = _pendingFilters.value
+        // ponytail: not wired to AniList query yet — Phase 5 will re-search here.
+    }
+
+    fun toggleRecentsCollapsed() {
+        val newValue = !_recentsCollapsed.value
+        _recentsCollapsed.value = newValue
+        preferenceStore.putBoolean(KEY_RECENTS_COLLAPSED, newValue)
     }
 
     fun onQueryChange(value: String) {

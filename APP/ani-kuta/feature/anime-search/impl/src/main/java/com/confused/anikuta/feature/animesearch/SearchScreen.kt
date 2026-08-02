@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.animesearch
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -31,21 +28,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ManageSearch
-import androidx.compose.material.icons.filled.ClearAll
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassEmpty
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.SentimentDissatisfied
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +50,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,18 +64,13 @@ import org.koin.compose.viewmodel.koinViewModel
 /**
  * The Search screen — a dual-source search experience.
  *
- * Ported from the old project's `SearchScreen.kt` with simplified scope:
- *  - AniList source works today (queries AniList GraphQL search).
- *  - Extension source is stubbed ("not available yet" state) — needs the
- *    extension system which is Phase 5.
- *
  * Layout:
  *  - SearchTopBar (collapsing — title + source toggle + search bar + filters/sort row).
  *  - Scrollable content below:
  *    - Recent searches (shown when query is blank, no filters, and recents exist).
  *    - Results grid (or loading / empty / error / not-available state).
- *  - ScrollBlurOverlay at the top edge (fades in when content scrolls under header).
- *  - "AniList is being a tsundere" replaces the raw error message.
+ *  - ScrollBlurOverlay at the top edge.
+ *  - FilterSheet (ModalBottomSheet, dragHandle = null, Accordion + Flat views).
  *
  * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing, scale on press).
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
@@ -94,14 +85,15 @@ fun SearchScreen(
     val source by viewModel.source.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val recents by viewModel.recents.collectAsState()
+    val recentsCollapsed by viewModel.recentsCollapsed.collectAsState()
+    val pendingFilters by viewModel.pendingFilters.collectAsState()
 
     val scrollState = rememberScrollState()
     val gridState = rememberLazyGridState()
     val collapsed = scrollState.value > 20
 
-    // Filter button is decorative for now (Phase 4: filter sheet will be added
-    // in a follow-up). Surface it so the UI matches the old project's look.
-    val activeFilterCount = 0
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val activeFilterCount = pendingFilters.activeCount
 
     Column(modifier = Modifier.fillMaxSize()) {
         SearchTopBar(
@@ -112,7 +104,7 @@ fun SearchScreen(
             source = source,
             onSourceSelect = viewModel::onSourceChange,
             onSubmit = viewModel::onSubmit,
-            onOpenFilters = { /* Phase 4: FilterSheet */ },
+            onOpenFilters = { showFilterSheet = true },
             activeFilterCount = activeFilterCount,
             sort = sort,
             onSortChange = viewModel::onSortChange,
@@ -131,12 +123,13 @@ fun SearchScreen(
                         if (recents.isNotEmpty()) {
                             RecentSearchesCard(
                                 recents = recents,
+                                collapsed = recentsCollapsed,
+                                onToggleCollapsed = viewModel::toggleRecentsCollapsed,
                                 onPick = viewModel::onPickRecent,
                                 onRemove = viewModel::onRemoveRecent,
                                 onClear = viewModel::onClearRecents,
                             )
                         } else {
-                            // Default prompt when there are no recents.
                             SearchPromptCard(
                                 title = "Search anime",
                                 description = "Find series on AniList by title. Tap a result to view details.",
@@ -182,8 +175,6 @@ fun SearchScreen(
                 }
             }
 
-            // Scroll blur overlay — fades in when content scrolls under the header.
-            // Uses the LazyGridState scroll offset when results are shown.
             ScrollBlurOverlay(
                 scrollOffset = {
                     when (uiState) {
@@ -199,6 +190,23 @@ fun SearchScreen(
             )
         }
     }
+
+    // ── Filter sheet ──
+    FilterSheet(
+        show = showFilterSheet,
+        pendingFilters = pendingFilters,
+        appliedSort = sort.apiValue,
+        onPendingFiltersChange = viewModel::onPendingFiltersChange,
+        onSortChange = { apiValue ->
+            SearchSort.entries.firstOrNull { it.apiValue == apiValue }?.let(viewModel::onSortChange)
+        },
+        onClearAll = viewModel::onClearAllFilters,
+        onApply = {
+            viewModel.onApplyFilters()
+            showFilterSheet = false
+        },
+        onDismiss = { showFilterSheet = false },
+    )
 }
 
 // ── Results grid ──
@@ -248,7 +256,6 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
                 onClick = { onClick(anime.id) },
             ),
     ) {
-        // Cover image — 2:3 aspect ratio (compact grid style — same as Library)
         AsyncImage(
             model = anime.coverUrl,
             contentDescription = anime.displayName,
@@ -259,7 +266,6 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
                 .clip(RoundedCornerShape(12.dp)),
         )
 
-        // Title overlay at bottom with gradient
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -290,145 +296,6 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
             )
-        }
-    }
-}
-
-// ── Recent searches ──
-
-@Composable
-private fun RecentSearchesCard(
-    recents: List<String>,
-    onPick: (String) -> Unit,
-    onRemove: (String) -> Unit,
-    onClear: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = "Recent searches",
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(50),
-                modifier = Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClear,
-                ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.ClearAll,
-                        contentDescription = "Clear recents",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "Clear",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        recents.forEach { term ->
-            RecentRow(
-                term = term,
-                onPick = { onPick(term) },
-                onRemove = { onRemove(term) },
-            )
-            Spacer(Modifier.height(4.dp))
-        }
-    }
-}
-
-@Composable
-private fun RecentRow(
-    term: String,
-    onPick: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
-        label = "recentRowScale",
-    )
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onPick,
-            ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Schedule,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = term,
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onRemove,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Remove recent",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
         }
     }
 }
@@ -477,7 +344,7 @@ private fun SearchPromptCard(
             fontSize = 14.sp,
             fontWeight = FontWeight.Normal,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            textAlign = TextAlign.Center,
             maxLines = 4,
             overflow = TextOverflow.Ellipsis,
         )

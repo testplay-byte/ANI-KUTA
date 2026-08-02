@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
     primary = PrimaryDark,
@@ -45,13 +46,31 @@ private val LightColorScheme = lightColorScheme(
 /**
  * ANI-KUTA theme — lime accent on warm-purple-tinted darks (default).
  * Follows DESIGN-LANGUAGE.md.
+ *
+ * @param darkTheme Whether to use the dark color scheme.
+ * @param amoled When `true` AND `darkTheme`, swaps backgrounds/surfaces to
+ *               pure `Color.Black` for OLED screens (saves power on AMOLED).
+ * @param content The content to theme.
  */
 @Composable
 fun AnikutaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    amoled: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val baseScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = if (darkTheme && amoled) {
+        baseScheme.copy(
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceVariant = Color(0xFF111111),
+            surfaceContainer = Color(0xFF0A0A0A),
+            surfaceContainerHigh = Color(0xFF161616),
+            surfaceContainerHighest = Color(0xFF1A1A1A),
+        )
+    } else {
+        baseScheme
+    }
     MaterialTheme(
         colorScheme = colorScheme,
         typography = AnikutaTypography,

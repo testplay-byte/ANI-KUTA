@@ -21,6 +21,7 @@ import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
 import com.confused.anikuta.feature.animesearch.di.searchModule
+import com.confused.anikuta.settings.ThemePreferences
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -74,6 +75,7 @@ class AnikutaApp : Application() {
             single { PreferenceStore(get()) }
             single { AppPreferences(get()) }
             single { PlayerPreferences(get()) }
+            single { ThemePreferences(get()) }
         }
     }
 }

@@ -37,23 +37,11 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
  *  - **Activities**: History (recently watched), Updates (new episodes).
  *  - **Library**: Downloads (downloaded episodes).
  *  - **Account**: Profile (stats and trackers), Trackers (AniList, MAL).
- *
- * Each row uses [MoreListRow] — surfaceVariant 0.4 alpha bg, 12dp rounded,
- * 24dp primary-tinted icon, 16sp ExtraBold title, 13sp Normal subtitle,
- * trailing chevron right. All text uses fontFamily = RobotoFamily.
- *
- * CORE_RULES §22: smooth animations (CollapsingHeader + ScrollBlurOverlay).
- * CORE_RULES §23: no live data here yet — entries are static. Phase 4+ will
- *                  wire Profile/History/etc to their respective ViewModels.
- *
- * NOTE: Phase 4a — every row's `onClick` is a no-op for now (the destination
- * screens don't exist yet). Tapping does nothing harmful; press feedback still
- * plays so the user sees the row react. Will be wired in Phase 4b+.
  */
 @Composable
-fun MoreScreen() {
-    // The More screen uses a LazyColumn. We track scroll to drive the
-    // CollapsingHeader collapse + ScrollBlurOverlay.
+fun MoreScreen(
+    onOpenSettings: () -> Unit,
+) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
@@ -84,7 +72,7 @@ fun MoreScreen() {
                             icon = Icons.Filled.Settings,
                             title = "Settings",
                             subtitle = "Theme, display, data management",
-                            onClick = { /* Phase 4b: navigate to Settings */ },
+                            onClick = onOpenSettings,
                         )
                     }
 
@@ -157,3 +145,4 @@ fun MoreScreen() {
         }
     }
 }
+
