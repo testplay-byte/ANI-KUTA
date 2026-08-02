@@ -37,6 +37,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Phase 1 plan — module tree, dependency rules, data flow, identity, multi-extension" },
   { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-027..D-041 (all confirmed)" },
   { label: "Modules", href: "/modules/", icon: "modules", desc: "43-module hierarchy + tree view" },
+  { label: "Database", href: "/database/", icon: "database", desc: "Phase 3 schema — 21 tables, ER diagram, indexes, FK relationships" },
+  { label: "Phase 3", href: "/phase3/", icon: "phase3", desc: "Phase 3 plan — 14 core modules in 4 sub-phases, build order, dependency graph" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
   { label: "Progress", href: "/progress/", icon: "progress", desc: "Phase list, status, blockers, Phase 2 scaffold" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },

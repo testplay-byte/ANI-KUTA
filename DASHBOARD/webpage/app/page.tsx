@@ -58,6 +58,28 @@ export default function OverviewPage() {
                 View Architecture Plan
               </span>
             </Link>
+            <Link href="/database/" className="no-underline">
+              <span
+                className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium text-white transition-all duration-200 hover:translate-y-[-1px]"
+                style={{
+                  backgroundColor: "var(--c-secondary)",
+                  boxShadow: "0 4px 12px var(--c-secondary)33, 0 1px 2px rgba(0,0,0,0.06)",
+                }}
+              >
+                Database Schema
+              </span>
+            </Link>
+            <Link href="/phase3/" className="no-underline">
+              <span
+                className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium text-white transition-all duration-200 hover:translate-y-[-1px]"
+                style={{
+                  backgroundColor: "var(--c-warning)",
+                  boxShadow: "0 4px 12px var(--c-warning)33, 0 1px 2px rgba(0,0,0,0.06)",
+                }}
+              >
+                Phase 3 Plan
+              </span>
+            </Link>
             <Link href="/design/" className="no-underline">
               <span className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium bg-chip border border-border text-text-secondary transition-all duration-200 hover:translate-y-[-1px] hover:text-text-primary">
                 Design Language
@@ -88,6 +110,151 @@ export default function OverviewPage() {
       <Card>
         <WorkflowLoop />
       </Card>
+
+      {/* Phase 3 Foundation — two new pages (Database + Phase 3 Plan) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Link href="/database/" className="no-underline group">
+          <Card className="!p-0 overflow-hidden h-full transition-all duration-200 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] hover:-translate-y-[1px]">
+            {/* Header strip */}
+            <div
+              className="h-[100px] p-5 flex flex-col justify-between"
+              style={{
+                background:
+                  "linear-gradient(135deg, #2A2825 0%, #3A3733 60%, #6366F1 140%)",
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div
+                    className="text-[10px] font-medium uppercase tracking-widest"
+                    style={{ color: "#A8A39C" }}
+                  >
+                    Phase 3 Foundation
+                  </div>
+                  <div
+                    className="text-[18px] font-bold tracking-extra-tight mt-0.5"
+                    style={{ color: "#F5F1EB", letterSpacing: "-0.02em" }}
+                  >
+                    Database Schema
+                  </div>
+                </div>
+                {/* mini table glyph */}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#A8A39C"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-7 h-7 shrink-0"
+                  aria-hidden="true"
+                >
+                  <ellipse cx="12" cy="5" rx="8" ry="2.5" />
+                  <path d="M4 5v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V5" />
+                  <path d="M4 11v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" />
+                </svg>
+              </div>
+              <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#C9C3BB" }}>
+                <span>21 tables</span>
+                <span className="opacity-50">·</span>
+                <span>19 active</span>
+                <span className="opacity-50">·</span>
+                <span>2 deferred</span>
+                <span className="opacity-50">·</span>
+                <span>10 groups</span>
+              </div>
+            </div>
+            {/* Body */}
+            <div className="p-5">
+              <p className="text-[13px] text-text-secondary leading-relaxed mb-3">
+                The complete SQL schema — ContentUID backbone, library + watch +
+                downloads + trackers + extensions + metadata + app_metadata.
+                ER diagram, per-table column/index/constraint breakdowns, and
+                filter by group.
+              </p>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <MiniStat label="Tables" value="21" />
+                <MiniStat label="Columns" value="120+" />
+                <MiniStat label="Indexes" value="20+" />
+              </div>
+              <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-primary)] group-hover:underline">
+                Explore schema →
+              </span>
+            </div>
+          </Card>
+        </Link>
+
+        <Link href="/phase3/" className="no-underline group">
+          <Card className="!p-0 overflow-hidden h-full transition-all duration-200 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] hover:-translate-y-[1px]">
+            {/* Header strip */}
+            <div
+              className="h-[100px] p-5 flex flex-col justify-between"
+              style={{
+                background:
+                  "linear-gradient(135deg, #2A2825 0%, #3A3733 60%, #F59E0B 140%)",
+              }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div
+                    className="text-[10px] font-medium uppercase tracking-widest"
+                    style={{ color: "#A8A39C" }}
+                  >
+                    Core Modules Plan
+                  </div>
+                  <div
+                    className="text-[18px] font-bold tracking-extra-tight mt-0.5"
+                    style={{ color: "#F5F1EB", letterSpacing: "-0.02em" }}
+                  >
+                    Phase 3 Plan
+                  </div>
+                </div>
+                {/* mini rocket glyph */}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#A8A39C"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-7 h-7 shrink-0"
+                  aria-hidden="true"
+                >
+                  <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+                  <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+                  <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                  <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+                </svg>
+              </div>
+              <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#C9C3BB" }}>
+                <span>14 modules</span>
+                <span className="opacity-50">·</span>
+                <span>4 sub-phases</span>
+                <span className="opacity-50">·</span>
+                <span>14-step build order</span>
+              </div>
+            </div>
+            {/* Body */}
+            <div className="p-5">
+              <p className="text-[13px] text-text-secondary leading-relaxed mb-3">
+                The engine room — identity, extensions, player, downloads,
+                trackers, backup. Sub-phase timeline (3a → 3b → 3c → 3d),
+                dependency graph, and 4 open questions for user input.
+              </p>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <MiniStat label="Modules" value="14" />
+                <MiniStat label="Sub-phases" value="4" />
+                <MiniStat label="Open Qs" value="4" />
+              </div>
+              <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-warning)] group-hover:underline">
+                View Phase 3 plan →
+              </span>
+            </div>
+          </Card>
+        </Link>
+      </div>
 
       {/* Two-column: current phase + design language */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

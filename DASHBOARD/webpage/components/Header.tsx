@@ -51,6 +51,14 @@ const ROUTE_META: Record<string, { title: string; desc: string }> = {
     title: "Planning",
     desc: "Gantt chart timeline, Kanban task board, and per-phase checklists.",
   },
+  "/database": {
+    title: "Database Schema",
+    desc: "The complete Phase 3 SQL schema — 21 tables (19 active + 2 deferred) across 10 groups, ER diagram, indexes, and FK relationships.",
+  },
+  "/phase3": {
+    title: "Phase 3 Plan",
+    desc: "The 14 core infrastructure modules in 4 sub-phases (3a Foundation, 3b Extensions, 3c Playback, 3d Supporting) — build order, dependency graph, open questions.",
+  },
 };
 
 export function Header() {
@@ -85,7 +93,11 @@ export function Header() {
       ? ROUTE_META["/modules"]
       : current.startsWith("/design")
         ? ROUTE_META["/design"]
-        : ROUTE_META["/"]);
+        : current.startsWith("/database")
+          ? ROUTE_META["/database"]
+          : current.startsWith("/phase3")
+            ? ROUTE_META["/phase3"]
+            : ROUTE_META["/"]);
 
   return (
     <header className="sticky top-0 z-30 bg-canvas/80 backdrop-blur-xl border-b border-border/60">
