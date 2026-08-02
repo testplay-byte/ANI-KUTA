@@ -30,3 +30,4 @@
 - [MISTAKE] SQLDelight 2.3.2 has compatibility issues with Kotlin 2.2.0 — use 2.0.2 (the old project's proven version). Don't always use the "latest" without verifying compatibility. (source: Phase 2 CI iteration 2, 2026-08-02)
 - [PATTERN] When a module exposes a third-party type in its public API (return type, constructor parameter), use `api(libs.X)` not `implementation(libs.X)`. Otherwise consumers get "Cannot access class" errors. (source: Phase 2 CI iteration 4, 2026-08-02)
 - [INSIGHT] CI `timeout-minutes` includes queue wait time. Set it to 30+ min for GitHub-hosted runners (queue delays of 10-15 min are common). (source: Phase 2 CI iteration 3, 2026-08-02)
+- [MISTAKE] `count` is a reserved keyword in SQLDelight's SQL grammar — can't use as a column alias. Use `event_count` or another non-reserved name. (source: Phase 3a CI iteration 1, 2026-08-02)

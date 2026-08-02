@@ -22,6 +22,8 @@ dependencies {
     implementation(project(":core:anilist"))
     implementation(project(":core:watch-progress"))
     implementation(project(":core:activity-tracker"))
+    implementation(project(":core:provider-api"))
+    implementation(project(":core:source-api"))
 
     // Feature modules (impl — the app wires them)
     implementation(project(":feature:anime-browse:api"))

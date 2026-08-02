@@ -12,6 +12,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
@@ -30,6 +31,8 @@ include(":core:network")
 include(":core:anilist")
 include(":core:watch-progress")
 include(":core:activity-tracker")
+include(":core:provider-api")
+include(":core:source-api")
 
 // ── :feature (api/impl split per Nav3 Pattern B) ──
 include(":feature:anime-browse:api")
