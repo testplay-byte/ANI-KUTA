@@ -311,3 +311,34 @@ ANIKUTA-PROJECT/
 - Writes return `Result<T>` (success/failure) — handle both in the ViewModel.
 - ViewModels expose `StateFlow<UiState>` — UI collects and renders.
 - Optimistic updates: update the UI state immediately, then confirm with the backend. Roll back on failure.
+
+---
+
+## 24. Database Documentation — Always Up to Date
+
+> The database is a crucial part of the app. Its structure must be documented and kept in sync with the code at all times.
+
+### Rules
+1. **Dedicated documentation**: All database schema documentation lives in `APP/ani-kuta/DOCUMENTATION/database/`. One file per table group, plus a README index.
+2. **Update on every change**: Whenever a table is added, modified, or removed (including columns, indexes, constraints), the corresponding documentation file MUST be updated in the SAME commit. No "document it later."
+3. **Document what + why**: Each table documents its columns (name, type, constraints, description) AND why it exists (what problem it solves, what queries it supports).
+4. **Migration log**: Every schema migration (`.sqm` file) must have a corresponding entry in `APP/ani-kuta/DOCUMENTATION/database/changelog.md` — what changed, why, when.
+5. **ER diagram**: Keep the entity relationship diagram in `APP/ani-kuta/DOCUMENTATION/database/er-diagram.md` updated when relationships change.
+6. **Verify before commit**: Before committing a DB change, verify the docs match the `.sq` files. If they don't match, the commit is incomplete.
+
+### File Structure
+```
+APP/ani-kuta/DOCUMENTATION/database/
+├── README.md              — index of all tables + groups
+├── er-diagram.md          — entity relationship diagram
+├── changelog.md           — migration history (version, date, what changed)
+├── identity.md            — identity group tables (Phase 4+)
+├── library.md             — library group tables (Phase 4+)
+├── watch.md               — watch progress + history tables
+├── downloads.md           — download queue + downloaded files tables
+├── extensions.md          — installed sources + extension repos tables
+├── metadata.md            — content + episode metadata cache tables
+├── tracking.md            — activity event table (internal tracking)
+├── customization.md       — user customization table
+└── app.md                 — app_metadata table (existing)
+```

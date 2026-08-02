@@ -28,6 +28,8 @@ include(":core:preferences")
 include(":core:navigation-api")
 include(":core:network")
 include(":core:anilist")
+include(":core:watch-progress")
+include(":core:activity-tracker")
 
 // ── :feature (api/impl split per Nav3 Pattern B) ──
 include(":feature:anime-browse:api")

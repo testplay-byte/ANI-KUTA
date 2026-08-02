@@ -1,0 +1,46 @@
+-- Watch progress table
+-- Per APP/ani-kuta/DOCUMENTATION/database/watch.md
+-- Separate from activity_event for O(1) "Continue Watching" queries.
+
+CREATE TABLE IF NOT EXISTS watch_progress (
+    episode_key TEXT NOT NULL PRIMARY KEY,
+    position INTEGER NOT NULL,
+    duration INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0,
+    completed_at INTEGER,
+    last_watched_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_progress_last_watched ON watch_progress(last_watched_at DESC);
+
+-- Upsert progress (called by player via WatchProgressStore, batched every 30s)
+upsertWatchProgress:
+INSERT OR REPLACE INTO watch_progress(
+    episode_key, position, duration, completed, completed_at, last_watched_at
+) VALUES (?, ?, ?, ?, ?, ?);
+
+-- Get progress for a specific episode
+getWatchProgress:
+SELECT * FROM watch_progress WHERE episode_key = ?;
+
+-- Get recent progress (for "Continue Watching" — O(1) via index)
+getRecentWatchProgress:
+SELECT * FROM watch_progress
+ORDER BY last_watched_at DESC
+LIMIT ?;
+
+-- Get completed episodes
+getCompletedEpisodes:
+SELECT * FROM watch_progress
+WHERE completed = 1
+ORDER BY completed_at DESC;
+
+-- Mark as completed
+markCompleted:
+UPDATE watch_progress
+SET completed = 1, completed_at = ?
+WHERE episode_key = ?;
+
+-- Delete progress (when episode is removed from library)
+deleteWatchProgress:
+DELETE FROM watch_progress WHERE episode_key = ?;

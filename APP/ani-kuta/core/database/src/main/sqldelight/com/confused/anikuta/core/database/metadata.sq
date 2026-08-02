@@ -1,0 +1,50 @@
+-- Metadata cache tables
+-- Per APP/ani-kuta/DOCUMENTATION/database/metadata.md
+
+-- Cached content-level metadata (description, genres, status, year)
+CREATE TABLE IF NOT EXISTS content_metadata_cache (
+    content_key TEXT NOT NULL PRIMARY KEY,
+    title TEXT,
+    description TEXT,
+    genres TEXT,
+    status TEXT,
+    year INTEGER,
+    cover_url TEXT,
+    source TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+-- Cached episode metadata (thumbnails, titles, air dates)
+CREATE TABLE IF NOT EXISTS episode_metadata_cache (
+    episode_key TEXT NOT NULL PRIMARY KEY,
+    title TEXT,
+    thumbnail_url TEXT,
+    air_date INTEGER,
+    description TEXT,
+    source TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+-- Queries for content_metadata_cache
+upsertContentMetadata:
+INSERT OR REPLACE INTO content_metadata_cache(
+    content_key, title, description, genres, status, year, cover_url, source, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+getContentMetadata:
+SELECT * FROM content_metadata_cache WHERE content_key = ?;
+
+deleteContentMetadata:
+DELETE FROM content_metadata_cache WHERE content_key = ?;
+
+-- Queries for episode_metadata_cache
+upsertEpisodeMetadata:
+INSERT OR REPLACE INTO episode_metadata_cache(
+    episode_key, title, thumbnail_url, air_date, description, source, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+getEpisodeMetadata:
+SELECT * FROM episode_metadata_cache WHERE episode_key = ?;
+
+deleteEpisodeMetadata:
+DELETE FROM episode_metadata_cache WHERE episode_key = ?;

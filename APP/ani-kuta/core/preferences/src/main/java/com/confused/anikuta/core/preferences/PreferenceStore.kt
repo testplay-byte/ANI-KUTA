@@ -25,4 +25,25 @@ class PreferenceStore(context: Context) {
     fun putBoolean(key: String, value: Boolean) {
         prefs.edit().putBoolean(key, value).apply()
     }
+
+    fun getInt(key: String, default: Int = 0): Int =
+        prefs.getInt(key, default)
+
+    fun putInt(key: String, value: Int) {
+        prefs.edit().putInt(key, value).apply()
+    }
+
+    fun getFloat(key: String, default: Float = 0f): Float =
+        prefs.getFloat(key, default)
+
+    fun putFloat(key: String, value: Float) {
+        prefs.edit().putFloat(key, value).apply()
+    }
+
+    fun getLong(key: String, default: Long = 0L): Long =
+        prefs.getLong(key, default)
+
+    fun putLong(key: String, value: Long) {
+        prefs.edit().putLong(key, value).apply()
+    }
 }

@@ -1,0 +1,68 @@
+-- Activity event table (internal tracking system)
+-- Per APP/ani-kuta/DOCUMENTATION/database/tracking.md
+-- D-045: Full-fledged internal tracking system — records everything the user does.
+
+CREATE TABLE IF NOT EXISTS activity_event (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    content_key TEXT,
+    episode_key TEXT,
+    session_id TEXT NOT NULL,
+    route TEXT,
+    content_type TEXT,
+    duration_ms INTEGER,
+    payload TEXT,
+    timestamp INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_event(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_event(event_type);
+CREATE INDEX IF NOT EXISTS idx_activity_content ON activity_event(content_key);
+
+-- Insert a single event
+insertEvent:
+INSERT INTO activity_event(
+    event_type, content_key, episode_key, session_id, route,
+    content_type, duration_ms, payload, timestamp
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Recent events (for "Continue Watching" + history)
+getRecentEvents:
+SELECT * FROM activity_event
+ORDER BY timestamp DESC
+LIMIT ?;
+
+-- Events by type (for stats)
+getEventsByType:
+SELECT * FROM activity_event
+WHERE event_type = ?
+ORDER BY timestamp DESC
+LIMIT ?;
+
+-- Events for a specific content (for per-content stats)
+getEventsByContent:
+SELECT * FROM activity_event
+WHERE content_key = ?
+ORDER BY timestamp DESC;
+
+-- Count events by type in a time range (for stats)
+countEventsByTypeInRange:
+SELECT event_type, COUNT(*) as count
+FROM activity_event
+WHERE timestamp >= ? AND timestamp <= ?
+GROUP BY event_type;
+
+-- Events in a time range (for daily/weekly stats)
+getEventsInRange:
+SELECT * FROM activity_event
+WHERE timestamp >= ? AND timestamp <= ?
+ORDER BY timestamp DESC;
+
+-- Prune old events (for retention — called by ActivityPruneWorker)
+pruneOldEvents:
+DELETE FROM activity_event
+WHERE timestamp < ?;
+
+-- Count total events (for stats display)
+countAllEvents:
+SELECT COUNT(*) FROM activity_event;

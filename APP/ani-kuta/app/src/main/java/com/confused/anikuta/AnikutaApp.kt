@@ -1,43 +1,63 @@
 package com.confused.anikuta
 
 import android.app.Application
-import com.confused.anikuta.core.common.Logger
+import app.cash.sqldelight.db.SqlDriver
+import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.anilist.di.anilistModule
+import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
 import com.confused.anikuta.core.network.HttpClientFactory
+import com.confused.anikuta.core.preferences.AppPreferences
+import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
+import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import java.util.UUID
 
 class AnikutaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
 
-        // CORE_RULES.md §20: Logger init with :app's BuildConfig.DEBUG
+        // CORE_RULES §20: Logger init with :app's BuildConfig.DEBUG
         Logger.setEnabled(BuildConfig.DEBUG)
 
-        // Koin init
+        // Koin init (session ID is provided via appModule — new UUID per process restart)
         startKoin {
             androidContext(this@AnikutaApp)
             modules(
                 anilistModule,
                 browseModule,
                 detailsModule,
+                activityTrackerModule,
                 appModule,
             )
         }
     }
 
     companion object {
-        // App-level infrastructure DI (core modules that don't have their own Koin modules yet)
+        // App-level infrastructure DI
         private val appModule = module {
-            single { HttpClientFactory().create() }
-            single { DatabaseDriverFactory(get()) }
+            // Network
+            single<OkHttpClient> { HttpClientFactory().create() }
+
+            // Database
+            single<SqlDriver> { DatabaseDriverFactory(get()).create() }
+            single<AnikutaDatabase> { AnikutaDatabase(get()) }
+
+            // Session ID (for activity tracking — new per process restart)
+            single(named("sessionId")) { UUID.randomUUID().toString() }
+
+            // Preferences
             single { PreferenceStore(get()) }
+            single { AppPreferences(get()) }
+            single { PlayerPreferences(get()) }
         }
     }
 }
