@@ -3,32 +3,31 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**Phase 0 — done.** Phase 1 (architecture) pending — blocked on old project reference. Dashboard demo pending — blocked on design.md upload.
+**Phase 0 — done.** Dashboard demo built + deploying. Phase 1 (architecture) pending — blocked on old project reference.
 
 ## What's Done
 - [x] Restructured into `ANIKUTA-PROJECT/` (single root folder, versioned on GitHub).
-- [x] AGENT-CONTEXT lives inside the repo (versioned) per user decision.
-- [x] Android demo scaffolded under `APP/ani-kuta/`: Gradle + Kotlin 2.0.21 + Compose, app id `com.confused.anikuta`, abiFilters arm64-v8a + armeabi-v7a, minSdk 24 / targetSdk 35. **CI green** ✅.
-- [x] AGENT-CONTEXT overhauled: `CORE_RULES.md`, `workflow.md`, rewritten `master.md`, `memory/lessons-learned.md`, `knowledge/architecture.md`, `skills/ponytail.md`. Removed `planning/`, `questions/`, `rules/` folders. Sub-agent reviewed.
+- [x] Android demo scaffolded under `APP/ani-kuta/`. CI green ✅.
+- [x] AGENT-CONTEXT overhauled: `CORE_RULES.md` (18 sections), `workflow.md`, `SESSION.md`, `lessons-learned.md`, `knowledge/` (7 files), `skills/` (3 files).
 - [x] Code folders restructured: `android/` → `APP/ani-kuta/`; `DASHBOARD/webpage/` created.
-- [x] Added CORE_RULES.md §13–§16: speech-to-text handling, sub-agent delegation scope, session-end GitHub backup, dashboard design language rule.
-- [x] Created `SESSION.md` (per-session bootstrap file: key rules + loop + end checklist).
-- [x] Created `knowledge/dashboard.md` (dashboard approach: purpose, content, deployment, update process, sub-agent rules).
+- [x] Dashboard design language saved: `DASHBOARD/webpage/DESIGN.md` (MEMORY OS + dark mode section).
+- [x] Demo webpage built by sub-agent: Next.js 16 static export, Tailwind 4, MEMORY OS design, dark mode toggle, 5 pages (Overview, Modules tree, Decisions, Progress, Architecture). Build verified ✅.
+- [x] GitHub Pages deploy workflow created + Pages activated (source = GitHub Actions).
+- [x] `REFERENCES/old-kuta/DOCUMENTATION/` folder structure created (empty, ready for old project).
+- [x] CORE_RULES.md §17 (naming consistency) + §18 (take time needed) added.
 
 ## What's Next
-1. ⏳ **User uploads `design.md`** → place at `DASHBOARD/webpage/DESIGN.md`, add dark-mode section.
-2. Build demo Next.js webpage (cream design, dark mode toggle, tree + decisions view) using a webpage sub-agent.
-3. Create GitHub Pages deploy workflow + activate Pages.
-4. Get user to share old project (Q1/Q2) → begin Phase 1 (architecture planning).
+1. Verify dashboard CI + Pages deployment is live.
+2. User shares old project → download to `REFERENCES/old-kuta/` → analyze → document in `DOCUMENTATION/`.
+3. Begin Phase 1 (architecture planning) based on old project analysis.
 
 ## Blockers / Open Questions
 ⚠️ Full detail in `memory/decisions.md` → "Pending Decisions".
-- **design.md** — user providing the dashboard design language file. Demo webpage paused. (D-017)
 - Q1: What does the app do? (need old project to analyze)
-- Q2: Where is the old project? (repo link/path)
-- Q10: Dashboard scope — confirm starter scope (module map + progress + decisions + flow diagram, read-only).
+- Q2: Where is the old project? (user will share link — download to REFERENCES/old-kuta/)
+- Q10: Dashboard scope confirmed (module map + progress + decisions + flow diagrams + more).
 
 ## Last Updated
 - Session: web-3a43f99b-57b3-4d89-a26a-63737d005c8f
 - By: main agent
-- Note: Dashboard rules + SESSION.md + dashboard knowledge doc added. Pushing to GitHub. Demo webpage paused pending design.md.
+- Note: Dashboard demo built + pushed. GitHub Pages activating. REFERENCES structure ready for old project.

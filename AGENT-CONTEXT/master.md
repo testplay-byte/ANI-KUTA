@@ -60,7 +60,9 @@ ANIKUTA-PROJECT/
 
 ## Current Status
 
-- **Phase**: 0 done (CI green). Phase 1 (architecture) blocked — need old project reference from user.
+- **Phase**: 0 done. Demo Android CI green ✅. Dashboard demo built + deploying to GitHub Pages.
+- **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/`
+- **Phase 1** (architecture): blocked — need old project reference from user.
 - **Open blockers**: see `memory/progress.md` → "Blockers / Open Questions".
 
 See `memory/progress.md` for live status. See `navigation.md` for the full file map.

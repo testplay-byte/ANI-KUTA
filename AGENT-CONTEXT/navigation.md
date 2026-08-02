@@ -7,7 +7,7 @@
 |------|---------|
 | `SESSION.md` | 60-second session bootstrap: key rules + the loop + end-of-session checklist. **Read first.** |
 | `master.md` | Project orientation: what ANI-KUTA is, folder layout, what to read. |
-| `CORE_RULES.md` | Non-negotiable rules (16 sections). Wins over everything. |
+| `CORE_RULES.md` | Non-negotiable rules (18 sections). Wins over everything. |
 | `workflow.md` | The task execution loop (Understand→Verify→Implement→Verify→Move On) + project phases. |
 
 ## 🌐 Workspace-Level
@@ -33,6 +33,12 @@
 | `knowledge/ui-customization.md` | How UI customization works. |
 | `knowledge/dashboard.md` | Dashboard approach: purpose, content, deployment, update process, sub-agent rules. |
 | `knowledge/old-vs-new.md` | Comparison with the old project (when available). |
+
+## 📁 REFERENCES/
+| Path | Purpose |
+|------|---------|
+| `REFERENCES/old-kuta/` | Old project source (user-provided, for reference only). |
+| `REFERENCES/old-kuta/DOCUMENTATION/` | Structured analysis docs of the old project (created by agent). |
 
 ## 🛠️ skills/
 | File | Purpose |

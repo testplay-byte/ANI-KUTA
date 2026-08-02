@@ -130,6 +130,36 @@
 - **Status:** ✅ Confirmed by user.
 - **Date:** Phase 0 (dashboard spec).
 
+### D-022 — Dashboard scope confirmed
+- **What:** Dashboard shows: module map + progress + decisions + flow diagrams + various other things. Modular, filterable, sortable. Read-only to start.
+- **Why:** User confirmation.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (dashboard spec).
+
+### D-023 — Dashboard design language = MEMORY OS
+- **What:** `DASHBOARD/webpage/DESIGN.md` defines the MEMORY OS design system (cream/beige, accent colors, Inter + JetBrains Mono, rounded corners). Dark mode section added. Strictly followed on all pages.
+- **Why:** User-provided, tested, reliable.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 0 (dashboard spec).
+
+### D-024 — Old project goes in REFERENCES/old-kuta/
+- **What:** When user shares the old project, it's downloaded to `REFERENCES/old-kuta/` (only the shared folder, not the whole repo). Analysis docs go in `REFERENCES/old-kuta/DOCUMENTATION/`.
+- **Why:** User requirement — reference material for guiding the rebuild.
+- **Status:** ✅ Confirmed by user. Folder structure created (empty).
+- **Date:** Phase 0 (dashboard spec).
+
+### D-025 — Naming consistency rule
+- **What:** Consistent naming across the project: kebab-case files, PascalCase classes, D-NNN decisions, Q-NNN questions, Conventional Commits.
+- **Why:** User requirement — easy searching.
+- **Status:** ✅ Confirmed by user (CORE_RULES.md §17).
+- **Date:** Phase 0.
+
+### D-026 — Quality over speed
+- **What:** Take as much time as needed for tasks. Don't skip workflow steps. Only deadline = push at session end.
+- **Why:** User requirement.
+- **Status:** ✅ Confirmed by user (CORE_RULES.md §18).
+- **Date:** Phase 0.
+
 ## Pending Decisions (need user input)
 
 ### Q1 — What does the app actually do? ⏳

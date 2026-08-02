@@ -58,9 +58,9 @@ ANIKUTA-PROJECT/
 ```
 
 ## ❓ Currently Blocked On
-- **design.md** — user is providing the dashboard design language file. Demo webpage paused until it arrives.
-- Q1/Q2 — old project reference (for Phase 1 architecture).
+- **Q1/Q2** — old project reference. User will share a link → download to `REFERENCES/old-kuta/` → analyze → document in `REFERENCES/old-kuta/DOCUMENTATION/` → begin Phase 1.
 - See `memory/decisions.md` → "Pending Decisions" for full list.
+- Dashboard demo is built and deploying to GitHub Pages (`https://testplay-byte.github.io/ANI-KUTA/`).
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*

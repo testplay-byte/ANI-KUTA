@@ -53,6 +53,8 @@ Organized into sections, filterable/sortable by the user:
 - Main agent does all AGENT-CONTEXT updates.
 
 ## Status
-- ⏳ **Design language (`DESIGN.md`)**: pending user upload. Demo webpage paused.
-- ⏳ Demo webpage: pending design.md.
-- ⏳ Pages workflow + Pages activation: pending demo.
+- ✅ **Design language (`DESIGN.md`)**: saved (MEMORY OS + dark mode section).
+- ✅ **Demo webpage**: built (Next.js 16 static export, Tailwind 4, MEMORY OS design, dark mode toggle, 5 pages: Overview, Modules, Decisions, Progress, Architecture).
+- ✅ **Pages workflow**: `.github/workflows/deploy-dashboard.yml` created.
+- ✅ **GitHub Pages**: activated (source = GitHub Actions). URL: `https://testplay-byte.github.io/ANI-KUTA/`.
+- 🔄 **Next**: keep the dashboard updated as the project evolves. Sub-agents build page updates; main agent owns AGENT-CONTEXT.
