@@ -294,6 +294,15 @@ function NavIcon({ name, className = "" }: { name: string; className?: string })
         <path d="M16 4v5" />
       </>
     ),
+    design: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="9" cy="10" r="1.2" fill="currentColor" stroke="none" />
+        <circle cx="14" cy="9" r="1.2" fill="currentColor" stroke="none" />
+        <circle cx="15" cy="13" r="1.2" fill="currentColor" stroke="none" />
+        <circle cx="11" cy="15" r="1.2" fill="currentColor" stroke="none" />
+      </>
+    ),
   };
 
   return (

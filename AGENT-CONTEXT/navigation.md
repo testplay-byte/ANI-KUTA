@@ -7,7 +7,7 @@
 |------|---------|
 | `SESSION.md` | 60-second session bootstrap: key rules + the loop + end-of-session checklist. **Read first.** |
 | `master.md` | Project orientation: what ANI-KUTA is, folder layout, what to read. |
-| `CORE_RULES.md` | Non-negotiable rules (18 sections). Wins over everything. |
+| `CORE_RULES.md` | Non-negotiable rules (21 sections). Wins over everything. |
 | `workflow.md` | The task execution loop (Understand→Verify→Implement→Verify→Move On) + project phases. |
 
 ## 🌐 Workspace-Level
@@ -29,16 +29,23 @@
 | `knowledge/project-overview.md` | What ANI-KUTA is, goals, scope. |
 | `knowledge/tech-stack.md` | Chosen technologies + versions. |
 | `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, module graph, UI/backend separation. |
+| `knowledge/app-design-language.md` | App UI design language summary → points to `APP/ani-kuta/DESIGN-LANGUAGE.md`. |
 | `knowledge/module-map.md` | Every module: name, job, dependencies. |
 | `knowledge/ui-customization.md` | How UI customization works. |
 | `knowledge/dashboard.md` | Dashboard approach: purpose, content, deployment, update process, sub-agent rules. |
 | `knowledge/old-vs-new.md` | Comparison with the old project (when available). |
 
-## 📁 REFERENCES/
+## 📁 REFERENCES/ (old project)
 | Path | Purpose |
 |------|---------|
-| `REFERENCES/old-kuta/` | Old project source (user-provided, for reference only). |
-| `REFERENCES/old-kuta/DOCUMENTATION/` | Structured analysis docs of the old project (created by agent). |
+| `REFERENCES/old-kuta/ANIKUTA/` | Old project source (read-only reference). |
+| `REFERENCES/old-kuta/DOCUMENTATION/` | Old project analysis docs (`01-09` + README). |
+
+## 📁 APP/ani-kuta/ (new project)
+| Path | Purpose |
+|------|---------|
+| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's design language (canonical, 1882 lines). |
+| `APP/ani-kuta/DOCUMENTATION/` | New project architecture/research docs (`10-16` + README). |
 
 ## 🛠️ skills/
 | File | Purpose |

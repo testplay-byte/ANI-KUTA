@@ -39,6 +39,10 @@ const ROUTE_META: Record<string, { title: string; desc: string }> = {
     title: "Progress",
     desc: "Phase-by-phase status — what's done, what's next, and current blockers.",
   },
+  "/design": {
+    title: "Design Language",
+    desc: "The ANI-KUTA app's design language — lime accent, dark warm surfaces, accent presets, key components. (Distinct from the dashboard's MEMORY OS design.)",
+  },
   "/analytics": {
     title: "Analytics",
     desc: "Module size distribution, build times, docs coverage over time, and build health table.",
@@ -79,7 +83,9 @@ export function Header() {
     ROUTE_META[current] ??
     (current.startsWith("/modules")
       ? ROUTE_META["/modules"]
-      : ROUTE_META["/"]);
+      : current.startsWith("/design")
+        ? ROUTE_META["/design"]
+        : ROUTE_META["/"]);
 
   return (
     <header className="sticky top-0 z-30 bg-canvas/80 backdrop-blur-xl border-b border-border/60">

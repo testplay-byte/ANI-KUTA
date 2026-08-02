@@ -40,8 +40,10 @@ ANIKUTA-PROJECT/
 - Starting a task → `workflow.md` (the task loop)
 - Touching code → `skills/ponytail.md` (simplicity ladder)
 - Reviewing a plan → `skills/subagent-review.md`
-- Architecture questions → `knowledge/architecture.md`
+- Architecture questions → `knowledge/architecture.md` + `APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md`
+- Building UI → `knowledge/app-design-language.md` + `APP/ani-kuta/DESIGN-LANGUAGE.md`
 - Dashboard work → `knowledge/dashboard.md` + `DASHBOARD/webpage/DESIGN.md`
+- Writing docs → `CORE_RULES.md` §21 (documentation folder organization — CRITICAL)
 - Anything else → `navigation.md` (full file index)
 
 ---

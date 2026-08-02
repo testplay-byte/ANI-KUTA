@@ -11,8 +11,8 @@ export function Footer() {
             <span>
               ANI-KUTA · Project Dashboard · warm canvas{" "}
               <span className="font-mono">#F2EEE8</span> ·{" "}
-              <span className="text-text-primary font-medium">18 modules</span> ·{" "}
-              <span className="text-[var(--c-success)] font-medium">100% health</span>
+              <span className="text-text-primary font-medium">43 modules planned</span> ·{" "}
+              <span className="text-[var(--c-success)] font-medium">15/15 decisions confirmed</span>
             </span>
             <span className="font-mono tracking-wide">
               MEMORY OS · v2

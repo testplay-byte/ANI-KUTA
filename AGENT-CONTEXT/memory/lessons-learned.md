@@ -23,3 +23,5 @@
 - [INSIGHT] When consolidating docs, grep for stale cross-references that point to removed files — they break silently. (source: Task 3 review, 2026-08-01)
 - [MISTAKE] `kotlinOptions { }` inside `android { }` is deprecated in Kotlin 2.0+. Use top-level `kotlin { compilerOptions { } }`. (source: Task 7, 2026-08-01)
 - [INSIGHT] When the user says "I provided X file" but it's not in the upload folder, STOP and flag it — never fabricate the missing content. Do the independent work; pause the dependent work. (source: self, 2026-08-01, design.md missing)
+- [MISTAKE] Don't mix old-project analysis docs with new-project architecture docs. `REFERENCES/old-kuta/DOCUMENTATION/` is for OLD project analysis only. New project research/plans go in `APP/ani-kuta/DOCUMENTATION/`. Always check the documentation zone (CORE_RULES.md §21) before writing a doc. (source: self, 2026-08-02, docs 10-16 placed in wrong folder)
+- [PATTERN] Don't blindly trust sub-agent output — verify findings by reading the source files yourself before acting. Sub-agents find real flaws, but some may be false positives. (source: user feedback, 2026-08-02)

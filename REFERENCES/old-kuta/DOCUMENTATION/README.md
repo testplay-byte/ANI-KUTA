@@ -26,3 +26,5 @@ These docs analyze that source — they don't modify it.
 - Use `04/05/06-*.md` to understand specific modules.
 - Use `07-data-flow.md` to understand how the app works end-to-end.
 - Use `09-rebuild-notes.md` when planning the new architecture.
+
+> **Note**: New project architecture/research docs (DB, DI, Nav, Ads, identity, backup, Phase 1 plan) live in `APP/ani-kuta/DOCUMENTATION/`, NOT here. This folder is for old project analysis only. See `AGENT-CONTEXT/CORE_RULES.md` §21.

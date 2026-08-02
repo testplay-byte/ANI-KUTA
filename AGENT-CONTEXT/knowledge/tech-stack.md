@@ -57,8 +57,11 @@
 | GitHub Pages | Hosting. |
 
 ## Research Documents
+Detailed research + architecture docs live in `APP/ani-kuta/DOCUMENTATION/`:
 - `10-db-research.md` — Room vs SQLDelight → SQLDelight
 - `11-di-research.md` — Hilt vs Koin → Koin + Injekt (isolated)
 - `12-nav-research.md` — Voyager vs Compose Nav → Nav3
 - `13-ads-research.md` — Ad system + activity tracking design
 - `14-architecture-recommendations.md` — Full synthesis + identity system redesign
+- `15-backup-research.md` — Backup/restore formats (Aniyomi, Mangayomi)
+- `16-phase1-architecture-plan.md` — Full Phase 1 architecture plan

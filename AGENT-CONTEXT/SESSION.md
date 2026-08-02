@@ -58,8 +58,9 @@ ANIKUTA-PROJECT/
 ```
 
 ## ❓ Currently Blocked On
-- **Phase 1 Architecture Plan** awaiting user review → `REFERENCES/old-kuta/DOCUMENTATION/16-phase1-architecture-plan.md`.
+- **Phase 1 Architecture Plan** awaiting user review → `APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md`.
 - All decisions confirmed. Plan sub-agent reviewed (4 critical + 10 important flaws fixed).
+- App Design Language doc being created → `APP/ani-kuta/DESIGN-LANGUAGE.md`.
 - Once confirmed → begin **Phase 2 (scaffold)**: 12 modules, app launches → Browse → Details.
 
 ---

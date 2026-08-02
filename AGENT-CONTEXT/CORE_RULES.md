@@ -242,3 +242,30 @@ ANIKUTA-PROJECT/
 - **What NOT to log**: user credentials, tokens, personal data, full request/response bodies (log URLs + status codes only).
 - **Implementation**: Use a central `Logger` wrapper (in `:core:common`) that respects the level + tag + toggle. Never call `Log.d()` directly — always go through `Logger`.
 - **Performance**: When logging is OFF, the Logger is a no-op (zero overhead). Use `if (Logger.isEnabled)` guards around expensive log message construction.
+
+---
+
+## 21. Documentation Folder Organization (STRICT)
+
+> Where documentation lives. Read this before writing ANY doc. Getting this wrong mixes old-project analysis with new-project plans — a real source of confusion.
+
+### Three documentation zones — NEVER mix them:
+
+| Zone | Path | What goes here |
+|------|------|----------------|
+| **Old project analysis** | `REFERENCES/old-kuta/DOCUMENTATION/` | Analysis of the OLD ANIKUTA app. Read-only reference. Docs `01-09` (overview, architecture, tech-stack, modules, data-flow, features, rebuild-notes). NOTHING about the NEW project goes here. |
+| **New project docs** | `APP/ani-kuta/DOCUMENTATION/` | Architecture plans, research, design decisions for the NEW app. Docs like `10-db-research`, `11-di-research`, `12-nav-research`, `13-ads-research`, `14-architecture-recommendations`, `15-backup-research`, `16-phase1-architecture-plan`, `DESIGN-LANGUAGE.md`. |
+| **Agent knowledge** | `AGENT-CONTEXT/knowledge/` | Quick-reference summaries the agent reads on demand. NOT detailed research — that goes in `APP/ani-kuta/DOCUMENTATION/`. The knowledge files link to the detailed docs. |
+
+### Rules
+1. **Old project analysis stays in `REFERENCES/old-kuta/DOCUMENTATION/`.** It describes the existing app. Never put new-project plans here.
+2. **New project architecture/research/design goes in `APP/ani-kuta/DOCUMENTATION/`.** This is the new app's technical documentation.
+3. **Agent-facing summaries go in `AGENT-CONTEXT/knowledge/`.** Short, cross-reference the detailed docs.
+4. **The app's design language** lives at `APP/ani-kuta/DESIGN-LANGUAGE.md` (one file, canonical).
+5. **The dashboard's design language** lives at `DASHBOARD/webpage/DESIGN.md` (separate — the dashboard is a different product).
+6. **Before writing a doc**: ask "is this about the OLD app, the NEW app, or agent memory?" → put it in the right zone.
+7. **When in doubt**: ask the user. Don't guess the location.
+
+### Verification
+- After writing a doc, verify its location matches the table above.
+- If you find a doc in the wrong zone: move it + update all cross-references (grep for the old path).
