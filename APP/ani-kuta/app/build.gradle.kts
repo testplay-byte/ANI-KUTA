@@ -28,6 +28,9 @@ dependencies {
     implementation(project(":core:player"))
     implementation(project(":core:video-resolver"))
     implementation(project(":core:download"))
+    implementation(project(":core:metadata"))
+    implementation(project(":core:tracker-api"))
+    implementation(project(":core:tracker-anilist"))
 
     // Data modules
     implementation(project(":data:extension"))

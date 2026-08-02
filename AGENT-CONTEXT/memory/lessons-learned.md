@@ -32,3 +32,6 @@
 - [INSIGHT] CI `timeout-minutes` includes queue wait time. Set it to 30+ min for GitHub-hosted runners (queue delays of 10-15 min are common). (source: Phase 2 CI iteration 3, 2026-08-02)
 - [MISTAKE] `count` is a reserved keyword in SQLDelight's SQL grammar — can't use as a column alias. Use `event_count` or another non-reserved name. (source: Phase 3a CI iteration 1, 2026-08-02)
 - [MISTAKE] Kotlin property + function with same name cause JVM signature clash. A `val trustedFingerprints` generates `getTrustedFingerprints()`, which clashes with `fun getTrustedFingerprints()`. Rename the function (e.g., `getAllTrusted()`). (source: Phase 3b CI iteration 3, 2026-08-02)
+- [MISTAKE] SQLDelight generates query property names from .sq filename — does NOT convert snake_case to camelCase. Use camelCase filenames (e.g., `downloadQueue.sq` not `download_queue.sq`). (source: Phase 3c CI iteration 3, 2026-08-02)
+- [MISTAKE] `AnimeHttpSource.fetchVideoList` returns `Observable<List<Video>>` (RxJava), not `List<Video>`. Use `.awaitSingle()` to convert to suspend. (source: Phase 3c CI iteration 2, 2026-08-02)
+- [MISTAKE] `MPVLib.observeProperty` takes Int format constants (`MPVLib.mpvFormat.MPV_FORMAT_INT64`), not String labels. (source: Phase 3c CI iteration 2, 2026-08-02)

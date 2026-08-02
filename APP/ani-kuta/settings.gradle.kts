@@ -37,6 +37,9 @@ include(":core:player-mpv-lib")
 include(":core:player")
 include(":core:video-resolver")
 include(":core:download")
+include(":core:metadata")
+include(":core:tracker-api")
+include(":core:tracker-anilist")
 
 // ── :data ──
 include(":data:extension")

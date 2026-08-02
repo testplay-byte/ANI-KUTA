@@ -12,7 +12,9 @@ import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.core.download.downloadModule
+import com.confused.anikuta.core.metadata.metadataModule
 import com.confused.anikuta.core.player.playerModule
+import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.data.extension.extensionModule
 import com.confused.anikuta.feature.animebrowse.di.browseModule
@@ -44,6 +46,8 @@ class AnikutaApp : Application() {
                 playerModule,
                 videoResolverModule,
                 downloadModule,
+                metadataModule,
+                trackerAniListModule,
                 appModule,
             )
         }
