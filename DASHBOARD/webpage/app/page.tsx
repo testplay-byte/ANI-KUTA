@@ -1,305 +1,246 @@
 import Link from "next/link";
-import { Card, CardHeader } from "@/components/Card";
+import { Card } from "@/components/Card";
 import { StatusDot } from "@/components/StatusDot";
-import {
-  QUICK_STATS,
-  OPEN_QUESTIONS,
-  PHASES,
-  STATUS_META,
-} from "@/lib/data";
+import { MetricCard } from "@/components/MetricCard";
+import { PhaseTimeline } from "@/components/PhaseTimeline";
+import { WorkflowLoop } from "@/components/WorkflowLoop";
+import { METRIC_CARDS, QUICK_STATS, PHASES } from "@/lib/data";
+import { decisions } from "@/lib/decisions";
 
 export default function OverviewPage() {
-  const currentPhase = PHASES.find((p) => p.status === "in-progress" || p.status === "blocked") ?? PHASES[1];
+  const currentPhase =
+    PHASES.find((p) => p.status === "in-progress" || p.status === "blocked") ??
+    PHASES[1];
+  const needsInputCount = decisions.filter(
+    (d) => d.status === "needs-input",
+  ).length;
 
   return (
     <div className="space-y-6">
-      {/* Hero */}
+      {/* Hero — project summary */}
       <Card className="!p-6 md:!p-8">
         <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
               Project Status
             </span>
-            <StatusDot color="var(--c-warning)" size="sm" />
+            <StatusDot color="var(--c-danger)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Phase {currentPhase.id} — {currentPhase.name}
+              Phase {currentPhase.id} — {currentPhase.name} · blocked on {needsInputCount} decisions
             </span>
           </div>
-          <h1 className="text-[28px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
+          <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
             ANI-KUTA{" "}
             <span className="text-text-secondary font-medium">
-              — visual documentation dashboard
+              — anime streaming app rebuild
             </span>
-          </h1>
+          </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living view of the ANI-KUTA project: modules, decisions,
-            progress, and architecture. Read-only documentation for the user —
-            kept in sync with{" "}
+            A calm, living dashboard for the ANI-KUTA project: modules, decisions,
+            progress, architecture, analytics, and planning. Kept in sync with{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
             on every push.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
-            <Link href="/modules/" className="no-underline">
-              <span className="inline-flex items-center gap-2 h-9 px-[18px] rounded-full text-[13.5px] font-medium text-white transition-all duration-200 hover:translate-y-[-1px]"
+            <Link href="/decisions/" className="no-underline">
+              <span
+                className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium text-white transition-all duration-200 hover:translate-y-[-1px]"
                 style={{
                   backgroundColor: "var(--c-primary)",
                   boxShadow: "0 4px 12px var(--c-primary)33, 0 1px 2px rgba(0,0,0,0.06)",
-                }}>
-                Browse Modules
+                }}
+              >
+                Review Decisions
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/20 text-[10px] font-bold">
+                  {needsInputCount}
+                </span>
               </span>
             </Link>
-            <Link href="/progress/" className="no-underline">
-              <span className="inline-flex items-center gap-2 h-9 px-[18px] rounded-full text-[13.5px] font-medium bg-bg-chip border border-border text-text-secondary transition-all duration-200 hover:translate-y-[-1px]">
-                View Progress
+            <Link href="/architecture/" className="no-underline">
+              <span className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium bg-chip border border-border text-text-secondary transition-all duration-200 hover:translate-y-[-1px] hover:text-text-primary">
+                View Architecture
               </span>
             </Link>
           </div>
         </div>
       </Card>
 
-      {/* Quick stats grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Modules"
-          value={QUICK_STATS.modules}
-          accent="var(--c-primary)"
-          href="/modules/"
-        />
-        <StatCard
-          label="Decisions"
-          value={QUICK_STATS.decisions}
-          accent="var(--c-secondary)"
-          href="/decisions/"
-          sublabel={`${QUICK_STATS.decisionsConfirmed} confirmed`}
-        />
-        <StatCard
-          label="Phases"
-          value={`${QUICK_STATS.phasesDone}/${QUICK_STATS.phases}`}
-          accent="var(--c-success)"
-          href="/progress/"
-          sublabel="done"
-        />
-        <StatCard
-          label="Open Questions"
-          value={QUICK_STATS.openQuestions}
-          accent="var(--c-warning)"
-          href="#open-questions"
-          sublabel="awaiting input"
-        />
+      {/* Metric cards with sparklines */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {METRIC_CARDS.map((m) => (
+          <MetricCard key={m.label} metric={m} />
+        ))}
       </div>
 
-      {/* Two-column: current phase + open questions */}
+      {/* Phase timeline */}
+      <Card>
+        <PhaseTimeline />
+      </Card>
+
+      {/* Workflow loop */}
+      <Card>
+        <WorkflowLoop />
+      </Card>
+
+      {/* Two-column: current phase + decisions summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card id="current-phase">
-          <CardHeader
-            kicker={`Phase ${currentPhase.id}`}
-            title={currentPhase.name}
-            right={
-              <StatusBadge
-                color={phaseStatusColor(currentPhase.status)}
-                label={phaseStatusLabel(currentPhase.status)}
-              />
-            }
-          />
+        {/* Current phase */}
+        <Card>
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+                Current Phase
+              </div>
+              <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
+                Phase {currentPhase.id} — {currentPhase.name}
+              </h3>
+            </div>
+            <span
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium shrink-0"
+              style={{
+                backgroundColor: "var(--c-danger)1a",
+                color: "var(--c-danger)",
+              }}
+            >
+              <StatusDot color="var(--c-danger)" size="sm" />
+              Blocked
+            </span>
+          </div>
           <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
             {currentPhase.summary}
           </p>
+
           {currentPhase.blockers.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+            <div className="space-y-2 mb-4">
+              <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary">
                 Blockers
               </div>
               {currentPhase.blockers.map((b) => (
                 <div
                   key={b}
-                  className="flex items-start gap-2 text-[13px] text-text-primary"
+                  className="flex items-start gap-2 text-[12.5px] text-text-primary"
                 >
-                  <StatusDot color="var(--c-danger)" size="sm" className="mt-[7px]" />
+                  <StatusDot
+                    color="var(--c-danger)"
+                    size="sm"
+                    className="mt-[7px]"
+                  />
                   <span>{b}</span>
                 </div>
               ))}
             </div>
           )}
+
           {currentPhase.next.length > 0 && (
-            <div className="space-y-2 mt-4">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+            <div className="space-y-2">
+              <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary">
                 Up Next
               </div>
               {currentPhase.next.map((n) => (
                 <div
                   key={n}
-                  className="flex items-start gap-2 text-[13px] text-text-primary"
+                  className="flex items-start gap-2 text-[12.5px] text-text-primary"
                 >
-                  <StatusDot color="var(--c-warning)" size="sm" className="mt-[7px]" />
+                  <StatusDot
+                    color="var(--c-warning)"
+                    size="sm"
+                    className="mt-[7px]"
+                  />
                   <span>{n}</span>
                 </div>
               ))}
             </div>
           )}
+
+          <Link
+            href="/progress/"
+            className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-primary)] mt-4 hover:underline"
+          >
+            View all phases →
+          </Link>
         </Card>
 
-        <Card id="open-questions">
-          <CardHeader
-            kicker="Open Questions"
-            title="Awaiting user input"
-            right={
-              <StatusBadge
-                color="var(--c-warning)"
-                label={`${OPEN_QUESTIONS.length} open`}
-              />
-            }
-          />
-          <div className="space-y-3">
-            {OPEN_QUESTIONS.map((q) => (
-              <div
-                key={q.id}
-                className="p-3 rounded-[12px] border border-border bg-bg-card"
-              >
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="font-mono text-[12px] text-text-secondary">
-                    {q.id}
-                  </span>
-                  <span className="text-[13.5px] font-semibold text-text-primary">
-                    {q.question}
-                  </span>
-                </div>
-                <p className="text-[12.5px] text-text-secondary leading-relaxed">
-                  {q.detail}
-                </p>
+        {/* Decisions summary */}
+        <Card>
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+                Decisions
               </div>
-            ))}
+              <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
+                {needsInputCount} need your input
+              </h3>
+            </div>
+            <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium bg-chip border border-border text-text-secondary shrink-0">
+              {decisions.length} total
+            </span>
           </div>
+
+          <div className="space-y-2">
+            {decisions
+              .filter((d) => d.status === "needs-input")
+              .slice(0, 5)
+              .map((d) => (
+                <Link
+                  key={d.id}
+                  href="/decisions/"
+                  className="flex items-center gap-3 p-2.5 rounded-[10px] border border-border bg-surface-alt/40 hover:bg-canvas transition-colors duration-150 no-underline"
+                >
+                  <span className="font-mono text-[11px] text-text-secondary shrink-0 w-14">
+                    {d.id}
+                  </span>
+                  <span className="text-[12.5px] font-medium text-text-primary truncate flex-1">
+                    {d.title}
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-[var(--c-danger)] shrink-0" />
+                </Link>
+              ))}
+          </div>
+
+          <Link
+            href="/decisions/"
+            className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-primary)] mt-4 hover:underline"
+          >
+            Review all decisions →
+          </Link>
         </Card>
       </div>
 
-      {/* Section links */}
-      <Card>
-        <CardHeader kicker="Sections" title="Explore the dashboard" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <SectionLink href="/modules/" title="Modules" desc="Proposed module hierarchy + dependencies" />
-          <SectionLink href="/decisions/" title="Decisions" desc="D-001 → D-021 decision log" />
-          <SectionLink href="/progress/" title="Progress" desc="Phase 0–6 status + blockers" />
-          <SectionLink href="/architecture/" title="Architecture" desc="UI ↔ backend separation + module graph" />
-        </div>
-      </Card>
+      {/* Quick stats footer row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <QuickStat label="Total files" value={String(QUICK_STATS.totalFiles)} accent="var(--c-primary)" />
+        <QuickStat label="Total phases" value={String(QUICK_STATS.phases)} accent="var(--c-secondary)" />
+        <QuickStat label="Timeline" value={`${QUICK_STATS.totalDays}d`} accent="var(--c-success)" />
+        <QuickStat label="Blockers" value={String(QUICK_STATS.blockers)} accent="var(--c-danger)" />
+      </div>
     </div>
   );
 }
 
-/* ---------- Helpers / sub-components ---------- */
-
-function StatCard({
+function QuickStat({
   label,
   value,
   accent,
-  href,
-  sublabel,
 }: {
   label: string;
-  value: string | number;
+  value: string;
   accent: string;
-  href: string;
-  sublabel?: string;
 }) {
-  const isAnchor = href.startsWith("#");
-  const inner = (
-    <div className="h-full">
-      <div className="flex items-center gap-2 mb-3">
-        <StatusDot color={accent} size="sm" />
-        <span className="text-[11px] font-medium uppercase tracking-wide text-text-secondary">
+  return (
+    <div className="rounded-[14px] border border-border bg-surface p-3.5">
+      <div className="flex items-center gap-2 mb-1.5">
+        <span
+          className="w-1.5 h-1.5 rounded-full"
+          style={{ backgroundColor: accent }}
+          aria-hidden="true"
+        />
+        <span className="text-[10px] font-medium uppercase tracking-widest text-text-secondary">
           {label}
         </span>
       </div>
-      <div className="text-[28px] font-bold tracking-extra-tight text-text-primary leading-none">
+      <div className="text-[20px] font-bold tracking-extra-tight text-text-primary leading-none">
         {value}
       </div>
-      {sublabel && (
-        <div className="text-[12px] text-text-secondary mt-2">{sublabel}</div>
-      )}
     </div>
   );
-
-  if (isAnchor) {
-    return (
-      <Card className="h-full hover:translate-y-[-1px]">
-        <a href={href} className="no-underline block h-full">
-          {inner}
-        </a>
-      </Card>
-    );
-  }
-  return (
-    <Card className="h-full hover:translate-y-[-1px]">
-      <Link href={href} className="no-underline block h-full">
-        {inner}
-      </Link>
-    </Card>
-  );
-}
-
-function SectionLink({
-  href,
-  title,
-  desc,
-}: {
-  href: string;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="block p-4 rounded-[12px] border border-border bg-bg-card transition-all duration-200 hover:translate-y-[-1px] hover:bg-bg-card-alt no-underline"
-    >
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <span className="text-[14px] font-semibold text-text-primary">{title}</span>
-        <span className="text-text-secondary text-[14px]" aria-hidden="true">→</span>
-      </div>
-      <div className="text-[12.5px] text-text-secondary leading-relaxed">
-        {desc}
-      </div>
-    </Link>
-  );
-}
-
-function StatusBadge({ color, label }: { color: string; label: string }) {
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border"
-      style={{
-        borderColor: color,
-        backgroundColor: `${color}1a`,
-        color: color,
-      }}
-    >
-      <StatusDot color={color} size="sm" />
-      {label}
-    </span>
-  );
-}
-
-function phaseStatusColor(status: string): string {
-  switch (status) {
-    case "done":
-      return STATUS_META.confirmed.colorVar;
-    case "in-progress":
-      return STATUS_META.pending.colorVar;
-    case "blocked":
-      return STATUS_META.blocked.colorVar;
-    default:
-      return "var(--c-text-secondary)";
-  }
-}
-
-function phaseStatusLabel(status: string): string {
-  switch (status) {
-    case "done":
-      return "Done";
-    case "in-progress":
-      return "In progress";
-    case "blocked":
-      return "Blocked";
-    default:
-      return "Pending";
-  }
 }

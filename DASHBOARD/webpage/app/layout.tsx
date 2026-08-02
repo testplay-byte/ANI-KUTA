@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { Nav } from "@/components/Nav";
 import { Footer } from "@/components/Footer";
 import "./globals.css";
 
@@ -18,19 +18,20 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ANI-KUTA · Visual Documentation",
+  title: "ANI-KUTA · Project Dashboard",
   description:
-    "A visual documentation dashboard for the ANI-KUTA project — modules, decisions, progress, and architecture.",
+    "A living dashboard for the ANI-KUTA project — modules, decisions, progress, architecture, analytics, and planning.",
 };
 
 /**
- * Inline theme-init script (DESIGN.md §5.9 — "no flash of wrong theme").
+ * Inline theme-init script (DESIGN.md §5.10 — "no flash of wrong theme").
  * Runs before paint to set the `dark` class on <html> based on
  * localStorage preference or prefers-color-scheme.
  *
- * Must be a plain string (no React template logic) — kept minimal.
+ * Also reads the sidebar-shrink preference so the sidebar renders at the
+ * correct width on first paint (no layout shift).
  */
-const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem('theme');var d=s? s==='dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark');}}catch(e){}})();`;
+const THEME_INIT_SCRIPT = `(function(){try{var s=localStorage.getItem('theme');var d=s?s==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark');}var sh=localStorage.getItem('sidebar-shrink');if(sh==='1'){document.documentElement.setAttribute('data-sidebar-shrink','1');}}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -38,16 +39,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${inter.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="antialiased">
-        <div className="min-h-screen flex flex-col max-w-5xl mx-auto px-6 md:px-8 pt-10 pb-16">
-          <Header />
-          <Nav />
-          <main className="flex-1 mt-8 animate-fade-in">{children}</main>
-          <Footer />
+        <div className="min-h-screen flex flex-col lg:flex-row lg:gap-3 lg:p-3">
+          <Sidebar />
+          <div className="flex-1 min-w-0 flex flex-col">
+            <Header />
+            <main className="flex-1 px-4 sm:px-6 lg:px-10 py-6 lg:py-8 animate-fade-in">
+              <div className="max-w-[1280px] mx-auto">{children}</div>
+            </main>
+            <Footer />
+          </div>
         </div>
       </body>
     </html>

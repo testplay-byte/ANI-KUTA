@@ -4,45 +4,62 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * MEMORY OS Design System — CSS Variables.
- * See DESIGN.md §9 for the canonical variable list.
+ * MEMORY OS Design System v2 — CSS Variables.
+ * See DESIGN.md §8 for the canonical variable list.
  * Variables swap on html.dark for theme switching.
  */
 :root {
+  /* Accents (DESIGN.md §2.1) */
   --c-primary: #6366f1;
   --c-success: #14b8a6;
   --c-warning: #f59e0b;
   --c-danger: #ff6b6b;
   --c-secondary: #8b5cf6;
 
+  /* Light mode neutrals (DESIGN.md §2.2) */
+  --c-canvas: #f2eee8;
+  --c-surface: #fffdfa;
+  --c-surface-alt: #f9f5f0;
+  --c-chip: #f5f1eb;
   --c-text-primary: #1a1a1a;
   --c-text-secondary: #8a8784;
   --c-border: #e8e2da;
-  --c-bg-page: #ede9e3;
-  --c-bg-card: #f9f5f0;
-  --c-bg-card-alt: #fffdfa;
-  --c-bg-chip: #f5f1eb;
 
-  --shadow-card: 0 2px 20px rgba(0, 0, 0, 0.04);
+  /* Aliases for backward-compat with v1 component code */
+  --c-bg-page: var(--c-canvas);
+  --c-bg-card: var(--c-surface-alt);
+  --c-bg-card-alt: var(--c-surface);
+
+  /* Shadows (DESIGN.md §4.4) */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-card: 0 8px 40px rgba(0, 0, 0, 0.04);
   --shadow-card-subtle: 0 1px 6px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.08);
+  --shadow-focus: 0 0 0 4px rgba(99, 102, 241, 0.15);
 }
 
 html.dark {
+  /* Dark mode neutrals (DESIGN.md §2.3) */
+  --c-canvas: #1a1917;
+  --c-surface: #252320;
+  --c-surface-alt: #2a2825;
+  --c-chip: #302d29;
   --c-text-primary: #f5f1eb;
   --c-text-secondary: #a8a39c;
   --c-border: #3a3733;
-  --c-bg-page: #1a1917;
-  --c-bg-card: #252320;
-  --c-bg-card-alt: #2a2825;
-  --c-bg-chip: #302d29;
 
-  --shadow-card: 0 2px 20px rgba(0, 0, 0, 0.35);
+  --c-bg-page: var(--c-canvas);
+  --c-bg-card: var(--c-surface-alt);
+  --c-bg-card-alt: var(--c-surface);
+
+  --shadow-card: 0 8px 40px rgba(0, 0, 0, 0.35);
   --shadow-card-subtle: 0 1px 6px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 
 /*
  * Register tokens as Tailwind utilities (inline → swaps with CSS variables).
- * Now usable as: bg-bg-page, text-text-primary, border-border, bg-primary, etc.
  */
 @theme inline {
   --color-primary: var(--c-primary);
@@ -54,14 +71,25 @@ html.dark {
   --color-text-primary: var(--c-text-primary);
   --color-text-secondary: var(--c-text-secondary);
   --color-border: var(--c-border);
-  --color-bg-page: var(--c-bg-page);
-  --color-bg-card: var(--c-bg-card);
-  --color-bg-card-alt: var(--c-bg-card-alt);
-  --color-bg-chip: var(--c-bg-chip);
+  --color-canvas: var(--c-canvas);
+  --color-surface: var(--c-surface);
+  --color-surface-alt: var(--c-surface-alt);
+  --color-chip: var(--c-chip);
 
-  --radius-sm: 12px;
-  --radius-md: 14px;
+  /* Backward-compat aliases */
+  --color-bg-page: var(--c-canvas);
+  --color-bg-card: var(--c-surface-alt);
+  --color-bg-card-alt: var(--c-surface);
+  --color-bg-chip: var(--c-chip);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-std: 10px;
+  --radius-comfortable: 12px;
+  --radius-ml: 14px;
   --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
   --radius-full: 9999px;
 
   --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -76,7 +104,7 @@ html.dark {
   }
 
   body {
-    background-color: var(--c-bg-page);
+    background-color: var(--c-canvas);
     color: var(--c-text-primary);
     font-family: var(--font-inter), -apple-system, BlinkMacSystemFont,
       "Segoe UI", sans-serif;
@@ -89,7 +117,7 @@ html.dark {
     background-color: rgba(99, 102, 241, 0.2);
   }
 
-  /* Subtle scrollbar styling */
+  /* Subtle scrollbar styling (DESIGN.md §5.x) */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -100,7 +128,7 @@ html.dark {
   ::-webkit-scrollbar-thumb {
     background: var(--c-border);
     border-radius: 9999px;
-    border: 2px solid var(--c-bg-page);
+    border: 2px solid var(--c-canvas);
   }
   ::-webkit-scrollbar-thumb:hover {
     background: var(--c-text-secondary);
@@ -108,7 +136,7 @@ html.dark {
 }
 
 @layer utilities {
-  /* Typographic helpers (DESIGN.md §3.4) */
+  /* Typographic helpers (DESIGN.md §3.3) */
   .tracking-extra-tight {
     letter-spacing: -0.02em;
   }
@@ -118,19 +146,22 @@ html.dark {
   .tracking-wide {
     letter-spacing: 0.025em;
   }
+  .tracking-widest {
+    letter-spacing: 0.1em;
+  }
 
   .font-mono {
     font-family: var(--font-jetbrains-mono), monospace;
   }
 
-  /* Fade-in animation (DESIGN.md §7) */
+  /* Fade-in animation (DESIGN.md §6.4) */
   .animate-fade-in {
-    animation: fade-in 0.35s ease-out;
+    animation: fade-in 0.3s ease-out;
   }
   @keyframes fade-in {
     from {
       opacity: 0;
-      transform: translateY(6px);
+      transform: translateY(4px);
     }
     to {
       opacity: 1;
@@ -138,11 +169,27 @@ html.dark {
     }
   }
 
-  /* Card shadow utility (DESIGN.md §10) */
+  /* Card shadow utilities (DESIGN.md §4.4) */
   .shadow-card {
     box-shadow: var(--shadow-card);
   }
   .shadow-card-subtle {
     box-shadow: var(--shadow-card-subtle);
+  }
+  .shadow-hover {
+    box-shadow: var(--shadow-hover);
+  }
+
+  /* Slide-in for sidebar overlay on mobile */
+  .animate-slide-in {
+    animation: slide-in 0.25s ease-out;
+  }
+  @keyframes slide-in {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
   }
 }
