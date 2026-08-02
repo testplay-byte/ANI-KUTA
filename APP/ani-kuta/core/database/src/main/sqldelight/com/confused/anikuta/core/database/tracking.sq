@@ -47,7 +47,7 @@ ORDER BY timestamp DESC;
 
 -- Count events by type in a time range (for stats)
 countEventsByTypeInRange:
-SELECT event_type, COUNT(*) as count
+SELECT event_type, COUNT(*) AS event_count
 FROM activity_event
 WHERE timestamp >= ? AND timestamp <= ?
 GROUP BY event_type;
