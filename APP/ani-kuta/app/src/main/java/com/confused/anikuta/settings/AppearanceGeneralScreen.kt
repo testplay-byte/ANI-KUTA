@@ -129,20 +129,22 @@ fun AppearanceGeneralScreen(
 
                     // ── AMOLED (dark-only, smooth expand/collapse) ──
                     item {
-                        AnimatedVisibility(
-                            visible = isDark,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
-                            Column {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                SettingsSectionLabel("Display")
-                                SwitchCard(
-                                    title = "AMOLED black surfaces",
-                                    subtitle = "Pure black for OLED screens",
-                                    checked = amoled,
-                                    onCheckedChange = { prefs.setAmoled(it) },
-                                )
+                        Column {
+                            AnimatedVisibility(
+                                visible = isDark,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically(),
+                            ) {
+                                Column {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    SettingsSectionLabel("Display")
+                                    SwitchCard(
+                                        title = "AMOLED black surfaces",
+                                        subtitle = "Pure black for OLED screens",
+                                        checked = amoled,
+                                        onCheckedChange = { prefs.setAmoled(it) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -225,7 +227,7 @@ private fun PalettesCarousel(isDark: Boolean) {
             PalettePreset("Forest", Color(0xFF66BB6A), if (isDark) Color(0xFF101611) else Color(0xFFF4FAF5), if (isDark) Color(0xFF17221B) else Color(0xFFE9F2EB)),
             PalettePreset("Ocean", Color(0xFF26A69A), if (isDark) Color(0xFF0F1817) else Color(0xFFF2FAF8), if (isDark) Color(0xFF16221F) else Color(0xFFE6F2EF)),
             PalettePreset("Amber", Color(0xFFFFB300), if (isDark) Color(0xFF1B1710) else Color(0xFFFAF6EC), if (isDark) Color(0xFF242017) else Color(0xFFF1EBDB)),
-            PalettePreset("Custom", MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface),
+            PalettePreset("Custom", Color(0xFFB1F256), Color(0xFF14111F), Color(0xFF1B1729)),
         )
     }
 
