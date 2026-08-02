@@ -3,7 +3,7 @@ package com.confused.anikuta.core.trackeranilist
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.trackerapi.BaseTracker
 import com.confused.anikuta.core.trackerapi.TrackEntry
-import com.confused.anikuta.core.trackerapi.TrackLoginState
+import com.confused.anikuta.core.trackerapi.TrackerLoginState
 import com.confused.anikuta.core.trackerapi.TrackStatus
 import com.confused.anikuta.core.trackerapi.TrackerSyncState
 import com.confused.anikuta.core.trackerapi.TrackerType
@@ -54,7 +54,7 @@ class AniListTracker(
         // Restore login state on init
         val token = accessToken ?: ""
         if (token.isNotBlank()) {
-            _loginState.value = TrackLoginState.LoggedIn(username)
+            _loginState.value = TrackerLoginState.LoggedIn(username)
             Logger.i(TAG) { "Restored login: $username" }
         }
     }
@@ -62,7 +62,7 @@ class AniListTracker(
     override suspend fun startLogin(): String? {
         if (!AniListOAuth.isConfigured()) {
             Logger.w(TAG) { "AniList OAuth not configured (placeholder client ID)" }
-            _loginState.value = TrackLoginState.Error("AniList OAuth not configured. Set your client ID in AniListOAuth.kt")
+            _loginState.value = TrackerLoginState.Error("AniList OAuth not configured. Set your client ID in AniListOAuth.kt")
             return null
         }
 
@@ -83,12 +83,12 @@ class AniListTracker(
             accessToken = code
             username = "AniList User" // TODO: Fetch actual username from AniList API
 
-            _loginState.value = TrackLoginState.LoggedIn(username)
+            _loginState.value = TrackerLoginState.LoggedIn(username)
             Logger.i(TAG) { "Login successful (basic)" }
             return true
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Login failed: ${e.message}" }
-            _loginState.value = TrackLoginState.Error(e.message ?: "Unknown error")
+            _loginState.value = TrackerLoginState.Error(e.message ?: "Unknown error")
             return false
         }
     }
@@ -97,7 +97,7 @@ class AniListTracker(
         Logger.i(TAG) { "Logging out" }
         accessToken = null
         username = ""
-        _loginState.value = TrackLoginState.LoggedOut
+        _loginState.value = TrackerLoginState.LoggedOut
     }
 
     override suspend fun syncEntry(entry: TrackEntry): Boolean {
