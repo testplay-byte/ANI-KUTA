@@ -216,3 +216,12 @@ ANIKUTA-PROJECT/
 - Sub-agent reviews, verification, documentation — all take time. They are not optional.
 - "Done fast but wrong" is worse than "done slow but right."
 - The only deadline is: **push to GitHub at session end** (§15). Everything else is quality-bound.
+
+---
+
+## 19. Webpage Work Uses Full-Stack-Dev Agent
+
+- Whenever a **change is required on the dashboard webpage** (`DASHBOARD/webpage/`), delegate it to a **`full-stack-developer` sub-agent**.
+- The full-stack-dev agent handles: building pages, adding components, updating styling, wiring data, fixing build issues — all inside `DASHBOARD/webpage/`.
+- The main agent defines the task, gives the sub-agent the DESIGN.md context, verifies the result, then updates `AGENT-CONTEXT/` (the sub-agent never touches AGENT-CONTEXT).
+- This produced excellent results for the initial dashboard build; it is now the standard for all webpage work.

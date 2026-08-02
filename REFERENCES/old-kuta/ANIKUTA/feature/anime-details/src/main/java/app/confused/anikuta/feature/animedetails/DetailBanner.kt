@@ -1,0 +1,266 @@
+package app.confused.anikuta.feature.animedetails
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.confused.anikuta.core.common.model.details.UnifiedAnime
+import app.confused.anikuta.core.common.model.details.UnifiedStatus
+import app.confused.anikuta.core.designsystem.theme.RobotoFamily
+import coil3.compose.AsyncImage
+
+/**
+ * The banner: 360dp blurred cover + cover-color tint (20%) + gradient overlay,
+ * action buttons, and cover thumbnail + title at the bottom.
+ *
+ * Per design language §4: edge-to-edge (status bar overlays), 8dp blur,
+ * gradient black 20% → transparent → background.
+ *
+ * Consumes [UnifiedAnime] — works for both AniList and extension data sources.
+ * Conditional rendering per doc 04 Table 3:
+ * - Score/status/episode-count meta row: shown only if non-null.
+ * - Next-airing pill: shown only if [UnifiedAnime.nextAiringEpisode] != null (AniList-only).
+ *
+ * @param onMore the three-dot menu callback (wired to [SourceSwitcherMenu]).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun DetailBanner(
+    anime: UnifiedAnime,
+    coverColor: Color,
+    saved: Boolean,
+    currentDataSource: app.confused.anikuta.core.common.model.details.DataSource,
+    entryMode: app.confused.anikuta.core.common.model.details.DataSource,
+    onBack: () -> Unit,
+    onToggleSave: () -> Unit,
+    onLongPressSave: () -> Unit = {},
+    onSwitchDataSource: (app.confused.anikuta.core.common.model.details.DataSource) -> Unit = {},
+    onLinkToAniList: () -> Unit = {},
+    onSwitchAnime: () -> Unit = {},
+    onUnlinkFromAniList: () -> Unit = {},
+    onRefresh: () -> Unit = {},
+) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(360.dp),
+        ) {
+            if (anime.coverUrl != null) {
+                AsyncImage(
+                    model = anime.coverUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().blur(8.dp),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+            }
+            Box(
+                modifier = Modifier.fillMaxSize().background(coverColor.copy(alpha = 0.2f)),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.2f),
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.background,
+                            ),
+                        ),
+                    ),
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ActionButton(icon = Icons.Filled.ArrowBack, contentDescription = "Back", onClick = onBack)
+            Row {
+                ActionButton(
+                    icon = if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                    contentDescription = if (saved) "Remove from library" else "Add to library",
+                    onClick = onToggleSave,
+                    onLongClick = onLongPressSave,
+                )
+                // Three-dot source-switcher menu (replaces the no-op stub).
+                // SourceSwitcherMenu renders its own trigger button + dropdown.
+                SourceSwitcherMenu(
+                    anime = anime,
+                    currentDataSource = currentDataSource,
+                    entryMode = entryMode,
+                    onSwitchDataSource = onSwitchDataSource,
+                    onLinkToAniList = onLinkToAniList,
+                    onSwitchAnime = onSwitchAnime,
+                    onUnlinkFromAniList = onUnlinkFromAniList,
+                    onRefresh = onRefresh,
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (anime.coverUrl != null) {
+                AsyncImage(
+                    model = anime.coverUrl,
+                    contentDescription = anime.title,
+                    modifier = Modifier
+                        .size(width = 100.dp, height = 150.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = anime.title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                // Meta row: score (AniList-only) · status · episode count.
+                val statusLabel = anime.status.displayLabel()
+                val metaParts = buildList {
+                    anime.averageScore?.let { add("\u2605 $it%") }
+                    statusLabel?.let { add(it.lowercase()) }
+                    anime.episodeCount?.let { add("$it eps") }
+                }
+                if (metaParts.isNotEmpty()) {
+                    Text(
+                        text = metaParts.joinToString(" \u00b7 "),
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // Next-airing pill (AniList-only — extensions can't provide this).
+                anime.nextAiringEpisode?.let { airing ->
+                    val display = formatNextAiring(airing)
+                    if (display != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(50),
+                        ) {
+                            Text(
+                                text = display,
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Formats the next-airing countdown (e.g. "EP 3 in 2d 5h"). Returns null if data is incomplete. */
+private fun formatNextAiring(airing: app.confused.anikuta.core.common.model.details.NextAiringEpisode): String? {
+    val ep = airing.episode
+    val secs = airing.timeUntilAiring
+    if (secs <= 0) return "EP $ep soon"
+    val days = secs / 86400
+    val hours = (secs % 86400) / 3600
+    return when {
+        days >= 1 -> "EP $ep in ${days}d ${hours}h"
+        hours >= 1 -> "EP $ep in ${hours}h"
+        else -> "EP $ep in ${secs / 60}m"
+    }
+}
+
+/** Display label for [UnifiedStatus] — null for UNKNOWN (the badge is hidden). */
+private fun UnifiedStatus.displayLabel(): String? = when (this) {
+    UnifiedStatus.FINISHED -> "Finished"
+    UnifiedStatus.RELEASING -> "Releasing"
+    UnifiedStatus.NOT_YET_RELEASED -> "Not yet released"
+    UnifiedStatus.CANCELLED -> "Cancelled"
+    UnifiedStatus.HIATUS -> "On hiatus"
+    UnifiedStatus.UNKNOWN -> null
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ActionButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    Surface(
+        color = Color.Black.copy(alpha = 0.4f),
+        shape = CircleShape,
+        modifier = Modifier
+            .padding(4.dp)
+            .size(40.dp)
+            .then(
+                if (onLongClick != null) Modifier.combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
+                else Modifier.clickable(onClick = onClick)
+            ),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = Color.White,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}

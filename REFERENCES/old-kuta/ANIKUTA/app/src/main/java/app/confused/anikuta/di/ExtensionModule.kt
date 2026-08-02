@@ -1,0 +1,112 @@
+package app.confused.anikuta.di
+
+import android.content.Context
+import app.confused.anikuta.core.backup.provider.SourceLinkBackupAccess
+import app.confused.anikuta.core.updatechecker.EpisodeFetchGateway
+import app.confused.anikuta.data.extension.AnimeExtensionManager
+import app.confused.anikuta.data.extension.api.AnimeExtensionApi
+import app.confused.anikuta.data.extension.cache.ExtensionLinkStore
+import app.confused.anikuta.data.extension.cache.SourceLinkBackupAccessImpl
+import app.confused.anikuta.data.extension.cache.SourceLinkStore
+import app.confused.anikuta.data.extension.installer.AnimeExtensionInstaller
+import app.confused.anikuta.data.extension.loader.AnimeExtensionLoader
+import app.confused.anikuta.data.extension.matcher.SourceMatcher
+import app.confused.anikuta.data.extension.repo.ExtensionRepoApi
+import app.confused.anikuta.data.extension.repo.ExtensionRepoRepository
+import app.confused.anikuta.data.extension.repo.defaultRepoOkHttpClient
+import app.confused.anikuta.data.extension.trust.TrustExtension
+import app.confused.anikuta.data.extension.updatechecker.EpisodeFetchGatewayImpl
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import org.koin.core.module.Module
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
+
+/**
+ * Koin module for the anime extension system (Phase 4B).
+ *
+ * Wires the full `:data:extension` dependency graph:
+ *
+ * ```
+ * TrustExtension ──┐
+ *                  ├─→ AnimeExtensionLoader ──┐
+ * ExtensionRepoApi ┤                          ├─→ AnimeExtensionManager ──→ AnimeExtensionApi
+ * ExtensionRepoRepository ──────→ AnimeExtensionApi                  ↑
+ * OkHttpClient (repo) ───────────┘                                     │
+ * AnimeExtensionInstaller ───────────────────────────────────────────────┘
+ * ```
+ *
+ * All bindings are singletons (the manager owns a `CoroutineScope(SupervisorJob())`
+ * so it must be a singleton to avoid leaking scopes). Registered in `App.kt`'s
+ * `startKoin { }` block (ADR-023).
+ */
+val extensionModule: Module = module {
+
+    // ── HTTP + JSON for repo index fetching ──
+    single<OkHttpClient>(named("extensionRepo")) { defaultRepoOkHttpClient() }
+    single<Json>(named("extensionJson")) { Json { ignoreUnknownKeys = true } }
+
+    // ── Trust ──
+    single { TrustExtension(get<Context>()) }
+
+    // ── Loader ──
+    single { AnimeExtensionLoader(get()) }
+
+    // ── Repo layer ──
+    single { ExtensionRepoRepository(get<Context>()) }
+    single { ExtensionRepoApi(get(named("extensionRepo")), get(named("extensionJson"))) }
+
+    // ── API (orchestrator over repos) ──
+    single { AnimeExtensionApi(get(), get()) }
+
+    // ── Installer (needs its own OkHttpClient for APK downloads) ──
+    single { AnimeExtensionInstaller(get<Context>(), get(named("extensionRepo"))) }
+
+    // ── Manager (the public façade — depends on loader, trust, api, installer) ──
+    single { AnimeExtensionManager(get(), get(), get(), get(), get()) }
+
+    // ── SourceMatcher (Step 5 — searches trusted sources by title) ──
+    single { SourceMatcher(get()) }
+
+    // ── ExtensionLinkStore (caches extension→AniList links for the Search page) ──
+    // Depends on PreferenceStore (provided by preferenceModule). Shared between
+    // :feature:search (linking sheet) and the future extension-only detail page.
+    single { ExtensionLinkStore(get()) }
+
+    // ── SourceLinkStore (persists the source match for a content) ──
+    // Stores sourceId + SAnime URL + title so the details page can directly
+    // call getEpisodeList() without re-searching on every app open.
+    // Phase 4: keyed by content_id (was anilistId).
+    single { SourceLinkStore(get()) }
+
+    // ── Phase 8: SourceLinkBackupAccess — bridges :core:backup ↔ :data:extension ──
+    // Exposes only the read/write surface the backup engine needs, via the
+    // interface declared in :core:backup (avoids the core→data inversion that
+    // would happen if :core:backup imported SourceLinkStore directly).
+    single<SourceLinkBackupAccess> {
+        SourceLinkBackupAccessImpl(get<SourceLinkStore>(), get<ExtensionLinkStore>())
+    }
+
+    // ── Phase 4: SourceLinkMigrator (anilistId → content_id keys) ──
+    single {
+        app.confused.anikuta.data.extension.migration.SourceLinkMigrator(
+            sourceLinkStore = get(),
+            extensionLinkStore = get(),
+            animeRepository = get(),
+            contentIdPreferences = get(),
+        )
+    }
+
+    // ── DetailsViewPreferenceStore (remembers per-anime AniList vs Extension view choice) ──
+    // When the user taps "View from Extension" / "View from AniList", the choice is
+    // persisted here. On re-open, the details page reads this to default to the user's
+    // preferred data source. Also drives the library cover (extension cover if preferred).
+    single { app.confused.anikuta.data.extension.cache.DetailsViewPreferenceStore(get()) }
+
+    // ── Agent 1: EpisodeFetchGateway ──
+    // Binds the :core:update-checker interface to the :data:extension impl.
+    // Consumed by UpdateChecker (registered in updateCheckerModule). Kept here
+    // (not in updateCheckerModule) because the impl lives in :data:extension
+    // and :core:update-checker cannot depend on :data:extension (ARCHITECTURE §3).
+    single<EpisodeFetchGateway> { EpisodeFetchGatewayImpl(get()) }
+}

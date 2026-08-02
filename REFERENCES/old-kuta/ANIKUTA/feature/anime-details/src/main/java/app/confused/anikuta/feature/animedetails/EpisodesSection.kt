@@ -1,0 +1,1021 @@
+package app.confused.anikuta.feature.animedetails
+
+import android.os.Build
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.RenderEffect
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.confused.anikuta.core.designsystem.theme.RobotoFamily
+import app.confused.anikuta.core.preferences.EpisodeDisplayPrefs
+import app.confused.anikuta.core.preferences.EpisodeDisplayPreferences
+import app.confused.anikuta.data.extension.matcher.SourceMatcher
+import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
+import eu.kanade.tachiyomi.animesource.AnimeSource
+import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
+import org.koin.compose.koinInject
+
+/**
+ * The episodes section — shows the source indicator, source switcher, manual
+ * search button, and the episode list. Renders the appropriate state
+ * (searching / loading / loaded / no-match / error) based on [episodeState].
+ *
+ * Per the design language spec (`DESIGN_LANGUAGE/04-screens/episode-list.md`):
+ * - Episode rows have alternating backgrounds (zebra stripe).
+ * - Watched episodes are grayscale + alpha 0.55f (RenderEffect, API 31+).
+ * - The section header shows the source name (tappable → switcher).
+ *
+ * Header layout (next to "Episodes"):
+ * - **Matched, multiple sources:** source-name chip (tappable → switcher) + search icon.
+ * - **Matched, single source:** source name text + search icon.
+ * - **No match / error:** "No source" text + prominent "Search manually" button.
+ * - **Searching / loading:** search icon only (source not yet known).
+ *
+ * The search icon opens [ManualSearchSheet], where the user can search
+ * extensions with a custom query and manually link a result.
+ */
+@Composable
+fun EpisodesSection(
+    episodeState: EpisodeState,
+    currentMatch: SourceMatcher.SourceMatch?,
+    allMatches: List<SourceMatcher.SourceMatch>,
+    watchedEpisodes: Set<String>,
+    episodeMetadata: Map<Int, app.confused.anikuta.core.episodemetadata.model.EpisodeMetadata>,
+    isSearching: Boolean,
+    manualSearchResults: List<SourceMatcher.ManualSearchResult>,
+    manualSearchErrors: List<Pair<String, String>>,
+    autoMatchErrors: List<Pair<String, String>>?,
+    hasSearched: Boolean,
+    availableSources: List<SourceMatcher.SourceInfo>,
+    initialSearchQuery: String,
+    onOpenEpisode: (SEpisode, AnimeSource, List<SEpisode>) -> Unit,
+    onToggleWatched: (String) -> Unit,
+    onSwitchSource: (SourceMatcher.SourceMatch) -> Unit,
+    onManualSearch: suspend (Long, String) -> Unit,
+    onLinkManual: (AnimeCatalogueSource, SAnime) -> Unit,
+    onClearManualSearch: () -> Unit,
+    showMetadataLoading: Boolean = true,
+    /** Whether the episode-metadata fetch has completed (success / skipped / error).
+     *  When false + the metadata map is empty, the spinner next to "Episodes" shows.
+     *  When true + the map is empty, the spinner hides (the fetch finished — the
+     *  map is just empty for this anime). */
+    metadataFetchComplete: Boolean = false,
+    /** The extension source ID (for the "Source unavailable" info dialog).
+     *  Null in pure-AniList mode. From `UnifiedAnime.sourceId`. */
+    sourceId: Long? = null,
+    /** Agent 2 — Downloads: invoked when the user taps the download button on an episode row. */
+    onDownloadEpisode: (SEpisode, AnimeSource) -> Unit = { _, _ -> },
+    /** Per-episode download states, keyed by episode URL (for the row UI). */
+    downloadStates: Map<String, EpisodeDownloadState> = emptyMap(),
+    onDownloadCancel: (String) -> Unit = {},
+    onDownloadResume: (String) -> Unit = {},
+    onDownloadRetry: (String) -> Unit = {},
+    onDownloadDelete: (String) -> Unit = {},
+) {
+    var showManualSearch by remember { mutableStateOf(false) }
+    // ── "Source unavailable" info dialog state (Issue 5) ──
+    // When the user taps the "Source unavailable" chip, this dialog opens FIRST
+    // (explaining which extension the anime was previously saved with + its ID).
+    // The user can then dismiss OR tap "Switch source" to open the ManualSearchSheet.
+    var showUnavailableInfo by remember { mutableStateOf(false) }
+
+    // ── Inject + read the episode-display preferences reactively ──
+    // Note: the snapshot is now computed by DetailContent (hoisted to the parent
+    // composable level) so it can be passed to the flattened episode rows in the
+    // parent LazyColumn's items(). EpisodesSection itself no longer renders rows
+    // (just the header + loading/error states) — but we keep the koinInject +
+    // remember call here so the prefs are still read once per section render,
+    // which keeps the reactive subscription active while the section is visible.
+    // (Future cleanup: remove this entirely once EpisodesSection is purely a
+    // header + state machine.)
+    val displayPrefs: EpisodeDisplayPreferences = koinInject()
+    @Suppress("UNUSED_VARIABLE")
+    val snapshot = rememberEpisodeDisplaySnapshot(displayPrefs)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // ── Section header: "Episodes" + metadata loading indicator + source name ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Episodes",
+                    fontFamily = RobotoFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                // Metadata loading indicator — shows a small spinner next to
+                // "Episodes" while metadata is being fetched in the background.
+                // When episodes are loaded but metadata map is still empty,
+                // the fetch is in progress.
+                // Issue 1 fix: gated on `!metadataFetchComplete` so the spinner
+                // hides once the fetch finishes (success OR skipped OR error) —
+                // for unlinked extension anime the fetch is skipped entirely, and
+                // without this flag the spinner would spin forever.
+                if (showMetadataLoading && episodeState is EpisodeState.Loaded && episodeMetadata.isEmpty() && !metadataFetchComplete) {
+                    Spacer(modifier = Modifier.size(8.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
+            // Right side: the source name (or "Search manually" CTA when no match).
+            // Either way, clicking it opens the ManualSearchSheet.
+            when {
+                // Source matched → show source name as a tappable chip.
+                // Clicking it opens the manual search sheet (which lets the user
+                // switch sources or re-link).
+                currentMatch != null -> {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.clickable { showManualSearch = true },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = currentMatch.source.name,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            Icon(
+                                imageVector = Icons.Filled.ExpandMore,
+                                contentDescription = "Search or switch source",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+                // No match → "Search manually" CTA button
+                episodeState is EpisodeState.NoMatch -> {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.clickable { showManualSearch = true },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text(
+                                text = "Search manually",
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
+                    }
+                }
+                // Episodes loaded from DB but the source extension is no longer
+                // installed (or no auto-match was ever made). Show the source name
+                // + "unavailable" with a dimmed accent color — tapping it opens an
+                // info dialog (Issue 5 fix) explaining which extension the anime
+                // was previously saved with + its ID, with a "Switch source" CTA
+                // that opens the ManualSearchSheet.
+                episodeState is EpisodeState.Loaded && currentMatch == null -> {
+                    // Per user feedback: don't show "AniList" as the source name when
+                    // the extension is unavailable. AniList is a metadata provider, not
+                    // an episode source. Fall back to "Unknown" if the sourceName is
+                    // "AniList" (the mapper default) or blank.
+                    val rawSourceName = episodeState.sourceName
+                    val sourceName = when {
+                        rawSourceName.isBlank() -> "Unknown"
+                        rawSourceName.equals("AniList", ignoreCase = true) -> "Unknown"
+                        else -> rawSourceName
+                    }
+                    // Per user feedback: the pill should blend with the background
+                    // (surfaceVariant), and only the extension name should be
+                    // highlighted (primary). "— unavailable" uses onSurfaceVariant
+                    // (dimmed, blends with dark/light backgrounds).
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.clickable { showUnavailableInfo = true },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = sourceName,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                text = " — unavailable",
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Icon(
+                                imageVector = Icons.Filled.ExpandMore,
+                                contentDescription = "Source unavailable info",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+                else -> { /* searching / loading — source not yet known */ }
+            }
+        }
+
+        // ── Episode list / state ──
+        when (episodeState) {
+            is EpisodeState.Idle -> {}
+            is EpisodeState.Searching -> SearchingState()
+            is EpisodeState.Loading -> EpisodesLoadingState(episodeState.sourceName)
+            // Episodes are rendered lazily by the parent LazyColumn's items() —
+            // see DetailContent.kt. Rendering them here would require nesting a
+            // non-lazy Column inside the parent LazyColumn (the old behavior,
+            // which composed ALL rows at once and caused severe jank on anime
+            // with 100+ episodes).
+            is EpisodeState.Loaded -> { /* episodes rendered as LazyColumn items by DetailContent */ }
+            is EpisodeState.NoMatch -> NoSourcesState(
+                onSearchManually = { showManualSearch = true },
+                autoMatchErrors = autoMatchErrors,
+            )
+            is EpisodeState.NotReleased -> NotReleasedState()
+            is EpisodeState.Error -> EpisodesErrorState(episodeState.message)
+        }
+    }
+
+    // ── Manual search sheet ──
+    // Opens when the user taps the source name chip or the "Search manually" CTA.
+    // The sheet has the source selector + search bar + results list + link flow.
+    if (showManualSearch) {
+        ManualSearchSheet(
+            initialQuery = initialSearchQuery,
+            availableSources = availableSources,
+            isSearching = isSearching,
+            results = manualSearchResults,
+            errors = manualSearchErrors,
+            hasSearched = hasSearched,
+            currentMatch = currentMatch,
+            onManualSearch = onManualSearch,
+            onLinkManual = { result ->
+                onLinkManual(result.source, result.sAnime)
+            },
+            onDismiss = {
+                showManualSearch = false
+                onClearManualSearch()
+            },
+        )
+    }
+
+    // ── "Source unavailable" info dialog (Issue 5) ──
+    // Opens when the user taps the "Source unavailable" chip. Explains which
+    // extension the anime was previously saved with + its ID, with three actions:
+    // "Copy ID" (leftmost — copies the extension ID to clipboard) +
+    // "Switch source" (opens ManualSearchSheet) + "Dismiss".
+    if (showUnavailableInfo && episodeState is EpisodeState.Loaded) {
+        // Same sourceName cleanup as the chip — don't show "AniList" as the source.
+        val rawSourceName = episodeState.sourceName
+        val sourceName = when {
+            rawSourceName.isBlank() -> "Unknown"
+            rawSourceName.equals("AniList", ignoreCase = true) -> "Unknown"
+            else -> rawSourceName
+        }
+        val context = androidx.compose.ui.platform.LocalContext.current
+        AlertDialog(
+            onDismissRequest = { showUnavailableInfo = false },
+            title = { Text("Extension Unavailable") },
+            text = {
+                Text(
+                    "Previously saved with $sourceName " +
+                        "(Extension ID: ${sourceId ?: "unknown"}). " +
+                        "Currently not installed or available.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showUnavailableInfo = false
+                    showManualSearch = true
+                }) { Text("Switch source") }
+            },
+            dismissButton = {
+                androidx.compose.foundation.layout.Row {
+                    // Copy ID button (leftmost) — copies the extension ID to clipboard.
+                    if (sourceId != null) {
+                        TextButton(onClick = {
+                            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                            val clip = android.content.ClipData.newPlainText("Extension ID", sourceId.toString())
+                            clipboard?.setPrimaryClip(clip)
+                            android.widget.Toast.makeText(
+                                context,
+                                "Extension ID copied: $sourceId",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }) { Text("Copy ID") }
+                    }
+                    TextButton(onClick = { showUnavailableInfo = false }) { Text("Dismiss") }
+                }
+            },
+        )
+    }
+}
+
+/**
+ * The episode list — DEPRECATED.
+ *
+ * Previously this was a plain [Column] (NOT a [LazyColumn]) rendered inside the
+ * outer `DetailContent`'s `LazyColumn` (via `item { EpisodesSection(...) }`).
+ * It used `forEachIndexed` to render ALL episode rows at once. For anime with
+ * 100+ episodes this caused severe jank (all rows composed eagerly).
+ *
+ * The flatten-the-list fix from the scroll-blur branch moved episode rows OUT
+ * of this function + INTO the parent LazyColumn via `items()`. Now
+ * [EpisodesSection] only renders the header + loading/error states; the actual
+ * rows are added by `DetailContent`'s `items(count = episodes.size)` block.
+ *
+ * Kept as a no-op for now (callers reference it via the Loaded → { /* noop */ }
+ * branch above). Safe to delete entirely in a follow-up cleanup pass.
+ */
+
+/**
+ * A single episode row — the PRIMARY two-section view (per user spec).
+ *
+ * Layout:
+ * ```
+ * ┌───────────────────────────────────────────────────┐
+ * │  TOP SECTION (height driven by thumbnail)          │
+ * │  ┌──────────┐  ┌─ Title (bg) ──────────────────┐  │
+ * │  │          │  │ EP 3  The Dragon's Labyrinth   │  │
+ * │  │ Thumbnail│  └────────────────────────────────┘  │
+ * │  │  EP 3   │  ┌─ Date + Audio (bg) ────────────┐  │
+ * │  │          │  │ Mar 15, 2024  SUB•DUB          │  │
+ * │  └──────────┘  └────────────────────────────────┘  │
+ * ├───────────────────────────────────────────────────┤
+ * │  BOTTOM SECTION                                    │
+ * │  ┌─ Synopsis (bg) ──────────────────────────────┐  │
+ * │  │ A young adventurer discovers a hidden...     │  │
+ * │  └──────────────────────────────────────────────┘  │
+ * └───────────────────────────────────────────────────┘
+ * ```
+ *
+ * - The top section's right side is divided into TWO equal sub-sections:
+ *   title (top) + date/audio (bottom). Height is driven by the thumbnail.
+ * - Each element (title, date+audio, synopsis) gets a dedicated background
+ *   container (toggleable via [EpisodeDisplayPrefs.showTitleBackground] etc.).
+ * - NO alternating zebra-stripe colors — all rows use the same lighter shade.
+ * - Episode number badge: black 70%-alpha pill overlay on the thumbnail.
+ * - Audio pills: ALWAYS show full names ("SUB", "DUB") with dot separators →
+ *   "SUB•DUB" (per user request — not short letters).
+ * - Pill heights are minimal: `labelSmall` typography + tight 6dp/1dp padding
+ *   (per user: "the background height is way too much").
+ * - Thumbnail: `metadata.thumbnailUrl ?: episode.preview_url` (fallback).
+ * - Watched effect: grayscale + alpha 0.55f via [watchedEpisodeEffect].
+ *
+ * NOTE: Layout position prefs (thumbnailPosition, titlePosition, etc.) are
+ * DORMANT for now — the row uses this single fixed view. Per user: "we are
+ * only going to focus on one single view for the current time being."
+ * The thumbnail SIZE pref is still active (small/medium/large).
+ */
+@Composable
+internal fun EpisodeRow(
+    episode: SEpisode,
+    index: Int,
+    isWatched: Boolean,
+    metadata: app.confused.anikuta.core.episodemetadata.model.EpisodeMetadata? = null,
+    displayPrefs: EpisodeDisplayPrefs? = null,
+    onClick: () -> Unit,
+    onToggleWatched: () -> Unit,
+    onDownload: () -> Unit = {},
+    downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
+    onDownloadCancel: () -> Unit = {},
+    onDownloadResume: () -> Unit = {},
+    onDownloadRetry: () -> Unit = {},
+    onDownloadDelete: () -> Unit = {},
+) {
+    // Background matches the More screen button background (surfaceVariant@0.4f).
+    val cardColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+
+    // Apply preferences or use defaults
+    val showThumbnail = displayPrefs?.showThumbnails ?: true
+    val showTitle = displayPrefs?.showTitles ?: true
+    val showSummary = displayPrefs?.showSummaries ?: true
+    val showDate = displayPrefs?.showDates ?: true
+    val showNumber = displayPrefs?.showEpisodeNumber ?: true
+    val showAudioPills = displayPrefs?.showAudioPills ?: true
+    val thumbSize = displayPrefs?.thumbnailSize ?: "medium"
+    val titleMaxLines = displayPrefs?.titleMaxLines ?: 1
+    val synopsisMaxLines = displayPrefs?.synopsisMaxLines ?: 2
+    val showTitleBg = displayPrefs?.showTitleBackground ?: true
+    val showDateBg = displayPrefs?.showDateBackground ?: true
+    val showAudioBg = displayPrefs?.showAudioBackground ?: true
+    val showSynopsisBg = displayPrefs?.showSynopsisBackground ?: true
+    val showDownloadBtn = displayPrefs?.showDownloadButton ?: true
+
+    // Use metadata title if available, otherwise parse the extension title.
+    // Memoized — the title parsing (EpisodeTitleParser) is CPU-intensive and
+    // doesn't change between recompositions unless the episode or metadata changes.
+    val displayTitle = remember(episode, metadata) {
+        metadata?.title
+            ?: app.confused.anikuta.core.episodemetadata.util.EpisodeTitleParser.parseTitle(
+                episode.name, episode.episode_number,
+            )
+            ?: episode.name.ifBlank { "Episode ${formatEpisodeNumber(episode.episode_number)}" }
+    }
+
+    val description = metadata?.description ?: episode.summary
+    // Thumbnail fallback: prefer metadata, fall back to the extension's preview_url.
+    val thumbnailUrl = if (showThumbnail) {
+        metadata?.thumbnailUrl ?: episode.preview_url
+    } else {
+        null
+    }
+    // Episode number text — memoized (formatEpisodeNumber is cheap but called often).
+    val epNumText = remember(episode) { "EP ${formatEpisodeNumber(episode.episode_number)}" }
+    val bareEpNum = remember(episode) { formatEpisodeNumber(episode.episode_number) }
+
+    // Thumbnail sizes
+    val (thumbWidth, thumbHeight) = when (thumbSize) {
+        "small" -> 100.dp to 56.dp
+        "large" -> 160.dp to 90.dp
+        else -> 120.dp to 68.dp  // medium (default)
+    }
+
+    // Audio availability — memoized (string parsing on every recomposition is wasteful).
+    val audio = remember(episode) { parseAudioAvailability(episode.scanlator, episode.name) }
+    val hasSub = audio.hasSub
+    val hasDub = audio.hasDub
+    val hasHsub = audio.hasHsub
+    val hasAnyAudioPills = showAudioPills && (hasSub || hasDub || hasHsub)
+
+    // Date — prefer metadata airDate (epoch seconds), fall back to episode.date_upload (epoch millis).
+    // Memoized — formatDate creates a SimpleDateFormat + Date each call.
+    val dateText = remember(episode, metadata, showDate) {
+        if (showDate) {
+            val airDate = metadata?.airDate
+            when {
+                airDate != null && airDate > 0 -> formatDate(airDate * 1000L)
+                episode.date_upload > 0 -> formatDate(episode.date_upload)
+                else -> null
+            }
+        } else null
+    }
+
+    val hasMetaRow = dateText != null || hasAnyAudioPills
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .watchedEpisodeEffect(isWatched)
+            .clip(RoundedCornerShape(12.dp))
+            .background(cardColor)
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+    ) {
+        // ══ TOP SECTION: thumbnail (left) + title/date-audio (right, 2 equal sub-sections) ══
+        // The thumbnail drives the top-section height. The right column fills
+        // the thumbnail height and is split equally between title and meta.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+        ) {
+            // ── Thumbnail (left) with episode-number overlay ──
+            if (thumbnailUrl != null) {
+                EpisodeThumbnail(
+                    url = thumbnailUrl,
+                    width = thumbWidth,
+                    height = thumbHeight,
+                    contentDescription = displayTitle,
+                    showNumber = showNumber,
+                    epNumText = epNumText,
+                )
+                Spacer(modifier = Modifier.size(10.dp))
+            } else if (showNumber) {
+                // No thumbnail — show the circle episode-number as the left element
+                CircleEpisodeNumber(bareEpNum)
+                Spacer(modifier = Modifier.size(10.dp))
+            }
+
+            // ── Right column: two equal sub-sections (title on top, meta on bottom) ──
+            if (showTitle || hasMetaRow) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(IntrinsicSize.Min),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    // Top sub-section: Title (with optional background)
+                    if (showTitle) {
+                        if (showTitleBg) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = displayTitle,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = titleMaxLines,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = displayTitle,
+                                fontFamily = RobotoFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = titleMaxLines,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+
+                    // Bottom sub-section: Date + Audio as SEPARATE pills (each with its own
+                    // optional background). Per user: "they don't need to actually get a
+                    // separate dedicated background for both of them together. They already
+                    // have a slight subtle background to themselves."
+                    // A spacer sits between the title and this row so they don't touch.
+                    // Per user: "There should be some spacing between them."
+                    if (hasMetaRow) {
+                        Spacer(Modifier.size(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            // Date pill (with optional individual background)
+                            if (showDate && dateText != null) {
+                                DatePill(
+                                    text = dateText,
+                                    showBackground = showDateBg,
+                                    modifier = Modifier,
+                                )
+                            }
+                            // Audio pills (with optional individual background)
+                            if (showAudioPills && (hasSub || hasDub || hasHsub)) {
+                                AudioPills(
+                                    hasSub = hasSub,
+                                    hasDub = hasDub,
+                                    hasHsub = hasHsub,
+                                    showBackground = showAudioBg,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (thumbnailUrl != null || showNumber) {
+                // No title and no meta — fill remaining space so thumbnail keeps natural size
+                Spacer(modifier = Modifier.weight(1f))
+            }
+
+            // ── Download control (Agent 2 — Downloads & Offline Playback) ──
+            // State-driven: download button / progress+cancel / checkmark+delete.
+            // Shown when the pref is on OR the episode is already downloaded/
+            // downloading (so the user can always see/manage the state).
+            if (showDownloadBtn || downloadState != EpisodeDownloadState.NotDownloaded) {
+                EpisodeDownloadControl(
+                    state = downloadState,
+                    onDownload = onDownload,
+                    onCancel = onDownloadCancel,
+                    onResume = onDownloadResume,
+                    onRetry = onDownloadRetry,
+                    onDelete = onDownloadDelete,
+                )
+            }
+        }
+
+        // ══ BOTTOM SECTION: Synopsis (with optional background) ══
+        if (showSummary && !description.isNullOrBlank()) {
+            Spacer(Modifier.size(8.dp))
+            if (showSynopsisBg) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = description,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        // Per user: "reduce line spacing by quite a lot so that there is
+                        // only about 3-4dp of spacing between each individual line."
+                        // lineHeight 15.sp with 12.sp font ≈ 3dp extra line gap.
+                        lineHeight = 15.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = synopsisMaxLines,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                }
+            } else {
+                Text(
+                    text = description,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = synopsisMaxLines,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The episode thumbnail with the overlay episode-number badge.
+ *
+ * The overlay badge: themed primary green (per user: "you could go with the
+ * themed colored background like how you were going previously so it would
+ * be okay, like the green theme colored"). 6dp corners, Bold White text,
+ * slightly taller padding (6dp/2dp) per user: "increase the background height
+ * of the episode count by a little bit but not that much."
+ */
+@Composable
+private fun EpisodeThumbnail(
+    url: String,
+    width: androidx.compose.ui.unit.Dp,
+    height: androidx.compose.ui.unit.Dp,
+    contentDescription: String,
+    showNumber: Boolean,
+    epNumText: String,
+) {
+    Box {
+        coil3.compose.AsyncImage(
+            model = url,
+            contentDescription = contentDescription,
+            modifier = Modifier
+                .size(width = width, height = height)
+                .clip(RoundedCornerShape(10.dp)),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        )
+        if (showNumber) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                // Themed primary green per user request.
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(4.dp),
+            ) {
+                Text(
+                    text = epNumText,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+    }
+}
+
+/** The circle fallback — 40dp `surfaceVariant` disc with the bare number (no "EP"). */
+@Composable
+private fun CircleEpisodeNumber(bareEpNum: String) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.size(40.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = bareEpNum,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * The date pill. Per user: "increase their height by a little bit so that it
+ * looks good" — padding 6dp/2dp + lineHeight 14.sp (was 6dp/1dp + 12.sp which
+ * was too short). When [showBackground] is true, gets a subtle `outlineVariant`
+ * surface; when false, renders as plain text.
+ */
+@Composable
+private fun DatePill(
+    text: String,
+    showBackground: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (showBackground) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.colorScheme.outlineVariant,
+            modifier = modifier,
+        ) {
+            Text(
+                text = text,
+                fontFamily = RobotoFamily,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+    } else {
+        Text(
+            text = text,
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+/**
+ * The audio-pills composable — one surface holding all detected versions.
+ * ALWAYS uses full names ("SUB", "DUB", "HSUB") separated by 3dp dots →
+ * "SUB•DUB" (per user request).
+ * Per user: "increase their height by a little bit" — padding 6dp/2dp +
+ * lineHeight 14.sp.
+ * When [showBackground] is true, gets a subtle `outlineVariant` surface;
+ * when false, renders as plain text with dot separators.
+ */
+@Composable
+private fun AudioPills(
+    hasSub: Boolean,
+    hasDub: Boolean,
+    hasHsub: Boolean,
+    showBackground: Boolean,
+) {
+    val parts = buildList {
+        if (hasSub) add("SUB")
+        if (hasDub) add("DUB")
+        if (hasHsub) add("HSUB")
+    }
+    if (parts.isEmpty()) return
+    if (showBackground) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.colorScheme.outlineVariant,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                parts.forEachIndexed { idx, label ->
+                    if (idx > 0) {
+                        Box(
+                            modifier = Modifier
+                                .size(3.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                        )
+                    }
+                    Text(
+                        text = label,
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
+        }
+    } else {
+        // No background — plain text with dot separators
+        Row(
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            parts.forEachIndexed { idx, label ->
+                if (idx > 0) {
+                    Box(
+                        modifier = Modifier
+                            .size(3.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                    )
+                }
+                Text(
+                    text = label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Parse SUB/DUB/HSUB availability from BOTH the scanlator AND the episode name.
+ *
+ * Many anime extensions leave `scanlator` null but put the audio token in the
+ * episode name (e.g. "Episode 5 - SUB"). Checking both maximises the chance
+ * of detecting audio availability at episode-list time.
+ *
+ * NOTE: HSUB is checked BEFORE SUB (since "HSUB" contains "SUB" as a substring).
+ */
+private data class AudioAvailability(
+    val hasSub: Boolean,
+    val hasDub: Boolean,
+    val hasHsub: Boolean,
+)
+
+private fun parseAudioAvailability(scanlator: String?, episodeName: String): AudioAvailability {
+    val haystack = ((scanlator ?: "") + " " + episodeName).uppercase()
+    val hasHsub = haystack.contains("HSUB") || haystack.contains("HARDSUB")
+    val hasSub = haystack.contains("SUB") && !hasHsub
+    val hasDub = haystack.contains("DUB") && !hasHsub
+    return AudioAvailability(hasSub = hasSub, hasDub = hasDub, hasHsub = hasHsub)
+}
+
+/**
+ * Reads [EpisodeDisplayPreferences] into a reactive [EpisodeDisplayPrefs] snapshot.
+ * Collected via `Preference.changes()` so the episode list updates instantly
+ * when a setting changes in the new `:feature:episode-settings` screens.
+ */
+@Composable
+internal fun rememberEpisodeDisplaySnapshot(prefs: EpisodeDisplayPreferences): EpisodeDisplayPrefs {
+    val showNumber by prefs.showEpisodeNumber().changes().collectAsState(initial = prefs.showEpisodeNumber().get())
+    val showTitles by prefs.showEpisodeTitles().changes().collectAsState(initial = prefs.showEpisodeTitles().get())
+    val showSummaries by prefs.showEpisodeSummaries().changes().collectAsState(initial = prefs.showEpisodeSummaries().get())
+    val showThumbnails by prefs.showEpisodeThumbnails().changes().collectAsState(initial = prefs.showEpisodeThumbnails().get())
+    val showDates by prefs.showEpisodeDates().changes().collectAsState(initial = prefs.showEpisodeDates().get())
+    val showAudioPills by prefs.showAudioPills().changes().collectAsState(initial = prefs.showAudioPills().get())
+    val thumbPos by prefs.thumbnailPosition().changes().collectAsState(initial = prefs.thumbnailPosition().get())
+    val titlePos by prefs.titlePosition().changes().collectAsState(initial = prefs.titlePosition().get())
+    val synopsisPos by prefs.synopsisPosition().changes().collectAsState(initial = prefs.synopsisPosition().get())
+    val datePos by prefs.datePosition().changes().collectAsState(initial = prefs.datePosition().get())
+    val epNumPos by prefs.episodeNumberPosition().changes().collectAsState(initial = prefs.episodeNumberPosition().get())
+    val thumbSize by prefs.thumbnailSize().changes().collectAsState(initial = prefs.thumbnailSize().get())
+    val titleLines by prefs.titleMaxLines().changes().collectAsState(initial = prefs.titleMaxLines().get())
+    val synopsisLines by prefs.synopsisMaxLines().changes().collectAsState(initial = prefs.synopsisMaxLines().get())
+    val showTitleBg by prefs.showTitleBackground().changes().collectAsState(initial = prefs.showTitleBackground().get())
+    val showDateBg by prefs.showDateBackground().changes().collectAsState(initial = prefs.showDateBackground().get())
+    val showAudioBg by prefs.showAudioBackground().changes().collectAsState(initial = prefs.showAudioBackground().get())
+    val showSynopsisBg by prefs.showSynopsisBackground().changes().collectAsState(initial = prefs.showSynopsisBackground().get())
+    val showDownloadBtn by prefs.showDownloadButton().changes().collectAsState(initial = prefs.showDownloadButton().get())
+
+    return remember(
+        showNumber, showTitles, showSummaries, showThumbnails, showDates, showAudioPills,
+        thumbPos, titlePos, synopsisPos, datePos, epNumPos, thumbSize, titleLines, synopsisLines,
+        showTitleBg, showDateBg, showAudioBg, showSynopsisBg, showDownloadBtn,
+    ) {
+        EpisodeDisplayPrefs(
+            showThumbnails = showThumbnails,
+            showTitles = showTitles,
+            showSummaries = showSummaries,
+            showDates = showDates,
+            showEpisodeNumber = showNumber,
+            showAudioPills = showAudioPills,
+            thumbnailPosition = thumbPos,
+            titlePosition = titlePos,
+            synopsisPosition = synopsisPos,
+            datePosition = datePos,
+            episodeNumberPosition = epNumPos,
+            thumbnailSize = thumbSize,
+            titleMaxLines = titleLines,
+            synopsisMaxLines = synopsisLines,
+            showTitleBackground = showTitleBg,
+            showDateBackground = showDateBg,
+            showAudioBackground = showAudioBg,
+            showSynopsisBackground = showSynopsisBg,
+            showDownloadButton = showDownloadBtn,
+        )
+    }
+}
+
+/** Formats epoch millis to "MMM dd, yyyy". */
+private fun formatDate(epochMillis: Long): String {
+    return try {
+        val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US)
+        sdf.format(java.util.Date(epochMillis))
+    } catch (e: Exception) {
+        ""
+    }
+}
+
+/** Formats an episode number: 5.0f → "5", 5.5f → "5.5", -1f → "?". */
+private fun formatEpisodeNumber(num: Float): String {
+    if (num <= 0f) return "?"
+    return if (num == num.toLong().toFloat()) num.toLong().toString() else num.toString()
+}
+
+/**
+ * Cached grayscale RenderEffect — created once (file-level lazy val) instead of
+ * on every recomposition. The ColorMatrix + RenderEffect + Compose wrapper are
+ * all immutable, so caching is safe.
+ *
+ * Pre-API-31 (S) RenderEffect is unavailable — returns null + the watched effect
+ * falls back to alpha-only desaturation.
+ */
+private val CACHED_GRAYSCALE_EFFECT: androidx.compose.ui.graphics.RenderEffect? by lazy {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        RenderEffect.createColorFilterEffect(
+            ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) }),
+        ).asComposeRenderEffect()
+    } else null
+}
+
+/**
+ * Watched episode visual effect: grayscale (RenderEffect, API 31+) + alpha 0.55f.
+ * Per design language §3.3: MUST use RenderEffect (not ColorFilter on Paint)
+ * so Compose's text rendering pipeline is also desaturated.
+ *
+ * Uses [CACHED_GRAYSCALE_EFFECT] — no per-recomposition allocation.
+ */
+private fun Modifier.watchedEpisodeEffect(isWatched: Boolean): Modifier {
+    if (!isWatched) return this
+    return this.graphicsLayer {
+        alpha = 0.55f
+        CACHED_GRAYSCALE_EFFECT?.let { this.renderEffect = it }
+    }
+}
