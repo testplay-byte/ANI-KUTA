@@ -4,14 +4,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,15 +50,11 @@ class MainActivity : ComponentActivity() {
  * Phase 4a: Bottom navigation with 4 tabs (Browse, Library, Search, More).
  * The bottom nav is a floating pill overlay — content scrolls behind it.
  *
- * Nav3 pattern: state-owned backstack. The current tab + navigated screens
- * are tracked in a mutableStateListOf. Tab switches replace the backstack root.
- *
  * CORE_RULES §22: smooth animations on tab switches (fade transition).
  * CORE_RULES §23: reactive state (StateFlow from ViewModels).
  */
 @Composable
 fun AppRoot() {
-    // ── Bottom nav state ──
     val navItems = remember {
         listOf(
             NavItem("browse", "Browse", NavIcons.Browse),
@@ -69,49 +65,43 @@ fun AppRoot() {
     }
     var currentTab by remember { mutableStateOf("browse") }
 
-    // ── Navigation backstack ──
-    // For now, we use a simple list. Phase 4b will adopt full Nav3 NavDisplay.
-    val backstack = remember { androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey) }
+    val backstack = remember {
+        androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
+    }
     val currentKey = backstack.last()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // ── Content (scrolls behind the nav bar) ──
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 0.dp), // No bottom padding — content scrolls behind nav
-        ) {
-            // Animated content switch (CORE_RULES §22)
-            androidx.compose.animation.AnimatedContent(
-                targetState = currentKey,
-                transitionSpec = {
-                    fadeIn(tween(Motion.DurationStandard)) togetherWith
-                        fadeOut(tween(Motion.DurationShort))
-                },
-                label = "screenTransition",
-            ) { key ->
-                when (key) {
-                    is AnimeBrowseKey -> BrowseScreen(
-                        onNavigate = { navKey -> backstack.add(navKey) }
-                    )
-                    is AnimeDetailsKey -> DetailsScreen(
-                        animeId = key.animeId,
-                        onBack = { backstack.removeAt(backstack.lastIndex) }
-                    )
-                    // Phase 4c will add Library, Search screens
-                    // Phase 4d will add More screen
-                    else -> {}
-                }
+        // Content (scrolls behind the nav bar)
+        AnimatedContent(
+            targetState = currentKey,
+            transitionSpec = {
+                ContentTransform(
+                    fadeIn(tween(Motion.DurationStandard)),
+                    fadeOut(tween(Motion.DurationShort)),
+                    1,
+                )
+            },
+            label = "screenTransition",
+            contentKey = { it::class },
+        ) { key ->
+            when (key) {
+                is AnimeBrowseKey -> BrowseScreen(
+                    onNavigate = { navKey -> backstack.add(navKey) }
+                )
+                is AnimeDetailsKey -> DetailsScreen(
+                    animeId = key.animeId,
+                    onBack = { backstack.removeAt(backstack.lastIndex) }
+                )
+                else -> {}
             }
         }
 
-        // ── Bottom navigation (floating pill overlay) ──
+        // Bottom navigation (floating pill overlay)
         AnikutaBottomNavBar(
             items = navItems,
             currentRoute = currentTab,
             onSelect = { route ->
                 currentTab = route
-                // Reset backstack to the tab's root
                 backstack.clear()
                 when (route) {
                     "browse" -> backstack.add(AnimeBrowseKey)
@@ -123,19 +113,4 @@ fun AppRoot() {
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
-}
-
-// Import for AnimatedContent transition
-private infix fun <T> androidx.compose.animation.EnterTransition.togetherWith(
-    exit: androidx.compose.animation.ExitTransition
-): androidx.compose.animation.ContentTransform {
-    return androidx.compose.animation.togetherWith(this, exit)
-}
-
-// Extension to make 'togetherWith' work with AnimatedContent
-private fun androidx.compose.animation.togetherWith(
-    enter: androidx.compose.animation.EnterTransition,
-    exit: androidx.compose.animation.ExitTransition,
-): androidx.compose.animation.ContentTransform {
-    return androidx.compose.animation.ContentTransform(enter, exit, 1)
 }
