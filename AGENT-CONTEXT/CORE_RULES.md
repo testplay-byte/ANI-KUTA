@@ -342,3 +342,20 @@ APP/ani-kuta/DOCUMENTATION/database/
 ├── customization.md       — user customization table
 └── app.md                 — app_metadata table (existing)
 ```
+
+---
+
+## 25. Dashboard Must Be Kept Up to Date
+
+> The web dashboard is the visual representation of the project. It MUST reflect the current state at all times.
+
+### Rules
+1. **After every phase or significant change**: update the dashboard data (`lib/data.ts`, `lib/decisions.ts`, `lib/schema.ts`, `lib/phase3.ts`) to reflect the new state.
+2. **Module count, phase status, decisions, database schema** — all must match the actual project state.
+3. **When new modules are added**: update the module count, architecture page, and progress page.
+4. **When decisions are confirmed**: update the decisions page.
+5. **When DB schema changes**: update the database page.
+6. **When a phase completes**: update the progress page + overview.
+7. **Design language updates**: if the user requests UI changes to the dashboard, update `DASHBOARD/webpage/DESIGN.md` in the same commit.
+8. **Verification**: after updating, verify the build passes (`bun run build`) and the dashboard is live on GitHub Pages.
+9. **Don't let it drift**: the dashboard is the user's primary way to understand the project. If it's stale, the user loses trust.

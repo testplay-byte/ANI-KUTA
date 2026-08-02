@@ -43,22 +43,22 @@ export default function Phase3Page() {
             <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
               Core Modules Plan
             </span>
-            <StatusDot color="var(--c-secondary)" size="sm" />
+            <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              The engine room — identity, extensions, player, downloads, trackers, backup
+              ✓ Complete — 15 modules built across 4 sub-phases
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
             Phase 3 Plan{" "}
             <span className="text-text-secondary font-medium">
-              — 14 modules · 4 sub-phases
+              — 15 modules · 4 sub-phases · ✓ done
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            Phase 3 builds the 14 core infrastructure modules in 4 sub-phases.
-            Each sub-phase delivers something testable. After Phase 3: the app
-            can browse → details → resolve video → watch (MPV) → track progress.
-            Library + history screens come in Phase 4. Documented in{" "}
+            Phase 3 built the 15 core infrastructure modules in 4 sub-phases
+            (3a Foundation, 3b Extensions, 3c Playback, 3d Supporting). All
+            complete — the app can now resolve video → watch (MPV) → track
+            progress. Library + history screens come in Phase 4. Documented in{" "}
             <code className="font-mono text-text-primary">
               18-phase3-plan.md
             </code>

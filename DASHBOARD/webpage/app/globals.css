@@ -40,14 +40,14 @@
 }
 
 html.dark {
-  /* Dark mode neutrals (DESIGN.md §2.3) */
-  --c-canvas: #1a1917;
-  --c-surface: #252320;
-  --c-surface-alt: #2a2825;
-  --c-chip: #302d29;
-  --c-text-primary: #f5f1eb;
-  --c-text-secondary: #a8a39c;
-  --c-border: #3a3733;
+  /* Dark mode neutrals — GREY (DESIGN.md §2.3 — v3 update) */
+  --c-canvas: #1E1E1E;
+  --c-surface: #252525;
+  --c-surface-alt: #2D2D2D;
+  --c-chip: #333333;
+  --c-text-primary: #E8E8E8;
+  --c-text-secondary: #A0A0A0;
+  --c-border: #404040;
 
   --c-bg-page: var(--c-canvas);
   --c-bg-card: var(--c-surface-alt);

@@ -57,7 +57,7 @@ const ROUTE_META: Record<string, { title: string; desc: string }> = {
   },
   "/phase3": {
     title: "Phase 3 Plan",
-    desc: "The 14 core infrastructure modules in 4 sub-phases (3a Foundation, 3b Extensions, 3c Playback, 3d Supporting) — build order, dependency graph, open questions.",
+    desc: "The 15 core infrastructure modules in 4 sub-phases (3a Foundation, 3b Extensions, 3c Playback, 3d Supporting) — all built. Build order, dependency graph, open questions.",
   },
 };
 
@@ -100,15 +100,25 @@ export function Header() {
             : ROUTE_META["/"]);
 
   return (
-    <header className="sticky top-0 z-30 bg-canvas/80 backdrop-blur-xl border-b border-border/60">
-      <div className="px-4 sm:px-6 lg:px-10 py-3 lg:py-4 max-w-[1280px] mx-auto">
+    <header
+      className="
+        sticky top-0 lg:top-3 z-50
+        mx-2 mt-2 lg:mx-0 lg:mt-0
+        rounded-[16px]
+        border border-border
+        bg-surface/80 backdrop-blur-xl
+        shadow-card-subtle
+        animate-fade-in
+      "
+    >
+      <div className="px-4 sm:px-5 lg:px-6 py-3">
         <div className="flex items-center gap-3">
           {/* Mobile hamburger */}
           <button
             type="button"
             onClick={toggleMobileNav}
             aria-label="Open navigation menu"
-            className="lg:hidden h-9 w-9 rounded-[12px] border border-border bg-surface flex items-center justify-center text-text-primary shrink-0"
+            className="lg:hidden h-9 w-9 rounded-[12px] border border-border bg-canvas flex items-center justify-center text-text-primary shrink-0"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -141,7 +151,7 @@ export function Header() {
             onClick={toggle}
             aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
             title={isDark ? "Light mode" : "Dark mode"}
-            className="h-9 px-3 rounded-[12px] border flex items-center gap-2 transition-all duration-200 hover:translate-y-[-1px] bg-surface border-border text-text-primary shrink-0"
+            className="h-9 px-3 rounded-[12px] border flex items-center gap-2 transition-all duration-200 hover:translate-y-[-1px] bg-canvas border-border text-text-primary shrink-0"
           >
             {/* Sun icon (shown in dark mode) */}
             <svg

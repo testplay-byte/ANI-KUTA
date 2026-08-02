@@ -56,19 +56,19 @@
 
 ### 2.3 Dark Mode Colors
 
-> Dark mode preserves the warm aesthetic. Surfaces are warm dark tones (not pure black).
-> Accent colors stay the same — they pop against dark surfaces.
+> Dark mode uses a GREY theme (not brown/warm). No pure black — use grey tones.
+> Accent colors stay the same — they pop against grey surfaces.
 > A dark mode toggle sits at the top of every page (see §5.10).
 
 | Name | Hex | Usage |
 |------|-----|-------|
-| Dark Canvas | `#1A1917` | Page background (dark) |
-| Dark Surface | `#252320` | Cards, sidebars (dark) |
-| Dark Surface Alt | `#2A2825` | Secondary card surfaces (dark) |
-| Dark Chip | `#302D29` | Chips, inactive buttons (dark) |
-| Dark Border | `#3A3733` | Borders, dividers (dark) |
-| Dark Text Primary | `#F5F1EB` | Primary text, headings (dark) |
-| Dark Text Secondary | `#A8A39C` | Secondary text, metadata (dark) |
+| Dark Canvas | `#1E1E1E` | Page background (dark grey, NOT pure black) |
+| Dark Surface | `#252525` | Cards, sidebars (dark grey) |
+| Dark Surface Alt | `#2D2D2D` | Secondary card surfaces (dark grey) |
+| Dark Chip | `#333333` | Chips, inactive buttons (dark grey) |
+| Dark Border | `#404040` | Borders, dividers (dark grey) |
+| Dark Text Primary | `#E8E8E8` | Primary text, headings (light grey) |
+| Dark Text Secondary | `#A0A0A0` | Secondary text, metadata (medium grey) |
 
 ### 2.4 Color Opacity Variants
 
@@ -498,13 +498,13 @@ ANI-KUTA · Project Dashboard · warm canvas #F2EEE8 · 36 modules · 100% healt
 }
 
 html.dark {
-  --color-canvas: #1A1917;
-  --color-surface: #252320;
-  --color-surface-alt: #2A2825;
-  --color-chip: #302D29;
-  --color-text-primary: #F5F1EB;
-  --color-text-secondary: #A8A39C;
-  --color-border: #3A3733;
+  --color-canvas: #1E1E1E;
+  --color-surface: #252525;
+  --color-surface-alt: #2D2D2D;
+  --color-chip: #333333;
+  --color-text-primary: #E8E8E8;
+  --color-text-secondary: #A0A0A0;
+  --color-border: #404040;
 }
 ```
 

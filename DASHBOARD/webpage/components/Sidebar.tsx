@@ -107,7 +107,7 @@ export function Sidebar() {
             className="flex items-center gap-2.5 min-w-0 no-underline"
             aria-label="ANI-KUTA dashboard home"
           >
-            <span className="w-9 h-9 rounded-[12px] bg-[#1a1a1a] dark:bg-[#f5f1eb] text-white dark:text-[#1a1a1a] flex items-center justify-center font-bold text-[16px] shrink-0">
+            <span className="w-9 h-9 rounded-[12px] bg-[#1a1a1a] dark:bg-[#E8E8E8] text-white dark:text-[#1a1a1a] flex items-center justify-center font-bold text-[16px] shrink-0">
               A
             </span>
             {!shrink && (
@@ -150,7 +150,7 @@ export function Sidebar() {
                   no-underline
                   ${shrink ? "justify-center px-2" : ""}
                   ${isActive
-                    ? "bg-[#1a1a1a] dark:bg-[#f5f1eb] text-white dark:text-[#1a1a1a] shadow-[0_4px_16px_rgba(0,0,0,0.12)]"
+                    ? "bg-[#1a1a1a] dark:bg-[#E8E8E8] text-white dark:text-[#1a1a1a] shadow-[0_4px_16px_rgba(0,0,0,0.12)]"
                     : "text-text-secondary hover:text-text-primary hover:bg-canvas"
                   }
                 `}

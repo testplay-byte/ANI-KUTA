@@ -1,11 +1,11 @@
 /*
- * ANI-KUTA dashboard data (v3 — Phase 1 plan + design language).
+ * ANI-KUTA dashboard data (v4 — Phase 3 complete, 27 modules built).
  *
  * Sources:
- *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md (Phase 1 plan, 43 modules)
+ *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md (43 planned)
  *  - APP/ani-kuta/DESIGN-LANGUAGE.md (app design language — lime/dark)
  *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-041)
- *  - AGENT-CONTEXT/memory/progress.md (Phase 0 done, Phase 1 done, Phase 2 next)
+ *  - AGENT-CONTEXT/memory/progress.md (Phase 0–3 done, Phase 4 next)
  *
  * Hardcoded for the static demo — no API calls.
  */
@@ -36,11 +36,11 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Phase 1 plan — module tree, dependency rules, data flow, identity, multi-extension" },
   { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-027..D-041 (all confirmed)" },
-  { label: "Modules", href: "/modules/", icon: "modules", desc: "43-module hierarchy + tree view" },
+  { label: "Modules", href: "/modules/", icon: "modules", desc: "27 built (43 planned) — module hierarchy + tree view" },
   { label: "Database", href: "/database/", icon: "database", desc: "Phase 3 schema — 21 tables, ER diagram, indexes, FK relationships" },
-  { label: "Phase 3", href: "/phase3/", icon: "phase3", desc: "Phase 3 plan — 14 core modules in 4 sub-phases, build order, dependency graph" },
+  { label: "Phase 3", href: "/phase3/", icon: "phase3", desc: "Phase 3 plan — 15 core modules in 4 sub-phases (all built)" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
-  { label: "Progress", href: "/progress/", icon: "progress", desc: "Phase list, status, blockers, Phase 2 scaffold" },
+  { label: "Progress", href: "/progress/", icon: "progress", desc: "Phase 0–3 done · Phase 4 (feature screens) next" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
 ];
@@ -625,10 +625,9 @@ export const PHASES: Phase[] = [
   {
     id: 2,
     name: "Scaffold (12 modules)",
-    status: "in-progress",
-    summary: "Build the minimal viable structure to validate the architecture. 12 Gradle modules, every one exercised — no dead code (Ponytail).",
-    done: [],
-    next: [
+    status: "done",
+    summary: "Built the minimal viable structure to validate the architecture. 12 Gradle modules, every one exercised — no dead code (Ponytail).",
+    done: [
       ":build-logic — convention plugins.",
       ":app — Application (Koin + Logger init), MainActivity (single Activity + Nav3).",
       ":core:common — Logger (lambda-based), Dispatchers, Result, ContentType enum.",
@@ -641,33 +640,37 @@ export const PHASES: Phase[] = [
       ":feature:anime-browse:{api,impl} — first screen (AniList trending).",
       ":feature:anime-details:{api,impl} — second screen (basic details).",
     ],
+    next: [],
     blockers: [],
     startDay: 42,
     days: 21,
-    color: "var(--c-warning)",
+    color: "var(--c-success)",
   },
   {
     id: 3,
     name: "Core Module Implementation",
-    status: "pending",
-    summary: "Build the player, source-api, extension loader, identity, tracker, backup, video-resolver, download.",
-    done: [],
-    next: [
-      ":core:provider-api + :core:source-api + :data:extension-aniyomi.",
-      ":core:identity + :data:identity + :data:anime.",
-      ":core:player + :core:video-resolver + :core:watch-progress + :data:history.",
-      ":core:tracker + :core:episode-metadata + :core:backup.",
+    status: "done",
+    summary: "15 new modules across 4 sub-phases (3a Foundation, 3b Extensions, 3c Playback, 3d Supporting). Identity, extensions, player, downloads, trackers, backup all built.",
+    done: [
+      "3a Foundation (4 modules): :core:database expanded, :core:watch-progress, :core:activity-tracker, :core:preferences enhanced.",
+      "3b Extensions (4 modules): :core:provider-api, :core:source-api, :data:extension-aniyomi + JitPack repo wired.",
+      "3c Playback (4 modules): player-mpv-lib (aniyomi-mpv-lib reused), :core:player, :core:video-resolver, :core:download.",
+      "3d Supporting (3 modules): :core:episode-metadata, :core:tracker-api, :core:tracker-anilist.",
+      "Identity system (ContentUID + ExternalReference + matching engine) live.",
+      "Aniyomi extensions loadable — can install + browse sources.",
+      "Video pipeline (resolve → MPV play → save progress) working end-to-end.",
     ],
+    next: [],
     blockers: [],
     startDay: 63,
     days: 35,
-    color: "var(--c-primary)",
+    color: "var(--c-success)",
   },
   {
     id: 4,
     name: "Feature Implementation",
-    status: "pending",
-    summary: "Build user-facing feature modules (watch, library, search, history, updates, my, settings, setup-wizard, download).",
+    status: "in-progress",
+    summary: "Build user-facing feature modules (watch, library, search, history, my, settings, setup-wizard, download).",
     done: [],
     next: [
       ":feature:anime-watch:{api,impl} (player host).",
@@ -679,7 +682,7 @@ export const PHASES: Phase[] = [
     blockers: [],
     startDay: 98,
     days: 42,
-    color: "var(--c-secondary)",
+    color: "var(--c-warning)",
   },
   {
     id: 5,
@@ -805,18 +808,44 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
     phaseId: 2,
     phaseName: "Scaffold (12 modules)",
     items: [
-      { text: ":build-logic — convention plugins", done: false },
-      { text: ":app — Application (Koin + Logger init), MainActivity (Nav3)", done: false },
-      { text: ":core:common — Logger (lambda-based), Dispatchers, Result, ContentType", done: false },
-      { text: ":core:designsystem — theme engine + components", done: false },
-      { text: ":core:database — SQLDelight schema (content_uid, external_reference)", done: false },
-      { text: ":core:preferences — PreferenceStore, ThemePreferences", done: false },
-      { text: ":core:navigation-api — NavKey contracts, ContentMode, Savers", done: false },
-      { text: ":core:network — OkHttp + ktor + interceptors", done: false },
-      { text: ":core:anilist — AniList GraphQL client", done: false },
-      { text: ":feature:anime-browse:{api,impl} — first screen", done: false },
-      { text: ":feature:anime-details:{api,impl} — second screen", done: false },
-      { text: "App builds via CI, launches, Nav3 back-stack survives recreate", done: false },
+      { text: ":build-logic — convention plugins", done: true },
+      { text: ":app — Application (Koin + Logger init), MainActivity (Nav3)", done: true },
+      { text: ":core:common — Logger (lambda-based), Dispatchers, Result, ContentType", done: true },
+      { text: ":core:designsystem — theme engine + components", done: true },
+      { text: ":core:database — SQLDelight schema (content_uid, external_reference)", done: true },
+      { text: ":core:preferences — PreferenceStore, ThemePreferences", done: true },
+      { text: ":core:navigation-api — NavKey contracts, ContentMode, Savers", done: true },
+      { text: ":core:network — OkHttp + ktor + interceptors", done: true },
+      { text: ":core:anilist — AniList GraphQL client", done: true },
+      { text: ":feature:anime-browse:{api,impl} — first screen", done: true },
+      { text: ":feature:anime-details:{api,impl} — second screen", done: true },
+      { text: "App builds via CI, launches, Nav3 back-stack survives recreate", done: true },
+    ],
+  },
+  {
+    phaseId: 3,
+    phaseName: "Core Module Implementation (15 modules, 4 sub-phases)",
+    items: [
+      { text: "3a Foundation (4): :core:database expanded, :core:watch-progress, :core:activity-tracker, :core:preferences", done: true },
+      { text: "3b Extensions (4): :core:provider-api, :core:source-api, :data:extension, JitPit repo wired", done: true },
+      { text: "3c Playback (4): player-mpv-lib, :core:player, :core:video-resolver, :core:download", done: true },
+      { text: "3d Supporting (3): :core:episode-metadata, :core:tracker-api, :core:tracker-anilist", done: true },
+      { text: "Identity system (ContentUID + ExternalReference + matching engine) live", done: true },
+      { text: "Aniyomi extensions loadable — can install + browse sources", done: true },
+      { text: "Video pipeline (resolve → MPV play → save progress) working end-to-end", done: true },
+      { text: "CI green across all 27 modules", done: true },
+    ],
+  },
+  {
+    phaseId: 4,
+    phaseName: "Feature Implementation",
+    items: [
+      { text: ":feature:anime-watch:{api,impl} — player host screen", done: false },
+      { text: ":feature:anime-library:{api,impl} — grid + list + categories", done: false },
+      { text: ":feature:anime-search:{api,impl} — AniList + extension sources", done: false },
+      { text: ":feature:anime-history:{api,impl} — recently watched", done: false },
+      { text: ":feature:anime-my:{api,impl} — profile + stats", done: false },
+      { text: ":feature:settings, :backup, :trackers, :extensions-settings, :download, :setup-wizard", done: false },
     ],
   },
 ];
@@ -858,11 +887,11 @@ export interface MetricCardData {
 
 export const METRIC_CARDS: MetricCardData[] = [
   {
-    label: "Modules Planned",
-    value: "43",
-    sublabel: "12 in Phase 2 scaffold · 11 data/feature",
+    label: "Modules Built",
+    value: "27",
+    sublabel: "12 scaffold + 15 Phase 3 · 16 planned (Phase 4+)",
     accent: "var(--c-primary)",
-    sparkline: [4, 6, 8, 12, 18, 22, 31, 38, 43],
+    sparkline: [4, 6, 8, 12, 18, 22, 24, 26, 27],
     trend: "up",
     href: "/modules/",
   },
@@ -876,21 +905,21 @@ export const METRIC_CARDS: MetricCardData[] = [
     href: "/decisions/",
   },
   {
-    label: "Docs Written",
-    value: "8",
-    sublabel: "7 research + 1 design language",
-    accent: "var(--c-secondary)",
-    sparkline: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    label: "Phase 3 Complete",
+    value: "✓",
+    sublabel: "4 sub-phases · 15 new modules built",
+    accent: "var(--c-success)",
+    sparkline: [0, 0, 0, 4, 8, 11, 13, 14, 15],
     trend: "up",
-    href: "/architecture/",
+    href: "/phase3/",
   },
   {
     label: "Phases Done",
-    value: "2/10",
-    sublabel: "Phase 2 (scaffold) next",
+    value: "4/10",
+    sublabel: "Phase 4 (feature screens) next",
     accent: "var(--c-warning)",
-    sparkline: [0, 0, 1, 1, 1, 1, 2, 2, 2],
-    trend: "flat",
+    sparkline: [0, 0, 1, 1, 1, 2, 2, 3, 4],
+    trend: "up",
     href: "/progress/",
   },
 ];
@@ -900,8 +929,10 @@ export const METRIC_CARDS: MetricCardData[] = [
  * ------------------------------------------------------------------------- */
 
 export const QUICK_STATS = {
-  modules: 43,
+  modules: 27,
+  modulesPlanned: 43,
   scaffoldModules: PHASE2_SCAFFOLD.length,
+  phase3Modules: 15,
   totalFiles: MODULES.reduce((sum, m) => sum + m.files, 0),
   decisions: 15,
   decisionsConfirmed: 15,
@@ -1003,18 +1034,18 @@ export interface Task {
 }
 
 export const TASKS: Task[] = [
-  { id: "T-01", title: "Build :build-logic convention plugins", desc: "android.application / library / compose + AndroidConfig + ProjectExtensions", priority: "high", status: "todo", tag: "scaffold", assignee: "AK" },
-  { id: "T-02", title: "Wire :app Application + MainActivity", desc: "Koin setup, Logger.setEnabled(BuildConfig.DEBUG), Nav3 AppRoot", priority: "high", status: "todo", tag: "scaffold", assignee: "AK" },
-  { id: "T-03", title: "Implement :core:common", desc: "Logger (lambda-based), Dispatchers, Result, ContentType enum", priority: "high", status: "todo", tag: "scaffold", assignee: "AK" },
-  { id: "T-04", title: "Implement :core:designsystem", desc: "Theme engine + reusable Compose components (atoms + molecules)", priority: "high", status: "todo", tag: "scaffold", assignee: "AK" },
-  { id: "T-05", title: "Define :core:database schema", desc: "SQLDelight content_uid + external_reference + episode tables", priority: "high", status: "todo", tag: "scaffold", assignee: "AK" },
-  { id: "T-06", title: "Build :feature:anime-browse", desc: "api + impl, AniList trending screen", priority: "high", status: "todo", tag: "scaffold", assignee: "AK" },
-  { id: "T-07", title: "Build :feature:anime-details", desc: "api + impl, basic details screen with cover-color theming", priority: "high", status: "todo", tag: "scaffold", assignee: "AK" },
+  { id: "T-01", title: "Build :build-logic convention plugins", desc: "android.application / library / compose + AndroidConfig + ProjectExtensions", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
+  { id: "T-02", title: "Wire :app Application + MainActivity", desc: "Koin setup, Logger.setEnabled(BuildConfig.DEBUG), Nav3 AppRoot", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
+  { id: "T-03", title: "Implement :core:common", desc: "Logger (lambda-based), Dispatchers, Result, ContentType enum", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
+  { id: "T-04", title: "Implement :core:designsystem", desc: "Theme engine + reusable Compose components (atoms + molecules)", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
+  { id: "T-05", title: "Define :core:database schema", desc: "SQLDelight content_uid + external_reference + episode tables", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
+  { id: "T-06", title: "Build :feature:anime-browse", desc: "api + impl, AniList trending screen", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
+  { id: "T-07", title: "Build :feature:anime-details", desc: "api + impl, basic details screen with cover-color theming", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
   { id: "T-08", title: "Phase 1 Architecture Plan", desc: "43 modules, identity system, multi-extension, multi-content-type", priority: "med", status: "done", tag: "plan", assignee: "AK" },
   { id: "T-09", title: "Design Language document", desc: "~1150 lines, every color/value quoted from source", priority: "med", status: "done", tag: "design", assignee: "AK" },
   { id: "T-10", title: "5 research docs (DB, DI, Nav, Ads, Backup)", desc: "REFERENCES/old-kuta/DOCUMENTATION/10-15", priority: "low", status: "done", tag: "research", assignee: "AK" },
-  { id: "T-11", title: "Dashboard v3 — Phase 1 plan + design language", desc: "Architecture page + new Design page + decisions D-027..D-041", priority: "med", status: "in-progress", tag: "dashboard", assignee: "AK" },
-  { id: "T-12", title: "Phase 2 deliverable: app builds via CI", desc: "Launches → Browse → Details, Nav3 back-stack survives recreate", priority: "med", status: "todo", tag: "scaffold", assignee: "AK" },
+  { id: "T-11", title: "Phase 3 — 15 core modules across 4 sub-phases", desc: "3a Foundation (4) + 3b Extensions (4) + 3c Playback (4) + 3d Supporting (3) — all built", priority: "high", status: "done", tag: "phase3", assignee: "AK" },
+  { id: "T-12", title: "Phase 4 — feature screens (watch, library, search, my, settings, setup-wizard)", desc: "Build the user-facing UI layer on top of the Phase 3 core", priority: "high", status: "todo", tag: "phase4", assignee: "AK" },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -1033,7 +1064,7 @@ export const ADRS: ADR[] = [
   { id: "ADR-002", title: "Restrict ABIs to ARM64 + armeabi-v7a", status: "accepted", summary: "No x86/x86_64. Matches target devices, keeps APK small." },
   { id: "ADR-003", title: "AGENT-CONTEXT versioned in repo", status: "accepted", summary: "Lives inside ANIKUTA-PROJECT/ so any agent can clone and continue." },
   { id: "ADR-004", title: "Frontend/backend separation", status: "accepted", summary: "UI and data layers independent, communicating via contracts. UI never imports :data:*." },
-  { id: "ADR-005", title: "Modular app structure (43 modules)", status: "accepted", summary: "Independent modules across :app, :build-logic, :core (24), :data (7), :feature (anime/shared/manga/novel)." },
+  { id: "ADR-005", title: "Modular app structure (27 built · 43 planned)", status: "accepted", summary: "Independent modules across :app, :build-logic, :core (24), :data (7), :feature (anime/shared/manga/novel). 27 built so far — 16 more planned for Phase 4+." },
   { id: "ADR-006", title: "Companion web dashboard", status: "accepted", summary: "Next.js project → GitHub Pages, visual documentation for the user." },
   { id: "ADR-007", title: "App ID = com.confused.anikuta", status: "accepted", summary: "User-chosen applicationId / namespace." },
   { id: "ADR-008", title: "SDK levels: min 24, target 35, JDK 17", status: "accepted", summary: "minSdk 24, targetSdk/compileSdk 35, JDK 17 for CI." },

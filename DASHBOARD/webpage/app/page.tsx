@@ -10,7 +10,7 @@ import { decisions } from "@/lib/decisions";
 export default function OverviewPage() {
   const currentPhase =
     PHASES.find((p) => p.status === "in-progress" || p.status === "blocked") ??
-    PHASES[2];
+    PHASES[3];
   const confirmedCount = decisions.filter(
     (d) => d.status === "confirmed",
   ).length;
@@ -27,9 +27,9 @@ export default function OverviewPage() {
             <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
               Project Status
             </span>
-            <StatusDot color="var(--c-warning)" size="sm" />
+            <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Phase {currentPhase.id} — {currentPhase.name} · {confirmedCount}/{decisions.length} decisions confirmed
+              Phase 3 complete · 27 modules built · Phase 4 (feature screens) next
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -39,10 +39,11 @@ export default function OverviewPage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living dashboard for the ANI-KUTA project: 43 modules
-            planned, Phase 1 Architecture Plan + Design Language doc complete,
-            all decisions D-027..D-041 confirmed. Phase 2 (scaffold — 12
-            modules) is next. Kept in sync with{" "}
+            A calm, living dashboard for the ANI-KUTA project: 27 of 43
+            modules built, Phase 3 (core infrastructure) complete across 4
+            sub-phases, all decisions D-027..D-041 confirmed. Phase 4
+            (feature screens — watch, library, search, history, my, settings)
+            is next. Kept in sync with{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
             on every push.
           </p>
@@ -73,11 +74,11 @@ export default function OverviewPage() {
               <span
                 className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium text-white transition-all duration-200 hover:translate-y-[-1px]"
                 style={{
-                  backgroundColor: "var(--c-warning)",
-                  boxShadow: "0 4px 12px var(--c-warning)33, 0 1px 2px rgba(0,0,0,0.06)",
+                  backgroundColor: "var(--c-success)",
+                  boxShadow: "0 4px 12px var(--c-success)33, 0 1px 2px rgba(0,0,0,0.06)",
                 }}
               >
-                Phase 3 Plan
+                Phase 3 Plan ✓
               </span>
             </Link>
             <Link href="/design/" className="no-underline">
@@ -87,7 +88,7 @@ export default function OverviewPage() {
             </Link>
             <Link href="/progress/" className="no-underline">
               <span className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium bg-chip border border-border text-text-secondary transition-all duration-200 hover:translate-y-[-1px] hover:text-text-primary">
-                Phase 2 Scaffold →
+                Phase 4 →
               </span>
             </Link>
           </div>
@@ -120,20 +121,20 @@ export default function OverviewPage() {
               className="h-[100px] p-5 flex flex-col justify-between"
               style={{
                 background:
-                  "linear-gradient(135deg, #2A2825 0%, #3A3733 60%, #6366F1 140%)",
+                  "linear-gradient(135deg, #2D2D2D 0%, #404040 60%, #6366F1 140%)",
               }}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div
                     className="text-[10px] font-medium uppercase tracking-widest"
-                    style={{ color: "#A8A39C" }}
+                    style={{ color: "#A0A0A0" }}
                   >
                     Phase 3 Foundation
                   </div>
                   <div
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
-                    style={{ color: "#F5F1EB", letterSpacing: "-0.02em" }}
+                    style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
                     Database Schema
                   </div>
@@ -143,7 +144,7 @@ export default function OverviewPage() {
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="#A8A39C"
+                  stroke="#A0A0A0"
                   strokeWidth="1.6"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -155,7 +156,7 @@ export default function OverviewPage() {
                   <path d="M4 11v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" />
                 </svg>
               </div>
-              <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#C9C3BB" }}>
+              <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
                 <span>21 tables</span>
                 <span className="opacity-50">·</span>
                 <span>19 active</span>
@@ -192,20 +193,20 @@ export default function OverviewPage() {
               className="h-[100px] p-5 flex flex-col justify-between"
               style={{
                 background:
-                  "linear-gradient(135deg, #2A2825 0%, #3A3733 60%, #F59E0B 140%)",
+                  "linear-gradient(135deg, #2D2D2D 0%, #404040 60%, #F59E0B 140%)",
               }}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div
                     className="text-[10px] font-medium uppercase tracking-widest"
-                    style={{ color: "#A8A39C" }}
+                    style={{ color: "#A0A0A0" }}
                   >
                     Core Modules Plan
                   </div>
                   <div
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
-                    style={{ color: "#F5F1EB", letterSpacing: "-0.02em" }}
+                    style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
                     Phase 3 Plan
                   </div>
@@ -215,7 +216,7 @@ export default function OverviewPage() {
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
                   fill="none"
-                  stroke="#A8A39C"
+                  stroke="#A0A0A0"
                   strokeWidth="1.6"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -228,12 +229,12 @@ export default function OverviewPage() {
                   <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
                 </svg>
               </div>
-              <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#C9C3BB" }}>
-                <span>14 modules</span>
+              <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
+                <span>15 modules</span>
                 <span className="opacity-50">·</span>
                 <span>4 sub-phases</span>
                 <span className="opacity-50">·</span>
-                <span>14-step build order</span>
+                <span>all built ✓</span>
               </div>
             </div>
             {/* Body */}
@@ -244,11 +245,11 @@ export default function OverviewPage() {
                 dependency graph, and 4 open questions for user input.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Modules" value="14" />
+                <MiniStat label="Modules" value="15" />
                 <MiniStat label="Sub-phases" value="4" />
                 <MiniStat label="Open Qs" value="4" />
               </div>
-              <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-warning)] group-hover:underline">
+              <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-success)] group-hover:underline">
                 View Phase 3 plan →
               </span>
             </div>
@@ -287,7 +288,7 @@ export default function OverviewPage() {
           {currentPhase.next.length > 0 && (
             <div className="space-y-2 mb-4">
               <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary">
-                Up Next — {PHASE2_SCAFFOLD_COUNT} modules
+                Up Next — feature screens
               </div>
               {currentPhase.next.slice(0, 6).map((n) => (
                 <div
@@ -455,8 +456,8 @@ export default function OverviewPage() {
 
       {/* Quick stats footer row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <QuickStat label="Modules planned" value={String(QUICK_STATS.modules)} accent="var(--c-primary)" />
-        <QuickStat label="Phase 2 scaffold" value={String(QUICK_STATS.scaffoldModules)} accent="var(--c-warning)" />
+        <QuickStat label="Modules built" value={String(QUICK_STATS.modules)} accent="var(--c-primary)" />
+        <QuickStat label="Phase 3 modules" value={String(QUICK_STATS.phase3Modules)} accent="var(--c-warning)" />
         <QuickStat label="Research docs" value={String(QUICK_STATS.researchDocs)} accent="var(--c-secondary)" />
         <QuickStat label="Design language" value={String(QUICK_STATS.designLanguageDoc)} accent="var(--c-success)" />
       </div>

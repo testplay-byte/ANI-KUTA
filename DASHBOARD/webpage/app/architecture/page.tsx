@@ -44,7 +44,7 @@ export default function ArchitecturePage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Complete + sub-agent reviewed · 43 modules · all decisions D-027..D-041 confirmed
+              Complete + sub-agent reviewed · 27 of 43 modules built · all decisions D-027..D-041 confirmed
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -55,9 +55,10 @@ export default function ArchitecturePage() {
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
             The full architecture plan for the ANI-KUTA rebuild: 43 modules
-            across :app, :build-logic, :core (24), :data (7), and :feature
-            (anime/shared/manga/novel). Future-proof, modular, agent-friendly.
-            This is the blueprint for Phase 2 (scaffold) and beyond.
+            planned across :app, :build-logic, :core (24), :data (7), and
+            :feature (anime/shared/manga/novel). 27 modules are built so far
+            (Phase 2 scaffold + Phase 3 core infrastructure); 16 feature
+            modules remain for Phase 4+. Future-proof, modular, agent-friendly.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
             <span className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-medium bg-chip border border-border text-text-secondary">
@@ -116,8 +117,8 @@ export default function ArchitecturePage() {
       <Card>
         <SectionHeader
           eyebrow="§3 — Full Module Tree"
-          title="43 modules — organized by layer"
-          desc=":app · :build-logic · :core (24 infrastructure modules) · :data (7 repository impls) · :feature (anime/shared/manga/novel, split api/impl per feature)."
+          title="43 modules planned — 27 built so far"
+          desc=":app · :build-logic · :core (24 infrastructure modules) · :data (7 repository impls) · :feature (anime/shared/manga/novel, split api/impl per feature). 27 built (12 scaffold + 15 Phase 3); 16 feature modules remain for Phase 4+."
         />
 
         <div className="rounded-[14px] border border-border bg-surface-alt/40 p-4 overflow-x-auto">
@@ -476,9 +477,9 @@ export default function ArchitecturePage() {
       {/* Phase 2 scaffold */}
       <Card>
         <SectionHeader
-          eyebrow="§13 — Phase 2 Scaffold"
-          title="12 modules to build first"
-          desc="Minimal viable structure to validate the architecture. Trimmed to exercise every module — no dead code (Ponytail). Deferred modules (:core:identity, :data:anime, :core:player, etc.) enter in Phase 3 when library/history/watch need them."
+          eyebrow="§13 — Phase 2 Scaffold ✓"
+          title="12 modules built (Phase 2 complete)"
+          desc="Minimal viable structure that validated the architecture. All 12 modules built and exercised — no dead code (Ponytail). Deferred modules (:core:identity, :data:anime, :core:player, etc.) entered in Phase 3 — now also complete."
         />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">

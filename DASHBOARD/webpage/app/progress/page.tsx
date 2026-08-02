@@ -5,25 +5,24 @@ import { PhaseTimeline } from "@/components/PhaseTimeline";
 import {
   PHASES,
   PHASE_CHECKLISTS,
-  PHASE2_SCAFFOLD,
   type Phase,
 } from "@/lib/data";
 
 /**
- * Progress page (v3) — Phase 0 done, Phase 1 done (Architecture Plan +
- * Design Language doc), Phase 2 next (scaffold — 12 modules).
+ * Progress page (v4) — Phase 0–3 done (Setup + Plan + Scaffold + Core modules),
+ * Phase 4 (feature screens) next.
  *
  * Sections:
  *  1. Header card + legend.
  *  2. Phase timeline (compact, at top).
- *  3. Current Phase (Phase 2) checklist — scaffold modules.
- *  4. Phase 2 scaffold module list (12 modules from §13 of the plan).
+ *  3. Phase 3 wrap-up (15 modules across 4 sub-phases — all built).
+ *  4. Phase 4 next-up checklist.
  *  5. Full phase list (detailed, with done/next/blockers per phase).
  */
 export default function ProgressPage() {
   const currentPhase =
     PHASES.find((p) => p.status === "in-progress" || p.status === "blocked") ??
-    PHASES[2];
+    PHASES[3];
   const currentChecklist = PHASE_CHECKLISTS.find(
     (c) => c.phaseId === currentPhase.id,
   );
@@ -44,13 +43,15 @@ export default function ProgressPage() {
           </div>
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-success)" size="sm" />
-            {doneCount}/{PHASES.length} done · Phase 2 next
+            {doneCount}/{PHASES.length} done · Phase 4 next
           </span>
         </div>
         <p className="text-[13px] text-text-secondary leading-relaxed max-w-2xl">
-          The project advances phase-by-phase. Phase 0 (setup) and Phase 1
-          (architecture plan + design language) are complete. Phase 2 (scaffold —
-          12 modules) is next. Live status — kept in sync with{" "}
+          The project advances phase-by-phase. Phase 0 (setup), Phase 1
+          (architecture plan + design language), Phase 2 (scaffold — 12
+          modules), and Phase 3 (15 core modules across 4 sub-phases) are
+          complete. Phase 4 (feature screens — watch, library, search, history,
+          my, settings) is next. Live status — kept in sync with{" "}
           <code className="font-mono text-text-primary">memory/progress.md</code>.
         </p>
         <div className="flex flex-wrap gap-4 mt-4 text-[11.5px] text-text-secondary">
@@ -66,75 +67,52 @@ export default function ProgressPage() {
         <PhaseTimeline />
       </Card>
 
-      {/* Phase 2 scaffold — module list */}
+      {/* Phase 3 wrap-up — 15 modules built across 4 sub-phases */}
       <Card>
         <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
-              §13 — Phase 2 Scaffold
+              §3 — Phase 3 Complete
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
-              12 modules to build first
+              15 core modules built — all 4 sub-phases ✓
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
-              Minimal viable structure to validate the architecture. Trimmed to
-              exercise every module — no dead code (Ponytail). Deferred modules
-              enter in Phase 3.
+              Identity system, extension loader, MPV playback pipeline,
+              download manager, trackers, and episode metadata — all live.
+              Phase 3 was split into 4 sub-phases, each independently testable.
             </p>
           </div>
           <span
             className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0"
             style={{
-              backgroundColor: "var(--c-warning)1a",
-              color: "var(--c-warning)",
+              backgroundColor: "var(--c-success)1a",
+              color: "var(--c-success)",
             }}
           >
-            <StatusDot color="var(--c-warning)" size="sm" />
-            Next phase
+            <StatusDot color="var(--c-success)" size="sm" />
+            Done
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {PHASE2_SCAFFOLD.map((m) => (
-            <div
-              key={m.n}
-              className="flex items-start gap-3 p-3 rounded-[12px] border border-border bg-surface-alt/40"
-            >
-              <span
-                className="inline-flex items-center justify-center w-7 h-7 rounded-[10px] font-mono text-[12px] font-bold shrink-0"
-                style={{
-                  backgroundColor: "var(--c-warning)1a",
-                  color: "var(--c-warning)",
-                  border: "1.5px solid var(--c-warning)",
-                }}
-              >
-                {m.n}
-              </span>
-              <div className="flex-1 min-w-0">
-                <div className="font-mono text-[12px] font-semibold text-text-primary mb-0.5">
-                  {m.name}
-                </div>
-                <div className="text-[11.5px] text-text-secondary leading-snug">
-                  {m.job}
-                </div>
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+          <Phase3SubPhaseRow id="3a" name="Foundation" count={4} modules=":core:database · :core:watch-progress · :core:activity-tracker · :core:preferences" />
+          <Phase3SubPhaseRow id="3b" name="Extensions" count={4} modules=":core:provider-api · :core:source-api · :data:extension · JitPack repo" />
+          <Phase3SubPhaseRow id="3c" name="Playback" count={4} modules="player-mpv-lib · :core:player · :core:video-resolver · :core:download" />
+          <Phase3SubPhaseRow id="3d" name="Supporting" count={3} modules=":core:episode-metadata · :core:tracker-api · :core:tracker-anilist" />
         </div>
 
         <div className="mt-4 p-4 rounded-[12px] border border-border bg-surface">
           <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary mb-2">
-            Phase 2 Deliverable
+            Phase 3 Deliverable
           </div>
           <ul className="space-y-1 text-[12px] text-text-primary">
-            <li>· App builds via CI (GitHub Actions, arm64-v8a + armeabi-v7a).</li>
-            <li>· App launches → Browse screen (AniList trending) → tap → Details screen.</li>
-            <li>· Nav3 navigation works (back stack survives recreate).</li>
-            <li>· Koin DI wired.</li>
-            <li>· SQLDelight DB initialized (empty schema — ready for Phase 3).</li>
-            <li>· Logger working (debug builds show logs, lambda-based, zero overhead when off).</li>
-            <li>· Theme engine working (light/dark).</li>
-            <li>· <strong>Every module is exercised — no dead code.</strong></li>
+            <li>· Identity system (ContentUID + ExternalReference + matching engine) live.</li>
+            <li>· Aniyomi extensions loadable — install + browse sources end-to-end.</li>
+            <li>· Video pipeline working — resolve URL → play via MPV → save progress.</li>
+            <li>· Download manager (HTTP + HLS + resume) operational.</li>
+            <li>· AniList tracker sync wired (tracker-api + tracker-anilist).</li>
+            <li>· <strong>CI green across all 27 modules.</strong></li>
           </ul>
         </div>
       </Card>
@@ -289,4 +267,44 @@ function phaseStatusMeta(status: Phase["status"]): { color: string; label: strin
     default:
       return { color: "var(--c-text-secondary)", label: "Pending" };
   }
+}
+
+function Phase3SubPhaseRow({
+  id,
+  name,
+  count,
+  modules,
+}: {
+  id: string;
+  name: string;
+  count: number;
+  modules: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 p-3 rounded-[12px] border border-border bg-surface-alt/40">
+      <span
+        className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] font-mono text-[12px] font-bold shrink-0"
+        style={{
+          backgroundColor: "var(--c-success)1a",
+          color: "var(--c-success)",
+          border: "1.5px solid var(--c-success)",
+        }}
+      >
+        {id}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 mb-0.5">
+          <span className="text-[13px] font-semibold text-text-primary">
+            {name}
+          </span>
+          <span className="text-[11px] text-text-secondary">
+            · {count} modules ✓
+          </span>
+        </div>
+        <div className="font-mono text-[11px] text-text-secondary leading-snug break-words">
+          {modules}
+        </div>
+      </div>
+    </div>
+  );
 }

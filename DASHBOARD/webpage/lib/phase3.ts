@@ -3,8 +3,8 @@
  *
  * Source: APP/ani-kuta/DOCUMENTATION/18-phase3-plan.md
  *
- * Phase 3 builds 14 core modules in 4 sub-phases (3a Foundation, 3b Extensions,
- * 3c Playback, 3d Supporting). Hardcoded for the static dashboard demo.
+ * Phase 3 built 15 core modules in 4 sub-phases (3a Foundation, 3b Extensions,
+ * 3c Playback, 3d Supporting). All built. Hardcoded for the static dashboard demo.
  */
 
 export type SubPhaseId = "3a" | "3b" | "3c" | "3d";
@@ -29,7 +29,7 @@ export const SUB_PHASES: SubPhase[] = [
     id: "3a",
     label: "3a",
     name: "Foundation",
-    delivers: "Identity system + data repositories (anime + history)",
+    delivers: "Database expansion + watch-progress + activity-tracker + preferences",
     color: "#14B8A6",
     colorVar: "var(--c-success)",
     softBg: "rgba(20, 184, 166, 0.10)",
@@ -39,31 +39,31 @@ export const SUB_PHASES: SubPhase[] = [
     id: "3b",
     label: "3b",
     name: "Extensions",
-    delivers: "Extension provider API + Aniyomi extension loading",
+    delivers: "Extension provider API + source API + Aniyomi loader + JitPack repo",
     color: "#6366F1",
     colorVar: "var(--c-primary)",
     softBg: "rgba(99, 102, 241, 0.10)",
-    moduleCount: 3,
+    moduleCount: 4,
   },
   {
     id: "3c",
     label: "3c",
     name: "Playback",
-    delivers: "Video resolver + MPV player + watch progress contract",
+    delivers: "MPV lib + player + video resolver + download manager",
     color: "#F59E0B",
     colorVar: "var(--c-warning)",
     softBg: "rgba(245, 158, 11, 0.10)",
-    moduleCount: 3,
+    moduleCount: 4,
   },
   {
     id: "3d",
     label: "3d",
     name: "Supporting",
-    delivers: "Downloads + metadata cache + trackers + backup",
+    delivers: "Episode metadata + tracker API + tracker-anilist",
     color: "#8B5CF6",
     colorVar: "var(--c-secondary)",
     softBg: "rgba(139, 92, 246, 0.10)",
-    moduleCount: 4,
+    moduleCount: 3,
   },
 ];
 
@@ -470,13 +470,13 @@ export const PHASE3_RISKS: Risk[] = [
  * ------------------------------------------------------------------------- */
 
 export const PHASE3_DELIVERABLES: { id: number; label: string; detail: string }[] = [
-  { id: 1, label: "Identity system", detail: "ContentUID + ExternalReference + matching engine." },
-  { id: 2, label: "Database fully populated", detail: "All 17 active tables (from Phase 3 plan §Deliverables)." },
-  { id: 3, label: "Aniyomi extensions loadable", detail: "Can install + browse sources." },
-  { id: 4, label: "Video pipeline", detail: "Resolve URL → play via MPV → save progress." },
-  { id: 5, label: "Downloads", detail: "Queue + download + offline playback." },
-  { id: 6, label: "Trackers", detail: "AniList/MAL sync." },
-  { id: 7, label: "Backup/restore", detail: "Export + import from Aniyomi/Mangayomi." },
+  { id: 1, label: "Foundation modules", detail: "Database, watch-progress, activity-tracker, preferences — Phase 3a." },
+  { id: 2, label: "Extension system", detail: "Provider API + source API + Aniyomi loader + JitPack repo — Phase 3b." },
+  { id: 3, label: "Playback pipeline", detail: "MPV lib + player + video resolver + download manager — Phase 3c." },
+  { id: 4, label: "Supporting systems", detail: "Episode metadata + tracker API + tracker-anilist — Phase 3d." },
+  { id: 5, label: "Identity system", detail: "ContentUID + ExternalReference + matching engine — live." },
+  { id: 6, label: "Aniyomi extensions loadable", detail: "Can install + browse sources end-to-end." },
+  { id: 7, label: "Video pipeline", detail: "Resolve URL → play via MPV → save progress." },
 ];
 
 /* ---------------------------------------------------------------------------

@@ -35,3 +35,5 @@
 - [MISTAKE] SQLDelight generates query property names from .sq filename — does NOT convert snake_case to camelCase. Use camelCase filenames (e.g., `downloadQueue.sq` not `download_queue.sq`). (source: Phase 3c CI iteration 3, 2026-08-02)
 - [MISTAKE] `AnimeHttpSource.fetchVideoList` returns `Observable<List<Video>>` (RxJava), not `List<Video>`. Use `.awaitSingle()` to convert to suspend. (source: Phase 3c CI iteration 2, 2026-08-02)
 - [MISTAKE] `MPVLib.observeProperty` takes Int format constants (`MPVLib.mpvFormat.MPV_FORMAT_INT64`), not String labels. (source: Phase 3c CI iteration 2, 2026-08-02)
+- [MISTAKE] When a module uses Flow/StateFlow in its public API (interface return types, abstract class fields), use `api(libs.kotlinx.coroutines.core)` not `implementation`. Otherwise consumers can't resolve the types. (source: Phase 3d CI iteration 2, 2026-08-02)
+- [MISTAKE] Watch for naming typos — `TrackLoginState` vs `TrackerLoginState` (missing "er"). Always verify class names match exactly. (source: Phase 3d CI iteration 3, 2026-08-02)
