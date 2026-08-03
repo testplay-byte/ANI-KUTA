@@ -41,7 +41,6 @@ import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
 import com.confused.anikuta.feature.animebrowse.BrowseScreen
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
-import com.confused.anikuta.feature.animedetails.WatchKey
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
 import com.confused.anikuta.feature.animelibrary.LibraryScreen
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
@@ -50,6 +49,8 @@ import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
+import com.confused.anikuta.feature.watch.WatchKey
+import com.confused.anikuta.feature.watch.WatchScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
@@ -200,9 +201,8 @@ fun AppRoot() {
                 description = "Episode display settings will be added in a future phase.",
                 onBack = pop,
             )
-            is WatchKey -> PlaceholderScreen(
-                title = "Watch (Phase 5c)",
-                description = "Video URL: ${currentKey.videoUrl}\n\nThe watch screen will be implemented in Phase 5c. For now, this is a placeholder confirming the episode → resolver → watch navigation works end-to-end.",
+            is WatchKey -> WatchScreen(
+                watchKey = currentKey,
                 onBack = pop,
             )
             else -> {}
