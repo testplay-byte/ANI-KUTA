@@ -158,14 +158,16 @@ class VideoResolver {
     }
 
     /**
-     * Format Video.headers (List<Pair<String, String>>?) into MPV's
+     * Format Video.headers (okhttp3.Headers?) into MPV's
      * http-header-fields format: "Key: Value,Key2: Value2".
      *
      * The old project passes these headers to MPV before loadfile. Without
      * them, upstream servers return 403 Forbidden (missing Referer/UA).
      */
-    private fun formatHeaders(headers: List<Pair<String, String>>?): String {
-        if (headers.isNullOrEmpty()) return ""
-        return headers.joinToString(",") { "${it.first}: ${it.second}" }
+    private fun formatHeaders(headers: okhttp3.Headers?): String {
+        if (headers == null || headers.size == 0) return ""
+        return (0 until headers.size).joinToString(",") { i ->
+            "${headers.name(i)}: ${headers.value(i)}"
+        }
     }
 }
