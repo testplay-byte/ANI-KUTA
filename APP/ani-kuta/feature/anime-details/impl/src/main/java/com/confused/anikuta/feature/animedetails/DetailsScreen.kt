@@ -86,7 +86,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun DetailsScreen(
     animeId: Int,
     onBack: () -> Unit,
-    onNavigateToWatch: (String, String, String) -> Unit = { _, _, _ -> },
+    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String) -> Unit = { _, _, _, _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -105,6 +105,7 @@ fun DetailsScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
+    var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
 
     Box(
         modifier = Modifier
@@ -162,6 +163,7 @@ fun DetailsScreen(
                                 onOpenSourcePicker = { showManualSearch = true },
                                 onUnlinkSource = { viewModel.unlinkSource() },
                                 onEpisodeClick = { episode ->
+                                    currentEpisode = episode
                                     viewModel.resolveEpisode(episode)
                                     showResolverSheet = true
                                 },
@@ -214,8 +216,21 @@ fun DetailsScreen(
             onPickVideo = { video ->
                 val anime = (state as? DetailsState.Success)?.anime
                 val linked = linkedSource
-                if (anime != null && linked != null) {
-                    onNavigateToWatch(video.url, anime.displayName, video.quality)
+                val ep = currentEpisode
+                if (anime != null && linked != null && ep != null) {
+                    // Serialize the episode list for the watch screen.
+                    val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                        "${e.url}|${e.episode_number}|${e.name}"
+                    } ?: ""
+                    onNavigateToWatch(
+                        video.url,
+                        anime.displayName,
+                        video.quality,
+                        ep.url,
+                        ep.episode_number,
+                        ep.name,
+                        epListStr,
+                    )
                 }
                 showResolverSheet = false
                 viewModel.clearResolver()

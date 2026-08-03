@@ -5,9 +5,7 @@ import kotlinx.serialization.Serializable
 
 /**
  * Nav3 key for the Watch screen. Carries the video URL + metadata needed
- * to play the video.
- *
- * Phase 5c: This replaces the temporary WatchKey from :feature:anime-details:api.
+ * to play the video + the episode list for episode switching.
  */
 @Serializable
 data class WatchKey(
@@ -17,4 +15,33 @@ data class WatchKey(
     val episodeUrl: String = "",
     val episodeNumber: Float = 0f,
     val episodeTitle: String = "",
-) : NavKey
+    /** Serialized episode list for episode switching in the watch screen.
+     *  Each entry is "url|episodeNumber|name" separated by newlines. */
+    val episodeListSerialized: String = "",
+) : NavKey {
+
+    /**
+     * Parse the serialized episode list into a list of SimpleEpisode.
+     * Format: "url|episodeNumber|name" per line.
+     */
+    fun parseEpisodeList(): List<SimpleEpisode> {
+        if (episodeListSerialized.isBlank()) return emptyList()
+        return episodeListSerialized.split("\n").mapNotNull { line ->
+            val parts = line.split("|", limit = 3)
+            if (parts.size == 3) {
+                SimpleEpisode(
+                    url = parts[0],
+                    episodeNumber = parts[1].toFloatOrNull() ?: 0f,
+                    name = parts[2],
+                )
+            } else null
+        }
+    }
+}
+
+/** Lightweight episode info for the watch screen's episode list. */
+data class SimpleEpisode(
+    val url: String,
+    val episodeNumber: Float,
+    val name: String,
+)

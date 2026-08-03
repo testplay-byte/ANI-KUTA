@@ -1,9 +1,15 @@
 package com.confused.anikuta.feature.watch
 
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.view.LayoutInflater
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -20,13 +26,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,15 +51,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -61,29 +73,49 @@ import com.confused.anikuta.core.player.PlayerObserver
 import com.confused.anikuta.core.player.PlayerStateHolder
 import `is`.xyz.mpv.MPVLib
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+
+private const val TAG = "Anikuta:Feature:Watch"
 
 /**
  * The Watch screen — plays a video via MPV.
  *
- * Ported from the old project's WatchScreen.kt (2386 LOC), simplified for the
- * initial Phase 5c implementation. The user requested an "exact same copy-paste"
- * — this port preserves the essential structure:
+ * Layout (minimized mode) — matches old project:
+ * ```
+ * ┌─────────────────────────────────┐
+ * │  ┌───────────────────────────┐  │  ← Floating pill top bar
+ * │  │ ◁ Back  ANIKUTA  ⚙ Gear  │  │     (collapses on scroll)
+ * │  └───────────────────────────┘  │
+ * ├─────────────────────────────────┤
+ * │  ┌───────────────────────────┐  │  ← Player 16:9 (rounded corners)
+ * │  │      Video Player         │  │     (NOT edge-to-edge)
+ * │  │   [play/pause overlay]    │  │
+ * │  │   [seek bar] [⛶]         │  │
+ * │  └───────────────────────────┘  │
+ * ├─────────────────────────────────┤
+ * │  Currently playing episode N   │  ← Episode description (scrollable)
+ * │  Episode title                  │
+ * │  Synopsis...                    │
+ * ├─────────────────────────────────┤
+ * │  Episodes (12)                  │  ← Episode list (scrollable)
+ * │  ┌──┐ EP 1  Title              │
+ * │  └──┘                           │
+ * │  ┌──┐ EP 2  Title              │
+ * │  └──┘                           │
+ * └─────────────────────────────────┘
+ * ```
  *
- * - Single AndroidView(MPV) — never recreated on mode switches (ADR-025).
- * - Two modes: MINIMIZED (portrait, 16:9 player + info) + FULLSCREEN (landscape).
- * - Controls overlay: play/pause, seek bar, time, back, settings.
- * - Auto-hide controls after 4s (fullscreen) / 5s (minimized).
- * - BackHandler: fullscreen → minimized; minimized → exit.
- * - Keep screen on while active.
- *
- * What's NOT ported yet (deferred to later iterations):
- * - Episode list in minimized mode (needs episodeList in WatchKey).
- * - Speed sheet, quality sheet, track sheets.
- * - Resume position (needs WatchProgressStore wiring — the store exists but
- *   the contentId keying needs the anilistId which isn't in WatchKey yet).
- * - Subtitle/audio track loading.
+ * Layout (fullscreen mode):
+ * ```
+ * ┌─────────────────────────────────┐  ← edge-to-edge, black, landscape
+ * │ ◁  Title  EP 5   1080p    [⛶] │  ← top bar (auto-hide)
+ * │                                 │
+ * │      [-10s]  ▶  [+10s]         │  ← center controls (auto-hide)
+ * │                                 │
+ * │ ═══════════════════════════════ │  ← seek bar (auto-hide)
+ * │ 0:30  [1.0x][⏭][✕]       24:00 │  ← bottom controls (auto-hide)
+ * └─────────────────────────────────┘
+ * ```
  *
  * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing).
  * CORE_RULES §20: logged with tag "Anikuta:Feature:Watch".
@@ -94,11 +126,10 @@ fun WatchScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val stateHolder = remember { PlayerStateHolder() }
+    val episodeList = remember { watchKey.parseEpisodeList() }
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
-    var observer by remember { mutableStateOf<PlayerObserver?>(null) }
     var mpvInitialized by remember { mutableStateOf(false) }
 
     val playerMode by stateHolder.playerMode.collectAsState()
@@ -118,7 +149,7 @@ fun WatchScreen(
         }
     }
 
-    // ── Immersive mode for fullscreen ──
+    // ── Immersive mode + orientation for fullscreen ──
     DisposableEffect(playerMode) {
         val window = (context as? Activity)?.window
         if (window != null) {
@@ -127,15 +158,17 @@ fun WatchScreen(
                 androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
                 controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
                 controller.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             } else {
                 androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, true)
                 controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             }
         }
         onDispose { }
     }
 
-    // ── Back handler: fullscreen → minimized; minimized → exit ──
+    // ── Back handler ──
     BackHandler(enabled = true) {
         if (playerMode == PlayerMode.FULLSCREEN) {
             stateHolder.updateMode(PlayerMode.MINIMIZED)
@@ -145,12 +178,18 @@ fun WatchScreen(
     }
 
     // ── Auto-hide controls ──
-    LaunchedEffect(controlsVisible, playerMode) {
-        if (controlsVisible) {
+    val isVideoFinished = duration > 0 && position >= duration - 2 && !isPlaying
+    LaunchedEffect(controlsVisible, playerMode, isVideoFinished) {
+        if (controlsVisible && !isVideoFinished) {
             val delayMs = if (playerMode == PlayerMode.FULLSCREEN) 4000L else 5000L
             delay(delayMs)
             stateHolder.updateControlsVisible(false)
         }
+    }
+
+    // Force controls visible when video is finished
+    LaunchedEffect(isVideoFinished) {
+        if (isVideoFinished) stateHolder.updateControlsVisible(true)
     }
 
     // ── Init MPV + load video (once) ──
@@ -159,55 +198,32 @@ fun WatchScreen(
             if (!mpvInitialized) {
                 mpvInitialized = true
                 val obs = PlayerObserver(stateHolder)
-                observer = obs
 
                 PlayerInitializer.initialize(context, view)
 
-                // Register observer — MPVLib.EventObserver + LogObserver interfaces.
-                // Method signatures match the aniyomi-mpv-lib AAR (non-nullable params).
+                // Register observer
                 val logObs = object : `is`.xyz.mpv.MPVLib.LogObserver {
                     override fun logMessage(prefix: String, level: Int, text: String) {
-                        Logger.d("Anikuta:Feature:Watch") { "MPV log: $prefix: $text" }
+                        Logger.d(TAG) { "MPV log: $prefix: $text" }
                     }
                 }
                 val eventObs = object : `is`.xyz.mpv.MPVLib.EventObserver {
-                    override fun event(eventId: Int) {
-                        obs.onEvent(eventId)
-                    }
-
-                    override fun eventProperty(property: String) {
-                        // Property with no value — ignore.
-                    }
-
-                    override fun eventProperty(property: String, value: Long) {
-                        obs.onProperty(property, value.toString())
-                    }
-
-                    override fun eventProperty(property: String, value: Boolean) {
-                        obs.onProperty(property, if (value) "yes" else "no")
-                    }
-
-                    override fun eventProperty(property: String, value: String) {
-                        obs.onProperty(property, value)
-                    }
-
-                    override fun eventProperty(property: String, value: Double) {
-                        obs.onProperty(property, value.toString())
-                    }
-
+                    override fun event(eventId: Int) { obs.onEvent(eventId) }
+                    override fun eventProperty(property: String) {}
+                    override fun eventProperty(property: String, value: Long) { obs.onProperty(property, value.toString()) }
+                    override fun eventProperty(property: String, value: Boolean) { obs.onProperty(property, if (value) "yes" else "no") }
+                    override fun eventProperty(property: String, value: String) { obs.onProperty(property, value) }
+                    override fun eventProperty(property: String, value: Double) { obs.onProperty(property, value.toString()) }
                     override fun efEvent(err: String?) {
-                        Logger.w("Anikuta:Feature:Watch") { "MPV efEvent: $err" }
+                        Logger.w(TAG) { "MPV efEvent: $err" }
                         if (err != null) stateHolder.updateError(err)
                     }
                 }
                 MPVLib.addLogObserver(logObs)
                 MPVLib.addObserver(eventObs)
 
-                // Load the video
-                Logger.i("Anikuta:Feature:Watch") { "Loading video: ${watchKey.videoUrl}" }
+                Logger.i(TAG) { "Loading video: ${watchKey.videoUrl}" }
                 MPVLib.command(arrayOf("loadfile", watchKey.videoUrl, "replace"))
-
-                // Auto-play
                 MPVLib.setPropertyBoolean("pause", false)
             }
         }
@@ -220,106 +236,465 @@ fun WatchScreen(
                 runCatching { MPVLib.command(arrayOf("stop")) }
                 runCatching { view.destroy() }
             }
-            Logger.i("Anikuta:Feature:Watch") { "MPV destroyed" }
+            Logger.i(TAG) { "MPV destroyed" }
         }
     }
 
     // ── Layout ──
+    if (playerMode == PlayerMode.FULLSCREEN) {
+        FullscreenMode(
+            watchKey = watchKey,
+            stateHolder = stateHolder,
+            mpvView = mpvView,
+            initMpv = initMpv,
+            onMpvViewCreated = { mpvView = it },
+            isPlaying = isPlaying,
+            position = position,
+            duration = duration,
+            buffering = buffering,
+            controlsVisible = controlsVisible,
+            errorMessage = errorMessage,
+            onTogglePlay = { MPVLib.setPropertyBoolean("pause", isPlaying) },
+            onSeek = { pos -> MPVLib.setPropertyInt("time-pos", pos.toInt()) },
+            onBack = { stateHolder.updateMode(PlayerMode.MINIMIZED) },
+            onToggleControls = { stateHolder.updateControlsVisible(!controlsVisible) },
+        )
+    } else {
+        MinimizedMode(
+            watchKey = watchKey,
+            episodeList = episodeList,
+            stateHolder = stateHolder,
+            mpvView = mpvView,
+            initMpv = initMpv,
+            onMpvViewCreated = { mpvView = it },
+            isPlaying = isPlaying,
+            position = position,
+            duration = duration,
+            buffering = buffering,
+            controlsVisible = controlsVisible,
+            errorMessage = errorMessage,
+            onTogglePlay = { MPVLib.setPropertyBoolean("pause", isPlaying) },
+            onSeek = { pos -> MPVLib.setPropertyInt("time-pos", pos.toInt()) },
+            onBack = onBack,
+            onMaximize = { stateHolder.updateMode(PlayerMode.FULLSCREEN) },
+            onToggleControls = { stateHolder.updateControlsVisible(!controlsVisible) },
+        )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MINIMIZED MODE — floating top bar + 16:9 player + episode list
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun MinimizedMode(
+    watchKey: WatchKey,
+    episodeList: List<SimpleEpisode>,
+    stateHolder: PlayerStateHolder,
+    mpvView: AnikutaMPVView?,
+    initMpv: (AnikutaMPVView) -> Unit,
+    onMpvViewCreated: (AnikutaMPVView) -> Unit,
+    isPlaying: Boolean,
+    position: Int,
+    duration: Int,
+    buffering: Boolean,
+    controlsVisible: Boolean,
+    errorMessage: String?,
+    onTogglePlay: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onBack: () -> Unit,
+    onMaximize: () -> Unit,
+    onToggleControls: () -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val collapsed = listState.firstVisibleItemIndex > 0 ||
+        listState.firstVisibleItemScrollOffset > 200
+
+    val headerHeight by animateDpAsState(
+        targetValue = if (collapsed) 0.dp else 56.dp,
+        animationSpec = tween(300),
+        label = "headerHeight",
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        // ── Floating pill top bar ──
+        if (headerHeight > 0.dp) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(24.dp),
+                    tonalElevation = 2.dp,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ControlButton(
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            onClick = onBack,
+                        )
+                        Text(
+                            text = "ANI-KUTA",
+                            fontFamily = RobotoFamily,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f).padding(start = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Player 16:9 (NOT edge-to-edge, rounded corners) ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Black),
+            ) {
+                // Player surface
+                PlayerSurface(
+                    mpvView = mpvView,
+                    initMpv = initMpv,
+                    onMpvViewCreated = onMpvViewCreated,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                // Tap to toggle controls
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { onToggleControls() })
+                        },
+                )
+
+                // Minimized controls overlay
+                if (controlsVisible || buffering || errorMessage != null) {
+                    MinimizedControls(
+                        isPlaying = isPlaying,
+                        position = position,
+                        duration = duration,
+                        buffering = buffering,
+                        errorMessage = errorMessage,
+                        onTogglePlay = onTogglePlay,
+                        onSeek = onSeek,
+                        onMaximize = onMaximize,
+                    )
+                }
+            }
+        }
+
+        // ── Scrollable content: episode description + episode list ──
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            // Episode description
+            item {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                    modifier = Modifier.fillMaxWidth().padding(4.dp),
+                    shape = RoundedCornerShape(0.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    ) {
+                        Text(
+                            text = "Currently playing episode ${formatEpisodeNumber(watchKey.episodeNumber)}",
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = watchKey.episodeTitle.ifBlank { "Episode ${formatEpisodeNumber(watchKey.episodeNumber)}" },
+                            fontFamily = RobotoFamily,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = watchKey.animeTitle,
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+
+            // Episode list
+            if (episodeList.isNotEmpty()) {
+                item {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxWidth().padding(4.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "Episodes",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(50),
+                                ) {
+                                    Text(
+                                        text = "${episodeList.size}",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            episodeList.forEachIndexed { index, ep ->
+                                val isCurrent = ep.url == watchKey.episodeUrl
+                                EpisodeListRow(
+                                    episode = ep,
+                                    isCurrent = isCurrent,
+                                    onClick = {
+                                        // TODO: switch episode (Phase 5c later iteration)
+                                        Logger.i(TAG) { "Episode tapped: ${ep.name} (not implemented yet)" }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FULLSCREEN MODE — edge-to-edge player + auto-hiding controls
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun FullscreenMode(
+    watchKey: WatchKey,
+    stateHolder: PlayerStateHolder,
+    mpvView: AnikutaMPVView?,
+    initMpv: (AnikutaMPVView) -> Unit,
+    onMpvViewCreated: (AnikutaMPVView) -> Unit,
+    isPlaying: Boolean,
+    position: Int,
+    duration: Int,
+    buffering: Boolean,
+    controlsVisible: Boolean,
+    errorMessage: String?,
+    onTogglePlay: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onBack: () -> Unit,
+    onToggleControls: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        // ── Player surface (single AndroidView, never recreated) ──
-        AndroidView(
-            factory = { ctx ->
-                // Inflate from :core:player's R.layout.mpv_view (cross-module resource lookup).
-                val layoutId = ctx.resources.getIdentifier("mpv_view", "layout", ctx.packageName)
-                val view = LayoutInflater.from(ctx).inflate(layoutId, null) as AnikutaMPVView
-                mpvView = view
-                initMpv(view)
-                view
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (playerMode == PlayerMode.MINIMIZED) {
-                        Modifier.aspectRatio(16f / 9f)
-                    } else {
-                        Modifier.fillMaxSize()
-                    }
-                ),
+        // Player surface (fills entire screen)
+        PlayerSurface(
+            mpvView = mpvView,
+            initMpv = initMpv,
+            onMpvViewCreated = onMpvViewCreated,
+            modifier = Modifier.fillMaxSize(),
         )
 
-        // ── Tap to toggle controls ──
+        // Tap to toggle controls
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(playerMode) {
-                    detectTapGestures(
-                        onTap = {
-                            stateHolder.updateControlsVisible(!controlsVisible)
-                        },
-                    )
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { onToggleControls() })
                 },
         )
 
-        // ── Controls overlay ──
-        if (controlsVisible || buffering || errorMessage != null) {
-            WatchControlsOverlay(
-                playerMode = playerMode,
+        // Controls overlay
+        AnimatedVisibility(
+            visible = controlsVisible || buffering || errorMessage != null,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+        ) {
+            FullscreenControls(
+                watchKey = watchKey,
                 isPlaying = isPlaying,
                 position = position,
                 duration = duration,
                 buffering = buffering,
                 errorMessage = errorMessage,
-                animeTitle = watchKey.animeTitle,
-                episodeTitle = watchKey.episodeTitle,
-                quality = watchKey.quality,
-                onTogglePlay = {
-                    MPVLib.setPropertyBoolean("pause", isPlaying)
-                },
-                onSeek = { pos ->
-                    MPVLib.setPropertyInt("time-pos", pos.toInt())
-                },
-                onBack = {
-                    if (playerMode == PlayerMode.FULLSCREEN) {
-                        stateHolder.updateMode(PlayerMode.MINIMIZED)
-                    } else {
-                        onBack()
-                    }
-                },
-                onToggleFullscreen = {
-                    stateHolder.updateMode(
-                        if (playerMode == PlayerMode.FULLSCREEN) PlayerMode.MINIMIZED else PlayerMode.FULLSCREEN
-                    )
-                },
+                onTogglePlay = onTogglePlay,
+                onSeek = onSeek,
+                onBack = onBack,
+                onMinimize = onBack,
             )
         }
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Controls overlay
+//  Minimized controls (play/pause + seek bar + fullscreen button)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun WatchControlsOverlay(
-    playerMode: PlayerMode,
+private fun MinimizedControls(
     isPlaying: Boolean,
     position: Int,
     duration: Int,
     buffering: Boolean,
     errorMessage: String?,
-    animeTitle: String,
-    episodeTitle: String,
-    quality: String,
+    onTogglePlay: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onMaximize: () -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Top-left: time
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(8.dp),
+        ) {
+            Text(
+                text = "${formatTime(position)} / ${formatTime(duration)}",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                color = Color.White,
+            )
+        }
+
+        // Top-right: fullscreen button
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp),
+        ) {
+            ControlButton(
+                icon = Icons.Filled.Fullscreen,
+                contentDescription = "Fullscreen",
+                onClick = onMaximize,
+            )
+        }
+
+        // Center: play/pause or buffering or error
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                errorMessage != null -> Text(
+                    text = errorMessage,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    color = Color.White,
+                )
+                buffering -> CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(36.dp),
+                )
+                else -> ControlButton(
+                    icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    onClick = onTogglePlay,
+                    size = 48,
+                )
+            }
+        }
+
+        // Bottom: seek bar
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Slider(
+                value = if (duration > 0) position.toFloat() / duration else 0f,
+                onValueChange = { fraction ->
+                    if (duration > 0) onSeek(fraction * duration)
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Fullscreen controls (top bar + center + seek bar + bottom buttons)
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun FullscreenControls(
+    watchKey: WatchKey,
+    isPlaying: Boolean,
+    position: Int,
+    duration: Int,
+    buffering: Boolean,
+    errorMessage: String?,
     onTogglePlay: () -> Unit,
     onSeek: (Float) -> Unit,
     onBack: () -> Unit,
-    onToggleFullscreen: () -> Unit,
+    onMinimize: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
+        // ── Background gradient scrim ──
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.55f),
+                            Color.Transparent,
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.65f),
+                        ),
+                    ),
+                ),
+        )
+
         // ── Top bar ──
         Row(
             modifier = Modifier
@@ -330,22 +705,23 @@ private fun WatchControlsOverlay(
         ) {
             ControlButton(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                onClick = onBack,
+                contentDescription = "Exit fullscreen",
+                onClick = onMinimize,
             )
             Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = animeTitle,
+                    text = watchKey.animeTitle,
                     fontFamily = RobotoFamily,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                if (episodeTitle.isNotBlank()) {
+                if (watchKey.episodeTitle.isNotBlank()) {
                     Text(
-                        text = episodeTitle,
+                        text = "EP ${formatEpisodeNumber(watchKey.episodeNumber)} - ${watchKey.episodeTitle}",
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
                         color = Color.White.copy(alpha = 0.7f),
@@ -353,67 +729,84 @@ private fun WatchControlsOverlay(
                     )
                 }
             }
-            if (quality.isNotBlank()) {
-                Text(
-                    text = quality,
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                )
+            if (watchKey.quality.isNotBlank()) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        text = watchKey.quality,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
 
-        // ── Center: play/pause + buffering + error ──
+        // ── Center: play/pause + skip buttons ──
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             when {
-                errorMessage != null -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Playback error",
-                            fontFamily = RobotoFamily,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = errorMessage,
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            color = Color.White.copy(alpha = 0.7f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        )
-                    }
-                }
-                buffering -> {
-                    CircularProgressIndicator(
+                errorMessage != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Playback error",
+                        fontFamily = RobotoFamily,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Color.White,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(48.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = errorMessage,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.7f),
                     )
                 }
-                else -> {
+                buffering -> CircularProgressIndicator(
+                    color = Color.White,
+                    strokeWidth = 3.dp,
+                    modifier = Modifier.size(48.dp),
+                )
+                else -> Row(
+                    horizontalArrangement = Arrangement.spacedBy(28.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ControlButton(
+                        icon = Icons.Filled.SkipPrevious,
+                        contentDescription = "Back 10s",
+                        onClick = { onSeek(((position - 10).coerceAtLeast(0)).toFloat()) },
+                        size = 44,
+                    )
                     ControlButton(
                         icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         onClick = onTogglePlay,
                         size = 56,
                     )
+                    ControlButton(
+                        icon = Icons.Filled.SkipNext,
+                        contentDescription = "Forward 10s",
+                        onClick = { onSeek(((position + 10).coerceAtMost(duration)).toFloat()) },
+                        size = 44,
+                    )
                 }
             }
         }
 
-        // ── Bottom: seek bar + time ──
+        // ── Bottom: seek bar + time + buttons ──
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
         ) {
+            // Seek bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -427,13 +820,9 @@ private fun WatchControlsOverlay(
                 Slider(
                     value = if (duration > 0) position.toFloat() / duration else 0f,
                     onValueChange = { fraction ->
-                        if (duration > 0) {
-                            onSeek(fraction * duration)
-                        }
+                        if (duration > 0) onSeek(fraction * duration)
                     },
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp),
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                 )
                 Text(
                     text = formatTime(duration),
@@ -442,6 +831,102 @@ private fun WatchControlsOverlay(
                     color = Color.White,
                 )
             }
+            Spacer(Modifier.height(4.dp))
+            // Bottom button row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ControlButton(
+                    icon = Icons.Filled.FullscreenExit,
+                    contentDescription = "Exit fullscreen",
+                    onClick = onMinimize,
+                )
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Player surface (shared AndroidView — never recreated)
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun PlayerSurface(
+    mpvView: AnikutaMPVView?,
+    initMpv: (AnikutaMPVView) -> Unit,
+    onMpvViewCreated: (AnikutaMPVView) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        factory = { ctx ->
+            val layoutId = ctx.resources.getIdentifier("mpv_view", "layout", ctx.packageName)
+            val view = (mpvView ?: LayoutInflater.from(ctx).inflate(layoutId, null) as AnikutaMPVView).also { v ->
+                if (mpvView == null) {
+                    onMpvViewCreated(v)
+                    initMpv(v)
+                }
+            }
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
+            view
+        },
+        modifier = modifier,
+    )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Episode list row (minimized mode)
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun EpisodeListRow(
+    episode: SimpleEpisode,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(10.dp),
+        border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                color = if (isCurrent) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.size(width = 44.dp, height = 32.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = formatEpisodeNumber(episode.episodeNumber),
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = episode.name,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -482,4 +967,9 @@ private fun formatTime(seconds: Int): String {
     val s = seconds % 60
     return if (h > 0) "$h:${"%02d".format(m)}:${"%02d".format(s)}"
            else "$m:${"%02d".format(s)}"
+}
+
+private fun formatEpisodeNumber(num: Float): String = when {
+    num == num.toInt().toFloat() -> num.toInt().toString()
+    else -> num.toString()
 }
