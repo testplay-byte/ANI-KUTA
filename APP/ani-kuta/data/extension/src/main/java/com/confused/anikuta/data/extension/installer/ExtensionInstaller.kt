@@ -1,5 +1,6 @@
 package com.confused.anikuta.data.extension.installer
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -82,20 +83,28 @@ class ExtensionInstaller(
     /** Uninstall an extension via the system uninstall intent. */
     fun uninstallApk(pkgName: String) {
         Logger.i(TAG) { "Uninstalling: $pkgName" }
-        val intent = Intent(Intent.ACTION_DELETE).apply {
-            data = Uri.fromParts("package", pkgName, null)
+        val uri = Uri.fromParts("package", pkgName, null)
+        val intent = Intent(Intent.ACTION_DELETE, uri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         try {
+            // Do NOT guard with resolveActivity() — on Android 11+ (API 30+),
+            // package-visibility filtering makes resolveActivity() return null
+            // for ACTION_DELETE even though startActivity() would succeed.
+            // The <queries> block in the manifest handles visibility.
             context.startActivity(intent)
-        } catch (e: Exception) {
-            Logger.e(TAG, e) { "ACTION_DELETE failed, falling back to app details" }
+        } catch (e: ActivityNotFoundException) {
+            // No activity can handle ACTION_DELETE — fall back to app details.
+            Logger.w(TAG) { "ACTION_DELETE not resolved for $pkgName, opening app settings" }
             val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.fromParts("package", pkgName, null)
+                data = uri
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(fallback)
-            Toast.makeText(context, "Could not auto-uninstall. Please uninstall manually.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Open the app info to uninstall", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Uninstall failed for $pkgName" }
+            Toast.makeText(context, "Uninstall failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 

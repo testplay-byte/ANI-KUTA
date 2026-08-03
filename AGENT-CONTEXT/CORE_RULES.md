@@ -378,3 +378,17 @@ APP/ani-kuta/DOCUMENTATION/database/
 6. **Lessons audit:** When you catch a doc-drift mistake (yours or a prior session's), log it in `lessons-learned.md` with the `[PATTERN]` tag. If drift recurs, promote a stricter rule here.
 7. **Session-end checklist (add to §15 checklist):** Before push — (a) `progress.md` matches reality, (b) `changelog.md` has this session's entry, (c) `decisions.md` has any new D-NNN, (d) dashboard data + nav matches `progress.md`, (e) no stale phase references in dashboard sidebar/nav, (f) `lessons-learned.md` has any new lesson.
 8. **Honesty about drift:** If you discover drift you can't fully fix in this session (e.g. a large doc rewrite needed), flag it explicitly to the user + note it in `progress.md` under a "Known doc debt" section. Don't silently leave it.
+
+---
+
+## 27. Tool Failure Recovery (Stop After 5 Tries)
+
+> When a tool (Bash, Read, Edit, etc.) fails repeatedly, hammering it wastes context and time. The environment often self-recovers if you pause.
+
+### Rules
+1. **Stop after 5 consecutive failures** of the same tool with the same/similar error. Do NOT keep retrying — it won't help and burns context.
+2. **Acknowledge the failure to the user** — tell them the tool is erroring and you're pausing. The user may need to reset the session or wait.
+3. **Do NOT retry in a tight loop.** After the 5th failure, stop calling that tool entirely for the rest of the turn. Move to a different tool or describe what you would have done.
+4. **The environment often self-recovers.** If the user says "continue" or sends a new message, try the tool again — it may work now.
+5. **Log the failure** in `lessons-learned.md` with the `[PATTERN]` tag if it recurs across sessions (e.g. "Bash fails after long sessions — context limit or sandbox issue").
+6. **If a critical action is blocked** (e.g. can't `git push`), tell the user explicitly: "I can't push to GitHub right now because Bash is failing. The changes are saved locally. Please retry in a new message or run `git push` manually."

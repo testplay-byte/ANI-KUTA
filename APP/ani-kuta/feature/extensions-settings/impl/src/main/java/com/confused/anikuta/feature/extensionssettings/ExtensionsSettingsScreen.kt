@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.extensionssettings
 
+import android.graphics.drawable.Drawable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -7,6 +8,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.experimental.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
@@ -38,9 +40,14 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,14 +87,18 @@ import org.koin.compose.koinInject
  * 3. Available Extensions — listed in repos, not yet installed (install button
  *    with spinner animation during install).
  *
- * Improvements per user feedback:
+ * UI design (per user spec):
  * - CollapsingHeader "Extensions" that shrinks on scroll + ScrollBlurOverlay.
- * - Each section in a dedicated background card with minimal horizontal padding.
- * - Available extensions filtered to exclude installed ones.
- * - Download button shows a circular spinner during install (installStates tracking).
- * - Filters bar: search + sort (name/language/NSFW) applies to all 3 sections.
- * - Long-press a trusted source to enter reorder mode (up/down arrows).
- * - Delete buttons on trusted + untrusted (direct, no untrust-first step).
+ * - Filters button at the top-right (NO default search bar). Tapping it reveals
+ *   the search + sort bar.
+ * - Each section in a dedicated background card with clear separation + spacing
+ *   between rows.
+ * - Available extensions filtered to exclude installed/untrusted.
+ * - Download button shows a circular spinner during install.
+ * - Trusted sources: long-press enters reorder mode (up/down arrows).
+ * - Delete buttons on trusted + untrusted (with confirmation dialog).
+ * - Extension icons shown via Coil AsyncImage (Drawable for installed/untrusted,
+ *   URL for available).
  *
  * CORE_RULES §22: smooth animations (CollapsingHeader, fade-in items).
  * CORE_RULES §23: reactive state (StateFlow from ExtensionManager).
@@ -107,6 +119,7 @@ fun ExtensionsSettingsScreen(
 
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf(ExtensionSortMode.NAME) }
     var showNsfw by remember { mutableStateOf(false) }
@@ -117,7 +130,7 @@ fun ExtensionsSettingsScreen(
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
 
-    // Fetch available extensions when repos exist.
+    // Fetch available extensions when repos exist (auto-refresh on repo changes).
     LaunchedEffect(repos.size) {
         if (repos.isNotEmpty()) {
             isRefreshing = true
@@ -134,7 +147,7 @@ fun ExtensionsSettingsScreen(
     val installedPkgs = installedExtensions.map { it.pkgName }.toSet()
     val untrustedPkgs = untrustedExtensions.map { it.pkgName }.toSet()
 
-    // ── Filtering + sorting (applies to all 3 sections) ──
+    // ── Filtering + sorting ──
     val filteredInstalled = reorderedInstalled.filter { ext ->
         matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
     }.let { if (reorderMode) it else sortExtensions(it, sortMode) }
@@ -144,7 +157,7 @@ fun ExtensionsSettingsScreen(
     }.let { sortExtensions(it, sortMode) }
 
     val filteredAvailable = availableExtensions
-        .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs } // exclude installed
+        .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
         .filter { ext ->
             matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
         }
@@ -162,10 +175,15 @@ fun ExtensionsSettingsScreen(
                             contentDescription = "Done reordering",
                             onClick = {
                                 reorderMode = false
-                                // TODO: persist priority order (Phase 5d — identity).
+                                // TODO: persist priority order (Phase 5d).
                             },
                         )
                     } else {
+                        HeaderIconButton(
+                            icon = Icons.Filled.FilterList,
+                            contentDescription = "Filters",
+                            onClick = { showFilters = !showFilters },
+                        )
                         HeaderIconButton(
                             icon = Icons.Filled.Settings,
                             contentDescription = "Repository settings",
@@ -180,29 +198,35 @@ fun ExtensionsSettingsScreen(
                 },
             )
 
-            // ── Filters bar ──
-            ExtensionFiltersBar(
-                query = searchQuery,
-                onQueryChange = { searchQuery = it },
-                sortMode = sortMode,
-                onSortModeChange = { sortMode = it },
-                showNsfw = showNsfw,
-                onToggleNsfw = { showNsfw = !showNsfw },
-            )
+            // ── Filters bar (hidden by default, revealed on tap) ──
+            AnimatedVisibility(
+                visible = showFilters,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(200)),
+            ) {
+                ExtensionFiltersBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    sortMode = sortMode,
+                    onSortModeChange = { sortMode = it },
+                    showNsfw = showNsfw,
+                    onToggleNsfw = { showNsfw = !showNsfw },
+                )
+            }
 
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 110.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // ── Trusted Sources section ──
+                // ── Trusted Sources ──
                 item {
                     ExtensionSectionCard(title = "Trusted Sources", count = filteredInstalled.size) {
                         if (filteredInstalled.isEmpty()) {
                             EmptySectionBody("No trusted sources. Install an extension to get started.")
                         } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 filteredInstalled.forEachIndexed { index, ext ->
                                     InstalledExtensionRow(
                                         extension = ext,
@@ -235,11 +259,11 @@ fun ExtensionsSettingsScreen(
                     }
                 }
 
-                // ── Untrusted section ──
+                // ── Untrusted ──
                 if (filteredUntrusted.isNotEmpty()) {
                     item {
                         ExtensionSectionCard(title = "Untrusted", count = filteredUntrusted.size) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 filteredUntrusted.forEach { ext ->
                                     UntrustedExtensionRow(
                                         extension = ext,
@@ -252,7 +276,7 @@ fun ExtensionsSettingsScreen(
                     }
                 }
 
-                // ── Available Extensions section ──
+                // ── Available Extensions ──
                 item {
                     ExtensionSectionCard(title = "Available Extensions", count = filteredAvailable.size) {
                         when {
@@ -262,7 +286,7 @@ fun ExtensionsSettingsScreen(
                                 contentAlignment = Alignment.Center,
                             ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
                             filteredAvailable.isEmpty() -> EmptySectionBody("No extensions found in your repositories.")
-                            else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 filteredAvailable.forEach { ext ->
                                     val installStep = installStates[ext.pkgName]
                                     AvailableExtensionRow(
@@ -294,7 +318,7 @@ fun ExtensionsSettingsScreen(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Filters bar
+//  Filters bar (revealed when user taps the filter button)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -310,13 +334,13 @@ private fun ExtensionFiltersBar(
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Search field
             OutlinedTextField(
                 value = query,
                 onValueChange = onQueryChange,
@@ -332,25 +356,18 @@ private fun ExtensionFiltersBar(
                 } else null,
                 singleLine = true,
                 modifier = Modifier.weight(1f),
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                ),
+                textStyle = androidx.compose.ui.text.TextStyle(fontFamily = RobotoFamily, fontSize = 13.sp),
             )
             Spacer(Modifier.width(8.dp))
-            // Sort button
             Box {
                 HeaderIconButton(
                     icon = Icons.Filled.FilterList,
                     contentDescription = "Sort",
                     onClick = { showSortMenu = !showSortMenu },
                 )
-                androidx.compose.material3.DropdownMenu(
-                    expanded = showSortMenu,
-                    onDismissRequest = { showSortMenu = false },
-                ) {
+                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                     ExtensionSortMode.entries.forEach { mode ->
-                        androidx.compose.material3.DropdownMenuItem(
+                        DropdownMenuItem(
                             text = { Text(mode.label, fontFamily = RobotoFamily) },
                             onClick = { onSortModeChange(mode); showSortMenu = false },
                             trailingIcon = if (sortMode == mode) {
@@ -358,9 +375,8 @@ private fun ExtensionFiltersBar(
                             } else null,
                         )
                     }
-                    // NSFW toggle
-                    androidx.compose.material3.HorizontalDivider()
-                    androidx.compose.material3.DropdownMenuItem(
+                    HorizontalDivider()
+                    DropdownMenuItem(
                         text = { Text(if (showNsfw) "Hide NSFW" else "Show NSFW", fontFamily = RobotoFamily) },
                         onClick = { onToggleNsfw(); showSortMenu = false },
                     )
@@ -371,7 +387,7 @@ private fun ExtensionFiltersBar(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Section card (dedicated background)
+//  Section card (dedicated background with clear separation)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -381,14 +397,14 @@ private fun ExtensionSectionCard(
     content: @Composable () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+        tonalElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Section header
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -406,12 +422,11 @@ private fun ExtensionSectionCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            androidx.compose.material3.HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                 thickness = 0.5.dp,
             )
-            // Content
-            Box(modifier = Modifier.padding(8.dp)) {
+            Box(modifier = Modifier.padding(12.dp)) {
                 content()
             }
         }
@@ -422,6 +437,7 @@ private fun ExtensionSectionCard(
 //  Row composables
 // ════════════════════════════════════════════════════════════════════════════
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun InstalledExtensionRow(
     extension: AnimeExtension.Installed,
@@ -437,19 +453,20 @@ private fun InstalledExtensionRow(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = onLongPress,
+            ),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (isReordering) {
-                // Reorder controls
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     ActionIconButton(
                         icon = Icons.Filled.ArrowUpward,
@@ -468,7 +485,7 @@ private fun InstalledExtensionRow(
                 }
                 Spacer(Modifier.width(8.dp))
             } else {
-                ExtensionIconPlaceholder(name = extension.name)
+                ExtensionIcon(extension.icon, extension.name)
                 Spacer(Modifier.width(12.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -493,16 +510,6 @@ private fun InstalledExtensionRow(
                     maxLines = 1,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-                if (extension.sources.isNotEmpty()) {
-                    Text(
-                        text = extension.sources.joinToString(", ") { it.name },
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
             }
             if (!isReordering) {
                 ActionIconButton(
@@ -522,17 +529,17 @@ private fun InstalledExtensionRow(
     }
 
     if (showDeleteConfirm) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Uninstall extension?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
             text = { Text("This will uninstall ${extension.name} from your device.", fontFamily = RobotoFamily) },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false; onDelete() }) {
+                TextButton(onClick = { showDeleteConfirm = false; onDelete() }) {
                     Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                 }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false }) {
+                TextButton(onClick = { showDeleteConfirm = false }) {
                     Text("Cancel", fontFamily = RobotoFamily)
                 }
             },
@@ -549,7 +556,7 @@ private fun UntrustedExtensionRow(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -557,7 +564,7 @@ private fun UntrustedExtensionRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ExtensionIconPlaceholder(name = extension.name)
+            ExtensionIcon(extension.icon, extension.name)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -593,17 +600,17 @@ private fun UntrustedExtensionRow(
     }
 
     if (showDeleteConfirm) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Uninstall extension?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
             text = { Text("This will uninstall ${extension.name} from your device.", fontFamily = RobotoFamily) },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false; onDelete() }) {
+                TextButton(onClick = { showDeleteConfirm = false; onDelete() }) {
                     Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                 }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false }) {
+                TextButton(onClick = { showDeleteConfirm = false }) {
                     Text("Cancel", fontFamily = RobotoFamily)
                 }
             },
@@ -620,7 +627,7 @@ private fun AvailableExtensionRow(
     val isInstalling = installStep != null && !installStep.isCompleted()
 
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -656,7 +663,6 @@ private fun AvailableExtensionRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            // Install button — shows spinner when installing.
             if (isInstalling) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(24.dp),
@@ -676,18 +682,21 @@ private fun AvailableExtensionRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Shared UI helpers
+//  Extension icon (Drawable for installed/untrusted, URL for available)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun EmptySectionBody(message: String) {
-    Text(
-        text = message,
-        fontFamily = RobotoFamily,
-        fontSize = 13.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
-    )
+private fun ExtensionIcon(icon: Drawable?, fallbackName: String) {
+    if (icon != null) {
+        // Coil's AsyncImage accepts a Drawable as the model.
+        AsyncImage(
+            model = icon,
+            contentDescription = fallbackName,
+            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+        )
+    } else {
+        ExtensionIconPlaceholder(fallbackName)
+    }
 }
 
 @Composable
@@ -715,9 +724,24 @@ private fun ExtensionIconPlaceholder(name: String) {
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  Shared UI helpers
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun EmptySectionBody(message: String) {
+    Text(
+        text = message,
+        fontFamily = RobotoFamily,
+        fontSize = 13.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
+    )
+}
+
 @Composable
 private fun ActionIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
     tint: Color,
@@ -746,7 +770,7 @@ private fun ActionIconButton(
 
 @Composable
 private fun HeaderIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
 ) {

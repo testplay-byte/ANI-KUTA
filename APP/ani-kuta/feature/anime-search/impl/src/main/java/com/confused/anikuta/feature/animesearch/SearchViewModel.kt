@@ -94,6 +94,25 @@ class SearchViewModel(
     init {
         loadRecents()
         observeQuery()
+        // Auto-select the top trusted source if none is selected (per user spec).
+        // When the user switches to Extension mode, they see results immediately.
+        viewModelScope.launch {
+            trustedSources.collect { sources ->
+                if (sources.isNotEmpty()) {
+                    val current = _selectedSourceId.value
+                    val currentExists = current != null && sources.any { it.id == current }
+                    if (current == null || !currentExists) {
+                        val top = sources.first()
+                        _selectedSourceId.value = top.id
+                        preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, top.id)
+                        // If the user is already in Extension mode, load the new source's popular.
+                        if (_source.value == SearchSource.EXTENSION) {
+                            loadExtensionPopular()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ── Filter handlers ──
@@ -132,7 +151,9 @@ class SearchViewModel(
     fun onSourceChange(source: SearchSource) {
         _source.value = source
         if (source == SearchSource.EXTENSION) {
-            // Load the selected source's popular anime (or show empty if none selected).
+            // Load the selected source's popular anime. If no source is selected
+            // yet (auto-select hasn't run), the state stays ExtensionNotAvailable
+            // until the init block's collector picks a source.
             loadExtensionPopular()
         } else {
             if (_query.value.isNotBlank()) {
@@ -286,9 +307,12 @@ class SearchViewModel(
                 } else {
                     SearchUiState.ExtensionSuccess(results = results)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
                 Logger.e(TAG, e) { "Extension popular fetch failed: ${e.message}" }
-                _uiState.value = SearchUiState.Error
+                _uiState.value = SearchUiState.ExtensionError(
+                    "${source.name}: ${e.message ?: "Unknown error"}"
+                )
             }
         }
     }
@@ -327,9 +351,11 @@ class SearchViewModel(
                 } else {
                     SearchUiState.ExtensionSuccess(results = results)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Logger.e(TAG, e) { "Extension search failed: ${e.message}" }
-                _uiState.value = SearchUiState.Error
+                _uiState.value = SearchUiState.ExtensionError(
+                    "${source.name}: ${e.message ?: "Unknown error"}"
+                )
             }
         }
     }
@@ -370,6 +396,8 @@ sealed interface SearchUiState {
     data object ExtensionNotAvailable : SearchUiState
     /** Extension source browse/search success. */
     data class ExtensionSuccess(val results: List<ExtensionAnime>) : SearchUiState
+    /** Extension source error — shows the actual error message (source name + reason). */
+    data class ExtensionError(val message: String) : SearchUiState
 }
 
 enum class SearchSource(val displayName: String) {

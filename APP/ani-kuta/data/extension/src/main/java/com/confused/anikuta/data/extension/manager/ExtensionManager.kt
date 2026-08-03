@@ -205,16 +205,20 @@ class ExtensionManager(
      * Revoke trust for an extension (moves it back to untrusted).
      */
     fun untrustExtension(extension: AnimeExtension.Installed) {
-        Logger.i(TAG) { "Untrusting: ${extension.name}" }
-        // Revoke trust by fingerprint. The loader will re-scan and find it untrusted.
-        // (TrustService stores by fingerprint, not pkgName — we need to find the fingerprint.)
-        // For simplicity, we reload; the extension will show up as untrusted again.
+        Logger.i(TAG) { "Untrusting: ${extension.name} (fingerprint: ${extension.signatureHash})" }
+        // Actually revoke trust by fingerprint — without this, loadAll() would
+        // re-trust the same extension.
+        if (extension.signatureHash.isNotEmpty()) {
+            trustService.revoke(extension.signatureHash)
+        }
+
+        // Remove from installed + remove its sources.
         _installedExtensions.value = _installedExtensions.value.filter { it.pkgName != extension.pkgName }
         val sourceMap = _sources.value.toMutableMap()
         extension.sources.forEach { source -> sourceMap.remove(source.id) }
         _sources.value = sourceMap
 
-        // Reload to populate the untrusted list.
+        // Reload to populate the untrusted list with this extension.
         loadAll()
     }
 

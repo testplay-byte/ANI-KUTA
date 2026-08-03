@@ -1,5 +1,6 @@
 package com.confused.anikuta.data.extension.model
 
+import android.graphics.drawable.Drawable
 import eu.kanade.tachiyomi.animesource.AnimeSource
 
 /**
@@ -40,6 +41,8 @@ sealed class AnimeExtension {
         override val isNsfw: Boolean,
         override val isTorrent: Boolean,
         val sources: List<AnimeSource>,
+        val icon: Drawable? = null,
+        val signatureHash: String = "",
         val hasUpdate: Boolean = false,
         val isObsolete: Boolean = false,
         val repoUrl: String? = null,
@@ -77,6 +80,7 @@ sealed class AnimeExtension {
         override val versionCode: Long,
         override val libVersion: Double,
         val signatureHash: String,
+        val icon: Drawable? = null,
         override val lang: String? = null,
         override val isNsfw: Boolean = false,
         override val isTorrent: Boolean = false,

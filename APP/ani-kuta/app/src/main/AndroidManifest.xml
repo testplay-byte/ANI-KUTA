@@ -10,6 +10,17 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
+    <!-- Package visibility for the uninstall intent (Android 11+).
+         Without this, resolveActivity() returns null for ACTION_DELETE even
+         though startActivity() succeeds — but we don't guard with resolveActivity
+         anymore. Declared defensively anyway. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.DELETE" />
+            <data android:scheme="package" />
+        </intent>
+    </queries>
+
     <application
         android:name=".AnikutaApp"
         android:icon="@mipmap/ic_launcher"

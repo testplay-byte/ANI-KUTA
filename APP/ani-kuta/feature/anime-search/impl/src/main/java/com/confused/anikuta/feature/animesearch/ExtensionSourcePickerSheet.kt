@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -39,14 +38,14 @@ import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 /**
  * Bottom sheet for picking which extension source to browse in the Search page.
  *
- * Lists all trusted [AnimeCatalogueSource] instances. The user taps one to
- * select it — the choice is persisted + the source's popular anime loads.
- *
- * Per user spec (D-055): the extension button at the top-right opens this sheet
- * even when an extension is already selected, so the user can switch sources.
+ * UI (per user spec):
+ * - Title: "Pick a source" (not "Select source").
+ * - Each row shows ONLY the source name (no language, no extra metadata).
+ * - Selected source: highlighted with primaryContainer background + a plain
+ *   checkmark icon (no circular background on the checkmark).
+ * - Unselected sources: subtle surfaceVariant background.
  *
  * CORE_RULES §22: smooth animations.
- * CORE_RULES §20: logged with tag "Anikuta:Feature:Search:SourcePicker".
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +73,7 @@ fun ExtensionSourcePickerSheet(
                 .navigationBarsPadding(),
         ) {
             Text(
-                text = "Select Source",
+                text = "Pick a source",
                 fontFamily = RobotoFamily,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -92,7 +91,7 @@ fun ExtensionSourcePickerSheet(
                 )
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(sources, key = { it.id }) { source ->
                         SourceRow(
@@ -114,50 +113,43 @@ private fun SourceRow(
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
+    val bg = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    }
+    val fg = if (isSelected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            )
+            .background(bg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = source.name,
-                fontFamily = RobotoFamily,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
-            Text(
-                text = "lang: ${source.lang}",
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
+        Text(
+            text = source.name,
+            fontFamily = RobotoFamily,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = fg,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        // Plain checkmark (no background circle) — per user spec.
         if (isSelected) {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = "Selected",
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = "Selected",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
         }
     }
 }

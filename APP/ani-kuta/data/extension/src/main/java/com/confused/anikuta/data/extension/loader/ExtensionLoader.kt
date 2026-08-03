@@ -139,6 +139,7 @@ class ExtensionLoader(
         // Check trust.
         if (!trustService.isTrusted(signatureFingerprint)) {
             Logger.w(TAG) { "Extension $pkgName is untrusted (fingerprint: $signatureFingerprint)" }
+            val icon = runCatching { appInfo.loadIcon(packageManager) }.getOrNull()
             return LoadResult.Untrusted(
                 AnimeExtension.Untrusted(
                     name = extName,
@@ -147,6 +148,7 @@ class ExtensionLoader(
                     versionCode = versionCode,
                     libVersion = libVersion,
                     signatureHash = signatureFingerprint,
+                    icon = icon,
                 )
             )
         }
@@ -179,6 +181,7 @@ class ExtensionLoader(
             return LoadResult.Error(pkgName, "No sources instantiated")
         }
 
+        val icon = runCatching { appInfo.loadIcon(packageManager) }.getOrNull()
         val extension = AnimeExtension.Installed(
             name = extName,
             pkgName = pkgName,
@@ -189,6 +192,8 @@ class ExtensionLoader(
             isNsfw = isNsfw,
             isTorrent = isTorrent,
             sources = sources,
+            icon = icon,
+            signatureHash = signatureFingerprint,
         )
 
         Logger.i(TAG) { "Loaded: ${extension.name} v${extension.versionName} (${sources.size} sources)" }

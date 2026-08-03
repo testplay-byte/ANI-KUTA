@@ -190,6 +190,15 @@ fun SearchScreen(
                     icon = Icons.Filled.HourglassEmpty,
                 )
 
+                is SearchUiState.ExtensionError -> {
+                    val msg = (uiState as SearchUiState.ExtensionError).message
+                    SearchPromptCard(
+                        title = "Source error",
+                        description = msg,
+                        icon = Icons.Filled.SentimentDissatisfied,
+                    )
+                }
+
                 is SearchUiState.Success -> {
                     val results = (uiState as SearchUiState.Success).results
                     ResultsGrid(
