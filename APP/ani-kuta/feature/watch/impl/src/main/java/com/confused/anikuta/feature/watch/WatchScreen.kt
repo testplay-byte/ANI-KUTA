@@ -168,13 +168,9 @@ fun WatchScreen(
         onDispose { }
     }
 
-    // ── Back handler ──
-    BackHandler(enabled = true) {
-        if (playerMode == PlayerMode.FULLSCREEN) {
-            stateHolder.updateMode(PlayerMode.MINIMIZED)
-        } else {
-            onBack()
-        }
+    // ── Back handler — only intercept in fullscreen (minimized → exit) ──
+    BackHandler(enabled = playerMode == PlayerMode.FULLSCREEN) {
+        stateHolder.updateMode(PlayerMode.MINIMIZED)
     }
 
     // ── Auto-hide controls ──
@@ -340,7 +336,7 @@ private fun MinimizedMode(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ControlButton(
@@ -348,14 +344,18 @@ private fun MinimizedMode(
                             contentDescription = "Back",
                             onClick = onBack,
                         )
+                        // Centered title
                         Text(
                             text = "ANI-KUTA",
                             fontFamily = RobotoFamily,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f).padding(start = 8.dp),
+                            modifier = Modifier.weight(1f),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
+                        // Placeholder for symmetry (matches back button width)
+                        Spacer(Modifier.size(40.dp))
                     }
                 }
             }
@@ -412,15 +412,15 @@ private fun MinimizedMode(
             state = listState,
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Episode description
+            // Episode description — reduced padding to 10dp horizontal
             item {
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                    modifier = Modifier.fillMaxWidth().padding(4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                     shape = RoundedCornerShape(0.dp),
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
                     ) {
                         Text(
                             text = "Currently playing episode ${formatEpisodeNumber(watchKey.episodeNumber)}",
@@ -433,36 +433,28 @@ private fun MinimizedMode(
                         Text(
                             text = watchKey.episodeTitle.ifBlank { "Episode ${formatEpisodeNumber(watchKey.episodeNumber)}" },
                             fontFamily = RobotoFamily,
-                            fontSize = 18.sp,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onBackground,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = watchKey.animeTitle,
-                            fontFamily = RobotoFamily,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
                     }
                 }
             }
 
-            // Episode list
+            // Episode list — reduced padding to 10dp horizontal
             if (episodeList.isNotEmpty()) {
                 item {
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                        modifier = Modifier.fillMaxWidth().padding(4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
@@ -603,17 +595,45 @@ private fun MinimizedControls(
             )
         }
 
-        // Top-right: fullscreen button
-        Box(
+        // Top-right: subtitles + quality buttons (placeholders — per user spec)
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(8.dp),
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            ControlButton(
-                icon = Icons.Filled.Fullscreen,
-                contentDescription = "Fullscreen",
-                onClick = onMaximize,
-            )
+            // Subtitles button (placeholder)
+            Surface(
+                color = Color.Black.copy(alpha = 0.4f),
+                shape = CircleShape,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "CC",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                    )
+                }
+            }
+            // Quality button (placeholder)
+            Surface(
+                color = Color.Black.copy(alpha = 0.4f),
+                shape = CircleShape,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "HD",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                    )
+                }
+            }
         }
 
         // Center: play/pause or buffering or error
@@ -642,7 +662,7 @@ private fun MinimizedControls(
             }
         }
 
-        // Bottom: seek bar
+        // Bottom: seek bar + fullscreen button (fullscreen at bottom-right per user spec)
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -656,6 +676,14 @@ private fun MinimizedControls(
                     if (duration > 0) onSeek(fraction * duration)
                 },
                 modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(4.dp))
+            // Fullscreen button at bottom-right
+            ControlButton(
+                icon = Icons.Filled.Fullscreen,
+                contentDescription = "Fullscreen",
+                onClick = onMaximize,
+                size = 32,
             )
         }
     }
@@ -892,11 +920,11 @@ private fun EpisodeListRow(
         border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .padding(horizontal = 10.dp, vertical = 3.dp)
             .clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
