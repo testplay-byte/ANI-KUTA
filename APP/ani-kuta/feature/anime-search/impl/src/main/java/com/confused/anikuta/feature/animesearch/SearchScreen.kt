@@ -96,7 +96,10 @@ fun SearchScreen(
 
     val scrollState = rememberScrollState()
     val gridState = rememberLazyGridState()
-    val collapsed = scrollState.value > 20
+    // Collapse when EITHER the scroll column OR the grid is scrolled past 20px.
+    val collapsed = scrollState.value > 20 ||
+        gridState.firstVisibleItemIndex > 0 ||
+        gridState.firstVisibleItemScrollOffset > 20
 
     var showFilterSheet by remember { mutableStateOf(false) }
     var showSourcePicker by remember { mutableStateOf(false) }
