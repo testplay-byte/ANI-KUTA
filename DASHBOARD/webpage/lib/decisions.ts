@@ -1,14 +1,15 @@
 /*
- * Architecture Decisions (v3 — Phase 1 plan confirmed).
+ * Architecture Decisions (v4 — Phase 1 plan confirmed + Phase 4 polish decisions).
  *
- * All decisions D-027..D-041 are CONFIRMED. Each entry shows the question,
+ * All decisions D-027..D-053 are CONFIRMED. Each entry shows the question,
  * the chosen option (with pros/cons for context), and a summary of the
  * decision context.
  *
  * Sources:
- *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-041)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-053)
  *  - REFERENCES/old-kuta/DOCUMENTATION/10-14 (research findings)
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md
+ *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 — D-053 follow-up)
  */
 
 export interface DecisionOption {
@@ -409,6 +410,56 @@ export const decisions: Decision[] = [
         cons: [
           "Mangayomi source-name → Aniyomi sourceId mapping deferred",
           "Kotatsu import fast-follow after Mangayomi",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-052",
+    title: "Bottom-up sheets cap at 70% of device screen height",
+    status: "confirmed",
+    question: "How to keep ModalBottomSheet content from exceeding 70% of device screen height?",
+    context:
+      "Bottom-up sheets (ModalBottomSheet) were exceeding the intended 70% max-height limit because the cap was applied only to the inner scrollable list — short content still caused the sheet itself to grow past 70% (header + chrome pushed the bottom past the limit). Fix: apply heightIn(max = 70% screen height) on the root Column of the sheet, not on the inner list. The inner scrollable is constrained by the parent, so it wraps when content is short and scrolls when content is tall. Phase 4 polish — applied to Library CustomizeSheet and Search FilterSheet first; canonical pattern for all future sheets. Date: Phase 4.",
+    options: [
+      {
+        name: "Cap root Column at 70% screen height (not the inner list)",
+        pros: [
+          "Sheet itself respects the 70% ceiling — header + content + chrome never overflow",
+          "Short content wraps naturally (sheet shrinks to fit)",
+          "Tall content scrolls inside the constrained parent",
+          "One canonical pattern for every ModalBottomSheet (Library, Search, future sheets)",
+          "No behaviour change to existing scrollable content",
+        ],
+        cons: [
+          "Requires every sheet's root Column to be migrated to the heightIn pattern",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-053",
+    title: "Accent palette system (10 presets + CUSTOM, live apply)",
+    status: "confirmed",
+    question: "How to make the accent palette system functional (not just static placeholders)?",
+    context:
+      "The original palettes were static placeholder swatches — selecting one changed nothing at runtime. New system: 10 accent presets (Lime, Coral, Rose, Amber, Red, Teal, Blue, Cyan, Violet, Emerald) + CUSTOM. Selecting a preset overrides primary / primaryContainer / onPrimary / onPrimaryContainer (both light + dark). Container colors are derived from the seed via lerp (no hand-tuning of every shade). AccentPreset enum + AccentColors data class live in :core:designsystem; AnikutaTheme takes an accentSeed param; ThemePreferences stores the selection; MainActivity applies the seed live (selection persists across launches). Custom color-picker UI is deferred to Phase 5d. Date: Phase 4.",
+    options: [
+      {
+        name: "AccentPreset enum + AccentColors (lerp-derived) + live apply in MainActivity",
+        pros: [
+          "10 curated presets + CUSTOM (covers the common cases immediately)",
+          "Container colors derived from the seed via lerp — no hand-tuning per preset",
+          "Live apply: theme updates instantly when a preset is selected",
+          "Selection persisted in ThemePreferences (survives relaunch)",
+          "AnikutaTheme takes accentSeed — clean single entry point",
+          "Foundation for the Phase 5d custom color-picker (just needs a hue/saturation UI)",
+        ],
+        cons: [
+          "CUSTOM swatch is non-functional until Phase 5d color-picker lands",
+          "Lerp-derived containers may need a per-preset tweak for edge cases (deferred)",
         ],
         recommended: true,
       },

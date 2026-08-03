@@ -416,7 +416,7 @@ export default function Phase3Page() {
             href="/decisions/"
             className="inline-flex items-center gap-1.5 text-text-secondary hover:text-text-primary hover:underline"
           >
-            → Architecture decisions (D-027..D-041)
+            → Architecture decisions (D-027..D-053)
           </Link>
         </div>
       </Card>

@@ -11,12 +11,12 @@ export function Footer() {
             <span>
               ANI-KUTA · Project Dashboard · grey dark mode{" "}
               <span className="font-mono">#1E1E1E</span> ·{" "}
-              <span className="text-text-primary font-medium">27 modules built</span> ·{" "}
-              <span className="text-[var(--c-success)] font-medium">15/15 decisions confirmed</span> ·{" "}
-              <span className="text-text-primary font-medium">Phase 3 complete</span>
+              <span className="text-text-primary font-medium">31 modules built</span> ·{" "}
+              <span className="text-[var(--c-success)] font-medium">17/17 decisions confirmed</span> ·{" "}
+              <span className="text-text-primary font-medium">Phase 4 in progress</span>
             </span>
             <span className="font-mono tracking-wide">
-              MEMORY OS · v4
+              MEMORY OS · v5
             </span>
           </div>
         </div>

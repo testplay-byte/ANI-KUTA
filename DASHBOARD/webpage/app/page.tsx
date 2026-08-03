@@ -27,9 +27,9 @@ export default function OverviewPage() {
             <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
               Project Status
             </span>
-            <StatusDot color="var(--c-success)" size="sm" />
+            <StatusDot color="var(--c-warning)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Phase 3 complete · 27 modules built · Phase 4 (feature screens) next
+              Phase 4 in progress · 31 modules built · Library / Search / More / Settings / Appearance done · accent palette live
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -39,11 +39,13 @@ export default function OverviewPage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living dashboard for the ANI-KUTA project: 27 of 43
+            A calm, living dashboard for the ANI-KUTA project: 31 of 43
             modules built, Phase 3 (core infrastructure) complete across 4
-            sub-phases, all decisions D-027..D-041 confirmed. Phase 4
-            (feature screens — watch, library, search, history, my, settings)
-            is next. Kept in sync with{" "}
+            sub-phases, Phase 4 (feature screens) in progress — Library,
+            Search, More, Settings, Appearance built; accent palette system
+            (D-053) + 70% sheet cap (D-052) live. All decisions D-027..D-053
+            confirmed. Phase 5 plan (identity, watch, history/updates,
+            backup/restore, extension repos) written. Kept in sync with{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
             on every push.
           </p>
@@ -88,7 +90,7 @@ export default function OverviewPage() {
             </Link>
             <Link href="/progress/" className="no-underline">
               <span className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium bg-chip border border-border text-text-secondary transition-all duration-200 hover:translate-y-[-1px] hover:text-text-primary">
-                Phase 4 →
+                Phase 4 in progress →
               </span>
             </Link>
           </div>
@@ -278,17 +280,43 @@ export default function OverviewPage() {
               }}
             >
               <StatusDot color="var(--c-warning)" size="sm" />
-              Next
+              In progress
             </span>
           </div>
           <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
             {currentPhase.summary}
           </p>
 
+          {currentPhase.done.length > 0 && (
+            <div className="space-y-2 mb-4">
+              <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary">
+                Done so far — feature screens + polish
+              </div>
+              {currentPhase.done.slice(0, 6).map((d) => (
+                <div
+                  key={d}
+                  className="flex items-start gap-2 text-[12.5px] text-text-primary"
+                >
+                  <StatusDot
+                    color="var(--c-success)"
+                    size="sm"
+                    className="mt-[7px]"
+                  />
+                  <span className="font-mono text-[11.5px]">{d}</span>
+                </div>
+              ))}
+              {currentPhase.done.length > 6 && (
+                <div className="text-[11px] text-text-secondary pl-[14px]">
+                  + {currentPhase.done.length - 6} more — see Progress page.
+                </div>
+              )}
+            </div>
+          )}
+
           {currentPhase.next.length > 0 && (
             <div className="space-y-2 mb-4">
               <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary">
-                Up Next — feature screens
+                Remaining — feature screens + Phase 5d custom picker
               </div>
               {currentPhase.next.slice(0, 6).map((n) => (
                 <div
@@ -415,11 +443,12 @@ export default function OverviewPage() {
         </div>
 
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          D-027 through D-041 — covering extension compat, base app,
+          D-027 through D-053 — covering extension compat, base app,
           notifications, manga plan, multi-extension + multi-content-type,
           identity system, ads (deferred), DI, DB, navigation, backup format,
-          watch-progress layering, activity tracking, console logging, and
-          backup/restore multi-app compat.
+          watch-progress layering, activity tracking, console logging,
+          backup/restore multi-app compat, the bottom-up sheet 70% height cap
+          (D-052), and the accent palette system (D-053).
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

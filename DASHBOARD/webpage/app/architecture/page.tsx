@@ -44,7 +44,7 @@ export default function ArchitecturePage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Complete + sub-agent reviewed · 27 of 43 modules built · all decisions D-027..D-041 confirmed
+              Complete + sub-agent reviewed · 31 of 43 modules built · all decisions D-027..D-053 confirmed
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -56,9 +56,10 @@ export default function ArchitecturePage() {
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
             The full architecture plan for the ANI-KUTA rebuild: 43 modules
             planned across :app, :build-logic, :core (24), :data (7), and
-            :feature (anime/shared/manga/novel). 27 modules are built so far
-            (Phase 2 scaffold + Phase 3 core infrastructure); 16 feature
-            modules remain for Phase 4+. Future-proof, modular, agent-friendly.
+            :feature (anime/shared/manga/novel). 31 modules are built so far
+            (Phase 2 scaffold + Phase 3 core infrastructure + Phase 4 feature
+            screens); 12 feature modules remain for Phase 5+. Future-proof,
+            modular, agent-friendly.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
             <span className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-medium bg-chip border border-border text-text-secondary">
@@ -117,8 +118,8 @@ export default function ArchitecturePage() {
       <Card>
         <SectionHeader
           eyebrow="§3 — Full Module Tree"
-          title="43 modules planned — 27 built so far"
-          desc=":app · :build-logic · :core (24 infrastructure modules) · :data (7 repository impls) · :feature (anime/shared/manga/novel, split api/impl per feature). 27 built (12 scaffold + 15 Phase 3); 16 feature modules remain for Phase 4+."
+          title="43 modules planned — 31 built so far"
+          desc=":app · :build-logic · :core (24 infrastructure modules) · :data (7 repository impls) · :feature (anime/shared/manga/novel, split api/impl per feature). 31 built (12 scaffold + 15 Phase 3 + 4 Phase 4 feature screens); 12 feature modules remain for Phase 5+."
         />
 
         <div className="rounded-[14px] border border-border bg-surface-alt/40 p-4 overflow-x-auto">
