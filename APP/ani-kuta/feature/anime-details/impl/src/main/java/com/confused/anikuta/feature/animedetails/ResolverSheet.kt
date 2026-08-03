@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -175,7 +176,7 @@ fun ResolverSheet(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.weight(1f),
                         ) {
-                            items(resolverState.videos, key = { it.url }) { video ->
+                            itemsIndexed(resolverState.videos, key = { index, video -> "$index:${video.url}" }) { _, video ->
                                 VideoRow(
                                     video = video,
                                     onClick = { onPickVideo(video) },
