@@ -218,6 +218,19 @@ fun WatchScreen(
                 MPVLib.addLogObserver(logObs)
                 MPVLib.addObserver(eventObs)
 
+                // CRITICAL: Set HTTP headers BEFORE loadfile.
+                // Without proper headers, upstream servers return 403 Forbidden.
+                // The old project always sets http-header-fields with either the
+                // extension's headers or a full browser UA fallback.
+                val headers = if (watchKey.videoHeaders.isNotBlank()) watchKey.videoHeaders
+                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                try {
+                    MPVLib.setOptionString("http-header-fields", headers)
+                    Logger.i(TAG) { "Set http-header-fields: ${headers.take(80)}..." }
+                } catch (e: Exception) {
+                    Logger.w(TAG) { "Failed to set http-header-fields: ${e.message}" }
+                }
+
                 Logger.i(TAG) { "Loading video: ${watchKey.videoUrl}" }
                 MPVLib.command(arrayOf("loadfile", watchKey.videoUrl, "replace"))
                 MPVLib.setPropertyBoolean("pause", false)

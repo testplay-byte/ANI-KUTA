@@ -25,4 +25,7 @@ data class ResolvedVideo(
     val url: String,
     val quality: String = "Default",
     val directUrl: String? = null,
+    /** HTTP headers required by the video URL (from the extension's Video.headers).
+     *  Format: "Key: Value,Key2: Value2" (comma-separated for MPV's http-header-fields). */
+    val headers: String = "",
 )

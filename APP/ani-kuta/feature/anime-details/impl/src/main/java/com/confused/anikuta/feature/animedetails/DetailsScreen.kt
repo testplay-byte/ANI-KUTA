@@ -86,7 +86,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun DetailsScreen(
     animeId: Int,
     onBack: () -> Unit,
-    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String) -> Unit = { _, _, _, _, _, _, _ -> },
+    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String) -> Unit = { _, _, _, _, _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -230,6 +230,7 @@ fun DetailsScreen(
                         ep.episode_number,
                         ep.name,
                         epListStr,
+                        video.headers,
                     )
                 }
                 showResolverSheet = false

@@ -18,6 +18,12 @@ data class WatchKey(
     /** Serialized episode list for episode switching in the watch screen.
      *  Each entry is "url|episodeNumber|name" separated by newlines. */
     val episodeListSerialized: String = "",
+    /** HTTP headers for the video URL — CRITICAL for playback.
+     *  Extensions provide headers (Referer, User-Agent, etc.) that upstream
+     *  servers require. Without these, the server returns 403 Forbidden.
+     *  Format: "Key: Value,Key2: Value2" (comma-separated, like MPV's
+     *  http-header-fields option). */
+    val videoHeaders: String = "",
 ) : NavKey {
 
     /**

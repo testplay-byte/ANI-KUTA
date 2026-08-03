@@ -67,6 +67,7 @@ class VideoResolver {
                     url = video.url,
                     quality = parseQuality(video),
                     directUrl = video.videoUrl,
+                    headers = formatHeaders(video.headers),
                 )
             }
 
@@ -154,5 +155,17 @@ class VideoResolver {
         val type = e::class.java.simpleName
         val msg = e.message ?: "Unknown error"
         return "$type: $msg"
+    }
+
+    /**
+     * Format Video.headers (List<Pair<String, String>>?) into MPV's
+     * http-header-fields format: "Key: Value,Key2: Value2".
+     *
+     * The old project passes these headers to MPV before loadfile. Without
+     * them, upstream servers return 403 Forbidden (missing Referer/UA).
+     */
+    private fun formatHeaders(headers: List<Pair<String, String>>?): String {
+        if (headers.isNullOrEmpty()) return ""
+        return headers.joinToString(",") { "${it.first}: ${it.second}" }
     }
 }

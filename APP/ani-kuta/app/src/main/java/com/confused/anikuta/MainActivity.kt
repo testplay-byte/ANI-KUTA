@@ -63,7 +63,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         setContent {
             val prefs = koinInject<ThemePreferences>()
             val themeMode = prefs.themeMode.value
@@ -159,8 +168,8 @@ fun AppRoot() {
             is AnimeDetailsKey -> DetailsScreen(
                 animeId = currentKey.animeId,
                 onBack = pop,
-                onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList ->
-                    backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList))
+                onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders ->
+                    backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders))
                 },
             )
             is AnimeLibraryKeyImpl -> LibraryScreen(
