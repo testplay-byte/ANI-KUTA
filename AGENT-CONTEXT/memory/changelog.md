@@ -168,3 +168,20 @@
 - **Better error messages + logging**: All error states now include the exception type (`"${e::class.java.simpleName}: ${e.message}"`). Logger.e calls include the source name + full error context. Applied to: VideoResolver, DetailsViewModel (fetchEpisodes, searchSource, resolveEpisode), SearchViewModel (loadExtensionPopular, searchExtension).
 - **Phase 5c Watch Screen Plan** written (`20-phase5c-watch-plan.md`): Two view modes (fullscreen landscape + minimized portrait), file structure (8 files split from old 2386-LOC monolith), player lifecycle (create → load → play → resume → save → destroy), WatchRequest upgrade, module structure (`:feature:watch` api/impl split), implementation order (9 steps).
 - **Lessons logged**: awaitSingle doesn't move to IO thread, OkHttp version must match extensions, error messages should include exception type, some extensions override getSearchAnime (expected, not a crash).
+
+## Session web-3a43f99b (ninth pass) — Phase 5c Watch screen (initial MPV player)
+- **New module: `:feature:watch`** (api/impl split). WatchKey carries videoUrl + animeTitle + quality + episodeUrl + episodeNumber + episodeTitle.
+- **WatchScreen** — plays video via MPV AndroidView:
+  - Single `AndroidView(AnikutaMPVView)` — never recreated on mode switches (ADR-025).
+  - Two modes: MINIMIZED (portrait, 16:9 player) + FULLSCREEN (landscape, edge-to-edge).
+  - Controls overlay: play/pause, seek bar (Slider), time display, back button, quality label, anime title.
+  - Auto-hide controls after 4s (fullscreen) / 5s (minimized). Tap to toggle.
+  - BackHandler: fullscreen → minimized; minimized → exit.
+  - Keep screen on while active. Immersive mode (hide system bars) in fullscreen.
+  - Buffering spinner + error display (from MPV efEvent).
+  - MPV lifecycle: `PlayerInitializer.initialize` → `MPVLib.command(["loadfile", url])` → auto-play → destroy on dispose.
+  - Correct `MPVLib.EventObserver` + `LogObserver` interface method signatures (non-nullable params: `event`, `eventProperty`, `efEvent`, `logMessage`).
+- **Navigation wired**: Deleted temporary WatchKey from `:feature:anime-details:api`. MainActivity uses `:feature:watch:api.WatchKey` → `WatchScreen`.
+- **2 CI iterations to green**: (1) api module missing deps, (2) MPVLib observer method signatures (non-nullable params).
+- **What's deferred** (later iterations): episode list in minimized mode, speed/quality/track sheets, resume position (WatchProgressStore wiring), subtitle/audio track loading.
+- **Lessons logged**: MPVLib observer interfaces use non-nullable params (String, not String?), cross-module resource lookup via `resources.getIdentifier`.
