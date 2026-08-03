@@ -20,7 +20,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class ExtensionRepo(
     val baseUrl: String,
-    val name: String,
+    val name: String = "",
     val website: String = "",
 ) {
     val indexUrl: String

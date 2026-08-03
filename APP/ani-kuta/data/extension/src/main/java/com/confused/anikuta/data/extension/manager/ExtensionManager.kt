@@ -47,7 +47,7 @@ class ExtensionManager(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val loader = ExtensionLoader(context)
+    private val loader = ExtensionLoader(context, trustService)
 
     // ── Reactive state (CORE_RULES §23 — live updates) ────────────────────────
 
