@@ -228,6 +228,8 @@ class DetailsViewModel(
                 val state = videoResolver.resolve(source, episode.url)
                 state.collect { s ->
                     _resolverState.value = when (s) {
+                        is com.confused.anikuta.core.videoresolver.ResolverState.Idle ->
+                            ResolverState.Idle
                         is com.confused.anikuta.core.videoresolver.ResolverState.Loading ->
                             ResolverState.Loading
                         is com.confused.anikuta.core.videoresolver.ResolverState.Success ->

@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.rxjava)
 
     debugImplementation(libs.androidx.ui.tooling)
 }
