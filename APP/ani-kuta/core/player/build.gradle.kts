@@ -1,5 +1,5 @@
 plugins {
-    id("anikuta.library")
+    id("anikuta.library.compose")
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -19,6 +19,13 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:watch-progress"))
     implementation(project(":core:source-api"))
+
+    // Compose (for controls)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.compose.foundation)
+    implementation("androidx.compose.material:material-icons-extended")
 
     // MPV native lib (via wrapper module)
     api(project(":core:player-mpv-lib"))
