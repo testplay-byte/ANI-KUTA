@@ -237,6 +237,10 @@ fun WatchScreen(
     }
 
     // ── Layout ──
+    // Sheet visibility state (shared between minimized + fullscreen)
+    var showSubtitleSheet by remember { mutableStateOf(false) }
+    var showQualitySheet by remember { mutableStateOf(false) }
+
     if (playerMode == PlayerMode.FULLSCREEN) {
         FullscreenMode(
             watchKey = watchKey,
@@ -248,6 +252,8 @@ fun WatchScreen(
             onSeekRelative = { delta -> MPVLib.command(arrayOf("seek", delta.toString(), "relative")) },
             onSeekTo = { pos -> MPVLib.setPropertyInt("time-pos", pos) },
             onBack = { stateHolder.updateMode(PlayerMode.MINIMIZED) },
+            onQualityClick = { showQualitySheet = true },
+            onSubtitleClick = { showSubtitleSheet = true },
         )
     } else {
         MinimizedMode(
@@ -262,6 +268,29 @@ fun WatchScreen(
             onSeekTo = { pos -> MPVLib.setPropertyInt("time-pos", pos) },
             onBack = onBack,
             onMaximize = { stateHolder.updateMode(PlayerMode.FULLSCREEN) },
+            onQualityClick = { showQualitySheet = true },
+            onSubtitleClick = { showSubtitleSheet = true },
+        )
+    }
+
+    // ── Sheets (shared between minimized + fullscreen) ──
+    if (showSubtitleSheet) {
+        SubtitleTracksSheet(
+            tracks = stateHolder.subtitleTracks.collectAsState().value,
+            currentTrackId = stateHolder.currentSubtitleTrack.collectAsState().value,
+            onTrackSelected = { trackId ->
+                if (trackId <= 0) MPVLib.setPropertyString("sid", "no")
+                else MPVLib.setPropertyInt("sid", trackId)
+            },
+            onDismiss = { showSubtitleSheet = false },
+        )
+    }
+
+    if (showQualitySheet) {
+        // TODO: QualitySheet — needs resolvedServers from the resolver state.
+        // For now, a placeholder sheet.
+        QualitySheetPlaceholder(
+            onDismiss = { showQualitySheet = false },
         )
     }
 }
@@ -283,34 +312,47 @@ private fun MinimizedMode(
     onSeekTo: (Int) -> Unit,
     onBack: () -> Unit,
     onMaximize: () -> Unit,
+    onQualityClick: () -> Unit = {},
+    onSubtitleClick: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 200
 
     val headerHeight by animateDpAsState(
-        targetValue = if (collapsed) 0.dp else 56.dp,
+        targetValue = if (collapsed) 0.dp else 48.dp,
         animationSpec = tween(300),
         label = "headerHeight",
     )
+
+    // Animate the player's top padding — when collapsed, player slides up to fill
+    // the space previously occupied by the top bar.
+    val playerTopPadding by animateDpAsState(
+        targetValue = if (collapsed) 0.dp else headerHeight,
+        animationSpec = tween(300),
+        label = "playerTopPadding",
+    )
+
+    // Sheet visibility state (passed from parent)
+    // (No local state — the parent WatchScreen manages showSubtitleSheet/showQualitySheet)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        // ── Floating pill top bar ──
+        // ── Floating pill top bar — minimal padding, close to status bar ──
         if (headerHeight > 0.dp) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(20.dp),
                     tonalElevation = 2.dp,
                     shadowElevation = 4.dp,
                     modifier = Modifier.fillMaxWidth(),
@@ -318,7 +360,7 @@ private fun MinimizedMode(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ControlButton(
@@ -342,6 +384,8 @@ private fun MinimizedMode(
         }
 
         // ── Player 16:9 with ported MinimizedControls ──
+        // The player's top padding animates from headerHeight → 0 when scrolling,
+        // so the player slides up smoothly to fill the space.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -368,8 +412,8 @@ private fun MinimizedMode(
                     onSeekRelative = onSeekRelative,
                     onSeekTo = onSeekTo,
                     onMaximize = onMaximize,
-                    onQualityClick = { /* TODO: quality sheet */ },
-                    onSubtitleClick = { /* TODO: subtitle sheet */ },
+                    onQualityClick = onQualityClick,
+                    onSubtitleClick = onSubtitleClick,
                 )
             }
         }
@@ -478,6 +522,8 @@ private fun FullscreenMode(
     onSeekRelative: (Int) -> Unit,
     onSeekTo: (Int) -> Unit,
     onBack: () -> Unit,
+    onQualityClick: () -> Unit = {},
+    onSubtitleClick: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -500,8 +546,8 @@ private fun FullscreenMode(
             onSeekTo = onSeekTo,
             onMinimize = onBack,
             onLockToggle = { stateHolder.updateControlsLocked(!stateHolder.controlsLocked.value) },
-            onQualityClick = { /* TODO: quality sheet */ },
-            onSubtitleClick = { /* TODO: subtitle sheet */ },
+            onQualityClick = onQualityClick,
+            onSubtitleClick = onSubtitleClick,
             animeTitle = watchKey.animeTitle,
             episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
             qualityInfo = watchKey.quality,
