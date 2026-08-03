@@ -35,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -85,6 +86,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun DetailsScreen(
     animeId: Int,
     onBack: () -> Unit,
+    onNavigateToWatch: (String, String, String) -> Unit = { _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -94,6 +96,15 @@ fun DetailsScreen(
     }
 
     val state by viewModel.state.collectAsState()
+    val linkedSource by viewModel.linkedSource.collectAsState()
+    val episodeState by viewModel.episodeState.collectAsState()
+    val resolverState by viewModel.resolverState.collectAsState()
+    val availableSources by viewModel.availableSources.collectAsState()
+    val manualSearchState by viewModel.manualSearchState.collectAsState()
+
+    var showMenu by remember { mutableStateOf(false) }
+    var showManualSearch by remember { mutableStateOf(false) }
+    var showResolverSheet by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -110,61 +121,109 @@ fun DetailsScreen(
 
             is DetailsState.Error -> ErrorState(s.message)
 
-            is DetailsState.Success -> DetailsContent(s.anime, onBack)
+            is DetailsState.Success -> {
+                val anime = s.anime
+                val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = lazyListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 90.dp),
+                    ) {
+                        // ── Banner ──
+                        item {
+                            DetailBanner(
+                                anime = anime,
+                                onBack = onBack,
+                                saved = false,
+                                onToggleSave = {},
+                                onMore = { showMenu = true },
+                                showMenu = showMenu,
+                                onDismissMenu = { showMenu = false },
+                            )
+                        }
+
+                        // ── Genres ──
+                        anime.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
+                            item { GenresRow(genres) }
+                        }
+
+                        // ── Synopsis ──
+                        anime.description?.let { desc ->
+                            item { SynopsisSection(desc) }
+                        }
+
+                        // ── Episodes section ──
+                        item {
+                            EpisodesSection(
+                                linkedSource = linkedSource,
+                                episodeState = episodeState,
+                                onOpenSourcePicker = { showManualSearch = true },
+                                onUnlinkSource = { viewModel.unlinkSource() },
+                                onEpisodeClick = { episode ->
+                                    viewModel.resolveEpisode(episode)
+                                    showResolverSheet = true
+                                },
+                            )
+                        }
+
+                        // ── Info ──
+                        item {
+                            Spacer(Modifier.height(16.dp))
+                            InfoSection(anime)
+                        }
+                    }
+
+                    ScrollBlurOverlay(
+                        scrollOffset = {
+                            if (lazyListState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                            else lazyListState.firstVisibleItemScrollOffset.toFloat()
+                        },
+                        backgroundColor = MaterialTheme.colorScheme.background,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
+            }
         }
     }
-}
 
-// ════════════════════════════════════════════════════════════════════════════
-//  Main content — one LazyColumn (banner → genres → synopsis → info)
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun DetailsContent(anime: AniListAnime, onBack: () -> Unit) {
-    val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val collapsed = lazyListState.firstVisibleItemIndex > 0 ||
-        lazyListState.firstVisibleItemScrollOffset > 20
-
-    var saved by remember { mutableStateOf(false) }
-    var showMenu by remember { mutableStateOf(false) }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            state = lazyListState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 90.dp),
-        ) {
-            // ── Banner ──
-            item { DetailBanner(anime, onBack, saved, { saved = !saved }, { showMenu = true }, showMenu, { showMenu = false }) }
-
-            // ── Genres ──
-            anime.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
-                item { GenresRow(genres) }
-            }
-
-            // ── Synopsis ──
-            anime.description?.let { desc ->
-                item { SynopsisSection(desc) }
-            }
-
-            // ── Episodes section (heading + source selector + placeholder) ──
-            item { EpisodesSection() }
-
-            // ── Info ──
-            item {
-                Spacer(Modifier.height(16.dp))
-                InfoSection(anime)
-            }
-        }
-
-        // ── Scroll blur overlay ──
-        ScrollBlurOverlay(
-            scrollOffset = {
-                if (lazyListState.firstVisibleItemIndex > 0) Float.MAX_VALUE
-                else lazyListState.firstVisibleItemScrollOffset.toFloat()
+    // ── Manual search sheet (source selection) ──
+    if (showManualSearch) {
+        ManualSearchSheet(
+            availableSources = availableSources,
+            manualSearchState = manualSearchState,
+            initialQuery = (state as? DetailsState.Success)?.anime?.displayName ?: "",
+            onSearch = { source, query -> viewModel.searchSource(source, query) },
+            onLink = { source, sAnime ->
+                viewModel.linkSource(source, sAnime)
+                showManualSearch = false
+                viewModel.clearManualSearch()
             },
-            backgroundColor = MaterialTheme.colorScheme.background,
-            modifier = Modifier.align(Alignment.TopCenter),
+            onDismiss = {
+                showManualSearch = false
+                viewModel.clearManualSearch()
+            },
+        )
+    }
+
+    // ── Resolver sheet (video list) ──
+    if (showResolverSheet) {
+        ResolverSheet(
+            resolverState = resolverState,
+            onPickVideo = { video ->
+                val anime = (state as? DetailsState.Success)?.anime
+                val linked = linkedSource
+                if (anime != null && linked != null) {
+                    onNavigateToWatch(video.url, anime.displayName, video.quality)
+                }
+                showResolverSheet = false
+                viewModel.clearResolver()
+            },
+            onDismiss = {
+                showResolverSheet = false
+                viewModel.clearResolver()
+            },
         )
     }
 }
@@ -432,9 +491,13 @@ private fun SynopsisSection(description: String) {
  * (needs UnifiedAnime + provider infrastructure).
  */
 @Composable
-private fun EpisodesSection() {
-    var showSourcePicker by remember { mutableStateOf(false) }
-
+private fun EpisodesSection(
+    linkedSource: LinkedSource?,
+    episodeState: EpisodeState,
+    onOpenSourcePicker: () -> Unit,
+    onUnlinkSource: () -> Unit,
+    onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + source selector ──
         Row(
@@ -451,68 +514,217 @@ private fun EpisodesSection() {
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Spacer(Modifier.weight(1f))
-            // Source selector pill (placeholder)
+            // Source selector pill — shows linked source name or "No source".
             Surface(
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                color = if (linkedSource != null)
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                else
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(50),
-                modifier = Modifier.clickable { showSourcePicker = true },
+                modifier = Modifier.clickable { onOpenSourcePicker() },
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "No source",
+                        text = linkedSource?.sourceName ?: "No source",
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        color = if (linkedSource != null)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                     Spacer(Modifier.width(4.dp))
                     Icon(
                         imageVector = Icons.Filled.KeyboardArrowDown,
                         contentDescription = "Select source",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        tint = if (linkedSource != null)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp),
                     )
                 }
             }
         }
 
-        // ── Placeholder: "Episode list is not implemented yet" ──
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 32.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Filled.HourglassEmpty,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(48.dp),
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "Episode list is not implemented yet",
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Select a source above to link this anime\nand fetch its episodes.",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center,
-                )
+        // ── Episode list / states ──
+        when (episodeState) {
+            is EpisodeState.Idle -> {
+                // No source linked — show placeholder.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Filled.HourglassEmpty,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(48.dp),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "No source linked",
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Tap the source selector above to search\nand link an extension source.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+
+            is EpisodeState.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            }
+
+            is EpisodeState.Empty -> {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No episodes found on this source.",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+
+            is EpisodeState.Error -> {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "Failed to load episodes",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = episodeState.message,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onOpenSourcePicker) {
+                        Text("Try another source", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+
+            is EpisodeState.Loaded -> {
+                // Episode list — each episode is a row.
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    episodeState.episodes.forEach { episode ->
+                        EpisodeRow(
+                            episode = episode,
+                            onClick = { onEpisodeClick(episode) },
+                        )
+                    }
+                    // Unlink button at the bottom.
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onUnlinkSource) {
+                        Text(
+                            "Unlink source",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun EpisodeRow(
+    episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Episode number badge
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.size(width = 44.dp, height = 32.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = formatEpisodeNumber(episode.episode_number),
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            // Episode title
+            Text(
+                text = episode.name,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+private fun formatEpisodeNumber(num: Float): String = when {
+    num == num.toInt().toFloat() -> num.toInt().toString()
+    else -> num.toString()
 }
 
 // ════════════════════════════════════════════════════════════════════════════

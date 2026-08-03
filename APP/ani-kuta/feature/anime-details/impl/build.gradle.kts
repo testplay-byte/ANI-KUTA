@@ -12,6 +12,10 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
+    implementation(project(":core:preferences"))
+    implementation(project(":core:source-api"))
+    implementation(project(":core:video-resolver"))
+    implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

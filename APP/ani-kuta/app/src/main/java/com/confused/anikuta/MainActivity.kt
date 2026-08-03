@@ -41,6 +41,7 @@ import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
 import com.confused.anikuta.feature.animebrowse.BrowseScreen
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
+import com.confused.anikuta.feature.animedetails.WatchKey
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
 import com.confused.anikuta.feature.animelibrary.LibraryScreen
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
@@ -157,6 +158,9 @@ fun AppRoot() {
             is AnimeDetailsKey -> DetailsScreen(
                 animeId = currentKey.animeId,
                 onBack = pop,
+                onNavigateToWatch = { videoUrl, animeTitle, quality ->
+                    backstack.add(WatchKey(videoUrl, animeTitle, quality))
+                },
             )
             is AnimeLibraryKeyImpl -> LibraryScreen(
                 onNavigateToDetails = { animeId ->
@@ -194,6 +198,11 @@ fun AppRoot() {
             is EpisodeSettingsKey -> PlaceholderScreen(
                 title = "Episode settings",
                 description = "Episode display settings will be added in a future phase.",
+                onBack = pop,
+            )
+            is WatchKey -> PlaceholderScreen(
+                title = "Watch (Phase 5c)",
+                description = "Video URL: ${currentKey.videoUrl}\n\nThe watch screen will be implemented in Phase 5c. For now, this is a placeholder confirming the episode → resolver → watch navigation works end-to-end.",
                 onBack = pop,
             )
             else -> {}
