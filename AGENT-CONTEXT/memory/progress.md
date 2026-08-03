@@ -28,13 +28,18 @@
 ## What's Next
 1. **Phase 4 loose ends** (verify in next CI build): library sheet 70% cap, browse heading, accent palettes applying live, light-mode theming across all screens.
 2. **Phase 5 — Functional App** (plan rewritten this session, D-054):
-   - **5a** Extension Management (install, repos, trust UI, source browser) — the enabler.
-   - **5b** Details Page Overhaul (episodes, source linking, resolver sheet → watch).
-   - **5c** Watch Screen (player UI, sheets, resume — the testable milestone).
-   - **5d** Identity System (ContentUID graph — upgrades 5b's minimal linking).
-   - **5e** History + Updates (new-episode detection).
-   - **5f** Backup/Restore + custom color picker.
-   - Full plan: `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`. Open questions Q-056..Q-061 (plan §9).
+   - **5a Extension Management** — 🚧 IN PROGRESS (data layer + UI done, source-browse-in-search pending):
+     - ✅ AnimeExtension sealed class (Installed/Available/Untrusted)
+     - ✅ Repo system (ExtensionRepo, ExtensionRepoApi, ExtensionRepoRepository, RepoVerificationResult)
+     - ✅ Installer system (InstallStep, ExtensionInstaller, ExtensionInstallService, PackageInstallerBackend, ExtensionInstallReceiver)
+     - ✅ AnimeExtensionApi (orchestrator), updated ExtensionManager (full), updated DI
+     - ✅ `:feature:extensions-settings` module (ExtensionsSettingsScreen + ExtensionRepoSettingsScreen)
+     - ✅ Nav wiring (Settings → Extensions → Repo settings), manifest permissions + service
+     - ⏳ Source browsing merged into Search page (D-055) — pending
+   - **5b** Details Page Overhaul — pending (needs UnifiedAnime, provider registry, SourceMatcher, episodes, source linking, resolver sheet)
+   - **5c** Watch Screen — pending (split old 2386-LOC screen, MPV via AndroidView, resume, episode nav)
+   - **5d** Identity System → **5e** History/Updates → **5f** Backup/Color-picker
+   - Full plan: `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`. Decisions D-055..D-060 confirmed.
 3. **Phase 6+**: Ad system + activity-tracker UI (D-033), notifications (D-029, needs 5e), manga reader (D-030), novels.
 
 ## Blockers / Open Questions

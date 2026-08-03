@@ -86,3 +86,22 @@
 - **CORE_RULES §26 added** (Documentation Verification — Continuous): same-session doc updates, drift-check at task end (grep stale phase/module/decision refs), sidebar/nav audit, session-end checklist. Created because progress.md said "Phase 2" while in Phase 4, and the dashboard sidebar still showed "Phase 3" after Phase 4 — both user-caught embarrassments.
 - **Dashboard fixes (sub-agent, pending):** remove stale "Phase 3" nav item from sidebar, move dark-mode toggle into the stationary Sidebar (remove the scrolling page-level Header), update all data to the new Phase 5 plan, remove unnecessary content, verify build.
 - **Lessons logged:** identity-first planning mistake, doc-drift as a recurring pattern, dashboard sidebar/nav audit gap.
+
+## Session web-3a43f99b (third pass) — Phase 5a implementation (extension management)
+- **Decisions D-055..D-060 recorded** (user answers to Q-056..Q-061): source browse merged into Search (no separate tab), episode sort descending, video quality ask-each-time, updates in More section, auto-match trusted-sources-only, backup default daily.
+- **Phase 5a data layer built** (ported from old project, adapted to new packages):
+  - `AnimeExtension` sealed class (Installed/Available/Untrusted) — replaces the old simple `Extension` data class.
+  - Repo system: `ExtensionRepo`, `ExtensionRepoApi` (fetch + verify), `ExtensionRepoRepository` (SharedPreferences-backed CRUD), `RepoVerificationResult`.
+  - Installer system: `InstallStep` enum, `ExtensionInstaller` (OkHttp download + service dispatch, Mutex serialization), `ExtensionInstallService` (foreground service), `PackageInstallerBackend` (Android PackageInstaller wrapper), `ExtensionInstallReceiver` (dynamic broadcast receiver for package changes).
+  - `AnimeExtensionApi` (orchestrator — fetches from all repos, deduplicates).
+  - Updated `ExtensionManager` (full: load + trust + install + uninstall + available + hasUpdate/isObsolete).
+  - Updated `ExtensionLoader` (uses new AnimeExtension model, TrustService dependency).
+  - Updated `ExtensionModule` DI (named OkHttpClient for repo, all singletons).
+  - Updated `:data:extension` build.gradle (added koin-android, core-ktx).
+- **Phase 5a UI layer built** (new `:feature:extensions-settings` module):
+  - `ExtensionsSettingsScreen` — three sections (Trusted Sources / Untrusted / Available), install/trust/uninstall buttons, CollapsingHeader, reactive StateFlow.
+  - `ExtensionRepoSettingsScreen` — add/list/delete repos, verify-before-add dialog, FAB.
+  - Nav keys (`ExtensionsSettingsKey`, `ExtensionRepoSettingsKey`) in the api module.
+- **App wiring**: settings.gradle (2 new modules), app build.gradle (2 new deps), AndroidManifest (permissions: INSTALL_PACKAGES, FOREGROUND_SERVICE, QUERY_ALL_PACKAGES + service declaration), SettingsScreen (Extensions nav row), MainActivity (nav routing).
+- **Research**: 3 parallel Explore sub-agents analyzed the old project's extension system (5a), details screen (5b), and watch screen (5c) — comprehensive reports saved as reference for porting.
+- **Pending**: source browsing merged into Search (D-055), Phase 5b (Details overhaul), Phase 5c (Watch screen).

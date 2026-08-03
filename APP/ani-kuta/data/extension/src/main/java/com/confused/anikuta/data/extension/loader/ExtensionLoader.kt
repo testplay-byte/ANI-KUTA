@@ -3,8 +3,9 @@ package com.confused.anikuta.data.extension.loader
 import android.content.Context
 import android.content.pm.PackageManager
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.data.extension.model.Extension
+import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.model.LoadResult
+import com.confused.anikuta.data.extension.trust.TrustService
 import dalvik.system.PathClassLoader
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.AnimeSourceFactory
@@ -13,31 +14,31 @@ import java.security.MessageDigest
 /**
  * Loads extension APKs at runtime using a DEX classloader.
  *
- * The loader scans for installed packages that declare the extension metadata,
+ * Ported from the old project with adaptations for the new AnimeExtension sealed
+ * class. Scans for installed packages that declare the extension metadata,
  * loads their DEX files via [PathClassLoader], and instantiates the [AnimeSource]
- * implementations defined in the extension.
+ * implementations.
  *
- * CORE_RULES §20: All operations are logged with tag "Anikuta:Data:Extension:Loader".
+ * CORE_RULES §20: All operations logged with tag "Anikuta:Data:Extension:Loader".
  */
 class ExtensionLoader(
     private val context: Context,
+    private val trustService: TrustService,
 ) {
 
     companion object {
         private const val TAG = "Anikuta:Data:Extension:Loader"
 
-        /** The meta-data key in the extension's AndroidManifest that declares the source class. */
+        /** The meta-data key declaring the extension's source class. */
         private const val METADATA_SOURCE_CLASS = "ani.source.class"
 
-        /** The meta-data key for the extension's NSFW flag. */
+        /** The meta-data key for the NSFW flag. */
         private const val METADATA_IS_NSFW = "ani.extension.nsfw"
     }
 
     /**
-     * Load all installed extensions.
-     *
-     * Scans [PackageManager] for packages with the extension metadata,
-     * loads each one, and returns the results.
+     * Load all installed extensions. Returns a list of [LoadResult] — the caller
+     * partitions them into trusted/untrusted/error.
      */
     fun loadAll(): List<LoadResult> {
         Logger.i(TAG) { "Loading all extensions..." }
@@ -45,7 +46,6 @@ class ExtensionLoader(
         val packageManager = context.packageManager
         val flags = PackageManager.GET_META_DATA or PackageManager.GET_SIGNATURES
 
-        // Find all packages with our extension metadata
         val extensionPackages = packageManager.getInstalledPackages(flags)
             .filter { it.applicationInfo?.metaData?.containsKey(METADATA_SOURCE_CLASS) == true }
 
@@ -66,55 +66,68 @@ class ExtensionLoader(
             val packageInfo = packageManager.getPackageInfo(packageName, flags)
             val appInfo = packageInfo.applicationInfo!!
 
-            // Get the source class name from metadata
             val sourceClassName = appInfo.metaData?.getString(METADATA_SOURCE_CLASS)
             if (sourceClassName == null) {
                 Logger.w(TAG) { "No source class in metadata for $packageName" }
                 return LoadResult.Error(packageName, "No source class in metadata")
             }
 
-            // Get the signature fingerprint
             val signatureFingerprint = packageInfo.signatures?.firstOrNull()?.let {
                 calculateFingerprint(it.toByteArray())
             }
 
-            // Load the DEX file
+            val versionName = packageInfo.versionName ?: "unknown"
+            val versionCode = if (packageInfo.longVersionCode != 0L) {
+                packageInfo.longVersionCode
+            } else {
+                packageInfo.versionCode.toLong()
+            }
+            val libVersion = AnimeExtension.parseLibVersion(versionName)
+            val isNsfw = appInfo.metaData?.getBoolean(METADATA_IS_NSFW, false) ?: false
+            val displayName = packageManager.getApplicationLabel(appInfo).toString()
+
+            // Check trust.
+            if (!trustService.isTrusted(signatureFingerprint)) {
+                Logger.w(TAG) { "Extension $packageName is untrusted (fingerprint: $signatureFingerprint)" }
+                return LoadResult.Untrusted(
+                    AnimeExtension.Untrusted(
+                        name = displayName,
+                        pkgName = packageName,
+                        versionName = versionName,
+                        versionCode = versionCode,
+                        libVersion = libVersion,
+                        signatureHash = signatureFingerprint ?: "",
+                        isNsfw = isNsfw,
+                    )
+                )
+            }
+
+            // Load the DEX file + instantiate sources.
             val sourceApk = appInfo.sourceDir
             val nativeLibDir = appInfo.nativeLibraryDir
             val classLoader = PathClassLoader(sourceApk, nativeLibDir, context.classLoader)
-
-            // Instantiate the source(s)
             val sources = loadSources(classLoader, sourceClassName)
 
-            // Check NSFW flag
-            val isNsfw = appInfo.metaData?.getBoolean(METADATA_IS_NSFW, false) ?: false
-
-            val extension = Extension(
-                packageName = packageName,
-                name = packageManager.getApplicationLabel(appInfo).toString(),
-                versionName = packageInfo.versionName ?: "unknown",
-                versionCode = if (packageInfo.longVersionCode != 0L) packageInfo.longVersionCode else packageInfo.versionCode.toLong(),
-                sources = sources,
+            val extension = AnimeExtension.Installed(
+                name = displayName,
+                pkgName = packageName,
+                versionName = versionName,
+                versionCode = versionCode,
+                libVersion = libVersion,
+                lang = null,
                 isNsfw = isNsfw,
-                signatureFingerprint = signatureFingerprint,
-                isEnabled = true,
+                isTorrent = false,
+                sources = sources,
             )
 
             Logger.i(TAG) { "Loaded: ${extension.name} v${extension.versionName} (${sources.size} sources)" }
             LoadResult.Success(extension)
-
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to load $packageName: ${e.message}" }
             LoadResult.Error(packageName, e.message ?: "Unknown error")
         }
     }
 
-    /**
-     * Instantiate sources from a class loaded by the extension's classloader.
-     *
-     * If the class implements [AnimeSourceFactory], it creates multiple sources.
-     * If it implements [AnimeSource] directly, it's a single source.
-     */
     private fun loadSources(classLoader: ClassLoader, className: String): List<AnimeSource> {
         val clazz = Class.forName(className, false, classLoader)
 
@@ -133,9 +146,6 @@ class ExtensionLoader(
         }
     }
 
-    /**
-     * Calculate the SHA-256 fingerprint of the extension's signing certificate.
-     */
     private fun calculateFingerprint(signature: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val hash = digest.digest(signature)

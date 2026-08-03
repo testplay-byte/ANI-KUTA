@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +46,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 @Composable
 fun SettingsScreen(
     onOpenAppearance: () -> Unit,
+    onOpenExtensions: () -> Unit,
     onBack: () -> Unit,
 ) {
     val lazyListState = rememberLazyListState()
@@ -72,6 +74,17 @@ fun SettingsScreen(
                             title = "Appearance",
                             subtitle = "Theme mode, palettes, and colors",
                             onClick = onOpenAppearance,
+                        )
+                    }
+
+                    // ── Extensions (Phase 5a) ──
+                    item {
+                        SettingsSectionLabel("Extensions")
+                        SettingsNavRow(
+                            icon = Icons.Filled.Extension,
+                            title = "Extensions",
+                            subtitle = "Install, trust, and manage sources",
+                            onClick = onOpenExtensions,
                         )
                     }
                 }

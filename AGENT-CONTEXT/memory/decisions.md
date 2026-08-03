@@ -354,3 +354,39 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Confirmed by user. Plan in `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md` (rewritten).
 - **Date:** Phase 4 (session web-3a43f99b, second pass).
 - **Open questions:** Q-056 (source browser placement), Q-057 (episode sort), Q-058 (default video quality), Q-059 (updates placement), Q-060 (auto-match scope), Q-061 (backup frequency). See plan §9.
+
+### D-055 — Source browsing merged into Search page (NO separate tab)
+- **What:** There is NO "Sources" tab and NO separate source-browse screen. Source browsing is **smoothly merged into the Search page** itself — like the old project. The user picks a source from within Search, then browses that source's catalog (popular/latest) inline. Extension *management* (install/uninstall/trust/repos) lives in **Settings → Extensions** (clearly separated from browsing).
+- **Why:** User directive — "We are different. The source browse will be smoothly merged into the search page itself, like how it is in the old page project. The extension system will be manageable in the settings." Keeps the bottom nav at 4 tabs. Settings are where you expect them.
+- **Status:** ✅ Confirmed by user (Q-056 answer).
+- **Date:** Phase 5 (session web-3a43f99b, third pass).
+
+### D-056 — Episode list default sort: descending (newest first)
+- **What:** The episode list defaults to **descending** order (newest episode first). Future: add a user toggle for ascending, plus optional grouping (1-100, 101-200, etc.).
+- **Why:** User directive — "for the current time being, descending order is okay but later on we can decide on giving the user customization options."
+- **Status:** ✅ Confirmed by user (Q-057 answer). Future enhancement: ascending toggle + episode grouping.
+- **Date:** Phase 5 (session web-3a43f99b, third pass).
+
+### D-057 — Default video quality: ask each time (resolver sheet)
+- **What:** When the user taps an episode, the **VideoResolver bottom sheet** always appears showing available servers/qualities. The user picks one each time — no auto-selection, no "always use this quality" default. This is the old project's method.
+- **Why:** User directive — "for the current time being, we will use the old method, which is asking each time. That is the most appropriate method for us." Future: may add a "remember choice" option.
+- **Status:** ✅ Confirmed by user (Q-058 answer).
+- **Date:** Phase 5 (session web-3a43f99b, third pass).
+
+### D-058 — Updates in a dedicated area in the More section
+- **What:** The Updates screen lives in the **More section** (like the old project). It is NOT a 5th bottom-nav tab and NOT a section in Library. The user accesses it via More → Updates.
+- **Why:** User directive — "the updates are going to be in a new dedicated area in the More section, just like how it is in the old application."
+- **Status:** ✅ Confirmed by user (Q-059 answer). Not a Phase 5a–5c concern (Updates is Phase 5e), but the placement is decided now.
+- **Date:** Phase 5 (session web-3a43f99b, third pass).
+
+### D-059 — Auto-match scope: user-enabled (trusted) sources only
+- **What:** The auto-matching engine (Phase 5d) searches ONLY **trusted, user-enabled sources** — never all installed sources blindly. The user manages which sources are enabled.
+- **Why:** User directive — "only user-enabled sources will be used and searched for and those sources are going to be the trusted ones. The user can easily manage them." Control + performance.
+- **Status:** ✅ Confirmed by user (Q-060 answer). Applies to Phase 5d (identity), but the rule is set now.
+- **Date:** Phase 5 (session web-3a43f99b, third pass).
+
+### D-060 — Backup frequency default: daily (options: 6h/12h/daily/weekly)
+- **What:** Backup auto-frequency defaults to **daily**. The user can manually select: every 6 hours, every 12 hours, every day, or every week.
+- **Why:** User directive — "by default it will be daily but the user can select it manually to be every 6 hours, every 12 hours, every day, or every week."
+- **Status:** ✅ Confirmed by user (Q-061 answer). Applies to Phase 5f (backup), but the rule is set now.
+- **Date:** Phase 5 (session web-3a43f99b, third pass).

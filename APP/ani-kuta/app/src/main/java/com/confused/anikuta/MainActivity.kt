@@ -45,6 +45,10 @@ import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
 import com.confused.anikuta.feature.animelibrary.LibraryScreen
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
 import com.confused.anikuta.feature.animesearch.SearchScreen
+import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
+import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
+import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
+import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
@@ -169,6 +173,14 @@ fun AppRoot() {
             )
             is SettingsKey -> SettingsScreen(
                 onOpenAppearance = { backstack.add(AppearanceKey) },
+                onOpenExtensions = { backstack.add(ExtensionsSettingsKey) },
+                onBack = pop,
+            )
+            is ExtensionsSettingsKey -> ExtensionsSettingsScreen(
+                onBack = pop,
+                onOpenRepoSettings = { backstack.add(ExtensionRepoSettingsKey) },
+            )
+            is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
                 onBack = pop,
             )
             is AppearanceKey -> AppearanceScreen(

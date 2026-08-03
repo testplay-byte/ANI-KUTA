@@ -1,22 +1,20 @@
 package com.confused.anikuta.data.extension.model
 
 /**
- * Result of attempting to load an extension.
+ * Result of loading an extension.
+ *
+ * Ported from the old project's `AnimeLoadResult`.
  */
 sealed interface LoadResult {
+    /** Successfully loaded — the extension is trusted and its sources are available. */
+    data class Success(val extension: AnimeExtension.Installed) : LoadResult
 
-    /**
-     * The extension was loaded successfully.
-     */
-    data class Success(val extension: Extension) : LoadResult
+    /** The extension is installed but its signature is not trusted. */
+    data class Untrusted(val extension: AnimeExtension.Untrusted) : LoadResult
 
-    /**
-     * The extension APK was not found or is corrupted.
-     */
+    /** Failed to load — the extension is corrupted or incompatible. */
     data class Error(val packageName: String, val message: String) : LoadResult
 
-    /**
-     * The extension's signature is not trusted.
-     */
-    data class Untrusted(val packageName: String, val signatureFingerprint: String) : LoadResult
+    /** The package doesn't look like a valid extension. */
+    data object UnrecognizedExtension : LoadResult
 }
