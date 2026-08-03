@@ -14,7 +14,6 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.util.awaitSingle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -162,35 +161,21 @@ class DetailsViewModel(
             try {
                 Logger.i(TAG) { "Fetching episodes from ${source.name} for $animeUrl (title: $animeTitle)" }
                 // CRITICAL: SAnime.title is lateinit — MUST be set before passing to
-                // fetchEpisodeList. Extensions may read sAnime.title in episodeListRequest
-                // to construct API URLs. Without title → UninitializedPropertyAccessException.
+                // getEpisodeList. Extensions may read sAnime.title to construct API URLs.
                 val sAnime = SAnime.create().apply {
                     url = animeUrl
                     title = animeTitle
                     initialized = false
                 }
 
-                // CRITICAL: Call getAnimeDetails BEFORE getEpisodeList.
-                // The old project's ExtensionDetailsProvider does this (enrichAnimeDetails).
-                // Why: The search result's sAnime.url may be a relative URL without a
-                // leading "/" (e.g. "mushoku-tensei-..."). The default episodeListRequest
-                // builds `baseUrl + anime.url` → "https://anikototv.to" + "mushoku-tensei-..."
-                // = "https://anikototv.tomushoku-tensei-..." (missing "/" → UnknownHostException).
-                // getAnimeDetails fetches the anime's page and returns an enriched SAnime
-                // with the correct URL format (e.g. "/mushoku-tensei-..." or the full URL).
-                val enrichedAnime = withContext(Dispatchers.IO) {
-                    try {
-                        val enriched = source.getAnimeDetails(sAnime)
-                        Logger.i(TAG) { "Enriched SAnime via getAnimeDetails: url=${enriched.url}" }
-                        enriched
-                    } catch (e: Throwable) {
-                        Logger.w(TAG, e) { "getAnimeDetails failed on ${source.name} — using original SAnime" }
-                        sAnime
-                    }
-                }
-
+                // CRITICAL: Call getEpisodeList (suspend), NOT fetchEpisodeList (Observable).
+                // Extensions like AniKotoS override getEpisodeList (the suspend version) to
+                // use a WebView-based fetch. If we call fetchEpisodeList().awaitSingle(), the
+                // DEFAULT AnimeHttpSource.fetchEpisodeList is used instead, which builds
+                // `baseUrl + anime.url` (missing "/" → UnknownHostException).
+                // The old project calls source.getEpisodeList(sAnime) directly.
                 val episodes = withContext(Dispatchers.IO) {
-                    source.fetchEpisodeList(enrichedAnime).awaitSingle()
+                    source.getEpisodeList(sAnime)
                 }
                 Logger.i(TAG) { "Fetched ${episodes.size} episodes from ${source.name}" }
                 _episodeState.value = if (episodes.isEmpty()) {
@@ -221,7 +206,7 @@ class DetailsViewModel(
             try {
                 Logger.i(TAG) { "Searching source ${source.name} for '$query'" }
                 val page = withContext(Dispatchers.IO) {
-                    source.fetchSearchAnime(1, query, AnimeFilterList()).awaitSingle()
+                    source.getSearchAnime(1, query, AnimeFilterList())
                 }
                 val results = page.animes
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
