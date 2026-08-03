@@ -1,6 +1,7 @@
 package com.confused.anikuta
 
 import android.app.Application
+import android.content.Context
 import app.cash.sqldelight.db.SqlDriver
 import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.anilist.di.anilistModule
@@ -22,11 +23,18 @@ import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
 import com.confused.anikuta.feature.animesearch.di.searchModule
 import com.confused.anikuta.settings.ThemePreferences
+import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
+import eu.kanade.tachiyomi.network.NetworkHelper
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.addSingleton
+import uy.kohesive.injekt.api.addSingletonFactory
+import uy.kohesive.injekt.api.fullType
 import java.util.UUID
 
 class AnikutaApp : Application() {
@@ -36,6 +44,27 @@ class AnikutaApp : Application() {
 
         // CORE_RULES §20: Logger init with :app's BuildConfig.DEBUG
         Logger.setEnabled(BuildConfig.DEBUG)
+
+        // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
+        // Extensions use Injekt (a service locator) to resolve NetworkHelper,
+        // Application, Context, and Json. Without these registrations, extensions
+        // crash with "No registered instance on Factory for type class ...NetworkHelper".
+        // D-027: Aniyomi binary-compat contract.
+        ExtensionAppHolder.init(this)
+        try {
+            Injekt.addSingleton(fullType<Application>(), this)
+            Injekt.addSingleton(fullType<Context>(), this)
+            Injekt.addSingleton(fullType<NetworkHelper>(), NetworkHelper(this))
+            Injekt.addSingletonFactory(fullType<Json>()) {
+                Json {
+                    ignoreUnknownKeys = true
+                    explicitNulls = false
+                }
+            }
+            Logger.i("AnikutaApp") { "Injekt: Application + Context + NetworkHelper + Json registered" }
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Injekt: failed to register singletons" }
+        }
 
         // Koin init (session ID is provided via appModule — new UUID per process restart)
         startKoin {

@@ -74,4 +74,7 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
+
+    // Serialization (for Injekt Json registration in AnikutaApp)
+    implementation(libs.kotlinx.serialization.json)
 }
