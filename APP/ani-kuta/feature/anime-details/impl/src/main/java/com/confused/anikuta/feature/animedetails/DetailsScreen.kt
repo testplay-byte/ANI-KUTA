@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -132,7 +135,7 @@ private fun DetailsContent(anime: AniListAnime, onBack: () -> Unit) {
             contentPadding = PaddingValues(bottom = 90.dp),
         ) {
             // ── Banner ──
-            item { DetailBanner(anime, onBack, saved, { saved = !saved }, { showMenu = true }) }
+            item { DetailBanner(anime, onBack, saved, { saved = !saved }, { showMenu = true }, showMenu, { showMenu = false }) }
 
             // ── Genres ──
             anime.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
@@ -144,27 +147,14 @@ private fun DetailsContent(anime: AniListAnime, onBack: () -> Unit) {
                 item { SynopsisSection(desc) }
             }
 
+            // ── Episodes section (heading + source selector + placeholder) ──
+            item { EpisodesSection() }
+
             // ── Info ──
             item {
                 Spacer(Modifier.height(16.dp))
                 InfoSection(anime)
             }
-        }
-
-        // ── Three-dot dropdown menu (overlaid at top-right) ──
-        DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { showMenu = false },
-            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding(),
-        ) {
-            DropdownMenuItem(
-                text = { Text("Refresh", fontFamily = RobotoFamily) },
-                onClick = { showMenu = false },
-            )
-            DropdownMenuItem(
-                text = { Text("Share", fontFamily = RobotoFamily) },
-                onClick = { showMenu = false },
-            )
         }
 
         // ── Scroll blur overlay ──
@@ -190,6 +180,8 @@ private fun DetailBanner(
     saved: Boolean,
     onToggleSave: () -> Unit,
     onMore: () -> Unit,
+    showMenu: Boolean,
+    onDismissMenu: () -> Unit,
 ) {
     val coverUrl = anime.coverUrl
     val bannerUrl = anime.bannerImage ?: anime.coverUrl
@@ -247,11 +239,27 @@ private fun DetailBanner(
                     contentDescription = if (saved) "Remove from library" else "Add to library",
                     onClick = onToggleSave,
                 )
-                ActionButton(
-                    icon = Icons.Filled.MoreHoriz,
-                    contentDescription = "More",
-                    onClick = onMore,
-                )
+                // Three-dot menu — DropdownMenu is anchored here (next to the button).
+                Box {
+                    ActionButton(
+                        icon = Icons.Filled.MoreHoriz,
+                        contentDescription = "More",
+                        onClick = onMore,
+                    )
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = onDismissMenu,
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Refresh", fontFamily = RobotoFamily) },
+                            onClick = onDismissMenu,
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Share", fontFamily = RobotoFamily) },
+                            onClick = onDismissMenu,
+                        )
+                    }
+                }
             }
         }
 
@@ -401,6 +409,108 @@ private fun SynopsisSection(description: String) {
                     .padding(top = 4.dp)
                     .clickable { expanded = !expanded },
             )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Episodes section — heading + source selector + placeholder
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Episodes section — shows the "Episodes" heading with a source selector on the
+ * right, and a "not implemented" placeholder below.
+ *
+ * Per user spec: "at least what you can do for the current time being is that
+ * you could show the episodes heading at the top. On the right side of that
+ * heading you could show the extension selection option or the source selection
+ * option. Below, even inside the episodes list, you could say that the episode
+ * list is not implemented yet."
+ *
+ * The source selector is a placeholder for now — tapping it shows a toast-like
+ * message. The actual source linking + episode fetching comes in a later step
+ * (needs UnifiedAnime + provider infrastructure).
+ */
+@Composable
+private fun EpisodesSection() {
+    var showSourcePicker by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // ── Header: "Episodes" + source selector ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Episodes",
+                fontFamily = RobotoFamily,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.weight(1f))
+            // Source selector pill (placeholder)
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.clickable { showSourcePicker = true },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "No source",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Select source",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+
+        // ── Placeholder: "Episode list is not implemented yet" ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 32.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Filled.HourglassEmpty,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Episode list is not implemented yet",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Select a source above to link this anime\nand fetch its episodes.",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
