@@ -66,7 +66,6 @@ object PlayerInitializer {
             # Auto-generated — do not edit manually.
 
             # ── Video caching (D-049) ──
-            # Enable demuxer cache for instant resume
             cache=yes
             cache-secs=120
             demuxer-max-bytes=150MiB
@@ -79,9 +78,9 @@ object PlayerInitializer {
             # ── Subtitles ──
             sub-ass-force-margins=yes
             sub-use-margins=yes
-            sub-font-size=${'$'}{sub-font-size}
-            sub-color=${'$'}{sub-color}
-            sub-back-color=${'$'}{sub-back-color}
+            sub-font-size=55
+            sub-color=#FFFFFFFF
+            sub-back-color=#AA000000
 
             # ── Audio ──
             audio-channels=auto
@@ -89,6 +88,9 @@ object PlayerInitializer {
             # ── Network ──
             network-timeout=30
             user-agent=Mozilla/5.0
+
+            # ── Misc ──
+            keep-open=yes
         """.trimIndent()
 
         File(mpvDir, "mpv.conf").writeText(mpvConf)
@@ -97,7 +99,6 @@ object PlayerInitializer {
         // Input config — key bindings (minimal for now, expanded in Phase 4)
         val inputConf = """
             # ANI-KUTA MPV input configuration
-            # Key bindings for player controls (Phase 4 will add gesture controls)
 
             SPACE cycle pause
             LEFT seek -10
