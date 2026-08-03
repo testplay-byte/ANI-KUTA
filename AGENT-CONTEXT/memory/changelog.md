@@ -105,3 +105,22 @@
 - **App wiring**: settings.gradle (2 new modules), app build.gradle (2 new deps), AndroidManifest (permissions: INSTALL_PACKAGES, FOREGROUND_SERVICE, QUERY_ALL_PACKAGES + service declaration), SettingsScreen (Extensions nav row), MainActivity (nav routing).
 - **Research**: 3 parallel Explore sub-agents analyzed the old project's extension system (5a), details screen (5b), and watch screen (5c) — comprehensive reports saved as reference for porting.
 - **Pending**: source browsing merged into Search (D-055), Phase 5b (Details overhaul), Phase 5c (Watch screen).
+
+## Session web-3a43f99b (fourth pass) — Phase 5a fixes + Search source browsing
+- **CRITICAL FIX — ExtensionLoader metadata keys**: Was using `ani.source.class` (invented) instead of the Aniyomi convention (`tachiyomi.animeextension` feature flag + `tachiyomi.animeextension.class` meta-data). Real Aniyomi extensions were invisible — installed extensions didn't show up at all. Fixed to use the exact Aniyomi keys + added `ChildFirstPathClassLoader` (child-first DEX loading for binary-compat) + proper `signingInfo` handling. This was the root cause of the "no untrusted section" bug.
+- **ExtensionsSettingsScreen improvements** (per user feedback):
+  - CollapsingHeader "Extensions" that shrinks on scroll + ScrollBlurOverlay (was missing).
+  - Three sections in dedicated background cards (`ExtensionSectionCard`) with minimal horizontal padding.
+  - Untrusted section now shows (was empty because loader couldn't find extensions).
+  - Available extensions filtered to exclude installed/untrusted packages (was showing already-installed extensions).
+  - Download button shows a circular spinner during install (`installStates` tracking in ExtensionManager — per-package `InstallStep` StateFlow; auto-clears when the extension appears in installed/untrusted via the re-scan).
+  - Filters bar: search + sort (name/language/NSFW) + NSFW toggle. Applies to all 3 sections.
+  - Trusted sources: long-press enters reorder mode (up/down arrows). Delete button with confirmation dialog.
+  - Untrusted: trust + delete buttons.
+- **Search page source browsing (D-055)**:
+  - `SearchViewModel`: two source modes (ANILIST default, EXTENSION). ANILIST shows trending when no query (per user request). EXTENSION browses selected source's popular anime; searches the source when a query is entered.
+  - `ExtensionSourcePickerSheet`: bottom sheet listing all trusted sources. Tapping selects + persists the choice (PreferenceStore).
+  - `SourceToggle`: when Extension is already selected, tapping it again opens the source picker (per user spec). Shows the selected source's name as the label.
+  - `ExtensionAnime` model (in :api — no source-api dep) + `SAnimeMapper.toExtensionAnime()` (in :impl).
+  - `ExtensionResultsGrid` + `ExtensionResultCard` — grid of extension anime.
+- **Lessons logged**: loader metadata-key mistake (invented keys vs Aniyomi convention), installable-items filtering pattern, ChildFirstPathClassLoader requirement, withLock suspend-context mistake.
