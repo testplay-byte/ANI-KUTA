@@ -16,6 +16,7 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":core:designsystem"))
     implementation(project(":core:preferences"))
     implementation(project(":core:watch-progress"))
     implementation(project(":core:source-api"))
