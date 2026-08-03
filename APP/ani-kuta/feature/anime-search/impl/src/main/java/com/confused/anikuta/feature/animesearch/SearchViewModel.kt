@@ -85,6 +85,23 @@ class SearchViewModel(
             sourceMap.values.filterIsInstance<AnimeCatalogueSource>()
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Map of source ID → extension icon Drawable (for the source picker UI).
+     * Built from the installed extensions list — each extension has an `icon`
+     * field and a list of sources. We map every source ID to its parent
+     * extension's icon.
+     */
+    val sourceIcons: StateFlow<Map<Long, android.graphics.drawable.Drawable>> =
+        extensionManager.installedExtensions.map { extensions ->
+            buildMap {
+                extensions.forEach { ext ->
+                    ext.sources.forEach { source ->
+                        ext.icon?.let { put(source.id, it) }
+                    }
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     /** The currently selected extension source ID (persisted). Null = none selected. */
     private val _selectedSourceId = MutableStateFlow<Long?>(
         preferenceStore.getLong(KEY_SELECTED_SOURCE_ID, -1L).takeIf { it > 0 }

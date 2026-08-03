@@ -261,6 +261,7 @@ fun SearchScreen(
     if (showSourcePicker) {
         ExtensionSourcePickerSheet(
             sources = trustedSources,
+            sourceIcons = viewModel.sourceIcons.collectAsState().value,
             selectedSourceId = selectedSourceId,
             onSelect = { id ->
                 viewModel.onSelectExtensionSource(id)

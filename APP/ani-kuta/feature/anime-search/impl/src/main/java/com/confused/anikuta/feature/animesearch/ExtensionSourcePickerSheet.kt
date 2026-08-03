@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +33,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 
@@ -51,6 +53,7 @@ import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 @Composable
 fun ExtensionSourcePickerSheet(
     sources: List<AnimeCatalogueSource>,
+    sourceIcons: Map<Long, android.graphics.drawable.Drawable>,
     selectedSourceId: Long?,
     onSelect: (Long) -> Unit,
     onDismiss: () -> Unit,
@@ -96,6 +99,7 @@ fun ExtensionSourcePickerSheet(
                     items(sources, key = { it.id }) { source ->
                         SourceRow(
                             source = source,
+                            icon = sourceIcons[source.id],
                             isSelected = source.id == selectedSourceId,
                             onClick = { onSelect(source.id) },
                         )
@@ -110,6 +114,7 @@ fun ExtensionSourcePickerSheet(
 @Composable
 private fun SourceRow(
     source: AnimeCatalogueSource,
+    icon: android.graphics.drawable.Drawable?,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -133,6 +138,15 @@ private fun SourceRow(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // Extension icon (left side) — per user spec.
+        if (icon != null) {
+            AsyncImage(
+                model = icon,
+                contentDescription = source.name,
+                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)),
+            )
+            Spacer(Modifier.width(12.dp))
+        }
         Text(
             text = source.name,
             fontFamily = RobotoFamily,
