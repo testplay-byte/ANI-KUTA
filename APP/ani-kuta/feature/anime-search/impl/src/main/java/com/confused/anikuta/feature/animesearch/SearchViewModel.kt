@@ -278,7 +278,7 @@ class SearchViewModel(
                 Logger.i(TAG) { "Fetching popular anime from source: ${source.name}" }
                 val page = withContext(Dispatchers.IO) { source.getPopularAnime(1) }
                 val results = page.animes.map {
-                    ExtensionAnime.fromSAnime(sourceId, source.name, it)
+                    it.toExtensionAnime(sourceId, source.name)
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 _uiState.value = if (results.isEmpty()) {
@@ -319,7 +319,7 @@ class SearchViewModel(
                     source.getSearchAnime(1, q, AnimeFilterList())
                 }
                 val results = page.animes.map {
-                    ExtensionAnime.fromSAnime(sourceId, source.name, it)
+                    it.toExtensionAnime(sourceId, source.name)
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 _uiState.value = if (results.isEmpty()) {

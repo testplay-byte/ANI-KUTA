@@ -4,6 +4,7 @@ import android.content.Context
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.data.extension.api.AnimeExtensionApi
 import com.confused.anikuta.data.extension.installer.ExtensionInstallReceiver
+import com.confused.anikuta.data.extension.installer.ExtensionInstallService
 import com.confused.anikuta.data.extension.installer.ExtensionInstaller
 import com.confused.anikuta.data.extension.installer.InstallStep
 import com.confused.anikuta.data.extension.loader.ExtensionLoader
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import java.io.File
 
