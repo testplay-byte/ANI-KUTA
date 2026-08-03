@@ -9,6 +9,26 @@ android {
     defaultConfig {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
+    // ── Signing config: fixed debug keystore for consistent APK updates ──
+    // Per user request: "sign the APKs with some temporary random key so that
+    // I do not have to uninstall the old one. I can directly update it."
+    // This keystore is committed to the repo (it's a debug key, not a release key).
+    // Phase 9 will replace with a proper release signing setup.
+    signingConfigs {
+        create("anikutaDebug") {
+            storeFile = file("anikuta-debug.keystore")
+            storePassword = "anikuta"
+            keyAlias = "anikuta"
+            keyPassword = "anikuta"
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("anikutaDebug")
+        }
+    }
 }
 
 dependencies {
