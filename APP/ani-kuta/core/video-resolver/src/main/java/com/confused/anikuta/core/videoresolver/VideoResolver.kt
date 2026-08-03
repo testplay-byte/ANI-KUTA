@@ -5,13 +5,21 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.util.awaitSingle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 /**
  * Resolves playable video URLs from extension sources.
  *
  * Calls the extension source's `fetchVideoList` → extracts playable URLs.
+ *
+ * CRITICAL: All network calls MUST run on `Dispatchers.IO` — the RxJava
+ * `Observable` returned by `fetchVideoList` does network IO synchronously
+ * when `awaitSingle()` is called. Without `withContext(IO)`, this throws
+ * `NetworkOnMainThreadException`.
  *
  * CORE_RULES §20: All operations logged with tag "Anikuta:Core:VideoResolver".
  * Architecture plan I10: :feature:anime-watch:impl mediates between
@@ -28,13 +36,13 @@ class VideoResolver {
      *
      * @param source The AnimeHttpSource to fetch from.
      * @param episodeUrl The episode's URL on the source.
-     * @return A Flow emitting [ResolverState] updates.
+     * @return A Flow emitting [ResolverState] updates. Runs on `Dispatchers.IO`.
      */
     fun resolve(
         source: AnimeHttpSource,
         episodeUrl: String,
     ): Flow<ResolverState> = flow {
-        Logger.i(TAG) { "Resolving videos for: $episodeUrl" }
+        Logger.i(TAG) { "Resolving videos for: $episodeUrl (source: ${source.name})" }
         emit(ResolverState.Loading())
 
         try {
@@ -44,12 +52,16 @@ class VideoResolver {
                 name = "Episode"
             }
 
-            // fetchVideoList returns Observable<List<Video>> (RxJava) — use the suspend wrapper
-            val videos = source.fetchVideoList(episode).awaitSingle()
-            Logger.d(TAG) { "Fetched ${videos.size} videos" }
+            // CRITICAL: fetchVideoList returns Observable<List<Video>> (RxJava)
+            // which does network IO. Must run on Dispatchers.IO to avoid
+            // NetworkOnMainThreadException.
+            val videos = withContext(Dispatchers.IO) {
+                source.fetchVideoList(episode).awaitSingle()
+            }
+            Logger.d(TAG) { "Fetched ${videos.size} videos from ${source.name}" }
 
             if (videos.isEmpty()) {
-                Logger.w(TAG) { "No videos found" }
+                Logger.w(TAG) { "No videos found for $episodeUrl" }
                 emit(ResolverState.Error("No videos available"))
                 return@flow
             }
@@ -65,11 +77,15 @@ class VideoResolver {
             Logger.i(TAG) { "Resolved ${resolvedVideos.size} videos: ${resolvedVideos.map { it.quality }}" }
             emit(ResolverState.Success(resolvedVideos))
 
-        } catch (e: Exception) {
-            Logger.e(TAG, e) { "Resolution failed: ${e.message}" }
-            emit(ResolverState.Error(e.message ?: "Unknown error"))
+        } catch (e: Throwable) {
+            // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError
+            // (an Error), and OkHttp version mismatches throw IncompatibleClassChangeError.
+            Logger.e(TAG, e) {
+                "Resolution failed for $episodeUrl: ${e::class.java.simpleName}: ${e.message}"
+            }
+            emit(ResolverState.Error(formatError(e)))
         }
-    }
+    }.flowOn(Dispatchers.IO) // Ensure the entire flow runs on IO.
 
     /**
      * Parse the quality label from a Video.
@@ -84,5 +100,15 @@ class VideoResolver {
         qualityPattern.find(url)?.let { return "${it.groupValues[1]}p" }
 
         return "Default"
+    }
+
+    /**
+     * Format an error message for the user. Includes the exception type for
+     * debugging (e.g. "NetworkOnMainThreadException", "UnknownHostException").
+     */
+    private fun formatError(e: Throwable): String {
+        val type = e::class.java.simpleName
+        val msg = e.message ?: "Unknown error"
+        return "$type: $msg"
     }
 }

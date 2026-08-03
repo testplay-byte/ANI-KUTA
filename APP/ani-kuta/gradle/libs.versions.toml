@@ -19,8 +19,9 @@ koin = "4.2.2"
 # Persistence
 sqldelight = "2.0.2"
 
-# Networking
-okhttp = "4.12.0"
+# Networking — MUST match what Aniyomi extensions compile against (5.0.0-alpha.14).
+# Using 4.x causes binary compat errors: "No virtual method maxAge-LRDsOJo(J)...".
+okhttp = "5.0.0-alpha.14"
 
 # Serialization
 kotlinxSerialization = "2.2.0"

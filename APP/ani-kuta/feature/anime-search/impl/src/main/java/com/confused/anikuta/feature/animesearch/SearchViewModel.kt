@@ -326,9 +326,10 @@ class SearchViewModel(
                 }
             } catch (e: Throwable) {
                 // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
-                Logger.e(TAG, e) { "Extension popular fetch failed: ${e.message}" }
+                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                Logger.e(TAG, e) { "Extension popular fetch failed for ${source.name}: $errorMsg" }
                 _uiState.value = SearchUiState.ExtensionError(
-                    "${source.name}: ${e.message ?: "Unknown error"}"
+                    "${source.name}: $errorMsg"
                 )
             }
         }
@@ -369,9 +370,10 @@ class SearchViewModel(
                     SearchUiState.ExtensionSuccess(results = results)
                 }
             } catch (e: Throwable) {
-                Logger.e(TAG, e) { "Extension search failed: ${e.message}" }
+                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                Logger.e(TAG, e) { "Extension search failed for ${source.name}: $errorMsg" }
                 _uiState.value = SearchUiState.ExtensionError(
-                    "${source.name}: ${e.message ?: "Unknown error"}"
+                    "${source.name}: $errorMsg"
                 )
             }
         }

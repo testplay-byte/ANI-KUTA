@@ -163,7 +163,7 @@ class DetailsViewModel(
                 val episodes = withContext(Dispatchers.IO) {
                     source.fetchEpisodeList(sAnime).awaitSingle()
                 }
-                Logger.i(TAG) { "Fetched ${episodes.size} episodes" }
+                Logger.i(TAG) { "Fetched ${episodes.size} episodes from ${source.name}" }
                 _episodeState.value = if (episodes.isEmpty()) {
                     EpisodeState.Empty
                 } else {
@@ -172,8 +172,11 @@ class DetailsViewModel(
                     EpisodeState.Loaded(sorted)
                 }
             } catch (e: Throwable) {
-                Logger.e(TAG, e) { "Episode fetch failed: ${e.message}" }
-                _episodeState.value = EpisodeState.Error(e.message ?: "Unknown error")
+                // Catch Throwable — binary-incompat throws NoClassDefFoundError,
+                // OkHttp version mismatch throws IncompatibleClassChangeError.
+                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                Logger.e(TAG, e) { "Episode fetch failed for ${source.name}: $errorMsg" }
+                _episodeState.value = EpisodeState.Error(errorMsg)
             }
         }
     }
@@ -195,8 +198,9 @@ class DetailsViewModel(
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 _manualSearchState.value = ManualSearchState.Results(source, results)
             } catch (e: Throwable) {
-                Logger.e(TAG, e) { "Manual search failed: ${e.message}" }
-                _manualSearchState.value = ManualSearchState.Error(source.name, e.message ?: "Unknown error")
+                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                Logger.e(TAG, e) { "Manual search failed for ${source.name}: $errorMsg" }
+                _manualSearchState.value = ManualSearchState.Error(source.name, errorMsg)
             }
         }
     }
