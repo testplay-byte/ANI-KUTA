@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,8 @@ import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.feature.animesearch.ExtensionAnime
+import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -78,6 +81,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun SearchScreen(
     onNavigateToDetails: (Int) -> Unit,
+    onNavigateToExtensionAnime: (Long, String) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -87,13 +91,23 @@ fun SearchScreen(
     val recents by viewModel.recents.collectAsState()
     val recentsCollapsed by viewModel.recentsCollapsed.collectAsState()
     val pendingFilters by viewModel.pendingFilters.collectAsState()
+    val trustedSources by viewModel.trustedSources.collectAsState()
+    val selectedSourceId by viewModel.selectedSourceId.collectAsState()
 
     val scrollState = rememberScrollState()
     val gridState = rememberLazyGridState()
     val collapsed = scrollState.value > 20
 
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showSourcePicker by remember { mutableStateOf(false) }
     val activeFilterCount = pendingFilters.activeCount
+
+    // Load trending on first enter (AniList + no query).
+    LaunchedEffect(Unit) {
+        if (source == SearchSource.ANILIST && query.isBlank() && uiState is SearchUiState.Idle) {
+            viewModel.onSourceChange(SearchSource.ANILIST)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -112,12 +126,16 @@ fun SearchScreen(
             activeFilterCount = activeFilterCount,
             sort = sort,
             onSortChange = viewModel::onSortChange,
+            // Extension source picker — opens when the extension button is tapped
+            // (even if already selected, per user spec).
+            onExtensionSourceClick = { showSourcePicker = true },
+            selectedExtensionSourceName = trustedSources.firstOrNull { it.id == selectedSourceId }?.name,
         )
 
         // Scrollable content
         Box(modifier = Modifier.fillMaxSize()) {
             when (uiState) {
-                SearchUiState.Idle -> {
+                is SearchUiState.Idle -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -136,7 +154,11 @@ fun SearchScreen(
                         } else {
                             SearchPromptCard(
                                 title = "Search anime",
-                                description = "Find series on AniList by title. Tap a result to view details.",
+                                description = if (source == SearchSource.EXTENSION) {
+                                    "Select an extension source to browse its catalog."
+                                } else {
+                                    "Find series on AniList by title. Tap a result to view details."
+                                },
                                 icon = Icons.AutoMirrored.Filled.ManageSearch,
                             )
                         }
@@ -163,9 +185,8 @@ fun SearchScreen(
                 )
 
                 SearchUiState.ExtensionNotAvailable -> SearchPromptCard(
-                    title = "Extension search coming soon",
-                    description = "Extension sources need the extension system (Phase 5). " +
-                        "For now, use the AniList tab.",
+                    title = "No extension source selected",
+                    description = "Tap the Extension button at the top to pick a source to browse.",
                     icon = Icons.Filled.HourglassEmpty,
                 )
 
@@ -177,12 +198,24 @@ fun SearchScreen(
                         onResultTap = onNavigateToDetails,
                     )
                 }
+
+                is SearchUiState.ExtensionSuccess -> {
+                    val results = (uiState as SearchUiState.ExtensionSuccess).results
+                    ExtensionResultsGrid(
+                        results = results,
+                        gridState = gridState,
+                        onResultTap = { anime ->
+                            onNavigateToExtensionAnime(anime.sourceId, anime.url)
+                        },
+                    )
+                }
             }
 
             ScrollBlurOverlay(
                 scrollOffset = {
                     when (uiState) {
-                        is SearchUiState.Success -> {
+                        is SearchUiState.Success,
+                        is SearchUiState.ExtensionSuccess -> {
                             if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
                             else gridState.firstVisibleItemScrollOffset.toFloat()
                         }
@@ -211,6 +244,19 @@ fun SearchScreen(
         },
         onDismiss = { showFilterSheet = false },
     )
+
+    // ── Extension source picker sheet ──
+    if (showSourcePicker) {
+        ExtensionSourcePickerSheet(
+            sources = trustedSources,
+            selectedSourceId = selectedSourceId,
+            onSelect = { id ->
+                viewModel.onSelectExtensionSource(id)
+                showSourcePicker = false
+            },
+            onDismiss = { showSourcePicker = false },
+        )
+    }
 }
 
 // ── Results grid ──
@@ -352,5 +398,96 @@ private fun SearchPromptCard(
             maxLines = 4,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+// ── Extension results grid (browse a source's popular/latest) ──
+
+@Composable
+private fun ExtensionResultsGrid(
+    results: List<ExtensionAnime>,
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    onResultTap: (ExtensionAnime) -> Unit,
+) {
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Fixed(3),
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            end = 12.dp,
+            top = 4.dp,
+            bottom = 110.dp,
+        ),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        items(results, key = { "${it.sourceId}:${it.url}" }) { anime ->
+            ExtensionResultCard(anime, onResultTap)
+        }
+    }
+}
+
+@Composable
+private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime) -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
+        label = "extResultCardScale",
+    )
+
+    Box(
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { onClick(anime) },
+            ),
+    ) {
+        AsyncImage(
+            model = anime.thumbnailUrl,
+            contentDescription = anime.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(12.dp)),
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f),
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                MaterialTheme.colorScheme.surface,
+                            ),
+                        ),
+                    ),
+            )
+            Text(
+                text = anime.title,
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+            )
+        }
     }
 }

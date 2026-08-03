@@ -97,6 +97,8 @@ fun SearchTopBar(
     activeFilterCount: Int,
     sort: SearchSort,
     onSortChange: (SearchSort) -> Unit,
+    onExtensionSourceClick: () -> Unit = {},
+    selectedExtensionSourceName: String? = null,
 ) {
     val titleFontSize by animateFloatAsState(
         targetValue = if (collapsed) 26f else 36f,
@@ -157,6 +159,8 @@ fun SearchTopBar(
                         SourceToggle(
                             source = source,
                             onSelect = onSourceSelect,
+                            onExtensionSourceClick = onExtensionSourceClick,
+                            selectedExtensionSourceName = selectedExtensionSourceName,
                             modifier = Modifier
                                 .width(sourceWidth)
                                 .alpha(sourceAlpha),
@@ -321,6 +325,8 @@ private fun SourceToggle(
     source: SearchSource,
     onSelect: (SearchSource) -> Unit,
     modifier: Modifier = Modifier,
+    onExtensionSourceClick: () -> Unit = {},
+    selectedExtensionSourceName: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -335,10 +341,18 @@ private fun SourceToggle(
             onClick = { onSelect(SearchSource.ANILIST) },
         )
         SourceToggleSegment(
-            label = "Extension",
+            label = selectedExtensionSourceName ?: "Extension",
             icon = Icons.Filled.Extension,
             active = source == SearchSource.EXTENSION,
-            onClick = { onSelect(SearchSource.EXTENSION) },
+            onClick = {
+                // If Extension is already selected, open the source picker (per user spec).
+                // Otherwise, switch to Extension mode (which shows the picker prompt if no source).
+                if (source == SearchSource.EXTENSION) {
+                    onExtensionSourceClick()
+                } else {
+                    onSelect(SearchSource.EXTENSION)
+                }
+            },
         )
     }
 }

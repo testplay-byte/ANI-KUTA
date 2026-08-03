@@ -43,5 +43,5 @@ val extensionModule = module {
     single { ExtensionInstaller(get(), get(named("extensionRepo"))) }
 
     // ── Manager (the public façade) ──
-    single { ExtensionManager(get(), get(), get(), get()) }
+    single { ExtensionManager(get(), get(), get(), get(), get(named("extensionRepo"))) }
 }

@@ -6,28 +6,34 @@ import com.confused.anikuta.core.anilist.api.AniListApi
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.preferences.PreferenceStore
+import com.confused.anikuta.data.extension.manager.ExtensionManager
+import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
+import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * ViewModel for the Search screen.
  *
- * Mirrors the old project's SearchViewModel but only the AniList source is wired
- * for now — Extension search requires the extension system (Phase 5).
- *
- * Behavior:
- *  - The query is debounced (350ms) before querying AniList.
- *  - Recent searches are stored in PreferenceStore (comma-separated) and shown
- *    when the query is blank.
- *  - On error, the user-friendly message "AniList is being a tsundere" is shown
- *    instead of the raw exception text (per task spec).
+ * Two source modes:
+ * - **ANILIST** (default): searches AniList by title. When no query is entered,
+ *   shows trending anime (Phase 5a improvement per user request).
+ * - **EXTENSION**: browses a selected extension source's popular/latest anime.
+ *   The user picks a source via a bottom sheet (all trusted sources listed).
+ *   The selection is persisted — the user sees that source's results by default
+ *   until they change it or the source is uninstalled.
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Feature:Search".
  * CORE_RULES §23: Reactive state (StateFlow).
@@ -35,12 +41,14 @@ import kotlinx.coroutines.launch
 class SearchViewModel(
     private val anilistApi: AniListApi,
     private val preferenceStore: PreferenceStore,
+    private val extensionManager: ExtensionManager,
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "Anikuta:Feature:Search"
         private const val KEY_RECENT_SEARCHES = "search_recent_anilist"
         private const val KEY_RECENTS_COLLAPSED = "search_recents_collapsed"
+        private const val KEY_SELECTED_SOURCE_ID = "search_selected_extension_source_id"
         private const val DEBOUNCE_MS = 350L
         private const val MAX_RECENTS = 10
     }
@@ -60,20 +68,28 @@ class SearchViewModel(
     private val _recents = MutableStateFlow<List<String>>(emptyList())
     val recents: StateFlow<List<String>> = _recents.asStateFlow()
 
-    // ── Filters (UI-only for now — applied filter state lives in the VM so
-    //    the FilterSheet edits a pending copy + Apply syncs. Phase 5 will wire
-    //    these to AniList's filter GraphQL args.) ──
     private val _pendingFilters = MutableStateFlow(SearchFilters.Empty)
     val pendingFilters: StateFlow<SearchFilters> = _pendingFilters.asStateFlow()
 
     private val _appliedFilters = MutableStateFlow(SearchFilters.Empty)
     val appliedFilters: StateFlow<SearchFilters> = _appliedFilters.asStateFlow()
 
-    /** Recent-searches card collapsed state (persisted across sessions). */
     private val _recentsCollapsed = MutableStateFlow(
         preferenceStore.getBoolean(KEY_RECENTS_COLLAPSED, false),
     )
     val recentsCollapsed: StateFlow<Boolean> = _recentsCollapsed.asStateFlow()
+
+    /** The trusted extension sources available for browsing. */
+    val trustedSources: StateFlow<List<AnimeCatalogueSource>> =
+        extensionManager.sources.map { sourceMap ->
+            sourceMap.values.filterIsInstance<AnimeCatalogueSource>()
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** The currently selected extension source ID (persisted). Null = none selected. */
+    private val _selectedSourceId = MutableStateFlow<Long?>(
+        preferenceStore.getLong(KEY_SELECTED_SOURCE_ID, -1L).takeIf { it > 0 }
+    )
+    val selectedSourceId: StateFlow<Long?> = _selectedSourceId.asStateFlow()
 
     init {
         loadRecents()
@@ -93,7 +109,6 @@ class SearchViewModel(
 
     fun onApplyFilters() {
         _appliedFilters.value = _pendingFilters.value
-        // ponytail: not wired to AniList query yet — Phase 5 will re-search here.
     }
 
     fun toggleRecentsCollapsed() {
@@ -104,7 +119,6 @@ class SearchViewModel(
 
     fun onQueryChange(value: String) {
         _query.value = value
-        // If the query is cleared, drop back to Idle (show recents).
         if (value.isBlank()) {
             _uiState.value = SearchUiState.Idle
         }
@@ -117,9 +131,15 @@ class SearchViewModel(
 
     fun onSourceChange(source: SearchSource) {
         _source.value = source
-        // Re-trigger a search if there's an active query.
-        if (_query.value.isNotBlank()) {
-            search(_query.value)
+        if (source == SearchSource.EXTENSION) {
+            // Load the selected source's popular anime (or show empty if none selected).
+            loadExtensionPopular()
+        } else {
+            if (_query.value.isNotBlank()) {
+                search(_query.value)
+            } else {
+                loadTrending()
+            }
         }
     }
 
@@ -153,6 +173,16 @@ class SearchViewModel(
         persistRecents(emptyList())
     }
 
+    /**
+     * Select an extension source for browsing. Persists the choice.
+     * Triggers a load of that source's popular anime.
+     */
+    fun onSelectExtensionSource(sourceId: Long) {
+        _selectedSourceId.value = sourceId
+        preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, sourceId)
+        loadExtensionPopular()
+    }
+
     @OptIn(FlowPreview::class)
     private fun observeQuery() {
         _query
@@ -160,7 +190,11 @@ class SearchViewModel(
             .distinctUntilChanged()
             .onEach { q ->
                 if (q.isBlank()) {
-                    _uiState.value = SearchUiState.Idle
+                    if (_source.value == SearchSource.ANILIST) {
+                        loadTrending()
+                    } else {
+                        loadExtensionPopular()
+                    }
                 } else {
                     search(q)
                 }
@@ -169,10 +203,8 @@ class SearchViewModel(
     }
 
     private fun search(q: String) {
-        // Extension source: not implemented yet (Phase 5). Show a friendly
-        // "not available" state instead of crashing.
         if (_source.value == SearchSource.EXTENSION) {
-            _uiState.value = SearchUiState.ExtensionNotAvailable
+            searchExtension(q)
             return
         }
 
@@ -194,7 +226,109 @@ class SearchViewModel(
                 }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Search failed for '$q': ${e.message}" }
-                // User-friendly error — never expose raw exception text to the user.
+                _uiState.value = SearchUiState.Error
+            }
+        }
+    }
+
+    /**
+     * Load trending anime from AniList (shown when AniList source is active + query is blank).
+     */
+    private fun loadTrending() {
+        _uiState.value = SearchUiState.Loading
+        viewModelScope.launch {
+            try {
+                Logger.i(TAG) { "Loading trending anime from AniList" }
+                val results = anilistApi.fetchTrending(perPage = 30)
+                _uiState.value = if (results.isEmpty()) {
+                    SearchUiState.Idle
+                } else {
+                    SearchUiState.Success(results = results)
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Trending load failed: ${e.message}" }
+                _uiState.value = SearchUiState.Idle
+            }
+        }
+    }
+
+    /**
+     * Load the selected extension source's popular anime.
+     * If no source is selected, shows ExtensionNotAvailable.
+     */
+    private fun loadExtensionPopular() {
+        val sourceId = _selectedSourceId.value
+        if (sourceId == null) {
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return
+        }
+
+        val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
+        if (source == null) {
+            // Source was uninstalled — clear the selection.
+            _selectedSourceId.value = null
+            preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, -1L)
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return
+        }
+
+        _uiState.value = SearchUiState.Loading
+        viewModelScope.launch {
+            try {
+                Logger.i(TAG) { "Fetching popular anime from source: ${source.name}" }
+                val page = withContext(Dispatchers.IO) { source.getPopularAnime(1) }
+                val results = page.animes.map {
+                    ExtensionAnime.fromSAnime(sourceId, source.name, it)
+                }
+                Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
+                _uiState.value = if (results.isEmpty()) {
+                    SearchUiState.Empty
+                } else {
+                    SearchUiState.ExtensionSuccess(results = results)
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Extension popular fetch failed: ${e.message}" }
+                _uiState.value = SearchUiState.Error
+            }
+        }
+    }
+
+    /**
+     * Search the selected extension source by query.
+     */
+    private fun searchExtension(q: String) {
+        val sourceId = _selectedSourceId.value
+        if (sourceId == null) {
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return
+        }
+
+        val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
+        if (source == null) {
+            _selectedSourceId.value = null
+            preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, -1L)
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return
+        }
+
+        _uiState.value = SearchUiState.Loading
+        viewModelScope.launch {
+            try {
+                Logger.i(TAG) { "Searching source ${source.name} for '$q'" }
+                val page = withContext(Dispatchers.IO) {
+                    source.getSearchAnime(1, q, AnimeFilterList())
+                }
+                val results = page.animes.map {
+                    ExtensionAnime.fromSAnime(sourceId, source.name, it)
+                }
+                Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
+                _uiState.value = if (results.isEmpty()) {
+                    SearchUiState.Empty
+                } else {
+                    SearchUiState.ExtensionSuccess(results = results)
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Extension search failed: ${e.message}" }
                 _uiState.value = SearchUiState.Error
             }
         }
@@ -232,8 +366,10 @@ sealed interface SearchUiState {
     data class Success(val results: List<AniListAnime>) : SearchUiState
     /** AniList failed — friendly "tsundere" message per spec. */
     data object Error : SearchUiState
-    /** Extension source selected — not yet implemented (Phase 5). */
+    /** Extension source selected but no source chosen, or source uninstalled. */
     data object ExtensionNotAvailable : SearchUiState
+    /** Extension source browse/search success. */
+    data class ExtensionSuccess(val results: List<ExtensionAnime>) : SearchUiState
 }
 
 enum class SearchSource(val displayName: String) {

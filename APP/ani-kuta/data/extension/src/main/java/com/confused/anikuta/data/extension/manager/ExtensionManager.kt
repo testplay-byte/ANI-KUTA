@@ -18,7 +18,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import java.io.File
 
 /**
  * Manages installed extensions and their sources.
@@ -40,6 +44,7 @@ class ExtensionManager(
     private val trustService: TrustService,
     private val api: AnimeExtensionApi,
     val installer: ExtensionInstaller,
+    private val okhttpClient: OkHttpClient,
 ) {
 
     companion object {
@@ -62,6 +67,17 @@ class ExtensionManager(
 
     private val _sources = MutableStateFlow<Map<Long, AnimeSource>>(emptyMap())
     val sources: StateFlow<Map<Long, AnimeSource>> = _sources.asStateFlow()
+
+    /**
+     * Per-package install state (CORE_RULES §23 — live updates).
+     *
+     * Keyed by package name. When an install is in progress, the UI shows a
+     * spinner on the download button. Cleared when the install completes (the
+     * package-change broadcast triggers a re-scan, which moves the extension
+     * to installed/untrusted).
+     */
+    private val _installStates = MutableStateFlow<Map<String, InstallStep>>(emptyMap())
+    val installStates: StateFlow<Map<String, InstallStep>> = _installStates.asStateFlow()
 
     private val installReceiver = ExtensionInstallReceiver(InstallationListener())
 
@@ -110,6 +126,15 @@ class ExtensionManager(
         _installedExtensions.value = trusted
         _untrustedExtensions.value = untrusted
         _sources.value = sourceMap
+
+        // Clear install states for extensions that have now appeared (installed or untrusted).
+        val seenPkgs = trusted.map { it.pkgName } + untrusted.map { it.pkgName }
+        if (seenPkgs.isNotEmpty()) {
+            val cleared = _installStates.value.filterKeys { it !in seenPkgs }
+            if (cleared.size != _installStates.value.size) {
+                _installStates.value = cleared
+            }
+        }
 
         // Recompute hasUpdate/isObsolete on installed extensions.
         updateInstalledStatuses()
@@ -195,10 +220,72 @@ class ExtensionManager(
 
     /**
      * Install an available extension. Returns a flow of [InstallStep].
+     * Also tracks state in [_installStates] so the UI can show a spinner.
      */
     fun installExtension(extension: AnimeExtension.Available): Flow<InstallStep> {
         val apkUrl = api.getApkUrl(extension)
-        return installer.downloadAndInstall(apkUrl, extension)
+        return flow {
+            installMutex.withLock {
+                setInstallState(extension.pkgName, InstallStep.Pending)
+                emit(InstallStep.Pending)
+
+                // Download
+                setInstallState(extension.pkgName, InstallStep.Downloading)
+                emit(InstallStep.Downloading)
+                val tempFile = File(context.cacheDir, "ext-${extension.pkgName}-${extension.apkName}")
+                val downloaded = downloadApk(apkUrl, tempFile)
+                if (!downloaded) {
+                    tempFile.delete()
+                    setInstallState(extension.pkgName, InstallStep.Error)
+                    emit(InstallStep.Error)
+                    return@withLock
+                }
+
+                // Dispatch to install service
+                setInstallState(extension.pkgName, InstallStep.Installing)
+                emit(InstallStep.Installing)
+                val serviceIntent = ExtensionInstallService.newIntent(
+                    context,
+                    tempFile.absolutePath,
+                    extension.pkgName,
+                    downloadId = extension.versionCode,
+                )
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                // Terminal state (Installed/Error) arrives via the package-change
+                // broadcast → loadAll() re-scan. Clear the install state when the
+                // extension appears in the installed/untrusted list.
+            }
+        }.flowOn(Dispatchers.IO)
+    }
+
+    private val installMutex = kotlinx.coroutines.sync.Mutex()
+
+    private fun setInstallState(pkgName: String, step: InstallStep) {
+        _installStates.value = _installStates.value + (pkgName to step)
+    }
+
+    private suspend fun downloadApk(url: String, dest: File): Boolean {
+        return runCatching {
+            dest.parentFile?.mkdirs()
+            val response = okhttpClient.newCall(
+                okhttp3.Request.Builder().url(url).build()
+            ).execute()
+            if (!response.isSuccessful) {
+                Logger.e(TAG) { "Download failed: HTTP ${response.code}" }
+                return false
+            }
+            response.body?.byteStream()?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            } ?: return false
+            true
+        }.getOrElse { e ->
+            Logger.e(TAG, e) { "Download failed" }
+            false
+        }
     }
 
     /**

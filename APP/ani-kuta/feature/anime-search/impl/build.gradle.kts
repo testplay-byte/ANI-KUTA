@@ -15,6 +15,8 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:navigation-api"))
     implementation(project(":core:preferences"))
+    implementation(project(":core:source-api"))
+    implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

@@ -1,7 +1,9 @@
 package com.confused.anikuta.data.extension.loader
 
 import android.content.Context
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.model.LoadResult
@@ -12,12 +14,24 @@ import eu.kanade.tachiyomi.animesource.AnimeSourceFactory
 import java.security.MessageDigest
 
 /**
- * Loads extension APKs at runtime using a DEX classloader.
+ * Loads Aniyomi-compatible anime extensions installed on the device.
  *
- * Ported from the old project with adaptations for the new AnimeExtension sealed
- * class. Scans for installed packages that declare the extension metadata,
- * loads their DEX files via [PathClassLoader], and instantiates the [AnimeSource]
- * implementations.
+ * Ported from the old project's `AnimeExtensionLoader` (which was ported from
+ * the Aniyomi reference). An extension is an ordinary APK whose manifest declares:
+ * - `<uses-feature android:name="tachiyomi.animeextension"/>` (the feature flag)
+ * - `<meta-data android:name="tachiyomi.animeextension.class" android:value="..."/>` (source FQCNs)
+ *
+ * CRITICAL: The metadata keys MUST match the Aniyomi convention exactly — real
+ * Aniyomi extensions use `tachiyomi.animeextension.*`, NOT `ani.source.*`.
+ * Using the wrong keys means installed extensions are invisible (D-027).
+ *
+ * Algorithm:
+ * 1. Query [PackageManager] for packages with the `tachiyomi.animeextension` feature.
+ * 2. Validate the lib version (parsed from versionName) is in 12.0..16.0.
+ * 3. SHA-256 hash the signing certificate → ask [TrustService] if it's trusted.
+ * 4. Build a child-first [PathClassLoader] so the extension's bundled deps win.
+ * 5. Instantiate each declared source class (or factory).
+ * 6. Return a [LoadResult] (Success / Untrusted / Error).
  *
  * CORE_RULES §20: All operations logged with tag "Anikuta:Data:Extension:Loader".
  */
@@ -29,11 +43,21 @@ class ExtensionLoader(
     companion object {
         private const val TAG = "Anikuta:Data:Extension:Loader"
 
-        /** The meta-data key declaring the extension's source class. */
-        private const val METADATA_SOURCE_CLASS = "ani.source.class"
+        /** The `<uses-feature>` name that marks a package as an anime extension. */
+        private const val EXTENSION_FEATURE = "tachiyomi.animeextension"
 
-        /** The meta-data key for the NSFW flag. */
-        private const val METADATA_IS_NSFW = "ani.extension.nsfw"
+        /** Meta-data key listing source class FQCNs (semicolon-separated). */
+        private const val METADATA_SOURCE_CLASS = "tachiyomi.animeextension.class"
+
+        /** Meta-data key for the NSFW flag (1 = NSFW). */
+        private const val METADATA_NSFW = "tachiyomi.animeextension.nsfw"
+
+        /** Meta-data key for the torrent flag (1 = supports torrents). */
+        private const val METADATA_TORRENT = "tachiyomi.animeextension.torrent"
+
+        /** Acceptable source-api library version range (matches Aniyomi). */
+        const val LIB_VERSION_MIN = 12.0
+        const val LIB_VERSION_MAX = 16.0
     }
 
     /**
@@ -44,14 +68,19 @@ class ExtensionLoader(
         Logger.i(TAG) { "Loading all extensions..." }
 
         val packageManager = context.packageManager
-        val flags = PackageManager.GET_META_DATA or PackageManager.GET_SIGNATURES
+        val flags = packageQueryFlags()
 
-        val extensionPackages = packageManager.getInstalledPackages(flags)
-            .filter { it.applicationInfo?.metaData?.containsKey(METADATA_SOURCE_CLASS) == true }
+        val installedPkgs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getInstalledPackages(PackageManager.PackageInfoFlags.of(flags.toLong()))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getInstalledPackages(flags)
+        }
 
-        Logger.i(TAG) { "Found ${extensionPackages.size} extension packages" }
+        val extPkgs = installedPkgs.filter { isPackageAnExtension(it) }
+        Logger.i(TAG) { "Found ${extPkgs.size} extension packages" }
 
-        return extensionPackages.map { pkg -> loadExtension(pkg.packageName) }
+        return extPkgs.map { pkg -> loadExtension(pkg.packageName) }
     }
 
     /**
@@ -60,95 +89,175 @@ class ExtensionLoader(
     fun loadExtension(packageName: String): LoadResult {
         Logger.d(TAG) { "Loading extension: $packageName" }
 
-        return try {
-            val packageManager = context.packageManager
-            val flags = PackageManager.GET_META_DATA or PackageManager.GET_SIGNATURES
-            val packageInfo = packageManager.getPackageInfo(packageName, flags)
-            val appInfo = packageInfo.applicationInfo!!
-
-            val sourceClassName = appInfo.metaData?.getString(METADATA_SOURCE_CLASS)
-            if (sourceClassName == null) {
-                Logger.w(TAG) { "No source class in metadata for $packageName" }
-                return LoadResult.Error(packageName, "No source class in metadata")
-            }
-
-            val signatureFingerprint = packageInfo.signatures?.firstOrNull()?.let {
-                calculateFingerprint(it.toByteArray())
-            }
-
-            val versionName = packageInfo.versionName ?: "unknown"
-            val versionCode = if (packageInfo.longVersionCode != 0L) {
-                packageInfo.longVersionCode
+        val packageInfo = try {
+            val flags = packageQueryFlags()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(flags.toLong()))
             } else {
-                packageInfo.versionCode.toLong()
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(packageName, flags)
             }
-            val libVersion = AnimeExtension.parseLibVersion(versionName)
-            val isNsfw = appInfo.metaData?.getBoolean(METADATA_IS_NSFW, false) ?: false
-            val displayName = packageManager.getApplicationLabel(appInfo).toString()
+        } catch (e: PackageManager.NameNotFoundException) {
+            Logger.w(TAG) { "Extension package not found: $packageName" }
+            return LoadResult.Error(packageName, "Package not found")
+        }
 
-            // Check trust.
-            if (!trustService.isTrusted(signatureFingerprint)) {
-                Logger.w(TAG) { "Extension $packageName is untrusted (fingerprint: $signatureFingerprint)" }
-                return LoadResult.Untrusted(
-                    AnimeExtension.Untrusted(
-                        name = displayName,
-                        pkgName = packageName,
-                        versionName = versionName,
-                        versionCode = versionCode,
-                        libVersion = libVersion,
-                        signatureHash = signatureFingerprint ?: "",
-                        isNsfw = isNsfw,
-                    )
+        if (!isPackageAnExtension(packageInfo)) {
+            return LoadResult.UnrecognizedExtension
+        }
+
+        return loadExtensionInternal(packageInfo)
+    }
+
+    private fun loadExtensionInternal(packageInfo: PackageInfo): LoadResult {
+        val pkgName = packageInfo.packageName
+        val appInfo = packageInfo.applicationInfo!!
+
+        val packageManager = context.packageManager
+        val rawName = packageManager.getApplicationLabel(appInfo).toString()
+        val extName = rawName.substringAfter("Aniyomi: ").substringAfter("Animiru: ")
+        val versionName = packageInfo.versionName ?: run {
+            Logger.w(TAG) { "Missing versionName for $pkgName" }
+            return LoadResult.Error(pkgName, "Missing versionName")
+        }
+        val versionCode = getLongVersionCode(packageInfo)
+
+        // Validate lib version.
+        val libVersion = versionName.substringBeforeLast('.').toDoubleOrNull()
+        if (libVersion == null || libVersion < LIB_VERSION_MIN || libVersion > LIB_VERSION_MAX) {
+            Logger.w(TAG) { "Lib version $libVersion out of range for $extName" }
+            return LoadResult.Error(pkgName, "Lib version $libVersion out of range")
+        }
+
+        // Get signature fingerprint.
+        val signatureFingerprint = getSignatures(packageInfo)?.firstOrNull()
+        if (signatureFingerprint == null) {
+            Logger.w(TAG) { "Package $pkgName isn't signed" }
+            return LoadResult.Error(pkgName, "Package not signed")
+        }
+
+        // Check trust.
+        if (!trustService.isTrusted(signatureFingerprint)) {
+            Logger.w(TAG) { "Extension $pkgName is untrusted (fingerprint: $signatureFingerprint)" }
+            return LoadResult.Untrusted(
+                AnimeExtension.Untrusted(
+                    name = extName,
+                    pkgName = pkgName,
+                    versionName = versionName,
+                    versionCode = versionCode,
+                    libVersion = libVersion,
+                    signatureHash = signatureFingerprint,
                 )
-            }
-
-            // Load the DEX file + instantiate sources.
-            val sourceApk = appInfo.sourceDir
-            val nativeLibDir = appInfo.nativeLibraryDir
-            val classLoader = PathClassLoader(sourceApk, nativeLibDir, context.classLoader)
-            val sources = loadSources(classLoader, sourceClassName)
-
-            val extension = AnimeExtension.Installed(
-                name = displayName,
-                pkgName = packageName,
-                versionName = versionName,
-                versionCode = versionCode,
-                libVersion = libVersion,
-                lang = null,
-                isNsfw = isNsfw,
-                isTorrent = false,
-                sources = sources,
             )
+        }
 
-            Logger.i(TAG) { "Loaded: ${extension.name} v${extension.versionName} (${sources.size} sources)" }
-            LoadResult.Success(extension)
+        // Read metadata.
+        val isNsfw = appInfo.metaData?.getInt(METADATA_NSFW, 0) == 1
+        val isTorrent = appInfo.metaData?.getInt(METADATA_TORRENT, 0) == 1
+        val sourceClassName = appInfo.metaData?.getString(METADATA_SOURCE_CLASS)
+            ?: run {
+                Logger.w(TAG) { "No source class metadata for $pkgName" }
+                return LoadResult.Error(pkgName, "No source class metadata")
+            }
+
+        // Build a child-first classloader so the extension's bundled deps win.
+        val classLoader = try {
+            ChildFirstPathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, context.classLoader)
         } catch (e: Exception) {
-            Logger.e(TAG, e) { "Failed to load $packageName: ${e.message}" }
-            LoadResult.Error(packageName, e.message ?: "Unknown error")
+            Logger.e(TAG, e) { "Failed to create classloader for $pkgName" }
+            return LoadResult.Error(pkgName, "Classloader error: ${e.message}")
+        }
+
+        // Instantiate sources.
+        val sources = sourceClassName.split(";").map { it.trim() }.flatMap { fqcn ->
+            val resolved = if (fqcn.startsWith(".")) pkgName + fqcn else fqcn
+            instantiateSource(resolved, classLoader, extName)
+        }
+
+        if (sources.isEmpty()) {
+            Logger.w(TAG) { "No sources instantiated from $pkgName" }
+            return LoadResult.Error(pkgName, "No sources instantiated")
+        }
+
+        val extension = AnimeExtension.Installed(
+            name = extName,
+            pkgName = pkgName,
+            versionName = versionName,
+            versionCode = versionCode,
+            libVersion = libVersion,
+            lang = null,
+            isNsfw = isNsfw,
+            isTorrent = isTorrent,
+            sources = sources,
+        )
+
+        Logger.i(TAG) { "Loaded: ${extension.name} v${extension.versionName} (${sources.size} sources)" }
+        return LoadResult.Success(extension)
+    }
+
+    /**
+     * Check if a package declares the `tachiyomi.animeextension` feature.
+     */
+    private fun isPackageAnExtension(pkgInfo: PackageInfo): Boolean {
+        return pkgInfo.reqFeatures.orEmpty().any { it.name == EXTENSION_FEATURE }
+    }
+
+    /**
+     * Instantiate a source class. Handles both [AnimeSource] and [AnimeSourceFactory].
+     */
+    private fun instantiateSource(fqcn: String, classLoader: ClassLoader, extName: String): List<AnimeSource> {
+        return try {
+            val clazz = Class.forName(fqcn, false, classLoader)
+            when {
+                AnimeSourceFactory::class.java.isAssignableFrom(clazz) -> {
+                    val factory = clazz.getDeclaredConstructor().newInstance() as AnimeSourceFactory
+                    factory.createSources()
+                }
+                AnimeSource::class.java.isAssignableFrom(clazz) -> {
+                    listOf(clazz.getDeclaredConstructor().newInstance() as AnimeSource)
+                }
+                else -> {
+                    Logger.w(TAG) { "Class $fqcn in $extName is neither AnimeSource nor AnimeSourceFactory" }
+                    emptyList()
+                }
+            }
+        } catch (e: Throwable) {
+            // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError (an Error).
+            Logger.e(TAG, e) { "Failed to instantiate $fqcn in $extName: ${e.message}" }
+            emptyList()
         }
     }
 
-    private fun loadSources(classLoader: ClassLoader, className: String): List<AnimeSource> {
-        val clazz = Class.forName(className, false, classLoader)
-
-        return when {
-            AnimeSourceFactory::class.java.isAssignableFrom(clazz) -> {
-                val factory = clazz.getDeclaredConstructor().newInstance() as AnimeSourceFactory
-                factory.createSources()
+    /**
+     * SHA-256 hash the signing certificates. Returns all signatures (history + current).
+     */
+    private fun getSignatures(pkgInfo: PackageInfo): List<String>? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = pkgInfo.signingInfo ?: return null
+            val certs = if (signingInfo.hasMultipleSigners()) {
+                signingInfo.apkContentsSigners
+            } else {
+                signingInfo.signingCertificateHistory
             }
-            AnimeSource::class.java.isAssignableFrom(clazz) -> {
-                listOf(clazz.getDeclaredConstructor().newInstance() as AnimeSource)
-            }
-            else -> {
-                Logger.w(TAG) { "Class $className is neither AnimeSource nor AnimeSourceFactory" }
-                emptyList()
-            }
+            certs?.map { sha256(it.toByteArray()) }
+        } else {
+            @Suppress("DEPRECATION")
+            pkgInfo.signatures?.map { sha256(it.toByteArray()) }
         }
     }
 
-    private fun calculateFingerprint(signature: ByteArray): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hash = digest.digest(signature)
-        return hash.joinToString(":") { "%02X".format(it) }
+    private fun sha256(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
     }
+
+    private fun packageQueryFlags(): Int =
+        PackageManager.GET_CONFIGURATIONS or
+            PackageManager.GET_META_DATA or
+            PackageManager.GET_SIGNATURES or
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else 0)
+
+    private fun getLongVersionCode(pkgInfo: PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pkgInfo.longVersionCode
+        else @Suppress("DEPRECATION") pkgInfo.versionCode.toLong()
 }
