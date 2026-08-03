@@ -67,6 +67,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.AnikutaMPVView
 import com.confused.anikuta.core.player.PlayerInitializer
+import com.confused.anikuta.core.player.PlayerLoadingState
 import com.confused.anikuta.core.player.PlayerMode
 import com.confused.anikuta.core.player.PlayerObserver
 import com.confused.anikuta.core.player.PlayerStateHolder
@@ -127,7 +128,7 @@ fun WatchScreen(
     val context = LocalContext.current
     val stateHolder = remember { PlayerStateHolder() }
     val episodeList = remember { watchKey.parseEpisodeList() }
-    val playerPreferences = org.koin.compose.koinInject<com.confused.anikuta.core.preferences.PlayerPreferences>()
+    val playerPreferences = koinInject<com.confused.anikuta.core.preferences.PlayerPreferences>()
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
     var mpvInitialized by remember { mutableStateOf(false) }

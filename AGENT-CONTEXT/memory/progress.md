@@ -3,7 +3,7 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**Phase 4 — FEATURE SCREENS (in progress).** Core modules (Phase 3) complete. Library, Search, More, Settings, Appearance built. UI polish + accent palette system done this session. Next: finish Phase 4 loose ends → plan Phase 5 (identity system, watch screen, backup/restore).
+**Phase 5c — WATCH SCREEN (mostly complete).** Phase 4 feature screens + Phase 5a (extensions) + Phase 5b (details) done. Phase 5c player overhaul done this session: video playback fixed (initOptions ported), top-padding bug fixed, loading overlay fixed, QualitySheet ported (3-tier server→audio→video), SubtitleSettingsSheet ported (typography/colors/position + NumericEntrySheet + ColorPickerSheet), SubtitleTracksSheet wired, PlayerInitializer simplified, configChanges uiMode added. Next: device testing, episode switching, resume position, top-nav polish.
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -19,38 +19,44 @@
   - 4b: Library (grid/list + sort + customize sheet), Search (filter sheet), More, Settings, Appearance (General).
   - Theming: light/dark/AMOLED, accent palette system (D-053 — 10 functional presets + CUSTOM), header blur, adaptive colors.
   - UX: smooth animations (CollapsingHeader, ScrollBlurOverlay, scale-on-press), back gesture (BackHandler), bottom-nav hidden on sub-screens.
-- [x] **This session (web-3a43f99b)**:
-  - Library CustomizeSheet height: cap WHOLE column at 70% screen height (was capping inner list only → exceeded limit). Same for search FilterSheet.
-  - Browse: added "Browse" CollapsingHeader heading (was missing).
-  - Accent palette system: AccentPreset + AccentColors in :core:designsystem, AnikutaTheme accent override, ThemePreferences storage, functional PalettesCarousel (live apply + selection ring + improved card UI).
-  - Docs catch-up: progress.md, changelog (Phase 3+4), decisions D-052/D-053, lessons-learned, SESSION.md.
+- [x] **Phase 5a — Extension Management (done)**: AnimeExtension sealed class, repo system, installer system, AnimeExtensionApi, `:feature:extensions-settings` module, Nav wiring, manifest permissions + service.
+- [x] **Phase 5b — Details Page Overhaul (done)**: DetailsViewModel (source linking, fetchEpisodes, searchSource, resolveEpisode), DetailsScreen wired, ManualSearchSheet, ResolverSheet, WatchKey.
+- [x] **Phase 5c — Watch Screen (mostly complete)** ✅ — player overhaul this session:
+  - **Animiru repo cloned** to `REFERENCES/animiru/ANIMIRU/` + 11 documentation files (8,101 lines) in `REFERENCES/animiru/documentation/` (read-only reference, no code copied — D-065).
+  - **Video playback fixed** (audio but no video). ROOT CAUSE: `AnikutaMPVView.initOptions()` was EMPTY — `setVo("gpu")` was never called → MPV had no video output. Ported full `initOptions()` from old project: `setVo`, `profile=fast`, `hwdec=auto` (NOT `auto-copy`), `demuxer-max-bytes=256MB`, `vd-lavc-film-grain=cpu`, all 12 subtitle prefs via `setOptionString`, `tls-ca-file`, etc. (D-061).
+  - **Top padding bug fixed**. ROOT CAUSE: `WatchScreen`'s `DisposableEffect(playerMode)` called `setDecorFitsSystemWindows(true)` in minimized mode, conflicting with `enableEdgeToEdge()`. Empty `onDispose` left window corrupted → double top padding on Browse/Library after exiting player. Fixed: removed the `true` call + added cleanup in `onDispose` (D-062).
+  - **Loading failed overlay fixed**. ROOT CAUSE: `PlayerObserver` didn't clear error state on `FILE_LOADED`. Fixed: `onEvent(FILE_LOADED)` now calls `updateError(null)` + `updateLoadingState(READY)` + loads tracks.
+  - **QualitySheet ported** — replaced placeholder with full accordion server list + quality chips. Created `ResolverServer`/`ResolverAudioVersion`/`ResolverVideo` data classes + `ResolvedVideosRegistry` (in-memory singleton — D-063). `DetailsViewModel.resolveEpisode` now also calls `resolveStructured`. Quality switching = re-loadfile.
+  - **SubtitleSettingsSheet ported** — sticky header + 3 sections (Typography / Colors / Position & Misc) + `NumericEntrySheet` (custom keypad) + `ColorPickerSheet` (preset swatches + RGBA sliders). All 12 subtitle prefs added to `PlayerPreferences`. `applySubtitlePreferences()` uses `setPropertyInt`/`setPropertyDouble` for numerics. Uses non-reactive `PlayerPreferences` with local `mutableStateOf` (D-064 — simpler than porting old reactive `Preference<T>` API).
+  - **SubtitleTracksSheet** — wired `onOpenSettings` callback to swap to `SubtitleSettingsSheet`.
+  - **PlayerInitializer** — simplified mpv.conf (removed `cache=yes`, `hwdec=auto-copy`, `hwdec-codecs`, `sub-ass-force-margins` from conf — now set via `setOptionString` in `initOptions`).
+  - **configChanges** — added `uiMode` (theme toggle no longer recreates Activity).
 
 ## What's Next
-1. **Phase 4 loose ends** (verify in next CI build): library sheet 70% cap, browse heading, accent palettes applying live, light-mode theming across all screens.
-2. **Phase 5 — Functional App** (plan rewritten this session, D-054):
-   - **5a Extension Management** — 🚧 IN PROGRESS (data layer + UI done, source-browse-in-search pending):
-     - ✅ AnimeExtension sealed class (Installed/Available/Untrusted)
-     - ✅ Repo system (ExtensionRepo, ExtensionRepoApi, ExtensionRepoRepository, RepoVerificationResult)
-     - ✅ Installer system (InstallStep, ExtensionInstaller, ExtensionInstallService, PackageInstallerBackend, ExtensionInstallReceiver)
-     - ✅ AnimeExtensionApi (orchestrator), updated ExtensionManager (full), updated DI
-     - ✅ `:feature:extensions-settings` module (ExtensionsSettingsScreen + ExtensionRepoSettingsScreen)
-     - ✅ Nav wiring (Settings → Extensions → Repo settings), manifest permissions + service
-     - ⏳ Source browsing merged into Search page (D-055) — pending
-   - **5b** Details Page Overhaul — pending (needs UnifiedAnime, provider registry, SourceMatcher, episodes, source linking, resolver sheet)
-   - **5c** Watch Screen — pending (split old 2386-LOC screen, MPV via AndroidView, resume, episode nav)
-   - **5d** Identity System → **5e** History/Updates → **5f** Backup/Color-picker
-   - Full plan: `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`. Decisions D-055..D-060 confirmed.
+1. **Phase 5c device testing + loose ends** (verify in next CI build):
+   - On-device test: video actually renders (initOptions fix), no top padding after exiting player, loading overlay clears on FILE_LOADED, quality switching works, subtitle settings apply live.
+   - Episode switching inside WatchScreen (next/previous episode from minimized list — needs `PlayerStateHolder` fields: `episodeList`, `currentEpisodeIndex`, `isSwitchingEpisode`).
+   - Resume position (wire `WatchProgressStore` — save on pause/exit, restore on loadfile).
+   - Top-nav bar polish (minimized mode pill header — verify collapse-on-scroll).
+2. **Phase 5 — Functional App** (plan in D-054, `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`):
+   - **5a Extension Management** — ✅ DONE (data + UI + installer + repos + nav).
+   - **5b Details Page Overhaul** — ✅ DONE (DetailsViewModel + ManualSearchSheet + ResolverSheet + WatchKey).
+   - **5c Watch Screen** — ✅ MOSTLY DONE (player overhaul done this session; episode switching + resume pending).
+   - **5d** Identity System → **5e** History/Updates → **5f** Backup/Color-picker.
+   - Decisions D-055..D-065 confirmed.
 3. **Phase 6+**: Ad system + activity-tracker UI (D-033), notifications (D-029, needs 5e), manga reader (D-030), novels.
 
 ## Blockers / Open Questions
-- None blocking. Phase 4 UI work needs device verification (CI builds APK; user tests).
+- Nothing blocking. Phase 5c player overhaul needs device verification (CI builds APK; user tests on real device — verify video renders, no top-padding bug, quality switch, subtitle settings apply live).
+- Episode switching inside WatchScreen pending (needs PlayerStateHolder fields).
+- Resume position pending (WatchProgressStore wiring).
 - Custom color picker (palette editor) deferred to Phase 5f.
-- Q-056..Q-061 (Phase 5 plan §9) need user answers before/while starting 5a.
+- Q-056..Q-061 (Phase 5 plan §9) all answered (D-055..D-060).
 
 ## Known doc debt
 - None currently (caught up this session). CORE_RULES §26 now enforces continuous verification.
 
 ## Last Updated
-- Session: web-3a43f99b-57b3-4d89-a26a-63737d005c8f (second pass)
-- By: main agent
-- Note: Phase 5 plan RE-ORDERED (D-054): extensions → details → watch FIRST, identity LATER. CORE_RULES §26 added (documentation verification). Dashboard stale "Phase 3" sidebar + scrolling-header issue to be fixed by sub-agent.
+- Session: web-3a43f99b (eleventh pass) — Phase 5c player overhaul
+- By: main agent (player overhaul) + documentation subagent (DOCS-UPDATE)
+- Note: Phase 5c player overhaul complete — initOptions ported (D-061), top-padding bug fixed (D-062), ResolvedVideosRegistry (D-063), SubtitleSettingsSheet with non-reactive prefs (D-064), Animiru repo cloned as read-only reference (D-065). Next: device testing + episode switching + resume position.

@@ -58,8 +58,8 @@ ANIKUTA-PROJECT/
 ```
 
 ## ❓ Currently Blocked On
-- Nothing. Phase 3 (core modules) complete. Phase 4 (feature screens) mostly done — UI polish + accent palette system done this session.
-- Next: finish Phase 4 loose ends (verify in CI) → Phase 5 (identity system, watch screen, backup/restore). Plan in `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`.
+- Nothing. Phase 5c (Watch Screen) player overhaul done this session — video playback fixed (initOptions ported, D-061), top-padding bug fixed (D-062), loading overlay fixed, QualitySheet ported (3-tier + ResolvedVideosRegistry, D-063), SubtitleSettingsSheet ported (D-064), Animiru repo cloned as read-only reference (D-065), configChanges uiMode added.
+- Next: **device testing** (verify all 5 fixes on a real device via CI APK) → episode switching inside WatchScreen (next/prev) → resume position (wire `WatchProgressStore`) → top-nav pill polish → Phase 5d (Identity System).
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*
