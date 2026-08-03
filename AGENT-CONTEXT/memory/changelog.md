@@ -145,3 +145,19 @@
 - **Details three-dot menu position fix**: Moved DropdownMenu from a TopEnd-aligned overlay (was showing at bottom-left) INTO the banner's action row, wrapped in a Box with the MoreHoriz button. Now the menu appears anchored to the button (proper Compose DropdownMenu behavior).
 - **Search source picker icons**: Added `sourceIcons: StateFlow<Map<Long, Drawable>>` to SearchViewModel — maps each source ID to its parent extension's icon. ExtensionSourcePickerSheet now renders a 32dp extension icon on the left side of each source row (via Coil AsyncImage).
 - **Lessons logged**: Injekt registration must happen in App.onCreate() before any extension loads (injectLazy is deferred but must resolve by first HTTP call). DropdownMenu must be wrapped in a Box with its anchor button (not overlaid at a fixed position).
+
+## Session web-3a43f99b (seventh pass) — Phase 5B Details episodes + source selection + resolver → watch
+- **DetailsViewModel rewritten** — manages the full episode → watch flow:
+  - Source linking (persisted per-anilist-id in PreferenceStore as `"sourceId:animeUrl"`).
+  - `fetchEpisodes()` — fetches from linked source via `fetchEpisodeList().awaitSingle()`.
+  - `searchSource()` — manual search of a single source by title.
+  - `resolveEpisode()` — resolves videos via `VideoResolver`.
+  - Reactive state: `availableSources`, `linkedSource`, `episodeState`, `manualSearchState`, `resolverState`.
+- **DetailsScreen rewritten** — wires EpisodesSection to VM state. Source selector pill shows linked source name. EpisodesSection states: Idle (placeholder), Loading, Empty, Error (with "Try another source" button), Loaded (episode rows with number badge + title, descending per D-056, unlink button at bottom). Episode tap → resolveEpisode() → ResolverSheet.
+- **ManualSearchSheet (new)** — bottom sheet for source selection. Header "Link Source" + close. Horizontal source picker (chips). Search field (pre-filled with anime title). Results list (SAnime candidates with thumbnail + title). Tap a result → linkSource() → episodes fetch.
+- **ResolverSheet (new)** — bottom sheet for video selection. Header "Pick a video" + close. States: Loading, Error, Success (video list with quality + Direct/Stream label). Tap a video → onNavigateToWatch(videoUrl, title, quality).
+- **WatchKey (new, temporary)** — carries videoUrl + animeTitle + quality. Phase 5c will replace with a proper `:feature:watch` module + WatchRequest.
+- **Navigation wired** — DetailsScreen.onNavigateToWatch → backstack.add(WatchKey). MainActivity handles WatchKey → placeholder screen (Phase 5c will replace with the actual MPV player).
+- **Architecture note**: This is the temporary Phase 5B implementation. Uses AniListAnime for metadata + a simple source_link string in PreferenceStore. Phase 5d will migrate to UnifiedAnime + ContentUID + ExternalReference. The source linking is per-anilist-id — when the user opens the same anime again, the link is restored + episodes auto-fetch.
+- **Dependencies added to :feature:anime-details:impl**: `:core:preferences`, `:core:source-api`, `:core:video-resolver`, `:data:extension`, `rxjava` (for Observable.awaitSingle).
+- **Lessons logged**: awaitSingle import from `eu.kanade.tachiyomi.util`, when exhaustiveness on sealed interfaces (must handle all branches or add else).
