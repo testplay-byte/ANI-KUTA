@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -128,6 +127,7 @@ fun WatchScreen(
     val context = LocalContext.current
     val stateHolder = remember { PlayerStateHolder() }
     val episodeList = remember { watchKey.parseEpisodeList() }
+    val playerPreferences = org.koin.compose.koinInject<com.confused.anikuta.core.preferences.PlayerPreferences>()
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
     var mpvInitialized by remember { mutableStateOf(false) }
@@ -150,6 +150,16 @@ fun WatchScreen(
     }
 
     // ── Immersive mode + orientation for fullscreen ──
+    // CRITICAL (top-padding bug fix): The previous code called
+    // `setDecorFitsSystemWindows(window, true)` in minimized mode, which
+    // conflicts with `enableEdgeToEdge()` in MainActivity (which sets it to
+    // `false`). When the user left WatchScreen, the empty `onDispose` left the
+    // window in `setDecorFitsSystemWindows=true` state → every subsequent
+    // screen got DOUBLE top padding (Android auto-pad + Compose statusBarsPadding).
+    //
+    // Fix (aligned with old project's pattern):
+    // - Only set `false` in fullscreen (never `true` in minimized).
+    // - `onDispose` restores the app-wide edge-to-edge defaults.
     DisposableEffect(playerMode) {
         val window = (context as? Activity)?.window
         if (window != null) {
@@ -160,12 +170,24 @@ fun WatchScreen(
                 controller.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             } else {
-                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, true)
+                // MINIMIZED: only show the bars. Do NOT flip setDecorFitsSystemWindows
+                // to true — that conflicts with enableEdgeToEdge() in MainActivity
+                // and leaves the next screen with double top padding.
                 controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
-        onDispose { }
+        onDispose {
+            // Leaving WatchScreen: restore the app-wide edge-to-edge defaults so
+            // the next screen sees a clean window (no leaked orientation, no
+            // hidden bars, no DecorFitsSystemWindows=true).
+            val w = (context as? Activity)?.window ?: return@onDispose
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
+            androidx.core.view.WindowInsetsControllerCompat(w, w.decorView)
+                .show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            (context as? Activity)?.requestedOrientation =
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
     }
 
     // ── Back handler — only intercept in fullscreen (minimized → exit) ──
@@ -188,12 +210,27 @@ fun WatchScreen(
         if (isVideoFinished) stateHolder.updateControlsVisible(true)
     }
 
+    // ── Resolved servers (for QualitySheet) ──
+    // Read from the registry if the Details screen passed a key.
+    val resolvedServers = remember(watchKey.resolvedVideosKey) {
+        if (watchKey.resolvedVideosKey.isNotBlank()) {
+            com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry.get(watchKey.resolvedVideosKey)
+                ?: emptyList()
+        } else emptyList()
+    }
+    var currentVideoTitle by remember { mutableStateOf("") }
+    var currentVideoUrl by remember { mutableStateOf(watchKey.videoUrl) }
+    var currentVideoHeaders by remember { mutableStateOf(watchKey.videoHeaders) }
+    var currentServerName by remember { mutableStateOf("") }
+    var currentAudioVersion by remember { mutableStateOf("") }
+
     // ── Init MPV + load video (once) ──
     val initMpv: (AnikutaMPVView) -> Unit = remember {
         { view ->
             if (!mpvInitialized) {
                 mpvInitialized = true
                 val obs = PlayerObserver(stateHolder)
+                obs.mpvView = view  // Wire so observer can call loadTracks() on FILE_LOADED
 
                 PlayerInitializer.initialize(context, view)
 
@@ -220,9 +257,7 @@ fun WatchScreen(
 
                 // CRITICAL: Set HTTP headers BEFORE loadfile.
                 // Without proper headers, upstream servers return 403 Forbidden.
-                // The old project always sets http-header-fields with either the
-                // extension's headers or a full browser UA fallback.
-                val headers = if (watchKey.videoHeaders.isNotBlank()) watchKey.videoHeaders
+                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                     else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                 try {
                     MPVLib.setOptionString("http-header-fields", headers)
@@ -231,8 +266,8 @@ fun WatchScreen(
                     Logger.w(TAG) { "Failed to set http-header-fields: ${e.message}" }
                 }
 
-                Logger.i(TAG) { "Loading video: ${watchKey.videoUrl}" }
-                MPVLib.command(arrayOf("loadfile", watchKey.videoUrl, "replace"))
+                Logger.i(TAG) { "Loading video: $currentVideoUrl" }
+                MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
                 MPVLib.setPropertyBoolean("pause", false)
             }
         }
@@ -253,6 +288,39 @@ fun WatchScreen(
     // Sheet visibility state (shared between minimized + fullscreen)
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showQualitySheet by remember { mutableStateOf(false) }
+    var showSubtitleSettingsSheet by remember { mutableStateOf(false) }
+
+    // ── Quality switch handler — re-loadfile with new video ──
+    val onQualitySelected: (com.confused.anikuta.core.videoresolver.ResolverVideo) -> Unit = { video ->
+        Logger.i(TAG) { "Quality selected: ${video.quality} (${video.url})" }
+        currentVideoUrl = video.url
+        currentVideoTitle = video.videoTitle
+        currentVideoHeaders = video.videoHeaders ?: ""
+        // Set new headers + loadfile
+        try {
+            val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+            MPVLib.setOptionString("http-header-fields", headers)
+            MPVLib.command(arrayOf("loadfile", video.url, "replace"))
+            stateHolder.updateError(null)  // clear any previous error
+            stateHolder.updateLoadingState(PlayerLoadingState.LOADING)
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Failed to switch quality" }
+        }
+    }
+
+    // ── Subtitle track selection handler ──
+    val onSubtitleSelected: (Int) -> Unit = { trackId ->
+        try {
+            if (trackId <= 0) {
+                MPVLib.setPropertyString("sid", "no")
+            } else {
+                MPVLib.setPropertyInt("sid", trackId)
+            }
+        } catch (e: Exception) {
+            Logger.w(TAG) { "Failed to set subtitle track: ${e.message}" }
+        }
+    }
 
     if (playerMode == PlayerMode.FULLSCREEN) {
         FullscreenMode(
@@ -291,19 +359,34 @@ fun WatchScreen(
         SubtitleTracksSheet(
             tracks = stateHolder.subtitleTracks.collectAsState().value,
             currentTrackId = stateHolder.currentSubtitleTrack.collectAsState().value,
-            onTrackSelected = { trackId ->
-                if (trackId <= 0) MPVLib.setPropertyString("sid", "no")
-                else MPVLib.setPropertyInt("sid", trackId)
-            },
+            onTrackSelected = onSubtitleSelected,
             onDismiss = { showSubtitleSheet = false },
+            onOpenSettings = {
+                showSubtitleSheet = false
+                showSubtitleSettingsSheet = true
+            },
         )
     }
 
     if (showQualitySheet) {
-        // TODO: QualitySheet — needs resolvedServers from the resolver state.
-        // For now, a placeholder sheet.
-        QualitySheetPlaceholder(
+        QualitySheet(
+            servers = resolvedServers,
+            currentVideoTitle = currentVideoTitle,
+            onQualitySelected = onQualitySelected,
             onDismiss = { showQualitySheet = false },
+            currentServerName = currentServerName,
+            currentAudioVersion = currentAudioVersion,
+        )
+    }
+
+    if (showSubtitleSettingsSheet) {
+        com.confused.anikuta.core.player.controls.SubtitleSettingsSheet(
+            playerPreferences = playerPreferences,
+            onApplySettings = {
+                try { mpvView?.applySubtitlePreferences() }
+                catch (e: Exception) { Logger.w(TAG) { "Failed to apply subtitle settings: ${e.message}" } }
+            },
+            onDismiss = { showSubtitleSettingsSheet = false },
         )
     }
 }

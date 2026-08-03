@@ -1,0 +1,77 @@
+package tachiyomi.data.track
+
+import app.cash.sqldelight.async.coroutines.awaitAsList
+import app.cash.sqldelight.async.coroutines.awaitAsOneOrNull
+import kotlinx.coroutines.flow.Flow
+import tachiyomi.data.Database
+import tachiyomi.data.subscribeToList
+import tachiyomi.data.track.TrackMapper.mapTrack
+import tachiyomi.domain.track.model.Track
+import tachiyomi.domain.track.repository.TrackRepository
+
+class TrackRepositoryImpl(
+    private val database: Database,
+) : TrackRepository {
+
+    override suspend fun getTrackById(id: Long): Track? {
+        return database.anime_syncQueries.getTrackById(id, TrackMapper::mapTrack).awaitAsOneOrNull()
+    }
+
+    override suspend fun getTracksByAnimeId(animeId: Long): List<Track> {
+        return database.anime_syncQueries.getTracksByAnimeId(animeId, TrackMapper::mapTrack).awaitAsList()
+    }
+
+    override fun getTracksAsFlow(): Flow<List<Track>> {
+        return database.anime_syncQueries.getTracks(TrackMapper::mapTrack)
+            .subscribeToList()
+    }
+
+    override fun getTracksByAnimeIdAsFlow(animeId: Long): Flow<List<Track>> {
+        return database.anime_syncQueries.getTracksByAnimeId(animeId, TrackMapper::mapTrack)
+            .subscribeToList()
+    }
+
+    override suspend fun delete(animeId: Long, trackerId: Long) {
+        database.anime_syncQueries.delete(
+            animeId = animeId,
+            syncId = trackerId,
+        )
+    }
+
+    override suspend fun insert(track: Track) {
+        insertValues(track)
+    }
+
+    override suspend fun insertAll(tracks: List<Track>) {
+        insertValues(*tracks.toTypedArray())
+    }
+
+    private suspend fun insertValues(vararg tracks: Track) {
+        database.transaction {
+            tracks.forEach { animeTrack ->
+                database.anime_syncQueries.insert(
+                    animeId = animeTrack.animeId,
+                    syncId = animeTrack.trackerId,
+                    remoteId = animeTrack.remoteId,
+                    libraryId = animeTrack.libraryId,
+                    title = animeTrack.title,
+                    lastEpisodeSeen = animeTrack.lastEpisodeSeen,
+                    totalEpisodes = animeTrack.totalEpisodes,
+                    status = animeTrack.status,
+                    score = animeTrack.score,
+                    remoteUrl = animeTrack.remoteUrl,
+                    startDate = animeTrack.startDate,
+                    finishDate = animeTrack.finishDate,
+                    private = animeTrack.private,
+                )
+            }
+        }
+    }
+
+    // AM (GROUPING) -->
+    override suspend fun getTracks(): List<Track> {
+        return database.anime_syncQueries.getTracks(::mapTrack)
+            .awaitAsList()
+    }
+    // <-- AM (GROUPING)
+}

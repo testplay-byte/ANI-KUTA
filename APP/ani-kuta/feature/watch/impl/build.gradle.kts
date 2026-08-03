@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":core:player"))
     implementation(project(":core:player-mpv-lib"))
     implementation(project(":core:preferences"))
+    implementation(project(":core:video-resolver"))
     implementation(project(":core:watch-progress"))
 
     implementation(platform(libs.androidx.compose.bom))

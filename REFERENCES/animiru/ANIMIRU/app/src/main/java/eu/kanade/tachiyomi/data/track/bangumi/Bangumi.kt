@@ -1,0 +1,148 @@
+package eu.kanade.tachiyomi.data.track.bangumi
+
+import dev.icerock.moko.resources.StringResource
+import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.database.models.Track
+import eu.kanade.tachiyomi.data.track.BaseTracker
+import eu.kanade.tachiyomi.data.track.bangumi.dto.BGMOAuth
+import eu.kanade.tachiyomi.data.track.model.TrackSearch
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.serialization.json.Json
+import tachiyomi.i18n.MR
+import tachiyomi.i18n.aniyomi.AYMR
+import uy.kohesive.injekt.injectLazy
+import tachiyomi.domain.track.model.Track as DomainTrack
+
+class Bangumi(id: Long) : BaseTracker(id, "Bangumi") {
+
+    private val json: Json by injectLazy()
+
+    private val interceptor by lazy { BangumiInterceptor(this) }
+
+    private val api by lazy { BangumiApi(id, client, interceptor) }
+
+    override val supportsPrivateTracking: Boolean = true
+
+    override fun getScoreList(): ImmutableList<String> = SCORE_LIST
+
+    override fun displayScore(track: DomainTrack): String {
+        return track.score.toInt().toString()
+    }
+
+    private suspend fun add(track: Track): Track {
+        return api.addLibAnime(track)
+    }
+
+    override suspend fun update(track: Track, didWatchEpisode: Boolean): Track {
+        if (track.status != COMPLETED) {
+            if (didWatchEpisode) {
+                if (track.last_episode_seen.toLong() == track.total_episodes && track.total_episodes > 0) {
+                    track.status = COMPLETED
+                } else {
+                    track.status = WATCHING
+                }
+            }
+        }
+
+        return api.updateLibAnime(track)
+    }
+
+    override suspend fun bind(track: Track, hasSeenEpisodes: Boolean): Track {
+        val statusTrack = api.statusLibAnime(track, getUsername())
+        return if (statusTrack != null) {
+            track.copyPersonalFrom(statusTrack, copyRemotePrivate = false)
+            track.library_id = statusTrack.library_id
+            track.score = statusTrack.score
+            track.last_episode_seen = statusTrack.last_episode_seen
+            track.total_episodes = statusTrack.total_episodes
+            if (track.status != COMPLETED) {
+                track.status = if (hasSeenEpisodes) WATCHING else statusTrack.status
+            }
+
+            update(track)
+        } else {
+            // Set default fields if it's not found in the list
+            track.status = if (hasSeenEpisodes) WATCHING else PLAN_TO_WATCH
+            track.score = 0.0
+            add(track)
+        }
+    }
+
+    override suspend fun search(query: String): List<TrackSearch> {
+        return api.search(query)
+    }
+
+    override suspend fun refresh(track: Track): Track {
+        val remoteStatusTrack = api.statusLibAnime(track, getUsername()) ?: throw Exception("Could not find anime")
+        track.copyPersonalFrom(remoteStatusTrack)
+        return track
+    }
+
+    override fun getLogo() = R.drawable.brand_bangumi
+
+    override fun getStatusList(): List<Long> {
+        return listOf(WATCHING, COMPLETED, ON_HOLD, DROPPED, PLAN_TO_WATCH)
+    }
+
+    override fun getStatus(status: Long): StringResource? = when (status) {
+        WATCHING -> AYMR.strings.watching
+        PLAN_TO_WATCH -> AYMR.strings.plan_to_watch
+        COMPLETED -> MR.strings.completed
+        ON_HOLD -> MR.strings.on_hold
+        DROPPED -> MR.strings.dropped
+        else -> null
+    }
+
+    override fun getWatchingStatus(): Long = WATCHING
+
+    override fun getRewatchingStatus(): Long = -1
+
+    override fun getCompletionStatus(): Long = COMPLETED
+
+    override suspend fun login(username: String, password: String) = login(password)
+
+    suspend fun login(code: String) {
+        try {
+            val oauth = api.accessToken(code)
+            interceptor.newAuth(oauth)
+            // Users can set a 'username' (not nickname) once which effectively
+            // replaces the stringified ID in certain queries.
+            // If no username is set, the API returns the user ID as a strings
+            val username = api.getUsername()
+            saveCredentials(username, oauth.accessToken)
+        } catch (_: Throwable) {
+            logout()
+        }
+    }
+
+    fun saveToken(oauth: BGMOAuth?) {
+        trackPreferences.trackToken(this).set(json.encodeToString(oauth))
+    }
+
+    fun restoreToken(): BGMOAuth? {
+        return try {
+            json.decodeFromString<BGMOAuth>(trackPreferences.trackToken(this).get())
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override fun logout() {
+        super.logout()
+        trackPreferences.trackToken(this).delete()
+        interceptor.newAuth(null)
+    }
+
+    companion object {
+        const val PLAN_TO_WATCH = 1L
+        const val COMPLETED = 2L
+        const val WATCHING = 3L
+        const val ON_HOLD = 4L
+        const val DROPPED = 5L
+
+        private val SCORE_LIST = IntRange(0, 10)
+            .map(Int::toString)
+            .toImmutableList()
+    }
+}

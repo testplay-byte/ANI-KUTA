@@ -1,0 +1,35 @@
+-- Add excluded_scanlators to updatesView
+DROP VIEW IF EXISTS updatesView;
+
+CREATE VIEW updatesView AS
+SELECT
+    animes._id AS animeId,
+    animes.title AS animeTitle,
+    episodes._id AS episodeId,
+    episodes.name AS episodeName,
+    episodes.scanlator,
+    episodes.url AS episodeUrl,
+    episodes.seen,
+    episodes.bookmark,
+    -- AY -->
+    episodes.fillermark,
+    -- <-- AY
+    episodes.last_second_seen,
+    -- AY -->
+    episodes.total_seconds AS totalSeconds,
+    -- <-- AY
+    animes.source,
+    animes.favorite,
+    animes.thumbnail_url AS thumbnailUrl,
+    animes.cover_last_modified AS coverLastModified,
+    episodes.date_upload AS dateUpload,
+    episodes.date_fetch AS datefetch,
+    excluded_scanlators.scanlator AS excludedScanlator
+FROM animes JOIN episodes
+ON animes._id = episodes.anime_id
+LEFT JOIN excluded_scanlators
+ON animes._id = excluded_scanlators.anime_id
+AND episodes.scanlator = excluded_scanlators.scanlator
+WHERE favorite = 1
+AND date_fetch > date_added
+ORDER BY date_fetch DESC;

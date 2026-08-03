@@ -1,0 +1,138 @@
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - release
+    tags:
+      - v*
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  get_tag:
+    if: github.repository == 'quickdesh/Animiru'
+    name: Extract tag name
+    runs-on: 'ubuntu-24.04'
+    outputs:
+      tag: ${{ steps.extract.outputs.tag }}
+
+    steps:
+      - name: Get tag name
+        id: extract
+        run: echo "tag=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
+
+  build:
+    if: github.repository == 'quickdesh/Animiru'
+    name: Build
+    runs-on: 'ubuntu-24.04'
+    needs: get_tag
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version-file: .github/.java-version
+          distribution: temurin
+
+      # AM (SYNC_DRIVE) -->
+      - name: Write client_secrets.json
+        uses: DamianReeves/write-file-action@v1.2
+        with:
+            path: app/src/main/assets/client_secrets.json
+            contents: ${{ secrets.CLIENT_SECRETS_TEXT }}
+            write-mode: overwrite
+      # <-- AM (SYNC_DRIVE)
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+
+      - name: Build
+        run: ./gradlew assembleRelease -Penable-updater
+
+      - name: Sign APK
+        uses: r0adkll/sign-android-release@a391126403df92c6a0a3988a829dd47f79b89ed7
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: '35.0.1'
+
+      - name: Rename APK
+        run: |
+          set -e
+
+          mv app/build/outputs/apk/release/app-universal-release-unsigned-signed.apk Animiru-${{ needs.get_tag.outputs.tag }}.apk
+          mv app/build/outputs/apk/release/app-arm64-v8a-release-unsigned-signed.apk Animiru-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
+          mv app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned-signed.apk Animiru-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
+          mv app/build/outputs/apk/release/app-x86-release-unsigned-signed.apk Animiru-x86-${{ needs.get_tag.outputs.tag }}.apk
+          mv app/build/outputs/apk/release/app-x86_64-release-unsigned-signed.apk Animiru-x86_64-${{ needs.get_tag.outputs.tag }}.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: Animiru
+          path: |
+            Animiru-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-x86-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-x86_64-${{ needs.get_tag.outputs.tag }}.apk
+
+  release:
+    if: github.repository == 'quickdesh/Animiru'
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    needs: [get_tag, build]
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          merge-multiple: true
+
+      - name: Delete all artifacts
+        uses: geekyeggo/delete-artifact@f275313e70c08f6120db482d7a6b98377786765b # v5.1.0
+        with:
+          failOnError: false
+          name: |
+            Animiru
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ needs.get_tag.outputs.tag }}
+          name: Animiru ${{ needs.get_tag.outputs.tag }}
+          body: |
+            Check out the [past release notes](https://github.com/quickdesh/Animiru/releases) if you’re upgrading from an earlier version.
+
+            <!-->
+
+
+
+            <!-->
+
+            > [!TIP]
+            >
+            > ### If you are unsure which version to download then go with `Animiru-${{ needs.get_tag.outputs.tag }}.apk`
+          files: |
+            Animiru-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-x86-${{ needs.get_tag.outputs.tag }}.apk
+            Animiru-x86_64-${{ needs.get_tag.outputs.tag }}.apk
+          draft: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -24,6 +24,14 @@ data class WatchKey(
      *  Format: "Key: Value,Key2: Value2" (comma-separated, like MPV's
      *  http-header-fields option). */
     val videoHeaders: String = "",
+
+    /** Registry key for the full resolved-servers list (for QualitySheet).
+     *  The Details screen resolves the videos, stores them in
+     *  [com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry], and
+     *  passes the key here. The watch screen reads the servers from the
+     *  registry to populate the QualitySheet accordion.
+     *  Empty string = no pre-resolved servers (QualitySheet will show empty). */
+    val resolvedVideosKey: String = "",
 ) : NavKey {
 
     /**

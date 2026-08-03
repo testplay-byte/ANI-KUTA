@@ -7,6 +7,8 @@ import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.core.videoresolver.ResolvedVideo
+import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
+import com.confused.anikuta.core.videoresolver.ResolverServer
 import com.confused.anikuta.core.videoresolver.VideoResolver
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
@@ -81,6 +83,10 @@ class DetailsViewModel(
     /** Video resolution state (for the resolver sheet). */
     private val _resolverState = MutableStateFlow<ResolverState>(ResolverState.Idle)
     val resolverState: StateFlow<ResolverState> = _resolverState.asStateFlow()
+
+    /** Registry key for the structured resolved servers (for QualitySheet in watch screen). */
+    private val _resolvedVideosKey = MutableStateFlow("")
+    val resolvedVideosKey: StateFlow<String> = _resolvedVideosKey.asStateFlow()
 
     private var currentAnimeId: Int = 0
 
@@ -254,8 +260,22 @@ class DetailsViewModel(
                             ResolverState.Idle
                         is com.confused.anikuta.core.videoresolver.ResolverState.Loading ->
                             ResolverState.Loading
-                        is com.confused.anikuta.core.videoresolver.ResolverState.Success ->
+                        is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
+                            // Also resolve structured servers (for QualitySheet) and store in registry.
+                            // We do this AFTER the flat list succeeds so the user sees the
+                            // resolver sheet immediately, while structured resolution continues
+                            // in the background.
+                            viewModelScope.launch {
+                                videoResolver.resolveStructured(source, episode).collect { ss ->
+                                    if (ss is com.confused.anikuta.core.videoresolver.StructuredResolverState.Success) {
+                                        val key = ResolvedVideosRegistry.put(ss.servers)
+                                        _resolvedVideosKey.value = key
+                                        Logger.d(TAG) { "Stored ${ss.servers.size} servers in registry (key: $key)" }
+                                    }
+                                }
+                            }
                             ResolverState.Success(s.videos)
+                        }
                         is com.confused.anikuta.core.videoresolver.ResolverState.Error ->
                             ResolverState.Error(s.message)
                     }
@@ -269,6 +289,7 @@ class DetailsViewModel(
 
     fun clearResolver() {
         _resolverState.value = ResolverState.Idle
+        _resolvedVideosKey.value = ""
     }
 }
 

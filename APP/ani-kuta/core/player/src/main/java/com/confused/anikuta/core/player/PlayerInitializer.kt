@@ -11,16 +11,20 @@ import java.io.File
  * Sequence (must match the MPV lib's expectations):
  *  1. Ensure `mpvDir` exists.
  *  2. Write clean `mpv.conf` + `input.conf`.
- *  3. `copyAssets()` → `subfont.ttf` to mpvDir ROOT (NOT fonts/ — subtitle rendering bug).
- *  4. Configure cache (D-049 — video caching for instant resume).
- *  5. `view.initialize(configDir, cacheDir, logLvl)`.
- *  6. `addLogObserver` + `addObserver`.
+ *  3. `copyAssets()` → `subfont.ttf` + `cacert.pem` to mpvDir ROOT.
+ *  4. `view.initialize(configDir, cacheDir, logLvl)`.
+ *  5. `addLogObserver` + `addObserver`.
+ *  6. HTTP headers set BEFORE `loadfile` (by the host).
  *
- * D-049 (video caching): MPV cache is configured with:
- * - `cache=yes` — enable demuxer cache
- * - `cache-secs=120` — cache 2 minutes (1 min before + 1 min after resume position)
- * - `stream-cache-dir` — disk cache directory for persistent cache between sessions
- * - `demuxer-max-bytes=150MiB` — max in-memory cache size
+ * NOTE: Most MPV options are now set in [AnikutaMPVView.initOptions] (via
+ * `MPVLib.setOptionString`) rather than in mpv.conf. This matches the old
+ * project's pattern — init-time options set programmatically are more reliable
+ * than mpv.conf entries (some options like `hwdec` and `sub-ass-force-margins`
+ * only take effect when set via setOptionString before the render pipeline
+ * initializes).
+ *
+ * The mpv.conf here is intentionally MINIMAL — only options that the old
+ * project also puts in mpv.conf (network, audio language, subtitle defaults).
  *
  * CORE_RULES §20: All operations logged with tag "Anikuta:Core:Player:Init".
  */
@@ -30,11 +34,13 @@ object PlayerInitializer {
     const val MPV_DIR = "mpv"
 
     /**
-     * Copy `subfont.ttf` from assets to the MPV config-dir ROOT.
+     * Copy `subfont.ttf` + `cacert.pem` from assets to the MPV config-dir ROOT.
      *
      * CRITICAL: `subfont.ttf` MUST be at the config root, NOT in `fonts/`.
      * Without it, libass logs "Error opening memory font" and NO subtitle
      * text can render (video/audio still work).
+     *
+     * `cacert.pem` (Mozilla CA bundle) is required for HTTPS subtitle downloads.
      */
     fun copyAssets(context: Context, mpvDir: File) {
         val assetManager = context.assets
@@ -57,44 +63,44 @@ object PlayerInitializer {
     /**
      * Write the MPV configuration files.
      *
-     * D-049: Cache config enables instant resume — the demuxer cache covers
-     * ~2 minutes of video (1 min before + 1 min after the resume position).
+     * MINIMAL mpv.conf — most options are set programmatically in
+     * [AnikutaMPVView.initOptions] via `setOptionString`. This matches the
+     * old project's approach (only network/audio/subtitle defaults in conf).
+     *
+     * Removed (were causing issues):
+     * - `cache=yes` / `cache-secs=120` — old project omits these; relies on
+     *   `demuxer-max-bytes` only (set in initOptions).
+     * - `hwdec=auto-copy` — wrong variant; `auto` (zero-copy) is set in
+     *   initOptions. `auto-copy` forces GPU→CPU copy-back which fails on
+     *   some devices → "audio but no video".
+     * - `hwdec-codecs` — let lib defaults apply (matches old project).
+     * - `sub-ass-force-margins` / `sub-use-margins` — set via setOptionString
+     *   in initOptions (init API, more reliable for render pipeline).
+     * - `user-agent` — set via `http-header-fields` (full browser UA fallback).
      */
     fun writeConfig(mpvDir: File) {
         val mpvConf = """
             # ANI-KUTA MPV configuration
             # Auto-generated — do not edit manually.
+            # Most options are set programmatically in AnikutaMPVView.initOptions().
 
-            # ── Video caching (D-049) ──
-            cache=yes
-            cache-secs=120
-            demuxer-max-bytes=150MiB
-            demuxer-readahead-secs=60
+            # ── Audio language preference (matches old project) ──
+            alang=jpn,eng
 
-            # ── Hardware decoding ──
-            hwdec=auto-copy
-            hwdec-codecs=h264,hevc,vp9,av1
-
-            # ── Subtitles ──
-            sub-ass-force-margins=yes
-            sub-use-margins=yes
+            # ── Subtitle defaults (overridden by initOptions at runtime) ──
             sub-font-size=55
-            sub-color=#FFFFFFFF
-            sub-back-color=#AA000000
-
-            # ── Audio ──
-            audio-channels=auto
+            sub-pos=100
 
             # ── Network ──
-            network-timeout=30
-            user-agent=Mozilla/5.0
+            tls-verify=yes
+            ytdl=no
 
             # ── Misc ──
             keep-open=yes
         """.trimIndent()
 
         File(mpvDir, "mpv.conf").writeText(mpvConf)
-        Logger.d(TAG) { "Wrote mpv.conf (with D-049 cache config)" }
+        Logger.d(TAG) { "Wrote mpv.conf (minimal — most options in initOptions)" }
 
         // Input config — key bindings (minimal for now, expanded in Phase 4)
         val inputConf = """
@@ -103,10 +109,16 @@ object PlayerInitializer {
             SPACE cycle pause
             LEFT seek -10
             RIGHT seek 10
-            UP add volume 5
-            DOWN add volume -5
-            f cycle fullscreen
+            UP seek 60
+            DOWN seek -60
+            WHEEL_UP add volume 5
+            WHEEL_DOWN add volume -5
+            j cycle sub
+            J cycle sub down
+            k cycle audio
+            q quit
             ESC quit
+            f cycle fullscreen
         """.trimIndent()
 
         File(mpvDir, "input.conf").writeText(inputConf)
@@ -131,15 +143,17 @@ object PlayerInitializer {
         copyAssets(context, mpvDir)
         writeConfig(mpvDir)
 
-        // Configure disk cache (D-049 — persistent cache for instant resume)
+        // Configure disk cache (persistent cache for instant resume)
         val cacheDir = File(context.cacheDir, "mpv-cache")
         if (!cacheDir.exists()) {
             cacheDir.mkdirs()
             Logger.d(TAG) { "Created MPV cache dir: ${cacheDir.absolutePath}" }
         }
 
-        // Initialize the MPV view
-        view.initialize(mpvDir.absolutePath, cacheDir.absolutePath, "info")
+        // Initialize the MPV view.
+        // After this returns, BaseMPVView calls initOptions(vo) which sets
+        // all the critical options (setVo, hwdec, demuxer-max-bytes, etc.).
+        view.initialize(mpvDir.absolutePath, cacheDir.absolutePath, "warn")
         Logger.i(TAG) { "MPV initialized (config: ${mpvDir.absolutePath}, cache: ${cacheDir.absolutePath})" }
     }
 }

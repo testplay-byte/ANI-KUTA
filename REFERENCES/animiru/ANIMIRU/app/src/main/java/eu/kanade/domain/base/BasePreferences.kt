@@ -1,0 +1,43 @@
+package eu.kanade.domain.base
+
+import android.content.Context
+import android.content.pm.PackageManager
+import dev.icerock.moko.resources.StringResource
+import tachiyomi.core.common.preference.Preference
+import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.i18n.MR
+
+class BasePreferences(
+    val context: Context,
+    preferenceStore: PreferenceStore,
+) {
+
+    val downloadedOnly: Preference<Boolean> = preferenceStore.getBoolean(
+        Preference.appStateKey("pref_downloaded_only"),
+        false,
+    )
+
+    val incognitoMode: Preference<Boolean> = preferenceStore.getBoolean(Preference.appStateKey("incognito_mode"), false)
+
+    val extensionInstaller: ExtensionInstallerPreference = ExtensionInstallerPreference(context, preferenceStore)
+
+    // AY -->
+    fun deviceHasPip() = context.packageManager.hasSystemFeature(
+        PackageManager.FEATURE_PICTURE_IN_PICTURE,
+    )
+    // <-- AY
+
+    val shownOnboardingFlow: Preference<Boolean> = preferenceStore.getBoolean(
+        Preference.appStateKey("onboarding_complete"),
+        false,
+    )
+
+    enum class ExtensionInstaller(val titleRes: StringResource, val requiresSystemPermission: Boolean) {
+        LEGACY(MR.strings.ext_installer_legacy, true),
+        PACKAGEINSTALLER(MR.strings.ext_installer_packageinstaller, true),
+        SHIZUKU(MR.strings.ext_installer_shizuku, false),
+        PRIVATE(MR.strings.ext_installer_private, false),
+    }
+
+    val installationId: Preference<String> = preferenceStore.getString(Preference.appStateKey("installation_id"), "")
+}
