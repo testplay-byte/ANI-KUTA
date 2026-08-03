@@ -164,9 +164,9 @@ fun WatchScreen(
                 PlayerInitializer.initialize(context, view)
 
                 // Register observer — MPVLib.EventObserver + LogObserver interfaces.
-                // Method names match the aniyomi-mpv-lib AAR (event, eventProperty, efEvent, logMessage).
+                // Method signatures match the aniyomi-mpv-lib AAR (non-nullable params).
                 val logObs = object : `is`.xyz.mpv.MPVLib.LogObserver {
-                    override fun logMessage(prefix: String?, level: Int, text: String?) {
+                    override fun logMessage(prefix: String, level: Int, text: String) {
                         Logger.d("Anikuta:Feature:Watch") { "MPV log: $prefix: $text" }
                     }
                 }
@@ -175,24 +175,24 @@ fun WatchScreen(
                         obs.onEvent(eventId)
                     }
 
-                    override fun eventProperty(property: String?) {
+                    override fun eventProperty(property: String) {
                         // Property with no value — ignore.
                     }
 
-                    override fun eventProperty(property: String?, value: Long) {
-                        if (property != null) obs.onProperty(property, value.toString())
+                    override fun eventProperty(property: String, value: Long) {
+                        obs.onProperty(property, value.toString())
                     }
 
-                    override fun eventProperty(property: String?, value: Boolean) {
-                        if (property != null) obs.onProperty(property, if (value) "yes" else "no")
+                    override fun eventProperty(property: String, value: Boolean) {
+                        obs.onProperty(property, if (value) "yes" else "no")
                     }
 
-                    override fun eventProperty(property: String?, value: String?) {
-                        if (property != null && value != null) obs.onProperty(property, value)
+                    override fun eventProperty(property: String, value: String) {
+                        obs.onProperty(property, value)
                     }
 
-                    override fun eventProperty(property: String?, value: Double) {
-                        if (property != null) obs.onProperty(property, value.toString())
+                    override fun eventProperty(property: String, value: Double) {
+                        obs.onProperty(property, value.toString())
                     }
 
                     override fun efEvent(err: String?) {
