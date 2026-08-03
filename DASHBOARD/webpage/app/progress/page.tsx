@@ -9,15 +9,15 @@ import {
 } from "@/lib/data";
 
 /**
- * Progress page (v5) — Phase 0–3 done (Setup + Plan + Scaffold + Core modules),
- * Phase 4 (feature screens) in progress, Phase 5 plan written.
+ * Progress page (v6) — Phase 0–3 done (Setup + Plan + Scaffold + Core modules),
+ * Phase 4 (feature screens) in progress, Phase 5 plan written + re-ordered (D-054).
  *
  * Sections:
  *  1. Header card + legend.
  *  2. Phase timeline (compact, at top).
  *  3. Phase 3 wrap-up (15 modules across 4 sub-phases — all built).
  *  4. Phase 4 progress (feature screens built, accent palette live, sheets capped).
- *  5. Phase 5 plan written note.
+ *  5. Phase 5 plan + new 6 sub-phases (5a–5f, re-ordered per D-054).
  *  6. Current phase checklist.
  *  7. Full phase list (detailed, with done/next/blockers per phase).
  */
@@ -55,9 +55,10 @@ export default function ProgressPage() {
           complete. Phase 4 (feature screens — Library, Search, More,
           Settings, Appearance) is in progress: those screens are built,
           the accent palette system (D-053) is live, and bottom-up sheets
-          are capped at 70% of screen height (D-052). Phase 5 plan
-          (identity, watch screen, history/updates, backup/restore,
-          extension repos) is written. Live status — kept in sync with{" "}
+          are capped at 70% of screen height (D-052). Phase 5 plan is
+          written and re-ordered (D-054): extensions → details → watch first
+          (functional), then identity → history → backup (refinements).
+          Live status — kept in sync with{" "}
           <code className="font-mono text-text-primary">memory/progress.md</code>.
         </p>
         <div className="flex flex-wrap gap-4 mt-4 text-[11.5px] text-text-secondary">
@@ -172,33 +173,70 @@ export default function ProgressPage() {
             <li>· :feature:anime-watch:{`{api,impl}`} — player host screen (deferred to Phase 5).</li>
             <li>· :feature:anime-history, :anime-updates, :anime-my — profile + stats.</li>
             <li>· :feature:backup, :trackers, :extensions-settings, :download, :setup-wizard, :episode-settings.</li>
-            <li>· Custom color-picker UI for CUSTOM accent (deferred to Phase 5d).</li>
+            <li>· Custom color-picker UI for CUSTOM accent (deferred to Phase 5f).</li>
           </ul>
         </div>
       </Card>
 
-      {/* Phase 5 plan written note */}
+      {/* Phase 5 plan written + re-ordered (D-054) */}
       <Card>
         <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
-              §5 — Phase 5 Plan Written
+              §5 — Phase 5 Plan + Re-order (D-054)
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
-              Plan ready — identity, watch, history/updates, backup/restore, extension repos
+              Extensions → Details → Watch → Identity → History → Backup
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
-              The Phase 5 plan is written (APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md).
-              Scope: identity system completion, watch screen (player host),
-              history + updates, backup/restore multi-app compat, extension
-              repo management, and the custom color-picker UI for the CUSTOM
-              accent (Phase 5d). Pending — starts when Phase 4 wraps.
+              The Phase 5 plan is written (APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md)
+              and was re-ordered per user directive (D-054): functional first,
+              refinements second. The watch flow only needs a minimal source_link
+              (a single row pointing an episode at a source for playback) — it
+              does NOT need the full identity graph. So 5a–5c ship the watchable
+              app with minimal linking, 5d upgrades linking to the full identity
+              graph, and 5e–5f are further refinements. Pending — starts when
+              Phase 4 wraps.
             </p>
           </div>
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0 border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-secondary)" size="sm" />
             Planned
           </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-4">
+          <Phase5SubPhaseRow
+            id="5a"
+            name="Extension Management"
+            desc="Install extensions, add/manage repos, trust flow, source browser. Modularized for Aniyomi now, extensible to other ecosystems later (D-031)."
+          />
+          <Phase5SubPhaseRow
+            id="5b"
+            name="Details Page Overhaul"
+            desc="Rebuild Details (banner, info, episodes list, source linking via manual search, resolver bottom sheet → watch). Minimal source_link row (upgraded to identity graph in 5d)."
+          />
+          <Phase5SubPhaseRow
+            id="5c"
+            name="Watch Screen"
+            desc="Split old 2386-LOC WatchScreen into WatchScreen + ViewModel + sheets + controls overlay. MPV via AndroidView, resume position (D-049 video caching). The testable milestone — app becomes watchable."
+            highlight
+          />
+          <Phase5SubPhaseRow
+            id="5d"
+            name="Identity System"
+            desc="ContentUID + ExternalReference graph (D-032). Migrate 5b's minimal linking. Auto-matching engine (additive). Merge/split UI."
+          />
+          <Phase5SubPhaseRow
+            id="5e"
+            name="History + Updates"
+            desc="Watch history (from activity-tracker), new-episode detection (WorkManager), Updates screen. Notifications deferred to Phase 6 (needs 5e)."
+          />
+          <Phase5SubPhaseRow
+            id="5f"
+            name="Backup/Restore + Color Picker"
+            desc="Multi-format import (Aniyomi .tachibk, Mangayomi), export .anikuta v2, custom accent color picker (D-053 CUSTOM editor)."
+          />
         </div>
       </Card>
 
@@ -411,6 +449,51 @@ function Phase4DoneRow({ label, desc }: { label: string; desc: string }) {
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-semibold text-text-primary mb-0.5">
           {label}
+        </div>
+        <div className="font-mono text-[11px] text-text-secondary leading-snug break-words">
+          {desc}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Phase5SubPhaseRow({
+  id,
+  name,
+  desc,
+  highlight = false,
+}: {
+  id: string;
+  name: string;
+  desc: string;
+  highlight?: boolean;
+}) {
+  const accent = highlight ? "var(--c-primary)" : "var(--c-secondary)";
+  return (
+    <div
+      className={`flex items-start gap-3 p-3 rounded-[12px] border bg-surface-alt/40 ${highlight ? "border-[var(--c-primary)]/40" : "border-border"}`}
+    >
+      <span
+        className="inline-flex items-center justify-center w-9 h-9 rounded-[10px] font-mono text-[12px] font-bold shrink-0"
+        style={{
+          backgroundColor: `${accent}1a`,
+          color: accent,
+          border: `1.5px solid ${accent}`,
+        }}
+      >
+        {id}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 mb-0.5">
+          <span className="text-[13px] font-semibold text-text-primary">
+            {name}
+          </span>
+          {highlight && (
+            <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--c-primary)]">
+              milestone
+            </span>
+          )}
         </div>
         <div className="font-mono text-[11px] text-text-secondary leading-snug break-words">
           {desc}

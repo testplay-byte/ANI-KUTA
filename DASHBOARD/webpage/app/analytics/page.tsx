@@ -26,6 +26,25 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header card */}
+      <Card>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+              Analytics
+            </div>
+            <h2 className="text-[22px] font-bold tracking-extra-tight text-text-primary">
+              Module size, build times, docs coverage, build health
+            </h2>
+            <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
+              Static snapshot of project analytics — file distribution across
+              :app / :core / :data / :feature layers, per-module build
+              durations, docs coverage over 12 weeks, and per-module CI status.
+            </p>
+          </div>
+        </div>
+      </Card>
+
       {/* Summary stat row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatPill label="Total files" value={String(QUICK_STATS.totalFiles)} accent="var(--c-primary)" />

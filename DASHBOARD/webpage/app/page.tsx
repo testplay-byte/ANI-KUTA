@@ -43,9 +43,10 @@ export default function OverviewPage() {
             modules built, Phase 3 (core infrastructure) complete across 4
             sub-phases, Phase 4 (feature screens) in progress — Library,
             Search, More, Settings, Appearance built; accent palette system
-            (D-053) + 70% sheet cap (D-052) live. All decisions D-027..D-053
-            confirmed. Phase 5 plan (identity, watch, history/updates,
-            backup/restore, extension repos) written. Kept in sync with{" "}
+            (D-053) + 70% sheet cap (D-052) live. All decisions D-027..D-054
+            confirmed. Phase 5 plan re-ordered (D-054): extensions → details
+            → watch first (functional), then identity → history → backup
+            (refinements). Kept in sync with{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
             on every push.
           </p>
@@ -72,7 +73,7 @@ export default function OverviewPage() {
                 Database Schema
               </span>
             </Link>
-            <Link href="/phase3/" className="no-underline">
+            <Link href="/modules/" className="no-underline">
               <span
                 className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium text-white transition-all duration-200 hover:translate-y-[-1px]"
                 style={{
@@ -80,7 +81,7 @@ export default function OverviewPage() {
                   boxShadow: "0 4px 12px var(--c-success)33, 0 1px 2px rgba(0,0,0,0.06)",
                 }}
               >
-                Phase 3 Plan ✓
+                Module Map
               </span>
             </Link>
             <Link href="/design/" className="no-underline">
@@ -114,7 +115,7 @@ export default function OverviewPage() {
         <WorkflowLoop />
       </Card>
 
-      {/* Phase 3 Foundation — two new pages (Database + Phase 3 Plan) */}
+      {/* Foundation — Database schema + Module map */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Link href="/database/" className="no-underline group">
           <Card className="!p-0 overflow-hidden h-full transition-all duration-200 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] hover:-translate-y-[1px]">
@@ -188,7 +189,7 @@ export default function OverviewPage() {
           </Card>
         </Link>
 
-        <Link href="/phase3/" className="no-underline group">
+        <Link href="/modules/" className="no-underline group">
           <Card className="!p-0 overflow-hidden h-full transition-all duration-200 hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] hover:-translate-y-[1px]">
             {/* Header strip */}
             <div
@@ -204,16 +205,16 @@ export default function OverviewPage() {
                     className="text-[10px] font-medium uppercase tracking-widest"
                     style={{ color: "#A0A0A0" }}
                   >
-                    Core Modules Plan
+                    Module Map
                   </div>
                   <div
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
                     style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
-                    Phase 3 Plan
+                    43 modules — 31 built
                   </div>
                 </div>
-                {/* mini rocket glyph */}
+                {/* mini grid glyph */}
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
@@ -225,34 +226,35 @@ export default function OverviewPage() {
                   className="w-7 h-7 shrink-0"
                   aria-hidden="true"
                 >
-                  <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-                  <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-                  <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-                  <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+                  <path d="M4 4h6v6H4z" />
+                  <path d="M14 4h6v6h-6z" />
+                  <path d="M4 14h6v6H4z" />
+                  <path d="M14 14h6v6h-6z" />
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>15 modules</span>
+                <span>43 planned</span>
                 <span className="opacity-50">·</span>
-                <span>4 sub-phases</span>
+                <span>31 built ✓</span>
                 <span className="opacity-50">·</span>
-                <span>all built ✓</span>
+                <span>5 layers</span>
               </div>
             </div>
             {/* Body */}
             <div className="p-5">
               <p className="text-[13px] text-text-secondary leading-relaxed mb-3">
-                The engine room — identity, extensions, player, downloads,
-                trackers, backup. Sub-phase timeline (3a → 3b → 3c → 3d),
-                dependency graph, and 4 open questions for user input.
+                The full module hierarchy — :app, :build-logic, :core
+                (infrastructure), :data (repositories), :feature (anime /
+                shared / manga / novel). Interactive tree view + per-module
+                detail cards with file counts.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Modules" value="15" />
-                <MiniStat label="Sub-phases" value="4" />
-                <MiniStat label="Open Qs" value="4" />
+                <MiniStat label="Modules" value="43" />
+                <MiniStat label="Built" value="31" />
+                <MiniStat label="Layers" value="5" />
               </div>
               <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-success)] group-hover:underline">
-                View Phase 3 plan →
+                Explore modules →
               </span>
             </div>
           </Card>
@@ -316,7 +318,7 @@ export default function OverviewPage() {
           {currentPhase.next.length > 0 && (
             <div className="space-y-2 mb-4">
               <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary">
-                Remaining — feature screens + Phase 5d custom picker
+                Remaining — feature screens + Phase 5f custom picker
               </div>
               {currentPhase.next.slice(0, 6).map((n) => (
                 <div
@@ -443,12 +445,13 @@ export default function OverviewPage() {
         </div>
 
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          D-027 through D-053 — covering extension compat, base app,
+          D-027 through D-054 — covering extension compat, base app,
           notifications, manga plan, multi-extension + multi-content-type,
           identity system, ads (deferred), DI, DB, navigation, backup format,
           watch-progress layering, activity tracking, console logging,
           backup/restore multi-app compat, the bottom-up sheet 70% height cap
-          (D-052), and the accent palette system (D-053).
+          (D-052), the accent palette system (D-053), and the Phase 5
+          re-order (D-054 — extensions → details → watch first).
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

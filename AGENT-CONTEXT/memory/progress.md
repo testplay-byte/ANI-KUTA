@@ -27,19 +27,25 @@
 
 ## What's Next
 1. **Phase 4 loose ends** (verify in next CI build): library sheet 70% cap, browse heading, accent palettes applying live, light-mode theming across all screens.
-2. **Phase 5 — Identity + Watch + Data wiring** (plan in `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`):
-   - 5a: Identity system (ContentUID + ExternalReference + matching engine — D-032/D-042).
-   - 5b: Watch screen (player UI, sheets, episode list, resume — D-049 video caching).
-   - 5c: History + Updates + new-episode detection (D-029).
-   - 5d: Backup/restore (multi-app import — D-041/D-047) + custom color picker (palette Phase 5 item).
-   - 5e: Extension repo management UI (add/remove repos — D-043 no defaults).
-3. **Phase 6+**: Ad system + activity tracker UI (D-033), notifications (D-029), manga reader (D-030), novels.
+2. **Phase 5 — Functional App** (plan rewritten this session, D-054):
+   - **5a** Extension Management (install, repos, trust UI, source browser) — the enabler.
+   - **5b** Details Page Overhaul (episodes, source linking, resolver sheet → watch).
+   - **5c** Watch Screen (player UI, sheets, resume — the testable milestone).
+   - **5d** Identity System (ContentUID graph — upgrades 5b's minimal linking).
+   - **5e** History + Updates (new-episode detection).
+   - **5f** Backup/Restore + custom color picker.
+   - Full plan: `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`. Open questions Q-056..Q-061 (plan §9).
+3. **Phase 6+**: Ad system + activity-tracker UI (D-033), notifications (D-029, needs 5e), manga reader (D-030), novels.
 
 ## Blockers / Open Questions
 - None blocking. Phase 4 UI work needs device verification (CI builds APK; user tests).
-- Custom color picker (palette editor) deferred to Phase 5d — selection + storage work now.
+- Custom color picker (palette editor) deferred to Phase 5f.
+- Q-056..Q-061 (Phase 5 plan §9) need user answers before/while starting 5a.
+
+## Known doc debt
+- None currently (caught up this session). CORE_RULES §26 now enforces continuous verification.
 
 ## Last Updated
-- Session: web-3a43f99b-57b3-4d89-a26a-63737d005c8f
+- Session: web-3a43f99b-57b3-4d89-a26a-63737d005c8f (second pass)
 - By: main agent
-- Note: UI fixes (sheet 70% cap, browse heading) + functional accent palette system + documentation catch-up (progress/changelog/decisions/lessons were stale at Phase 2). Phase 5 plan written.
+- Note: Phase 5 plan RE-ORDERED (D-054): extensions → details → watch FIRST, identity LATER. CORE_RULES §26 added (documentation verification). Dashboard stale "Phase 3" sidebar + scrolling-header issue to be fixed by sub-agent.

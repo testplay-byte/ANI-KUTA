@@ -5,7 +5,7 @@
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md (43 planned)
  *  - APP/ani-kuta/DESIGN-LANGUAGE.md (app design language — lime/dark)
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 plan)
- *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-053)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-054)
  *  - AGENT-CONTEXT/memory/progress.md (Phase 0–3 done, Phase 4 in progress)
  *
  * Hardcoded for the static demo — no API calls.
@@ -36,10 +36,9 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Phase 1 plan — module tree, dependency rules, data flow, identity, multi-extension" },
-  { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-027..D-053 (all confirmed)" },
+  { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-027..D-054 (all confirmed)" },
   { label: "Modules", href: "/modules/", icon: "modules", desc: "31 built (43 planned) — module hierarchy + tree view" },
   { label: "Database", href: "/database/", icon: "database", desc: "Phase 3 schema — 21 tables, ER diagram, indexes, FK relationships" },
-  { label: "Phase 3", href: "/phase3/", icon: "phase3", desc: "Phase 3 plan — 15 core modules in 4 sub-phases (all built)" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
   { label: "Progress", href: "/progress/", icon: "progress", desc: "Phase 0–3 done · Phase 4 (feature screens) in progress" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
@@ -688,7 +687,7 @@ export const PHASES: Phase[] = [
       ":feature:anime-updates:{api,impl} — new episodes + schedule.",
       ":feature:anime-my:{api,impl} — profile + stats + genre radar.",
       ":feature:backup, :trackers, :extensions-settings, :download, :setup-wizard, :episode-settings.",
-      "Custom color-picker UI for CUSTOM accent (deferred to Phase 5d).",
+      "Custom color-picker UI for CUSTOM accent (deferred to Phase 5f).",
     ],
     blockers: [],
     startDay: 98,
@@ -697,19 +696,20 @@ export const PHASES: Phase[] = [
   },
   {
     id: 5,
-    name: "Identity, Watch, History, Backup, Extension Repos",
+    name: "Extensions → Details → Watch → Identity → History → Backup",
     status: "pending",
-    summary: "Plan written (19-phase5-plan.md): identity system completion, watch screen, history/updates, backup/restore, extension repos. Custom color-picker UI deferred here.",
+    summary: "Plan written + RE-ORDERED (D-054): 5a Extensions → 5b Details → 5c Watch → 5d Identity → 5e History/Updates → 5f Backup + Color-picker. Functional first, refinements second. The watch flow only needs a minimal source_link (upgraded to the full identity graph in 5d). 5a–5c deliver a watchable app; 5d–5f are refinements.",
     done: [
       "Phase 5 plan written — APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md.",
+      "Phase 5 re-ordered per user directive (D-054) — extensions + watch flow first, identity system + refinements after.",
     ],
     next: [
-      "Identity system completion (matching engine + merge/split UI).",
-      ":feature:anime-watch:{api,impl} — watch screen (player host).",
-      ":feature:anime-history + :anime-updates — recently watched + new episodes.",
-      ":feature:backup + :core:backup — backup/restore multi-app compat.",
-      "Extension repo management UI (install/browse repos).",
-      "Custom color-picker UI for CUSTOM accent (Phase 5d).",
+      "5a — Extension Management: install extensions, add/manage repos, trust flow, source browser. Modularized for Aniyomi now, extensible to other ecosystems later (D-031).",
+      "5b — Details Page Overhaul: rebuild Details (banner, info, episodes list, source linking via manual search, resolver bottom sheet → watch). Minimal source_link row (upgraded to identity graph in 5d).",
+      "5c — Watch Screen: split old 2386-LOC WatchScreen into WatchScreen + ViewModel + sheets + controls overlay. MPV via AndroidView, resume position (D-049 video caching). The testable milestone — app becomes watchable.",
+      "5d — Identity System: ContentUID + ExternalReference graph (D-032). Migrate 5b's minimal linking. Auto-matching engine (additive). Merge/split UI.",
+      "5e — History + Updates: watch history (from activity-tracker), new-episode detection (WorkManager), Updates screen. Notifications deferred to Phase 6 (needs 5e).",
+      "5f — Backup/Restore + Custom Color Picker: multi-format import (Aniyomi .tachibk, Mangayomi), export .anikuta v2, custom accent color picker (D-053 CUSTOM editor).",
     ],
     blockers: [],
     startDay: 140,
@@ -866,19 +866,21 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
       { text: ":feature:anime-watch:{api,impl} — player host screen", done: false },
       { text: ":feature:anime-history, :anime-updates, :anime-my", done: false },
       { text: ":feature:backup, :trackers, :extensions-settings, :download, :setup-wizard, :episode-settings", done: false },
-      { text: "Custom color-picker UI for CUSTOM accent (deferred to Phase 5d)", done: false },
+      { text: "Custom color-picker UI for CUSTOM accent (deferred to Phase 5f)", done: false },
     ],
   },
   {
     phaseId: 5,
-    phaseName: "Identity, Watch, History, Backup, Extension Repos (planned)",
+    phaseName: "Extensions → Details → Watch → Identity → History → Backup (planned, D-054)",
     items: [
       { text: "Phase 5 plan written (19-phase5-plan.md)", done: true },
-      { text: "Identity system completion (matching engine + merge/split UI)", done: false },
-      { text: ":feature:anime-watch:{api,impl} — watch screen (player host)", done: false },
-      { text: ":feature:anime-history + :anime-updates — recently watched + new episodes", done: false },
-      { text: ":feature:backup + :core:backup — backup/restore multi-app compat", done: false },
-      { text: "Extension repo management UI", done: false },
+      { text: "Phase 5 re-ordered per D-054 — functional first (5a–5c), refinements second (5d–5f)", done: true },
+      { text: "5a — Extension Management (install extensions, repos, trust flow, source browser)", done: false },
+      { text: "5b — Details Page Overhaul (banner, info, episodes, source linking via manual search, resolver sheet → watch)", done: false },
+      { text: "5c — Watch Screen (split WatchScreen into ViewModel + sheets + controls overlay; MPV via AndroidView; resume position) — app becomes watchable", done: false },
+      { text: "5d — Identity System (ContentUID + ExternalReference graph D-032; migrate 5b's minimal linking; auto-matching; merge/split UI)", done: false },
+      { text: "5e — History + Updates (watch history from activity-tracker; new-episode detection via WorkManager; Updates screen)", done: false },
+      { text: "5f — Backup/Restore (multi-format import: Aniyomi .tachibk + Mangayomi; export .anikuta v2) + Custom Color Picker (D-053 CUSTOM editor)", done: false },
     ],
   },
 ];
@@ -930,10 +932,10 @@ export const METRIC_CARDS: MetricCardData[] = [
   },
   {
     label: "Decisions Confirmed",
-    value: "17/17",
-    sublabel: "D-027..D-053 · all confirmed",
+    value: "18/18",
+    sublabel: "D-027..D-054 · all confirmed",
     accent: "var(--c-success)",
-    sparkline: [0, 2, 5, 7, 9, 11, 13, 15, 17],
+    sparkline: [0, 2, 5, 7, 9, 11, 13, 15, 17, 18],
     trend: "up",
     href: "/decisions/",
   },
@@ -967,8 +969,8 @@ export const QUICK_STATS = {
   scaffoldModules: PHASE2_SCAFFOLD.length,
   phase3Modules: 15,
   totalFiles: MODULES.reduce((sum, m) => sum + m.files, 0),
-  decisions: 17,
-  decisionsConfirmed: 17,
+  decisions: 18,
+  decisionsConfirmed: 18,
   decisionsNeedsInput: 0,
   phases: PHASES.length,
   phasesDone: PHASES.filter((p) => p.status === "done").length,
@@ -1079,7 +1081,7 @@ export const TASKS: Task[] = [
   { id: "T-10", title: "5 research docs (DB, DI, Nav, Ads, Backup)", desc: "REFERENCES/old-kuta/DOCUMENTATION/10-15", priority: "low", status: "done", tag: "research", assignee: "AK" },
   { id: "T-11", title: "Phase 3 — 15 core modules across 4 sub-phases", desc: "3a Foundation (4) + 3b Extensions (4) + 3c Playback (4) + 3d Supporting (3) — all built", priority: "high", status: "done", tag: "phase3", assignee: "AK" },
   { id: "T-12", title: "Phase 4 — feature screens (Library, Search, More, Settings, Appearance, accent palette)", desc: "Build the user-facing UI layer on top of the Phase 3 core. Library, Search, More, Settings, Appearance done; accent palette system + sheet 70% cap live (D-052/D-053). Watch / history / my / backup / trackers / setup-wizard remaining.", priority: "high", status: "in-progress", tag: "phase4", assignee: "AK" },
-  { id: "T-13", title: "Phase 5 plan written", desc: "19-phase5-plan.md — identity completion, watch screen, history/updates, backup/restore, extension repos. Custom color-picker deferred to Phase 5d.", priority: "med", status: "done", tag: "phase5", assignee: "AK" },
+  { id: "T-13", title: "Phase 5 plan written + re-ordered (D-054)", desc: "19-phase5-plan.md — 5a Extensions → 5b Details → 5c Watch → 5d Identity → 5e History/Updates → 5f Backup/Color-picker. Functional first (5a–5c deliver a watchable app); refinements second (5d–5f).", priority: "med", status: "done", tag: "phase5", assignee: "AK" },
 ];
 
 /* ---------------------------------------------------------------------------

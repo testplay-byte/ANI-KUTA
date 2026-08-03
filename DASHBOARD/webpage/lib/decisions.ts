@@ -1,15 +1,16 @@
 /*
- * Architecture Decisions (v4 — Phase 1 plan confirmed + Phase 4 polish decisions).
+ * Architecture Decisions (v5 — Phase 1 plan confirmed + Phase 4 polish
+ * decisions + Phase 5 re-order).
  *
- * All decisions D-027..D-053 are CONFIRMED. Each entry shows the question,
+ * All decisions D-027..D-054 are CONFIRMED. Each entry shows the question,
  * the chosen option (with pros/cons for context), and a summary of the
  * decision context.
  *
  * Sources:
- *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-053)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-054)
  *  - REFERENCES/old-kuta/DOCUMENTATION/10-14 (research findings)
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md
- *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 — D-053 follow-up)
+ *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 — D-053 + D-054)
  */
 
 export interface DecisionOption {
@@ -445,7 +446,7 @@ export const decisions: Decision[] = [
     status: "confirmed",
     question: "How to make the accent palette system functional (not just static placeholders)?",
     context:
-      "The original palettes were static placeholder swatches — selecting one changed nothing at runtime. New system: 10 accent presets (Lime, Coral, Rose, Amber, Red, Teal, Blue, Cyan, Violet, Emerald) + CUSTOM. Selecting a preset overrides primary / primaryContainer / onPrimary / onPrimaryContainer (both light + dark). Container colors are derived from the seed via lerp (no hand-tuning of every shade). AccentPreset enum + AccentColors data class live in :core:designsystem; AnikutaTheme takes an accentSeed param; ThemePreferences stores the selection; MainActivity applies the seed live (selection persists across launches). Custom color-picker UI is deferred to Phase 5d. Date: Phase 4.",
+      "The original palettes were static placeholder swatches — selecting one changed nothing at runtime. New system: 10 accent presets (Lime, Coral, Rose, Amber, Red, Teal, Blue, Cyan, Violet, Emerald) + CUSTOM. Selecting a preset overrides primary / primaryContainer / onPrimary / onPrimaryContainer (both light + dark). Container colors are derived from the seed via lerp (no hand-tuning of every shade). AccentPreset enum + AccentColors data class live in :core:designsystem; AnikutaTheme takes an accent_seed param; ThemePreferences stores the selection; MainActivity applies the seed live (selection persists across launches). Custom color-picker UI is deferred to Phase 5f. Date: Phase 4.",
     options: [
       {
         name: "AccentPreset enum + AccentColors (lerp-derived) + live apply in MainActivity",
@@ -454,12 +455,38 @@ export const decisions: Decision[] = [
           "Container colors derived from the seed via lerp — no hand-tuning per preset",
           "Live apply: theme updates instantly when a preset is selected",
           "Selection persisted in ThemePreferences (survives relaunch)",
-          "AnikutaTheme takes accentSeed — clean single entry point",
-          "Foundation for the Phase 5d custom color-picker (just needs a hue/saturation UI)",
+          "AnikutaTheme takes accent_seed — clean single entry point",
+          "Foundation for the Phase 5f custom color-picker (just needs a hue/saturation UI)",
         ],
         cons: [
-          "CUSTOM swatch is non-functional until Phase 5d color-picker lands",
+          "CUSTOM swatch is non-functional until Phase 5f color-picker lands",
           "Lerp-derived containers may need a per-preset tweak for edge cases (deferred)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-054",
+    title: "Phase 5 re-ordered: Extensions → Details → Watch → Identity (functional first)",
+    status: "confirmed",
+    question: "What order should the Phase 5 sub-phases follow?",
+    context:
+      "The prior Phase 5 plan put the identity system first — that was rejected. Per user directive: functional first, refinements second. The watch flow only needs a minimal source_link (a single row that points an episode at a source for playback) — it does NOT need the full ContentUID + ExternalReference graph. So we ship the watchable-app milestone (5a Extensions → 5b Details → 5c Watch) using the minimal linking, then upgrade the linking to the full identity graph in 5d. 5e (History/Updates) + 5f (Backup + Color-picker) are further refinements that build on the watchable app. Notifications deferred to Phase 6 (they depend on 5e's new-episode detection). Date: Phase 5 (plan re-order).",
+    options: [
+      {
+        name: "5a Extensions → 5b Details → 5c Watch → 5d Identity → 5e History/Updates → 5f Backup/Color-picker",
+        pros: [
+          "Functional first — 5a–5c deliver a watchable app as fast as possible",
+          "Watch flow only needs a minimal source_link (not the full identity graph) — less upfront work",
+          "Identity system (5d) can be built against a working watch flow, then migrate the minimal linking",
+          "User sees visible progress sooner (extension install → browse → details → watch)",
+          "5e + 5f are pure refinements — no blocking dependency on the watch flow",
+          "Notifications stay deferred to Phase 6 (cleanly depend on 5e's new-episode detection)",
+        ],
+        cons: [
+          "The minimal source_link in 5b is throwaway work (migrated to the identity graph in 5d)",
+          "Identity system refactor in 5d touches Details + Watch — needs careful migration",
         ],
         recommended: true,
       },

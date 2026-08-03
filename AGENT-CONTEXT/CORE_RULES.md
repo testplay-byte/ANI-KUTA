@@ -359,3 +359,22 @@ APP/ani-kuta/DOCUMENTATION/database/
 7. **Design language updates**: if the user requests UI changes to the dashboard, update `DASHBOARD/webpage/DESIGN.md` in the same commit.
 8. **Verification**: after updating, verify the build passes (`bun run build`) and the dashboard is live on GitHub Pages.
 9. **Don't let it drift**: the dashboard is the user's primary way to understand the project. If it's stale, the user loses trust.
+
+---
+
+## 26. Documentation Verification (Continuous)
+
+> Docs drift is silent and corrosive. A stale doc is worse than no doc — it actively misleads the next session and erodes user trust. This rule exists because progress.md said "Phase 2" while the project was in Phase 4, and the dashboard sidebar still showed "Phase 3" after Phase 4 work — both caught by the user, both embarrassing.
+
+### Rules
+1. **Same-session updates (reinforces §6):** When code, state, or decisions change, update the relevant docs in the SAME commit/session — not "later." "Later" never comes. This applies to: `progress.md`, `changelog.md`, `decisions.md`, `lessons-learned.md`, `SESSION.md`, knowledge files, dashboard data, and DB docs (§24).
+2. **Verify at task end (the verification gate):** Before declaring a task done, do a **drift check**:
+   - Re-read the docs you touched this session. Do they match what you actually built?
+   - `grep` for stale references: old phase numbers, old module counts, removed decision IDs, deleted file paths, renamed modules. Fix every hit.
+   - If a doc says "X modules built" or "Phase N complete" — verify by counting/inspecting the actual code. Don't trust the doc's prior claim; re-derive it.
+3. **Cross-check claims against reality:** If progress.md says "Phase 4 done" but the code shows Phase 4 work is incomplete, fix the doc (not the code) — OR fix the code and update the doc. Never leave them disagreeing.
+4. **Dashboard data (reinforces §25):** After any phase/module/decision change, update `DASHBOARD/webpage/lib/data.ts` + `decisions.ts` in the same session. Then **build the dashboard** (`cd DASHBOARD/webpage && bun run build`) and confirm it passes. Check the sidebar/nav items — if a phase is done, its nav item should reflect that (rename or remove, don't leave stale phase labels).
+5. **Sidebar/nav audit:** When updating the dashboard, check `NAV_ITEMS` in `lib/data.ts` — remove or rename items that reference completed/old phases (e.g. a "Phase 3" nav item after Phase 4 is done is confusing). The nav should reflect the *current* project state, not history.
+6. **Lessons audit:** When you catch a doc-drift mistake (yours or a prior session's), log it in `lessons-learned.md` with the `[PATTERN]` tag. If drift recurs, promote a stricter rule here.
+7. **Session-end checklist (add to §15 checklist):** Before push — (a) `progress.md` matches reality, (b) `changelog.md` has this session's entry, (c) `decisions.md` has any new D-NNN, (d) dashboard data + nav matches `progress.md`, (e) no stale phase references in dashboard sidebar/nav, (f) `lessons-learned.md` has any new lesson.
+8. **Honesty about drift:** If you discover drift you can't fully fix in this session (e.g. a large doc rewrite needed), flag it explicitly to the user + note it in `progress.md` under a "Known doc debt" section. Don't silently leave it.

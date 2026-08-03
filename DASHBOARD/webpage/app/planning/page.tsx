@@ -19,6 +19,25 @@ export default function PlanningPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header card */}
+      <Card>
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+              Planning
+            </div>
+            <h2 className="text-[22px] font-bold tracking-extra-tight text-text-primary">
+              Gantt, Kanban, per-phase checklists
+            </h2>
+            <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
+              Static snapshot of project planning — phase timeline (Gantt),
+              task board (Kanban: To Do / In Progress / Done), and per-phase
+              checklists with progress bars.
+            </p>
+          </div>
+        </div>
+      </Card>
+
       {/* Summary stat row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatPill label="Timeline" value={`${QUICK_STATS.totalDays}d`} accent="var(--c-primary)" />

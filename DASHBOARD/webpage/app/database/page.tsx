@@ -294,10 +294,10 @@ export default function DatabasePage() {
         </div>
         <div className="mt-4 pt-4 border-t border-border/60 flex flex-wrap gap-3 text-[11.5px]">
           <Link
-            href="/phase3/"
+            href="/modules/"
             className="inline-flex items-center gap-1.5 text-text-primary font-medium hover:underline"
           >
-            → View Phase 3 plan (14 modules that build on this schema)
+            → View module hierarchy (15 Phase 3 modules that build on this schema)
           </Link>
           <Link
             href="/architecture/"

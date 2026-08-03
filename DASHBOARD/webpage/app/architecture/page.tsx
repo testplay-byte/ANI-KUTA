@@ -44,7 +44,7 @@ export default function ArchitecturePage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Complete + sub-agent reviewed · 31 of 43 modules built · all decisions D-027..D-053 confirmed
+              Complete + sub-agent reviewed · 31 of 43 modules built · all decisions D-027..D-054 confirmed
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">

@@ -1,10 +1,13 @@
-# MEMORY OS — Design System (v2)
+# MEMORY OS — Design System (v3)
 
 > **Canonical design language for the ANI-KUTA dashboard. Strictly followed on all pages.**
 > A living document — improved regularly based on user preferences.
 >
-> **v2 changes**: Sidebar layout, charts/graphs, checklists, rounded sidebar, shrinkable sidebar,
-> combined with v1's dark mode system.
+> **v3 changes**: page-level `<Header>` removed (each page renders its own
+> hero/title in content). Dark-mode toggle moved into the Sidebar footer
+> (next to the shrink toggle). Floating mobile hamburger button (lg:hidden,
+> fixed top-left) opens the sidebar overlay on mobile. The dashboard now
+> scrolls cleanly with no sticky top header.
 
 ---
 
@@ -58,7 +61,9 @@
 
 > Dark mode uses a GREY theme (not brown/warm). No pure black — use grey tones.
 > Accent colors stay the same — they pop against grey surfaces.
-> A dark mode toggle sits at the top of every page (see §5.10).
+> The dark-mode toggle lives in the **Sidebar footer** (see §5.1) — visible
+> in both expanded and shrunk states. On mobile it works inside the sidebar
+> overlay too.
 
 | Name | Hex | Usage |
 |------|-----|-------|
@@ -132,14 +137,17 @@
 ┌─────────┬──────────────────────────────────────┐
 │ Sidebar │  Main Content (flex-1)               │
 │ 240px   │  max-w-[1280px] mx-auto              │
-│ sticky  │  px-4 sm:px-6 lg:px-10 py-6 lg:py-10 │
+│ sticky  │  px-4 sm:px-6 lg:px-10 py-6 lg:py-8  │
 │ shrink- │                                      │
-│ able    │  [Header] [Content] [Footer]         │
+│ able    │  [Hero Card with <h2> title]         │
+│         │  [Content]                            │
+│         │  [Footer]                             │
 └─────────┴──────────────────────────────────────┘
 ```
 
-- **Sidebar**: 240px on desktop, **shrinkable** (collapses to icon-only ~64px), sticky, scrollable, **rounded on all corners**.
-- **Main**: `max-w-[1280px]`, centered with `mx-auto`.
+- **Sidebar**: 240px on desktop, **shrinkable** (collapses to icon-only ~68px), sticky, scrollable, **rounded on all corners**. Dark-mode toggle + shrink toggle live in its footer.
+- **Main**: `max-w-[1280px]`, centered with `mx-auto`. No page-level `<Header>` (removed in v3) — each page renders its own hero Card with `<h2>` title + description.
+- **Mobile**: a floating hamburger button (fixed top-left, `lg:hidden`) opens the sidebar as a full-screen overlay.
 - **Content Padding**: 16px (mobile) → 24px (tablet) → 40px (desktop).
 
 ### 4.3 Border Radius System
@@ -173,7 +181,7 @@
 
 ### 5.1 Sidebar (Navigation)
 
-**Purpose**: Primary navigation hub, system status, and user context.
+**Purpose**: Primary navigation hub, system status, dark-mode toggle, and user context.
 
 #### Structure:
 ```
@@ -181,14 +189,15 @@
 [Primary Navigation]
 [Build Health Widget]
 [User Profile]
+[Footer: Dark-mode toggle + Shrink toggle]
 ```
 
 #### Details:
 - **Background**: `bg-[#FFFDFA]/80 backdrop-blur-xl` (translucent white with blur). Dark: `bg-[#252320]/80`.
 - **Border**: Right border `border-r border-[#E8E2DA]` on large screens.
-- **Width**: 240px expanded, ~64px collapsed (icon-only). **Shrinkable** via a toggle button.
+- **Width**: 240px expanded, ~68px collapsed (icon-only). **Shrinkable** via a toggle button.
 - **Rounded**: All corners rounded (`rounded-2xl` on desktop, giving a floating panel look).
-- **Sticky**: `lg:sticky lg:top-0 lg:h-screen`.
+- **Sticky**: `lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)]`.
 - **Margin**: Small margin from viewport edges on desktop (floating sidebar, not flush to edge).
 
 #### Brand Area:
@@ -203,8 +212,10 @@
 Pills with icon + label
 - Dashboard: "◫"
 - Architecture: "◈"
-- Decisions: "◉"  ← NEW
+- Decisions: "◉"
 - Modules: "⬙"
+- Database: "⊨"
+- Design: "◌"
 - Progress: "◍"
 - Analytics: "◬"
 - Planning: "📋"
@@ -215,19 +226,13 @@ Pills with icon + label
 - **Rounded**: `rounded-[12px]`
 - When **collapsed**: show only the icon, centered.
 
-#### Shrink Toggle:
-- A small button at the sidebar's bottom or top-right corner.
-- Icon: `«` (expand) / `»` (collapse) or chevron icons.
-- Toggles sidebar width between 240px and 64px.
-- Preference stored in `localStorage`.
-
 #### Build Health Widget:
 - **Container**: `bg-[#F2EEE8] rounded-[16px] border border-[#E8E2DA]`
 - **Label**: "Build Health" (11px, uppercase, tracking-widest, #8A8784)
 - **Value**: "100%" (22px, bold, tracking-tight)
 - **Status**: "● live" (11px, #14B8A6)
 - **Progress Bar**: `h-1.5 rounded-full bg-white overflow-hidden`, fill `bg-[#14B8A6]`.
-- **Footer**: "36 modules · 0 failures" (11px, #8A8784)
+- **Footer**: "31 modules · 0 failures" (11px, #8A8784)
 - When **collapsed**: hide this widget.
 
 #### User Profile:
@@ -237,31 +242,57 @@ Pills with icon + label
 - **Status**: `w-2 h-2 rounded-full bg-[#14B8A6] animate-pulse`
 - When **collapsed**: show only the avatar.
 
+#### Footer Row — Dark-Mode Toggle + Shrink Toggle (NEW in v3):
+- **Container**: `px-3 py-3 border-t border-border/60` — flex row (expanded) or column (shrunk).
+- **Dark-Mode Toggle**:
+  - Pill button with sun (when dark) / moon (when light) SVG icon + label "Light" / "Dark".
+  - When **expanded**: `flex-1` width, `h-9 px-3 rounded-[10px] border border-border bg-surface`.
+  - When **shrunk**: `w-9 h-9` icon-only, centered.
+  - Toggles `dark` class on `<html>`. Persists to `localStorage('theme')`.
+  - Visible in both expanded and shrunk states.
+  - Works inside the mobile overlay too.
+- **Shrink Toggle**:
+  - Icon-only `w-9 h-9` button with a chevron (rotates 180° when shrunk).
+  - Desktop only (`hidden lg:flex`).
+  - Toggles sidebar width between 240px and 68px.
+  - Persists to `localStorage('sidebar-shrink')`.
+
+#### Mobile Floating Hamburger (NEW in v3):
+- A small floating button (`fixed top-3 left-3 z-40 lg:hidden`) — `h-10 w-10 rounded-[12px] border border-border bg-surface/95 backdrop-blur-xl`.
+- Shows a hamburger icon (three horizontal lines).
+- Hides itself while the sidebar overlay is open (prevents z-index conflicts).
+- Clicking it opens the sidebar as a full-screen overlay (with backdrop).
+- Replaces the previous Header-embedded hamburger button.
+
 ### 5.2 Main Content Area
 
 #### Structure:
 ```
-[Header: Title + Description + Actions (incl. dark mode toggle)]
+[Hero Card with <h2> page title + description]
 [Content: Animated fade-in container]
 [Footer: Meta information]
 ```
 
-#### Header:
-- **Title**: `text-[26px] sm:text-[32px] font-[700] tracking-[-0.02em] leading-[0.95]`
-- **Description**: `text-[13px] sm:text-[14px] text-[#8A8784] max-w-[560px] leading-[1.5]`
-- **Dark Mode Toggle**: Top-right (sun/moon icon, pill button).
-- **Action Buttons**: Pills (bg-[#1A1A1A] text-white rounded-[12px]).
+> **v3 change**: the page-level `<Header>` component was removed. Each page
+> now renders its own hero Card at the top of its content with an `<h2>`
+> title + description (using the page's existing hero/title styling).
+
+#### Hero Card (per page):
+- **Title**: `text-[22px] sm:text-[26px] md:text-[32px] font-[700] tracking-[-0.02em] leading-tight`
+- **Description**: `text-[12.5px] sm:text-[13.5px] text-[#8A8784] max-w-2xl leading-[1.5]`
+- Action buttons / status pills live in the hero Card's right side (page-specific).
 
 #### Content Container:
 - **Animation**: `animate-[fadeIn_0.3s_ease]`
-- **Padding**: `px-4 sm:px-6 lg:px-10 py-6 lg:py-10`
+- **Padding**: `px-4 sm:px-6 lg:px-10 py-6 lg:py-8`
 - **Max Width**: `max-w-[1280px] mx-auto`
 
 #### Footer:
 ```
-ANI-KUTA · Project Dashboard · warm canvas #F2EEE8 · 36 modules · 100% health
+ANI-KUTA · Project Dashboard · grey dark mode #1E1E1E · 31 modules · 18/18 decisions confirmed · Phase 4 in progress
 ```
-- **Border**: `border-t border-[#E8E2DA]`, **Spacing**: `mt-12 pt-6`, **Text**: `text-[11px] text-[#8A8784]`.
+- **Border**: `border-t border-[#E8E2DA]`, **Spacing**: `mt-auto pt-6 pb-6`, **Text**: `text-[11px] text-[#8A8784]`.
+- **Sticky footer**: pushed to bottom by `flex-col` layout — never overlays content.
 
 ### 5.3 Cards
 
@@ -321,11 +352,14 @@ ANI-KUTA · Project Dashboard · warm canvas #F2EEE8 · 36 modules · 100% healt
 
 ### 5.10 Dark Mode Toggle
 
-- Placed at the **top-right** of the main content header (next to action buttons).
-- A pill button with sun/moon icon.
+- Lives in the **Sidebar footer** (see §5.1) — next to the shrink toggle.
+- Visible in both expanded (with "Light"/"Dark" label) and shrunk (icon-only) sidebar states.
+- Works inside the mobile sidebar overlay too.
+- A pill button with sun (shown when dark) / moon (shown when light) SVG icon.
 - Toggles between light (default) and dark mode via `dark` class on `<html>`.
-- Preference stored in `localStorage`; respects `prefers-color-scheme` on first visit.
+- Preference stored in `localStorage('theme')`; respects `prefers-color-scheme` on first visit.
 - No flash of wrong theme (inline script in `<head>` sets the class before render).
+- *(v3: previously sat in a top page-level `<Header>` — that header was removed.)*
 
 ### 5.11 Phase Timeline
 

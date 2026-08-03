@@ -8,21 +8,29 @@ import { NAV_ITEMS, QUICK_STATS } from "@/lib/data";
 /**
  * Sidebar — primary navigation (DESIGN.md §5.1).
  *
- * v2 features:
+ * v3 features:
  *  - Floating: rounded-2xl on all corners, margin from viewport edges (desktop).
  *  - Shrinkable: toggles between 240px (expanded) and 64px (icon-only).
  *    Preference persists in localStorage (`sidebar-shrink`).
  *  - Sticky on desktop (lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)]).
  *  - Translucent surface with backdrop blur.
- *  - On mobile: hidden by default; a hamburger (rendered in Header) opens
- *    the sidebar as a full-screen overlay.
+ *  - On mobile: hidden by default; a floating hamburger button (rendered by
+ *    this same component, lg:hidden, fixed top-left) opens the sidebar as a
+ *    full-screen overlay. The button hides itself while the overlay is open.
+ *  - Dark-mode toggle in the footer row (next to the shrink toggle). Icon-only
+ *    when shrunk. Persists to localStorage('theme') — same key the inline
+ *    theme-init script in layout.tsx reads on next paint.
  *
- * Sections: Brand → Nav pills → Build Health widget → User Profile.
+ * Sections: Brand → Nav pills → Build Health widget → User Profile →
+ *           Footer (dark-mode toggle + shrink toggle).
+ *
+ * Note: the page-level `<Header>` was removed in v3 (DESIGN.md §5.2 deleted).
+ * Each page now renders its own hero/title at the top of its content.
  */
 
 const MOBILE_NAV_EVENT = "ani-kuta:toggle-mobile-nav";
 
-/** Dispatched by the Header's hamburger button on mobile. */
+/** Kept for backward-compat — external callers can still dispatch the event. */
 export function toggleMobileNav() {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(MOBILE_NAV_EVENT));
@@ -34,15 +42,17 @@ export function Sidebar() {
   const [shrink, setShrink] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [isDark, setIsDark] = useState(false);
 
   // Read shrink preference on mount (set by inline script for no-flash).
   useEffect(() => {
     setMounted(true);
     const stored = document.documentElement.getAttribute("data-sidebar-shrink");
     setShrink(stored === "1");
+    setIsDark(document.documentElement.classList.contains("dark"));
   }, []);
 
-  // Listen for hamburger toggle from Header (mobile only).
+  // Listen for external hamburger toggle requests (mobile only).
   useEffect(() => {
     const handler = () => setMobileOpen((o) => !o);
     window.addEventListener(MOBILE_NAV_EVENT, handler);
@@ -59,7 +69,21 @@ export function Sidebar() {
     setShrink(next);
     try {
       localStorage.setItem("sidebar-shrink", next ? "1" : "0");
-      document.documentElement.setAttribute("data-sidebar-shrink", next ? "1" : "0");
+      document.documentElement.setAttribute(
+        "data-sidebar-shrink",
+        next ? "1" : "0",
+      );
+    } catch {
+      /* localStorage unavailable */
+    }
+  };
+
+  const toggleDark = () => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    try {
+      localStorage.setItem("theme", next ? "dark" : "light");
     } catch {
       /* localStorage unavailable */
     }
@@ -75,6 +99,31 @@ export function Sidebar() {
 
   return (
     <>
+      {/* Floating mobile hamburger button (lg:hidden only).
+          Hides itself while the overlay is open. */}
+      {!mobileOpen && (
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation menu"
+          className="lg:hidden fixed top-3 left-3 z-40 h-10 w-10 rounded-[12px] border border-border bg-surface/95 backdrop-blur-xl flex items-center justify-center text-text-primary shadow-card-subtle"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="w-5 h-5"
+            aria-hidden="true"
+          >
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </button>
+      )}
+
       {/* Mobile overlay backdrop */}
       {mobileOpen && (
         <div
@@ -129,7 +178,10 @@ export function Sidebar() {
         </div>
 
         {/* Navigation pills */}
-        <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1" aria-label="Sections">
+        <nav
+          className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1"
+          aria-label="Sections"
+        >
           {NAV_ITEMS.map((item) => {
             const itemPath = normalize(item.href);
             const isActive =
@@ -194,7 +246,9 @@ export function Sidebar() {
 
         {/* User profile */}
         <div className="px-3 py-3 border-t border-border/60 shrink-0">
-          <div className={`flex items-center gap-2 text-[11px] text-text-secondary ${shrink ? "justify-center" : ""}`}>
+          <div
+            className={`flex items-center gap-2 text-[11px] text-text-secondary ${shrink ? "justify-center" : ""}`}
+          >
             <span className="relative shrink-0">
               <span className="w-6 h-6 rounded-full bg-chip border border-border flex items-center justify-center text-[10px] font-bold text-text-primary">
                 AK
@@ -206,34 +260,84 @@ export function Sidebar() {
                 <span className="block text-[12px] font-medium text-text-primary truncate">
                   ANI-KUTA Agent
                 </span>
-                <span className="block text-[10px] text-text-secondary">active now</span>
+                <span className="block text-[10px] text-text-secondary">
+                  active now
+                </span>
               </span>
             )}
           </div>
         </div>
 
-        {/* Shrink toggle */}
-        <button
-          type="button"
-          onClick={toggleShrink}
-          aria-label={shrink ? "Expand sidebar" : "Collapse sidebar"}
-          title={shrink ? "Expand sidebar" : "Collapse sidebar"}
-          className="hidden lg:flex items-center justify-center w-8 h-8 mx-auto mb-3 rounded-[10px] border border-border bg-surface text-text-secondary hover:text-text-primary hover:bg-canvas transition-all duration-200 shrink-0"
+        {/* Footer row — dark-mode toggle + shrink toggle (desktop). */}
+        <div
+          className={`px-3 py-3 border-t border-border/60 shrink-0 ${shrink ? "flex flex-col items-center gap-2" : "flex items-center gap-2"}`}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`w-4 h-4 transition-transform duration-300 ${shrink ? "rotate-180" : ""}`}
-            aria-hidden="true"
+          <button
+            type="button"
+            onClick={toggleDark}
+            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            title={isDark ? "Light mode" : "Dark mode"}
+            className={`flex items-center gap-2 h-9 rounded-[10px] border border-border bg-surface text-text-primary hover:bg-canvas hover:translate-y-[-1px] transition-all duration-200 ${shrink ? "w-9 justify-center px-0" : "px-3 flex-1"}`}
           >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+            {/* Sun icon (shown in dark mode → click for light) */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`w-4 h-4 ${isDark ? "block" : "hidden"}`}
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+            {/* Moon icon (shown in light mode → click for dark) */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`w-4 h-4 ${isDark ? "hidden" : "block"}`}
+              aria-hidden="true"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+            {!shrink && (
+              <span className="text-[12px] font-medium">
+                {isDark ? "Light" : "Dark"}
+              </span>
+            )}
+          </button>
+
+          {/* Shrink toggle (desktop only) */}
+          <button
+            type="button"
+            onClick={toggleShrink}
+            aria-label={shrink ? "Expand sidebar" : "Collapse sidebar"}
+            title={shrink ? "Expand sidebar" : "Collapse sidebar"}
+            className="hidden lg:flex items-center justify-center w-9 h-9 rounded-[10px] border border-border bg-surface text-text-secondary hover:text-text-primary hover:bg-canvas transition-all duration-200 shrink-0"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`w-4 h-4 transition-transform duration-300 ${shrink ? "rotate-180" : ""}`}
+              aria-hidden="true"
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+        </div>
       </aside>
     </>
   );
@@ -308,14 +412,6 @@ function NavIcon({ name, className = "" }: { name: string; className?: string })
         <ellipse cx="12" cy="5" rx="8" ry="2.5" />
         <path d="M4 5v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V5" />
         <path d="M4 11v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" />
-      </>
-    ),
-    phase3: (
-      <>
-        <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
-        <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
-        <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-        <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
       </>
     ),
   };

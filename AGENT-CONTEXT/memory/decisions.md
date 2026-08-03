@@ -342,7 +342,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 ### D-053 — Accent palette system (10 presets + CUSTOM, live apply)
 - **What:** The app supports 10 accent presets (Lime, Coral, Rose, Amber, Red, Teal, Blue, Cyan, Violet, Emerald) + 1 CUSTOM. Selecting a preset overrides the theme's `primary` / `primaryContainer` / `onPrimary` / `onPrimaryContainer` colors (light + dark). The background/surface ramp stays fixed (warm darks / warm lights) so ONLY the accent changes — preserving the proven aesthetic (D-037 customizable UI). Container colors are DERIVED from the seed via `lerp` against the fixed surface/text colors (no per-color hand-tuning).
 - **Architecture:** `AccentPreset` enum + `AccentColors` (derivation) live in `:core:designsystem/theme` (theme concern, no dependency on preferences). `AnikutaTheme` takes an `accentSeed: Color` param. `ThemePreferences` (in :app) stores `accentPreset` (name) + `customAccentColor` (ARGB int) and exposes `resolveAccentSeed(): Color`. `MainActivity` reads prefs and passes the seed to `AnikutaTheme` → live recomposition on change (CORE_RULES §23).
-- **CUSTOM:** applies the stored custom color (defaults to Lime). The color-picker UI is Phase 5 — selection + storage + live-apply work now, only the editor is deferred.
+- **CUSTOM:** applies the stored custom color (defaults to Lime). The color-picker UI is Phase 5f — selection + storage + live-apply work now, only the editor is deferred.
 - **Why:** User disappointed palettes were static placeholders ("none of the palettes get applied"). This makes them functional while keeping the system clean (derivation, not 80 hand-tuned colors).
-- **Status:** ✅ Implemented (Phase 4, session web-3a43f99b). Color picker → Phase 5d.
+- **Status:** ✅ Implemented (Phase 4, session web-3a43f99b). Color picker → Phase 5f.
 - **Date:** Phase 4 (session web-3a43f99b).
+
+### D-054 — Phase 5 re-ordered: Extensions → Details → Watch → Identity (functional first)
+- **What:** Phase 5 sub-phases re-ordered to: **5a** Extension Management → **5b** Details Page Overhaul → **5c** Watch Screen → **5d** Identity System → **5e** History/Updates → **5f** Backup/Restore + Color Picker. The prior plan put Identity first (5a) — that was rejected.
+- **Why:** User directive — "first make the app functional so we can test things, then move to the deeper parts." The watch flow only needs a *minimal* source link (one DB row), NOT the full ContentUID graph. Identity is a *refinement* for portability (backup) + auto-matching, not a *prerequisite* for playback. Putting it first blocked the user from testing anything until the entire identity system was built — wrong priority.
+- **Key insight:** 5a–5c deliver a **watchable app** (install extension → browse → details → play). 5d–5f are invisible refinements (identity, history, backup). The minimal `source_link` row from 5b is mechanically migrated to ContentUID + ExternalReference in 5d — no data loss, no UX change.
+- **Status:** ✅ Confirmed by user. Plan in `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md` (rewritten).
+- **Date:** Phase 4 (session web-3a43f99b, second pass).
+- **Open questions:** Q-056 (source browser placement), Q-057 (episode sort), Q-058 (default video quality), Q-059 (updates placement), Q-060 (auto-match scope), Q-061 (backup frequency). See plan §9.
