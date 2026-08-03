@@ -62,12 +62,14 @@ class MainActivity : ComponentActivity() {
             val prefs = koinInject<ThemePreferences>()
             val themeMode = prefs.themeMode.value
             val amoled = prefs.amoled.value
+            // Accent seed: resolves CUSTOM → stored custom color, else preset seed.
+            val accentSeed = prefs.resolveAccentSeed()
             val isDark = when (themeMode) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
-            AnikutaTheme(darkTheme = isDark, amoled = amoled) {
+            AnikutaTheme(darkTheme = isDark, amoled = amoled, accentSeed = accentSeed) {
                 AppRoot()
             }
         }

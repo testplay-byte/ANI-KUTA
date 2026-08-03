@@ -400,8 +400,11 @@ private fun CustomizeSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // CORE_RULES §22 + user spec: bottom-up sheets cap at 70% of the device's
+    // full screen height. LocalConfiguration.screenHeightDp is the actual device
+    // height (window insets excluded by edge-to-edge), so this adapts per-device.
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-    val maxSheetHeight = screenHeight * 0.75f
+    val maxSheetHeight = screenHeight * 0.70f
 
     var activeTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Sort", "Display & Badges")
@@ -412,9 +415,15 @@ private fun CustomizeSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null, // ── No drag handle per spec ──
     ) {
+        // FIX: cap the WHOLE sheet content (header + tabs + divider + list) at
+        // 70% screen height. Previously heightIn was on the LazyColumn only, so
+        // the sheet grew to list(70%) + header/tabs/divider(~120dp) and exceeded
+        // the limit. With the cap on the Column, the LazyColumn is constrained by
+        // its parent's remaining space → wraps when short, scrolls when tall.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
@@ -476,12 +485,13 @@ private fun CustomizeSheet(
             Spacer(Modifier.height(8.dp))
 
             // ── Tab content ──
-            // FIX: Use heightIn (max) instead of fixed height — sheet wraps content
-            // but never exceeds 75% of screen height (user feedback: 'taking up way too much')
+            // No heightIn here — the parent Column's heightIn(max) constrains
+            // this LazyColumn to the remaining space, so it scrolls when the
+            // tab's content exceeds the 70% cap (Display & Badges) and wraps
+            // when it's short (Sort).
             LazyColumn(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = maxSheetHeight),
+                    .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 when (activeTab) {

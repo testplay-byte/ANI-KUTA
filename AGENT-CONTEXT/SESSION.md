@@ -58,8 +58,8 @@ ANIKUTA-PROJECT/
 ```
 
 ## ❓ Currently Blocked On
-- Nothing. Phase 2 scaffold is complete + CI green.
-- Ready for Phase 3 (core modules: identity, source-api, extension-aniyomi, player, etc.) when user confirms.
+- Nothing. Phase 3 (core modules) complete. Phase 4 (feature screens) mostly done — UI polish + accent palette system done this session.
+- Next: finish Phase 4 loose ends (verify in CI) → Phase 5 (identity system, watch screen, backup/restore). Plan in `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`.
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*

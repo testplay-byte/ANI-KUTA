@@ -50,17 +50,32 @@ private val LightColorScheme = lightColorScheme(
  * @param darkTheme Whether to use the dark color scheme.
  * @param amoled When `true` AND `darkTheme`, swaps backgrounds/surfaces to
  *               pure `Color.Black` for OLED screens (saves power on AMOLED).
+ * @param accentSeed The accent seed color used to override the primary color
+ *                   family (primary / primaryContainer / onPrimary /
+ *                   onPrimaryContainer) in both light + dark schemes. Defaults
+ *                   to Lime. See [AccentColors.from] for the derivation.
+ *                   Pass [AccentPreset.CUSTOM]'s stored custom color here when
+ *                   the user selected Custom (D-037: highly customizable UI).
  * @param content The content to theme.
  */
 @Composable
 fun AnikutaTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     amoled: Boolean = false,
+    accentSeed: Color = AccentPreset.LIME.seed,
     content: @Composable () -> Unit,
 ) {
     val baseScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    // Override the primary color family with the accent seed's derived colors.
+    val accent = AccentColors.from(accentSeed)
+    val accentScheme = baseScheme.copy(
+        primary = if (darkTheme) accent.darkPrimary else accent.lightPrimary,
+        onPrimary = if (darkTheme) accent.darkOnPrimary else accent.lightOnPrimary,
+        primaryContainer = if (darkTheme) accent.darkPrimaryContainer else accent.lightPrimaryContainer,
+        onPrimaryContainer = if (darkTheme) accent.darkOnPrimaryContainer else accent.lightOnPrimaryContainer,
+    )
     val colorScheme = if (darkTheme && amoled) {
-        baseScheme.copy(
+        accentScheme.copy(
             background = Color.Black,
             surface = Color.Black,
             surfaceVariant = Color(0xFF111111),
@@ -69,7 +84,7 @@ fun AnikutaTheme(
             surfaceContainerHighest = Color(0xFF1A1A1A),
         )
     } else {
-        baseScheme
+        accentScheme
     }
     MaterialTheme(
         colorScheme = colorScheme,

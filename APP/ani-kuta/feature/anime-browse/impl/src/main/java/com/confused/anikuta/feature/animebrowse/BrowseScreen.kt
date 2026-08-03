@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,7 +40,10 @@ import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
+import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.Motion
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -46,7 +51,13 @@ import org.koin.compose.viewmodel.koinViewModel
  *
  * Shows a grid of trending anime from AniList. Tapping a card navigates to Details.
  *
- * CORE_RULES §22: smooth animations — cards scale on press, no ripple.
+ * Layout (matches Library pattern):
+ * 1. CollapsingHeader "Browse" (pinned, shrinks on scroll).
+ * 2. LazyVerticalGrid of trending anime cards.
+ * 3. ScrollBlurOverlay at the header's bottom edge.
+ *
+ * CORE_RULES §22: smooth animations — cards scale on press, no ripple,
+ *                 header collapses with 300ms FastOutSlowInEasing.
  * CORE_RULES §23: reactive state — UI updates when data loads.
  * DESIGN-LANGUAGE.md: lime accent, warm darks, 16dp rounded corners.
  *
@@ -59,27 +70,47 @@ fun BrowseScreen(
     viewModel: BrowseViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val gridState = rememberLazyGridState()
+    val collapsed = gridState.firstVisibleItemIndex > 0 ||
+        gridState.firstVisibleItemScrollOffset > 20
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding(),
-    ) {
-        when (val s = state) {
-            is BrowseState.Loading -> LoadingScreen()
-            is BrowseState.Error -> ErrorScreen(s.message, viewModel::loadTrending)
-            is BrowseState.Success -> AnimeGrid(s.anime) { anime ->
-                onNavigate(AnimeDetailsKey(anime.id))
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ── Pinned collapsing header (user feedback: Browse needs a heading) ──
+            CollapsingHeader(title = "Browse", collapsed = collapsed)
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (val s = state) {
+                    is BrowseState.Loading -> LoadingScreen()
+                    is BrowseState.Error -> ErrorScreen(s.message, viewModel::loadTrending)
+                    is BrowseState.Success -> AnimeGrid(s.anime, gridState) { anime ->
+                        onNavigate(AnimeDetailsKey(anime.id))
+                    }
+                }
+
+                // ── Scroll blur (fades in when content scrolls under header) ──
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else gridState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun AnimeGrid(anime: List<AniListAnime>, onClick: (AniListAnime) -> Unit) {
+private fun AnimeGrid(
+    anime: List<AniListAnime>,
+    gridState: LazyGridState,
+    onClick: (AniListAnime) -> Unit,
+) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
+        state = gridState,
         contentPadding = PaddingValues(
             start = 12.dp,   // Reduced from 16dp (user feedback: too much padding)
             end = 12.dp,
@@ -103,7 +134,7 @@ private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = tween(Motion.DurationShort, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "cardScale",
     )
 
@@ -132,8 +163,9 @@ private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
         Text(
             text = anime.displayName,
             style = MaterialTheme.typography.bodyMedium,
+            fontFamily = RobotoFamily,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onBackground, // Fixed: was default (black on dark)
+            color = MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
@@ -144,6 +176,7 @@ private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
             Text(
                 text = "★ ${score}",
                 style = MaterialTheme.typography.labelSmall,
+                fontFamily = RobotoFamily,
                 color = MaterialTheme.colorScheme.primary, // Lime accent
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 2.dp, top = 2.dp),
@@ -168,6 +201,7 @@ private fun ErrorScreen(message: String, onRetry: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 "Failed to load",
+                fontFamily = RobotoFamily,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onBackground,
             )

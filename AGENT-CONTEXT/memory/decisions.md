@@ -331,3 +331,18 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User requirement — maintainability + future AI agent collaboration.
 - **Status:** ✅ Confirmed (already in CORE_RULES, reinforced here).
 - **Date:** Phase 1.
+
+### D-052 — Bottom-up sheets cap at 70% of device screen height
+- **What:** All `ModalBottomSheet` (and equivalent bottom-up menus) cap their content at **70% of the device's full screen height**. The cap applies to the WHOLE sheet content (header + tabs + body), not just the inner scrollable list. Use `LocalConfiguration.current.screenHeightDp.dp * 0.70f` as the max, applied via `Modifier.heightIn(max = ...)` on the sheet's root Column. The inner scrollable content (LazyColumn / verticalScroll Column) is then constrained by the parent and scrolls when content exceeds the cap, wraps when short.
+- **Why:** User spec — sheets were taking too much vertical space (the "Display & Badges" tab exceeded the limit because `heightIn` was on the inner list only, so sheet = list(75%) + header + tabs ≈ 85%). 70% leaves room for the content behind the sheet and feels balanced. Detecting the real device height (not a hardcoded dp value) adapts per-device.
+- **Status:** ✅ Confirmed by user.
+- **Date:** Phase 4 (session web-3a43f99b).
+- **Applied to:** Library CustomizeSheet, Search FilterSheet. Rule for all future sheets.
+
+### D-053 — Accent palette system (10 presets + CUSTOM, live apply)
+- **What:** The app supports 10 accent presets (Lime, Coral, Rose, Amber, Red, Teal, Blue, Cyan, Violet, Emerald) + 1 CUSTOM. Selecting a preset overrides the theme's `primary` / `primaryContainer` / `onPrimary` / `onPrimaryContainer` colors (light + dark). The background/surface ramp stays fixed (warm darks / warm lights) so ONLY the accent changes — preserving the proven aesthetic (D-037 customizable UI). Container colors are DERIVED from the seed via `lerp` against the fixed surface/text colors (no per-color hand-tuning).
+- **Architecture:** `AccentPreset` enum + `AccentColors` (derivation) live in `:core:designsystem/theme` (theme concern, no dependency on preferences). `AnikutaTheme` takes an `accentSeed: Color` param. `ThemePreferences` (in :app) stores `accentPreset` (name) + `customAccentColor` (ARGB int) and exposes `resolveAccentSeed(): Color`. `MainActivity` reads prefs and passes the seed to `AnikutaTheme` → live recomposition on change (CORE_RULES §23).
+- **CUSTOM:** applies the stored custom color (defaults to Lime). The color-picker UI is Phase 5 — selection + storage + live-apply work now, only the editor is deferred.
+- **Why:** User disappointed palettes were static placeholders ("none of the palettes get applied"). This makes them functional while keeping the system clean (derivation, not 80 hand-tuned colors).
+- **Status:** ✅ Implemented (Phase 4, session web-3a43f99b). Color picker → Phase 5d.
+- **Date:** Phase 4 (session web-3a43f99b).

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -51,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -175,6 +177,9 @@ fun FilterSheet(
     if (!show) return
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // User spec: all bottom-up sheets cap at 70% of device screen height.
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val maxSheetHeight = screenHeight * 0.70f
 
     var viewMode by remember { mutableStateOf(FilterViewMode.ACCORDION) }
     var openAccordionId by remember { mutableStateOf<AccordionSection?>(null) }
@@ -186,9 +191,13 @@ fun FilterSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null, // principle #2 — NO drag handle
     ) {
+        // Cap the WHOLE sheet (header + scrollable body) at 70% screen height.
+        // The inner verticalScroll Column is constrained to the remaining space
+        // and scrolls when filter content exceeds the cap.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
                 .navigationBarsPadding(),
         ) {
             // Header
