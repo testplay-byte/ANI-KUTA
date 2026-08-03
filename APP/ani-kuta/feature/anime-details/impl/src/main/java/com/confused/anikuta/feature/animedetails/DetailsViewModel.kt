@@ -169,8 +169,28 @@ class DetailsViewModel(
                     title = animeTitle
                     initialized = false
                 }
+
+                // CRITICAL: Call getAnimeDetails BEFORE getEpisodeList.
+                // The old project's ExtensionDetailsProvider does this (enrichAnimeDetails).
+                // Why: The search result's sAnime.url may be a relative URL without a
+                // leading "/" (e.g. "mushoku-tensei-..."). The default episodeListRequest
+                // builds `baseUrl + anime.url` → "https://anikototv.to" + "mushoku-tensei-..."
+                // = "https://anikototv.tomushoku-tensei-..." (missing "/" → UnknownHostException).
+                // getAnimeDetails fetches the anime's page and returns an enriched SAnime
+                // with the correct URL format (e.g. "/mushoku-tensei-..." or the full URL).
+                val enrichedAnime = withContext(Dispatchers.IO) {
+                    try {
+                        val enriched = source.getAnimeDetails(sAnime)
+                        Logger.i(TAG) { "Enriched SAnime via getAnimeDetails: url=${enriched.url}" }
+                        enriched
+                    } catch (e: Throwable) {
+                        Logger.w(TAG, e) { "getAnimeDetails failed on ${source.name} — using original SAnime" }
+                        sAnime
+                    }
+                }
+
                 val episodes = withContext(Dispatchers.IO) {
-                    source.fetchEpisodeList(sAnime).awaitSingle()
+                    source.fetchEpisodeList(enrichedAnime).awaitSingle()
                 }
                 Logger.i(TAG) { "Fetched ${episodes.size} episodes from ${source.name}" }
                 _episodeState.value = if (episodes.isEmpty()) {
