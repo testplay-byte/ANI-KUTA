@@ -124,3 +124,17 @@
   - `ExtensionAnime` model (in :api — no source-api dep) + `SAnimeMapper.toExtensionAnime()` (in :impl).
   - `ExtensionResultsGrid` + `ExtensionResultCard` — grid of extension anime.
 - **Lessons logged**: loader metadata-key mistake (invented keys vs Aniyomi convention), installable-items filtering pattern, ChildFirstPathClassLoader requirement, withLock suspend-context mistake.
+
+## Session web-3a43f99b (fifth pass) — Phase 5A fixes + 5B Details overhaul + DESIGN-LANGUAGE + CORE_RULE §27
+- **Phase 5A fixes** (per user feedback):
+  - **Extension icons**: Added `icon: Drawable?` to Installed + Untrusted models. Loader now calls `appInfo.loadIcon(packageManager)`. UI renders via Coil `AsyncImage(model=drawable)`.
+  - **Untrust fix**: Was NOT actually revoking trust (just called loadAll which re-trusted the same fingerprint). Now calls `trustService.revoke(signatureHash)` before reloading. Added `signatureHash` field to Installed model.
+  - **Uninstall fix**: Removed the `resolveActivity()` guard (returns null on Android 11+ due to package visibility — caused the system dialog to not show). Added `<queries>` block in manifest for ACTION_DELETE + scheme=package. Catches `ActivityNotFoundException` → fallback to app details.
+  - **Extensions UI**: Filters button at top (NO default search bar — revealed on tap via AnimatedVisibility). Section cards with clearer separation + tonalElevation + 6dp row spacing. Removed duplicate name in trusted row. Long-press enters reorder mode (combinedClickable).
+  - **Search source picker**: "Pick a source" (was "Select source"). Name-only rows (removed language). Selected source: primaryContainer background + plain checkmark (no circular background). Unselected: subtle surfaceVariant.
+  - **Search auto-select**: SearchViewModel init auto-selects the top trusted source when none is selected (per user spec). ExtensionError state shows the actual error message (source name + reason) instead of the generic tsundere error. Catches Throwable (not Exception).
+  - **Search collapse fix**: Header now collapses when the grid scrolls (was only collapsing on verticalScroll — gridState wasn't checked).
+- **Phase 5B — Details page complete UI overhaul**: Rebuilt to match the old project's design exactly. DetailBanner (360dp blurred cover + gradient + 3 action buttons + cover thumbnail + title + meta row). GenresRow (horizontal scrollable chips). SynopsisSection (collapsible). InfoSection (key/value table). ScrollBlurOverlay. 3 top buttons: 40dp black-40%-alpha circles, 22dp white icons. Added material-icons-extended dep. Note: episodes section + source switching + resolver come in a later step (needs UnifiedAnime + provider infrastructure).
+- **DESIGN-LANGUAGE.md created**: Fresh start (old one was deleted). 2 confirmed rules: §2.1 Collapsing Header (shrinks on scroll), §2.2 Scroll Blur Overlay. §2.3 Hide-on-Scroll Top Bar (Search specific). Future rules listed as pending.
+- **CORE_RULES §27 added**: Tool Failure Recovery (stop after 5 consecutive failures of the same tool — don't hammer, the environment self-recovers).
+- **Lessons logged**: resolveActivity returns null on Android 11+ for ACTION_DELETE (package visibility), untrust must actually revoke the fingerprint (not just reload), extension icons need appInfo.loadIcon + Coil AsyncImage(model=drawable).
