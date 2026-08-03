@@ -185,3 +185,14 @@
 - **2 CI iterations to green**: (1) api module missing deps, (2) MPVLib observer method signatures (non-nullable params).
 - **What's deferred** (later iterations): episode list in minimized mode, speed/quality/track sheets, resume position (WatchProgressStore wiring), subtitle/audio track loading.
 - **Lessons logged**: MPVLib observer interfaces use non-nullable params (String, not String?), cross-module resource lookup via `resources.getIdentifier`.
+
+## Session web-3a43f99b (tenth pass) — All 4 tasks: episode fix + APK signing + WatchScreen rebuild
+- **TASK 1 — Episode loading fix**: Root cause was missing `getAnimeDetails(sAnime)` call before `getEpisodeList(sAnime)`. The search result's `sAnime.url` is a relative URL without leading "/" (e.g. "mushoku-tensei-..."). The default `episodeListRequest` builds `baseUrl + anime.url` = "https://anikototv.to" + "mushoku-tensei-..." = "https://anikototv.tomushoku-tensei-..." (missing "/" → UnknownHostException). `getAnimeDetails` enriches the SAnime with the correct URL format. Ported from old project's `ExtensionDetailsProvider.enrichAnimeDetails`.
+- **TASK 4 — APK signing**: Generated `anikuta-debug.keystore` (RSA 2048, 10000 days). Configured `signingConfigs.anikutaDebug` in `app/build.gradle.kts`. Debug build type uses the fixed signing config. Keystore committed to repo (force-added — was gitignored by `*.keystore` rule). User can now update the app without uninstalling.
+- **TASK 2+3 — WatchScreen rebuild**: Complete rewrite with minimized + fullscreen modes matching old project:
+  - **Minimized mode**: Floating pill top bar (back + "ANI-KUTA" title, collapses on scroll via `animateDpAsState`). 16:9 player with `RoundedCornerShape(14dp)` + 6dp horizontal padding (NOT edge-to-edge). Minimized controls (time, fullscreen button, play/pause, seek bar). Scrollable LazyColumn: episode description card + episode list card (header + count badge + episode rows with number badges, current episode highlighted with primary border + tint).
+  - **Fullscreen mode**: Edge-to-edge black player, landscape orientation (`SENSOR_LANDSCAPE`). Controls overlay with gradient scrim. Top bar (back, title, episode info, quality badge). Center (skip back -10s, play/pause 56dp, skip forward +10s). Bottom (seek bar + time + fullscreen exit). Auto-hide after 4s. Fade animation (200ms). System bars hidden (immersive mode).
+  - `WatchKey` updated to carry `episodeUrl`, `episodeNumber`, `episodeTitle`, `episodeListSerialized` (pipe-delimited `url|episodeNumber|name` per line). `parseEpisodeList()` deserializes into `SimpleEpisode` list.
+  - `DetailsScreen` updated to pass full episode info + serialized episode list via `onNavigateToWatch`.
+  - Single shared `PlayerSurface` (AndroidView) — never recreated on mode switches. Parent removal safety.
+- **Lessons logged**: `getAnimeDetails` must be called before `getEpisodeList` (URL enrichment).
