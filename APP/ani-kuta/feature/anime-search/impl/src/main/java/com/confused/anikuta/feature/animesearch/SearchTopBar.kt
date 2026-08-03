@@ -308,7 +308,8 @@ fun SearchTopBar(
                 }
             }
 
-            Spacer(Modifier.padding(top = 4.dp))
+            // FIX: Reduce bottom padding to minimum (user: 'reduce to 1px')
+            Spacer(Modifier.padding(top = 1.dp))
         }
     }
 }

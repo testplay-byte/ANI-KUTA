@@ -2,6 +2,7 @@ package com.confused.anikuta
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -73,50 +74,43 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/**
- * NavKey for the More screen. Lives in `:app` (not a feature module) because
- * the More screen composes entries from multiple feature modules.
- */
 @Serializable
 object MoreKey : NavKey
 
-/**
- * NavKey for the Settings hub.
- */
 @Serializable
 object SettingsKey : NavKey
 
-/**
- * NavKey for the Appearance screen.
- */
 @Serializable
 object AppearanceKey : NavKey
 
-/**
- * NavKey for the Appearance → General screen.
- */
 @Serializable
 object AppearanceGeneralKey : NavKey
 
-/**
- * NavKey for the Episode Settings hub (placeholder — Phase 5+).
- */
 @Serializable
 object EpisodeSettingsKey : NavKey
 
 /**
+ * Root tab keys — these are the 4 tabs that show the bottom nav.
+ * Any other key (Details, Settings, Appearance, etc.) is a "sub-screen"
+ * that does NOT show the bottom nav.
+ */
+private val rootTabKeys = setOf(
+    AnimeBrowseKey::class,
+    AnimeLibraryKeyImpl::class,
+    AnimeSearchKey::class,
+    MoreKey::class,
+)
+
+/**
  * ANI-KUTA navigation root.
  *
- * Phase 4a: Bottom navigation with 4 tabs (Browse, Library, Search, More).
- * The bottom nav is a floating pill overlay — content scrolls behind it.
- *
- * FIX: Removed AnimatedContent — it was disposing ViewModels on navigation,
- * causing the Browse page to crash/blank when returning from Details.
- * Using a simple when() block instead. Animations will be added per-screen
- * (fade-in on content) rather than at the container level.
- *
- * CORE_RULES §22: animations handled per-screen, not at container level.
- * CORE_RULES §23: reactive state — ViewModels survive navigation.
+ * Fixes (user feedback):
+ * - Bottom nav only shows on root tab screens (Browse, Library, Search, More).
+ *   Sub-screens (Details, Settings, Appearance) do NOT show the bottom nav.
+ * - BackHandler on all screens: device back gesture goes to previous screen,
+ *   not exit app.
+ * - All screens use MaterialTheme.colorScheme.background for proper theming
+ *   in both light and dark mode.
  */
 @Composable
 fun AppRoot() {
@@ -139,7 +133,17 @@ fun AppRoot() {
         if (backstack.size > 1) backstack.removeAt(backstack.lastIndex)
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // BackHandler: handle device back gesture properly
+    // If backstack has more than 1 item, pop. Otherwise, let the system handle (exit).
+    BackHandler(enabled = backstack.size > 1) {
+        pop()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
         when (currentKey) {
             is AnimeBrowseKey -> BrowseScreen(
                 onNavigate = { navKey -> backstack.add(navKey) }
@@ -181,29 +185,28 @@ fun AppRoot() {
             else -> {}
         }
 
-        // Bottom navigation (floating pill overlay)
-        AnikutaBottomNavBar(
-            items = navItems,
-            currentRoute = currentTab,
-            onSelect = { route ->
-                currentTab = route
-                backstack.clear()
-                when (route) {
-                    "browse" -> backstack.add(AnimeBrowseKey)
-                    "library" -> backstack.add(AnimeLibraryKeyImpl)
-                    "search" -> backstack.add(AnimeSearchKey)
-                    "more" -> backstack.add(MoreKey)
-                }
-            },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+        // Bottom navigation — ONLY show on root tab screens (not sub-screens)
+        val showBottomNav = currentKey::class in rootTabKeys
+        if (showBottomNav) {
+            AnikutaBottomNavBar(
+                items = navItems,
+                currentRoute = currentTab,
+                onSelect = { route ->
+                    currentTab = route
+                    backstack.clear()
+                    when (route) {
+                        "browse" -> backstack.add(AnimeBrowseKey)
+                        "library" -> backstack.add(AnimeLibraryKeyImpl)
+                        "search" -> backstack.add(AnimeSearchKey)
+                        "more" -> backstack.add(MoreKey)
+                    }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
 }
 
-/**
- * A simple placeholder screen used for nav targets that don't have a real
- * implementation yet (e.g. EpisodeSettingsKey).
- */
 @Composable
 private fun PlaceholderScreen(
     title: String,

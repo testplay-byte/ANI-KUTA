@@ -95,7 +95,11 @@ fun SearchScreen(
     var showFilterSheet by remember { mutableStateOf(false) }
     val activeFilterCount = pendingFilters.activeCount
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
         SearchTopBar(
             collapsed = collapsed,
             query = query,

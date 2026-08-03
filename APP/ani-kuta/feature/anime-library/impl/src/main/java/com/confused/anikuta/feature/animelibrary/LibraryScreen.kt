@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -475,10 +476,12 @@ private fun CustomizeSheet(
             Spacer(Modifier.height(8.dp))
 
             // ── Tab content ──
+            // FIX: Use heightIn (max) instead of fixed height — sheet wraps content
+            // but never exceeds 75% of screen height (user feedback: 'taking up way too much')
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(maxSheetHeight),
+                    .heightIn(max = maxSheetHeight),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 when (activeTab) {
@@ -667,7 +670,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
 
     // ── Title lines ──
     item {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(12.dp))
         OptionLabel("Title lines")
     }
     item {
@@ -681,7 +686,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     // ── Episode badge ──
     // Off uses red theme when selected; Released + Total use primary (green).
     item {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(12.dp))
         OptionLabel("Episode Badge")
     }
     item {
@@ -742,7 +749,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
 
     // ── Score badge ──
     item {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(12.dp))
         OptionLabel("Score Badge")
     }
     item {
@@ -770,7 +779,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
 
     // ── Toggles ──
     item {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        Spacer(Modifier.height(12.dp))
         OptionLabel("Toggles")
     }
     item {

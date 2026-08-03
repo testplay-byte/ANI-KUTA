@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.animebrowse
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -62,6 +63,7 @@ fun BrowseScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding(),
     ) {
         when (val s = state) {
