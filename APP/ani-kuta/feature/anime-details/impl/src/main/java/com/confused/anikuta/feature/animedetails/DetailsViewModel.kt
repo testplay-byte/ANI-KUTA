@@ -124,7 +124,9 @@ class DetailsViewModel(
         }
 
         _linkedSource.value = LinkedSource(sourceId, source.name, animeUrl)
-        fetchEpisodes(source, animeUrl)
+        // Get the anime title from the current state (for the SAnime.title lateinit field).
+        val animeTitle = (_state.value as? DetailsState.Success)?.anime?.displayName ?: animeUrl
+        fetchEpisodes(source, animeUrl, animeTitle)
     }
 
     /**
@@ -138,7 +140,7 @@ class DetailsViewModel(
             "${source.id}:${sAnime.url}",
         )
         _linkedSource.value = LinkedSource(source.id, source.name, sAnime.url)
-        fetchEpisodes(source, sAnime.url)
+        fetchEpisodes(source, sAnime.url, sAnime.title)
     }
 
     /**
@@ -154,12 +156,19 @@ class DetailsViewModel(
 
     // ── Episode fetching ──
 
-    private fun fetchEpisodes(source: AnimeCatalogueSource, animeUrl: String) {
+    private fun fetchEpisodes(source: AnimeCatalogueSource, animeUrl: String, animeTitle: String) {
         _episodeState.value = EpisodeState.Loading
         viewModelScope.launch {
             try {
-                Logger.i(TAG) { "Fetching episodes from ${source.name} for $animeUrl" }
-                val sAnime = SAnime.create().apply { url = animeUrl }
+                Logger.i(TAG) { "Fetching episodes from ${source.name} for $animeUrl (title: $animeTitle)" }
+                // CRITICAL: SAnime.title is lateinit — MUST be set before passing to
+                // fetchEpisodeList. Extensions may read sAnime.title in episodeListRequest
+                // to construct API URLs. Without title → UninitializedPropertyAccessException.
+                val sAnime = SAnime.create().apply {
+                    url = animeUrl
+                    title = animeTitle
+                    initialized = false
+                }
                 val episodes = withContext(Dispatchers.IO) {
                     source.fetchEpisodeList(sAnime).awaitSingle()
                 }
@@ -229,8 +238,11 @@ class DetailsViewModel(
         _resolverState.value = ResolverState.Loading
         viewModelScope.launch {
             try {
-                Logger.i(TAG) { "Resolving videos for episode ${episode.url}" }
-                val state = videoResolver.resolve(source, episode.url)
+                Logger.i(TAG) { "Resolving videos for episode ${episode.url} (epNum: ${episode.episode_number}, name: ${episode.name})" }
+                // Pass the FULL SEpisode — extensions may read episode_number, name, etc.
+                // to construct API URLs. The old resolver created a minimal SEpisode which
+                // left episode_number at -1f → wrong URLs → 404.
+                val state = videoResolver.resolve(source, episode)
                 state.collect { s ->
                     _resolverState.value = when (s) {
                         is com.confused.anikuta.core.videoresolver.ResolverState.Idle ->
