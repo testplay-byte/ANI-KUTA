@@ -108,16 +108,17 @@ class VideoResolver {
             // For each hoster: use hoster.videoList if pre-populated, else source.getVideoList(hoster)
             val videos = mutableListOf<Video>()
             for (hoster in hosters) {
-                if (hoster.videoList.isNotEmpty()) {
-                    videos.addAll(hoster.videoList)
+                val hosterVideos = hoster.videoList
+                if (hosterVideos != null && hosterVideos.isNotEmpty()) {
+                    videos.addAll(hosterVideos)
                 } else {
                     try {
-                        val hosterVideos = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+                        val resolvedVideos = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
                             source.getVideoList(hoster)
                         } ?: emptyList()
-                        videos.addAll(hosterVideos)
+                        videos.addAll(resolvedVideos)
                     } catch (e: Throwable) {
-                        Logger.w(TAG, e) { "getVideoList for hoster ${hoster.name} failed: ${e.message}" }
+                        Logger.w(TAG, e) { "getVideoList for hoster ${hoster.hosterName} failed: ${e.message}" }
                     }
                 }
             }
