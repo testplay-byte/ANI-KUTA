@@ -244,16 +244,10 @@ fun WatchScreen(
             mpvView = mpvView,
             initMpv = initMpv,
             onMpvViewCreated = { mpvView = it },
-            isPlaying = isPlaying,
-            position = position,
-            duration = duration,
-            buffering = buffering,
-            controlsVisible = controlsVisible,
-            errorMessage = errorMessage,
             onTogglePlay = { MPVLib.setPropertyBoolean("pause", isPlaying) },
-            onSeek = { pos -> MPVLib.setPropertyInt("time-pos", pos.toInt()) },
+            onSeekRelative = { delta -> MPVLib.command(arrayOf("seek", delta.toString(), "relative")) },
+            onSeekTo = { pos -> MPVLib.setPropertyInt("time-pos", pos) },
             onBack = { stateHolder.updateMode(PlayerMode.MINIMIZED) },
-            onToggleControls = { stateHolder.updateControlsVisible(!controlsVisible) },
         )
     } else {
         MinimizedMode(
@@ -263,23 +257,17 @@ fun WatchScreen(
             mpvView = mpvView,
             initMpv = initMpv,
             onMpvViewCreated = { mpvView = it },
-            isPlaying = isPlaying,
-            position = position,
-            duration = duration,
-            buffering = buffering,
-            controlsVisible = controlsVisible,
-            errorMessage = errorMessage,
             onTogglePlay = { MPVLib.setPropertyBoolean("pause", isPlaying) },
-            onSeek = { pos -> MPVLib.setPropertyInt("time-pos", pos.toInt()) },
+            onSeekRelative = { delta -> MPVLib.command(arrayOf("seek", delta.toString(), "relative")) },
+            onSeekTo = { pos -> MPVLib.setPropertyInt("time-pos", pos) },
             onBack = onBack,
             onMaximize = { stateHolder.updateMode(PlayerMode.FULLSCREEN) },
-            onToggleControls = { stateHolder.updateControlsVisible(!controlsVisible) },
         )
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  MINIMIZED MODE — floating top bar + 16:9 player + episode list
+//  MINIMIZED MODE — floating top bar + 16:9 player + ported MinimizedControls + episode list
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -290,17 +278,11 @@ private fun MinimizedMode(
     mpvView: AnikutaMPVView?,
     initMpv: (AnikutaMPVView) -> Unit,
     onMpvViewCreated: (AnikutaMPVView) -> Unit,
-    isPlaying: Boolean,
-    position: Int,
-    duration: Int,
-    buffering: Boolean,
-    controlsVisible: Boolean,
-    errorMessage: String?,
     onTogglePlay: () -> Unit,
-    onSeek: (Float) -> Unit,
+    onSeekRelative: (Int) -> Unit,
+    onSeekTo: (Int) -> Unit,
     onBack: () -> Unit,
     onMaximize: () -> Unit,
-    onToggleControls: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -344,7 +326,6 @@ private fun MinimizedMode(
                             contentDescription = "Back",
                             onClick = onBack,
                         )
-                        // Centered title
                         Text(
                             text = "ANI-KUTA",
                             fontFamily = RobotoFamily,
@@ -354,14 +335,13 @@ private fun MinimizedMode(
                             modifier = Modifier.weight(1f),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
-                        // Placeholder for symmetry (matches back button width)
                         Spacer(Modifier.size(40.dp))
                     }
                 }
             }
         }
 
-        // ── Player 16:9 (NOT edge-to-edge, rounded corners) ──
+        // ── Player 16:9 with ported MinimizedControls ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -374,7 +354,6 @@ private fun MinimizedMode(
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color.Black),
             ) {
-                // Player surface
                 PlayerSurface(
                     mpvView = mpvView,
                     initMpv = initMpv,
@@ -382,28 +361,16 @@ private fun MinimizedMode(
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                // Tap to toggle controls
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { onToggleControls() })
-                        },
+                // Ported MinimizedControls — handles all gestures, overlay, seekbar, etc.
+                com.confused.anikuta.core.player.controls.MinimizedControls(
+                    stateHolder = stateHolder,
+                    onTogglePlay = onTogglePlay,
+                    onSeekRelative = onSeekRelative,
+                    onSeekTo = onSeekTo,
+                    onMaximize = onMaximize,
+                    onQualityClick = { /* TODO: quality sheet */ },
+                    onSubtitleClick = { /* TODO: subtitle sheet */ },
                 )
-
-                // Minimized controls overlay
-                if (controlsVisible || buffering || errorMessage != null) {
-                    MinimizedControls(
-                        isPlaying = isPlaying,
-                        position = position,
-                        duration = duration,
-                        buffering = buffering,
-                        errorMessage = errorMessage,
-                        onTogglePlay = onTogglePlay,
-                        onSeek = onSeek,
-                        onMaximize = onMaximize,
-                    )
-                }
             }
         }
 
@@ -412,7 +379,6 @@ private fun MinimizedMode(
             state = listState,
             modifier = Modifier.fillMaxSize(),
         ) {
-            // Episode description — reduced padding to 10dp horizontal
             item {
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
@@ -443,7 +409,6 @@ private fun MinimizedMode(
                 }
             }
 
-            // Episode list — reduced padding to 10dp horizontal
             if (episodeList.isNotEmpty()) {
                 item {
                     Surface(
@@ -480,13 +445,12 @@ private fun MinimizedMode(
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
-                            episodeList.forEachIndexed { index, ep ->
+                            episodeList.forEach { ep ->
                                 val isCurrent = ep.url == watchKey.episodeUrl
                                 EpisodeListRow(
                                     episode = ep,
                                     isCurrent = isCurrent,
                                     onClick = {
-                                        // TODO: switch episode (Phase 5c later iteration)
                                         Logger.i(TAG) { "Episode tapped: ${ep.name} (not implemented yet)" }
                                     },
                                 )
@@ -500,7 +464,7 @@ private fun MinimizedMode(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  FULLSCREEN MODE — edge-to-edge player + auto-hiding controls
+//  FULLSCREEN MODE — edge-to-edge player + ported FullscreenControls
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -510,23 +474,16 @@ private fun FullscreenMode(
     mpvView: AnikutaMPVView?,
     initMpv: (AnikutaMPVView) -> Unit,
     onMpvViewCreated: (AnikutaMPVView) -> Unit,
-    isPlaying: Boolean,
-    position: Int,
-    duration: Int,
-    buffering: Boolean,
-    controlsVisible: Boolean,
-    errorMessage: String?,
     onTogglePlay: () -> Unit,
-    onSeek: (Float) -> Unit,
+    onSeekRelative: (Int) -> Unit,
+    onSeekTo: (Int) -> Unit,
     onBack: () -> Unit,
-    onToggleControls: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        // Player surface (fills entire screen)
         PlayerSurface(
             mpvView = mpvView,
             initMpv = initMpv,
@@ -534,345 +491,21 @@ private fun FullscreenMode(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Tap to toggle controls
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(onTap = { onToggleControls() })
-                },
+        // Ported FullscreenControls — handles all gestures, overlay, seekbar, etc.
+        com.confused.anikuta.core.player.controls.FullscreenControls(
+            stateHolder = stateHolder,
+            onBack = onBack,
+            onTogglePlay = onTogglePlay,
+            onSeekRelative = onSeekRelative,
+            onSeekTo = onSeekTo,
+            onMinimize = onBack,
+            onLockToggle = { stateHolder.updateControlsLocked(!stateHolder.controlsLocked.value) },
+            onQualityClick = { /* TODO: quality sheet */ },
+            onSubtitleClick = { /* TODO: subtitle sheet */ },
+            animeTitle = watchKey.animeTitle,
+            episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
+            qualityInfo = watchKey.quality,
         )
-
-        // Controls overlay
-        AnimatedVisibility(
-            visible = controlsVisible || buffering || errorMessage != null,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(200)),
-        ) {
-            FullscreenControls(
-                watchKey = watchKey,
-                isPlaying = isPlaying,
-                position = position,
-                duration = duration,
-                buffering = buffering,
-                errorMessage = errorMessage,
-                onTogglePlay = onTogglePlay,
-                onSeek = onSeek,
-                onBack = onBack,
-                onMinimize = onBack,
-            )
-        }
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Minimized controls (play/pause + seek bar + fullscreen button)
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun MinimizedControls(
-    isPlaying: Boolean,
-    position: Int,
-    duration: Int,
-    buffering: Boolean,
-    errorMessage: String?,
-    onTogglePlay: () -> Unit,
-    onSeek: (Float) -> Unit,
-    onMaximize: () -> Unit,
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Top-left: time
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(8.dp),
-        ) {
-            Text(
-                text = "${formatTime(position)} / ${formatTime(duration)}",
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                color = Color.White,
-            )
-        }
-
-        // Top-right: subtitles + quality buttons (placeholders — per user spec)
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            // Subtitles button (placeholder)
-            Surface(
-                color = Color.Black.copy(alpha = 0.4f),
-                shape = CircleShape,
-                modifier = Modifier.size(32.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "CC",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                    )
-                }
-            }
-            // Quality button (placeholder)
-            Surface(
-                color = Color.Black.copy(alpha = 0.4f),
-                shape = CircleShape,
-                modifier = Modifier.size(32.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "HD",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                    )
-                }
-            }
-        }
-
-        // Center: play/pause or buffering or error
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            when {
-                errorMessage != null -> Text(
-                    text = errorMessage,
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    color = Color.White,
-                )
-                buffering -> CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(36.dp),
-                )
-                else -> ControlButton(
-                    icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    onClick = onTogglePlay,
-                    size = 48,
-                )
-            }
-        }
-
-        // Bottom: seek bar + fullscreen button (fullscreen at bottom-right per user spec)
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Slider(
-                value = if (duration > 0) position.toFloat() / duration else 0f,
-                onValueChange = { fraction ->
-                    if (duration > 0) onSeek(fraction * duration)
-                },
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(4.dp))
-            // Fullscreen button at bottom-right
-            ControlButton(
-                icon = Icons.Filled.Fullscreen,
-                contentDescription = "Fullscreen",
-                onClick = onMaximize,
-                size = 32,
-            )
-        }
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Fullscreen controls (top bar + center + seek bar + bottom buttons)
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun FullscreenControls(
-    watchKey: WatchKey,
-    isPlaying: Boolean,
-    position: Int,
-    duration: Int,
-    buffering: Boolean,
-    errorMessage: String?,
-    onTogglePlay: () -> Unit,
-    onSeek: (Float) -> Unit,
-    onBack: () -> Unit,
-    onMinimize: () -> Unit,
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // ── Background gradient scrim ──
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Transparent,
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.65f),
-                        ),
-                    ),
-                ),
-        )
-
-        // ── Top bar ──
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ControlButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Exit fullscreen",
-                onClick = onMinimize,
-            )
-            Spacer(Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = watchKey.animeTitle,
-                    fontFamily = RobotoFamily,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (watchKey.episodeTitle.isNotBlank()) {
-                    Text(
-                        text = "EP ${formatEpisodeNumber(watchKey.episodeNumber)} - ${watchKey.episodeTitle}",
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.7f),
-                        maxLines = 1,
-                    )
-                }
-            }
-            if (watchKey.quality.isNotBlank()) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(
-                        text = watchKey.quality,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                }
-            }
-        }
-
-        // ── Center: play/pause + skip buttons ──
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            when {
-                errorMessage != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Playback error",
-                        fontFamily = RobotoFamily,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = errorMessage,
-                        fontFamily = RobotoFamily,
-                        fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.7f),
-                    )
-                }
-                buffering -> CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(48.dp),
-                )
-                else -> Row(
-                    horizontalArrangement = Arrangement.spacedBy(28.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ControlButton(
-                        icon = Icons.Filled.SkipPrevious,
-                        contentDescription = "Back 10s",
-                        onClick = { onSeek(((position - 10).coerceAtLeast(0)).toFloat()) },
-                        size = 44,
-                    )
-                    ControlButton(
-                        icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        onClick = onTogglePlay,
-                        size = 56,
-                    )
-                    ControlButton(
-                        icon = Icons.Filled.SkipNext,
-                        contentDescription = "Forward 10s",
-                        onClick = { onSeek(((position + 10).coerceAtMost(duration)).toFloat()) },
-                        size = 44,
-                    )
-                }
-            }
-        }
-
-        // ── Bottom: seek bar + time + buttons ──
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-        ) {
-            // Seek bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = formatTime(position),
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = Color.White,
-                )
-                Slider(
-                    value = if (duration > 0) position.toFloat() / duration else 0f,
-                    onValueChange = { fraction ->
-                        if (duration > 0) onSeek(fraction * duration)
-                    },
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                )
-                Text(
-                    text = formatTime(duration),
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = Color.White,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            // Bottom button row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ControlButton(
-                    icon = Icons.Filled.FullscreenExit,
-                    contentDescription = "Exit fullscreen",
-                    onClick = onMinimize,
-                )
-            }
-        }
     }
 }
 
@@ -988,16 +621,8 @@ private fun ControlButton(
     }
 }
 
-private fun formatTime(seconds: Int): String {
-    if (seconds <= 0) return "0:00"
-    val h = seconds / 3600
-    val m = (seconds % 3600) / 60
-    val s = seconds % 60
-    return if (h > 0) "$h:${"%02d".format(m)}:${"%02d".format(s)}"
-           else "$m:${"%02d".format(s)}"
-}
-
 private fun formatEpisodeNumber(num: Float): String = when {
     num == num.toInt().toFloat() -> num.toInt().toString()
     else -> num.toString()
 }
+
