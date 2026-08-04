@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        ANI-KUTA network security config.
+
+        Extensions (Aniyomi-compatible) often return http:// video URLs
+        (e.g. localhost proxy URLs like http://127.0.0.1:PORT/..., or
+        unencrypted CDNs). Without this config, Android 9+ blocks cleartext
+        traffic with:
+          "Clear text communication to localhost not permitted by network
+           security policy"
+
+        CRITICAL: The AniKotoS extension starts a local HTTP proxy on
+        http://127.0.0.1:PORT during getHosterList(). All video URLs point
+        to this proxy. Without cleartext permission, Android blocks the
+        connection → proxy dies immediately → all videos fail to load
+        → 60s timeout → "Video failed to load (timeout)".
+
+        We allow cleartext for ALL domains because:
+        1. Extension video URLs are user-installed content — we can't predict
+           which domains they'll use.
+        2. Many anime CDNs don't support HTTPS.
+        3. The MPV player + OkHttp client both need to access these URLs.
+        4. Localhost proxy URLs (AniKotoS) require cleartext.
+
+        This matches Aniyomi's approach (it also allows cleartext globally).
+        Ported from the old project's network_security_config.xml.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

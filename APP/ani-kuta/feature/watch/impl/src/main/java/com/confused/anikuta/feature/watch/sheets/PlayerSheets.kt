@@ -31,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,10 +71,16 @@ fun SubtitleTracksSheet(
     onTrackSelected: (Int) -> Unit,
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit = {},
+    onRefreshTracks: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
+
+    // Refresh tracks when the sheet opens — catches cases where tracks were
+    // loaded before FILE_LOADED completed, or where the user opens the sheet
+    // after external subs have finished downloading.
+    LaunchedEffect(Unit) { onRefreshTracks() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,

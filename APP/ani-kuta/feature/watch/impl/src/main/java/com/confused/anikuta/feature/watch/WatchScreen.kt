@@ -795,6 +795,24 @@ fun WatchScreen(
                 showSubtitleSheet = false
                 showSubtitleSettingsSheet = true
             },
+            onRefreshTracks = {
+                // Manually reload tracks from MPV when the sheet opens.
+                // Catches cases where tracks were loaded too early (before
+                // external subs finished downloading) or where the track list
+                // changed since the last load.
+                observer?.let { obs ->
+                    val view = mpvView
+                    if (view != null) {
+                        try {
+                            val (subs, audio) = view.loadTracks()
+                            stateHolder.updateTracks(subs, audio)
+                            Logger.i(TAG) { "Manual track refresh: ${subs.size} subs, ${audio.size} audio" }
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "Manual track refresh failed: ${e.message}" }
+                        }
+                    }
+                }
+            },
         )
     }
 

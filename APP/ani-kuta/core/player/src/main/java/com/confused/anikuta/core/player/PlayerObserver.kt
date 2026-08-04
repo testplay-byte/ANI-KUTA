@@ -118,6 +118,12 @@ class PlayerObserver(
             "paused-for-cache" -> {
                 stateHolder.updateBuffering(value == "yes")
             }
+            "seeking" -> {
+                // Treat seeking as buffering — while MPV is seeking, the video
+                // is not playing and the user should see a spinner. The old
+                // project treats seeking as buffering (WatchScreen.kt:580).
+                stateHolder.updateBuffering(value == "yes")
+            }
             "sid" -> {
                 value.toIntOrNull()?.let { sid ->
                     stateHolder.updateCurrentTracks(sid, stateHolder.currentAudioTrack.value)
