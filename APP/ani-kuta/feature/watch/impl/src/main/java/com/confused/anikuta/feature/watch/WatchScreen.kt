@@ -304,8 +304,8 @@ fun WatchScreen(
     // it returns to foreground (ON_START). Uses LifecycleEventObserver to match
     // the old project's behavior. ON_STOP/ON_START (not ON_PAUSE/ON_RESUME) so
     // multi-window focus changes don't trigger a pause.
-    DisposableEffect(Unit) {
-        val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
