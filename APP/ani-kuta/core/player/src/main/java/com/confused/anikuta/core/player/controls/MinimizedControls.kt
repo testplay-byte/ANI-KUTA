@@ -176,13 +176,17 @@ fun MinimizedControls(
 
         // Loading indicator — shows when:
         //  - buffering == true (network stall / paused-for-cache), OR
-        //  - isSwitching == true (quality/server switch in progress — video is
-        //    being replaced, show spinner), OR
-        //  - loadingState == LOADING AND duration == 0 (initial load, video
-        //    hasn't started yet)
-        // CRITICAL: Do NOT show the spinner just because !isPlaying — that
-        // fires when the user manually pauses.
-        if (buffering || isSwitching || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
+        //  - isSwitching == true AND NOT bufferedEnough (switch in progress,
+        //    video hasn't buffered yet), OR
+        //  - loadingState == LOADING AND duration == 0 (initial load)
+        // CRITICAL: Once the video has buffered 1% (bufferedEnough == true),
+        // hide the spinner even if isSwitching is still true. The video is
+        // loading successfully — the spinner is no longer needed.
+        // User: "If the video has buffered 1%, then the loading animation will go away."
+        val showSpinner = buffering ||
+            (isSwitching && !stateHolder.bufferedEnough) ||
+            (loadingState == PlayerLoadingState.LOADING && duration == 0)
+        if (showSpinner) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,

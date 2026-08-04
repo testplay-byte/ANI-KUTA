@@ -101,6 +101,14 @@ class PlayerStateHolder {
     private val _bufferAheadTime = MutableStateFlow(0)
     val bufferAheadTime: StateFlow<Int> = _bufferAheadTime.asStateFlow()
 
+    // ── "Buffered enough" flag — true when the video has buffered at least 1%
+    //    of its duration ahead of the current position. Used to clear the loading
+    //    spinner during switches. Once we've buffered even 1%, we know the video
+    //    is loading successfully and the spinner can hide.
+    @Volatile
+    var bufferedEnough: Boolean = false
+        private set
+
     // ── Controls visibility ──
     private val _controlsVisible = MutableStateFlow(false)
     val controlsVisible: StateFlow<Boolean> = _controlsVisible.asStateFlow()
@@ -205,6 +213,8 @@ class PlayerStateHolder {
             _loadingState.value = PlayerLoadingState.LOADING
             // Reset auto-retry flag for the new video.
             autoRetryAttempted = false
+            // Reset bufferedEnough — the new video hasn't buffered yet.
+            bufferedEnough = false
         } else {
             // Also clear episode-switch flag when clearing switching.
             _isSwitchingEpisode.value = false
@@ -322,6 +332,22 @@ class PlayerStateHolder {
 
     fun updateBufferAheadTime(time: Int) {
         _bufferAheadTime.value = time
+        // CRITICAL: Check if we've buffered enough (1% of duration ahead of position).
+        // If so, mark bufferedEnough = true. This is used to clear the loading spinner
+        // during quality/episode switches. Once we've buffered even 1%, we know the
+        // video is loading successfully and the spinner can hide.
+        // User: "If the video has buffered 1%, then the loading animation will go away."
+        val dur = _duration.value
+        val pos = _position.value
+        if (dur > 0 && time > pos) {
+            val onePercent = (dur * 0.01f).toInt().coerceAtLeast(1)
+            if (time - pos >= onePercent) {
+                if (!bufferedEnough) {
+                    Logger.d(TAG) { "Buffered enough: cache-time=$time, pos=$pos, 1%=$onePercent" }
+                    bufferedEnough = true
+                }
+            }
+        }
     }
 
     fun updateControlsVisible(visible: Boolean) {

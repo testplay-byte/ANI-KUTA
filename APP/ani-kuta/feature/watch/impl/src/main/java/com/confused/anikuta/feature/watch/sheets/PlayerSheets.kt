@@ -185,34 +185,42 @@ fun SubtitleTracksSheet(
             }
 
             // ── Track list ──
-            if (tracks.isEmpty()) {
-                Text(
-                    text = "No subtitles found in this stream.\nThe extension may not provide external subtitles.",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(20.dp),
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        horizontal = 16.dp,
-                        vertical = 8.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    // "Off" option — shown EXACTLY ONCE (not duplicated).
-                    item(key = "off") {
-                        TrackRow(
-                            label = "Off",
-                            isSelected = currentTrackId <= 0,
-                            onClick = {
-                                onTrackSelected(-1)
-                                onDismiss()
-                            },
+            // CRITICAL: Always render the "Off" entry, even when tracks is empty.
+            // The user said: "I don't even see the OFF option in the subtitles."
+            // Previously, "Off" was inside the `else` branch — hidden when empty.
+            // Now we always show it as the first item, then show the "no subtitles"
+            // message OR the actual tracks below it.
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 16.dp,
+                    vertical = 8.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // "Off" option — ALWAYS shown (first entry).
+                item(key = "off") {
+                    TrackRow(
+                        label = "Off",
+                        isSelected = currentTrackId <= 0,
+                        onClick = {
+                            onTrackSelected(-1)
+                            onDismiss()
+                        },
+                    )
+                }
+                // If no tracks, show a helpful message (below "Off").
+                if (tracks.isEmpty()) {
+                    item(key = "empty-msg") {
+                        Text(
+                            text = "No subtitles found in this stream.\nThe extension may not provide external subtitles.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(20.dp),
                         )
                     }
+                } else {
                     // Actual tracks
                     items(tracks.size) { index ->
                         val track = tracks[index]

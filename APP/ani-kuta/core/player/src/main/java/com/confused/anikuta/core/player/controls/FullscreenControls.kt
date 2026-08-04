@@ -259,7 +259,11 @@ fun FullscreenControls(
                     ) {
                         FSSkipButton(label = "-10s", onClick = { onSeekRelative(-10) })
                         Box(contentAlignment = Alignment.Center) {
-                            if (buffering || isSwitching || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
+                            // Once buffered 1%, hide spinner even if isSwitching is true.
+                            val showSpinner = buffering ||
+                                (isSwitching && !stateHolder.bufferedEnough) ||
+                                (loadingState == PlayerLoadingState.LOADING && duration == 0)
+                            if (showSpinner) {
                                 CircularProgressIndicator(
                                     color = MaterialTheme.colorScheme.primary,
                                     strokeWidth = 3.dp,

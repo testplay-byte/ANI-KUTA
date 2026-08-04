@@ -181,6 +181,7 @@ fun WatchScreen(
     val errorMessage by stateHolder.errorMessage.collectAsState()
     val isSwitching by stateHolder.isSwitching.collectAsState()
     val isSwitchingEpisode by stateHolder.isSwitchingEpisode.collectAsState()
+    val bufferAheadTime by stateHolder.bufferAheadTime.collectAsState()
     val currentEpisodeUrl by stateHolder.currentEpisodeUrl.collectAsState()
     val currentEpisodeNumber by stateHolder.currentEpisodeNumber.collectAsState()
     val currentEpisodeTitle by stateHolder.currentEpisodeTitle.collectAsState()
@@ -257,6 +258,19 @@ fun WatchScreen(
     // Force controls visible when video is finished
     LaunchedEffect(isVideoFinished) {
         if (isVideoFinished) stateHolder.updateControlsVisible(true)
+    }
+
+    // ── Clear switching when video starts playing (buffered 1%) ──
+    // Once the video has buffered enough (1% of duration), we know the load
+    // succeeded. Clear isSwitching + isSwitchingEpisode immediately — don't
+    // wait for FILE_LOADED (which may fire late or not at all for some formats).
+    // This fixes: "video started to play but loading was still there."
+    LaunchedEffect(bufferAheadTime) {
+        if (stateHolder.bufferedEnough && stateHolder.isSwitching.value) {
+            Logger.i(TAG) { "Video buffered 1% — clearing switching flags" }
+            stateHolder.setSwitching(false)
+            stateHolder.setSwitchingEpisode(false)
+        }
     }
 
     // ── Switching timeout watchdog (30s) ──
