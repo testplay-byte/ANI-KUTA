@@ -609,3 +609,27 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** The old project treats seeking as buffering (`WatchScreen.kt:580`). While MPV is seeking, the video is not playing and the user should see a spinner. The new project's spinner condition includes `buffering`, so without seeking → buffering, seeking wouldn't show the spinner.
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-095 — Remove stop command from episode switch (match old project)
+- **What:** Removed `MPVLib.command(arrayOf("stop"))` from the episode switch handler. The old project does NOT stop before switching — it just sends `loadfile` with "replace" mode, which replaces the current file (stopping the old video automatically). The new project was calling stop first, which may cause the AniKotoS extension to detect player disconnection and kill its local proxy.
+- **Why:** User logs showed the AniKotoS proxy dying 4ms after starting. The old project doesn't call stop and works fine. The stop command may trigger the extension's cleanup logic, killing the proxy before loadfile can connect.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-096 — Don't set HTTP headers for localhost proxy URLs
+- **What:** For localhost proxy URLs (`http://127.0.0.1:PORT/...`), do NOT set upstream HTTP headers (Referer, Origin, etc.). The proxy doesn't need them and they may cause issues. Applied to: initMpv, onQualitySelected, onEpisodeSwitch.
+- **Why:** AniKotoS proxy URLs are localhost. The upstream headers (Referer: https://megaplay.buzz/) are for the upstream CDN, not for the local proxy. Setting them on localhost may cause the proxy to reject the connection.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-097 — Clear buffering when video starts playing
+- **What:** When `pause = no` (video starts playing), immediately clear `buffering = false`. This fixes the quality switch spinner staying visible after the video starts playing.
+- **Why:** `paused-for-cache` may not fire `no` immediately after playback starts. The spinner condition includes `buffering`, so if `buffering` is stuck true, the spinner stays. Clearing it on `pause = no` ensures the spinner disappears when the video starts.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-098 — Switching timeout reduced to 30s (user request)
+- **What:** Reduced the switching timeout watchdog from 60s back to 30s.
+- **Why:** User said: "You could make the timeout just 30 seconds as it is quite enough for it to actually play." 30s is enough for resolve + loadfile + buffer.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
