@@ -259,21 +259,14 @@ fun WatchScreen(
         if (isVideoFinished) stateHolder.updateControlsVisible(true)
     }
 
-    // ── Switching timeout watchdog (60s) ──
-    // SAFETY NET: if isSwitching stays true for 60s, force-clear + show timeout
-    // error. This catches failed switches where efEvent is suppressed (because
-    // isSwitching=true) AND FILE_LOADED never fires (server hung, proxy dead,
-    // network error that MPV doesn't surface as efEvent).
-    //
-    // 60s (not 30s) because episode switches include a resolve phase (network
-    // call to the extension, which can take 20-30s) BEFORE loadfile is sent.
-    // 30s was firing prematurely during the resolve phase. The old project used
-    // 30s but its resolve was pre-done on the details page (instant).
+    // ── Switching timeout watchdog (30s) ──
+    // SAFETY NET: if isSwitching stays true for 30s, force-clear + show timeout
+    // error. The user requested 30s — "it is quite enough for it to actually play."
     LaunchedEffect(isSwitching) {
         if (isSwitching) {
-            delay(60_000L)
+            delay(30_000L)
             if (stateHolder.isSwitching.value) {
-                Logger.w(TAG) { "Switching timeout (60s) — force-clearing" }
+                Logger.w(TAG) { "Switching timeout (30s) — force-clearing" }
                 stateHolder.setSwitchingError("Video failed to load (timeout — the server took too long to respond)")
             }
         }
@@ -465,15 +458,23 @@ fun WatchScreen(
                 eventObserverRef = eventObs
 
                 // CRITICAL: Set HTTP headers BEFORE loadfile.
-                // Without proper headers, upstream servers return 403 Forbidden.
-                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
-                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                // For localhost proxy URLs (AniKotoS), don't set upstream headers.
+                val isLocalhost = currentVideoUrl.contains("127.0.0.1") ||
+                    currentVideoUrl.contains("localhost")
                 try {
-                    MPVLib.setOptionString("http-header-fields", headers)
-                    Logger.i(TAG) { "=== MPV LOADFILE ===" }
-                    Logger.i(TAG) { "URL: $currentVideoUrl" }
-                    Logger.i(TAG) { "Headers (full): $headers" }
-                    Logger.i(TAG) { "Video title: $currentVideoTitle" }
+                    if (!isLocalhost) {
+                        val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                            else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                        MPVLib.setOptionString("http-header-fields", headers)
+                        Logger.i(TAG) { "=== MPV LOADFILE ===" }
+                        Logger.i(TAG) { "URL: $currentVideoUrl" }
+                        Logger.i(TAG) { "Headers (full): $headers" }
+                        Logger.i(TAG) { "Video title: $currentVideoTitle" }
+                    } else {
+                        Logger.i(TAG) { "=== MPV LOADFILE (localhost proxy) ===" }
+                        Logger.i(TAG) { "URL: $currentVideoUrl" }
+                        Logger.i(TAG) { "No headers set (localhost proxy)" }
+                    }
                 } catch (e: Exception) {
                     Logger.w(TAG) { "Failed to set http-header-fields: ${e.message}" }
                 }
@@ -572,9 +573,15 @@ fun WatchScreen(
         // Set switching flag so efEvent from old file doesn't show a spurious error.
         stateHolder.setSwitching(true)
         try {
-            val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
-                else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-            MPVLib.setOptionString("http-header-fields", headers)
+            // For localhost proxy URLs, don't set upstream headers.
+            val isLocalhost = video.url.contains("127.0.0.1") || video.url.contains("localhost")
+            if (!isLocalhost) {
+                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                MPVLib.setOptionString("http-header-fields", headers)
+            } else {
+                Logger.i(TAG) { "Quality switch — localhost proxy URL, no headers set" }
+            }
             MPVLib.command(arrayOf("loadfile", video.url, "replace"))
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to switch quality" }
@@ -616,25 +623,23 @@ fun WatchScreen(
             Logger.w(TAG) { "Cannot switch episode — source not available (sourceId=${watchKey.sourceId})" }
             stateHolder.setSwitchingError("Cannot switch episode: source not available")
         } else {
-            // CRITICAL: STOP the current video IMMEDIATELY so the user doesn't
-            // hear/see the old episode playing while the new one resolves.
-            // The user explicitly said: "As soon as the user clicks on another
-            // episode, the currently playing one should immediately stop all of
-            // its actions."
-            runCatching { MPVLib.command(arrayOf("stop")) }
-            Logger.i(TAG) { "Stopped current playback for episode switch" }
+            // CRITICAL: Do NOT call MPVLib.command(arrayOf("stop")) before switch.
+            // The old project does NOT stop before switching — it just calls loadfile
+            // with "replace" mode, which replaces the current file (stopping the old
+            // video automatically). Calling "stop" first may cause the AniKotoS
+            // extension to detect player disconnection and kill its local proxy.
+            // The proxy dies 4ms after starting → all video URLs point to dead proxy.
+            // By NOT calling stop, the player stays connected → proxy stays alive.
+            // The old video stops when loadfile("replace") is sent (step 5 below).
+            Logger.i(TAG) { "Episode switch — NOT stopping (loadfile replace will handle it)" }
 
             // Set switching flags: isSwitching (error suppression) + isSwitchingEpisode
-            // (shows the "Loading episode..." overlay). Quality switches only set
-            // isSwitching (no overlay) — episode switches set BOTH.
+            // (shows the "Loading episode..." overlay).
             stateHolder.setSwitching(true)
             stateHolder.setSwitchingEpisode(true)
 
             // CRITICAL: Update the episode title IMMEDIATELY (before resolve)
-            // so the EpisodeSwitchingOverlay shows the NEW episode's name during
-            // loading, not the old one. Previously, the title was only updated
-            // after resolve succeeded — so the overlay showed "Loading episode 14"
-            // when the user was switching to episode 10.
+            // so the EpisodeSwitchingOverlay shows the NEW episode's name.
             stateHolder.updateCurrentEpisode(
                 url = ep.url,
                 number = ep.episodeNumber,
@@ -698,11 +703,23 @@ fun WatchScreen(
                                     }
 
                                     // Set headers + loadfile.
-                                    val headers = if (video.headers.isNotBlank()) video.headers
-                                        else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                                    MPVLib.setOptionString("http-header-fields", headers)
+                                    // CRITICAL: For localhost proxy URLs (AniKotoS),
+                                    // do NOT set upstream headers (Referer, Origin, etc.).
+                                    // The proxy doesn't need them and they may cause
+                                    // issues. Only set headers for non-localhost URLs.
+                                    val isLocalhost = video.url.contains("127.0.0.1") ||
+                                        video.url.contains("localhost")
+                                    if (!isLocalhost && video.headers.isNotBlank()) {
+                                        MPVLib.setOptionString("http-header-fields", video.headers)
+                                        Logger.i(TAG) { "Set http-header-fields for non-localhost URL" }
+                                    } else if (!isLocalhost) {
+                                        MPVLib.setOptionString("http-header-fields",
+                                            "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
+                                    } else {
+                                        Logger.i(TAG) { "Localhost proxy URL — no headers set" }
+                                    }
                                     MPVLib.command(arrayOf("loadfile", video.url, "replace"))
-                                    Logger.i(TAG) { "Episode switch — loadfile sent" }
+                                    Logger.i(TAG) { "Episode switch — loadfile sent for ${video.url.take(80)}" }
                                 } else {
                                     stateHolder.setSwitchingError("No videos found for this episode")
                                 }

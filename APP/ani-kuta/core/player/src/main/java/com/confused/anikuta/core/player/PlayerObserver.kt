@@ -114,14 +114,20 @@ class PlayerObserver(
             }
             "pause" -> {
                 stateHolder.updatePlaying(value != "yes")
+                // CRITICAL: When the video starts playing (pause = no), clear
+                // buffering. This fixes the quality switch spinner staying visible
+                // after the video starts playing. The `paused-for-cache` property
+                // may not fire `no` immediately after playback starts.
+                if (value != "yes") {
+                    stateHolder.updateBuffering(false)
+                }
             }
             "paused-for-cache" -> {
                 stateHolder.updateBuffering(value == "yes")
             }
             "seeking" -> {
                 // Treat seeking as buffering — while MPV is seeking, the video
-                // is not playing and the user should see a spinner. The old
-                // project treats seeking as buffering (WatchScreen.kt:580).
+                // is not playing and the user should see a spinner.
                 stateHolder.updateBuffering(value == "yes")
             }
             "sid" -> {
