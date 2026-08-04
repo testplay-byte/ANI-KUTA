@@ -840,21 +840,32 @@ fun WatchScreen(
             },
             onRefreshTracks = {
                 // Manually reload tracks from MPV when the sheet opens.
-                // Catches cases where tracks were loaded too early (before
-                // external subs finished downloading) or where the track list
-                // changed since the last load.
+                Logger.i(TAG) { "=== SUBTITLE SHEET OPENED — refreshing tracks ===" }
+                Logger.i(TAG) { "WatchKey subtitleTracksSerialized: ${watchKey.subtitleTracksSerialized.take(100)}" }
+                Logger.i(TAG) { "WatchKey parsed subtitle tracks: ${watchKey.parseSubtitleTracks().size}" }
+                Logger.i(TAG) { "State holder subtitleTracks: ${stateHolder.subtitleTracks.value.size}" }
+                Logger.i(TAG) { "State holder currentSubtitleTrack: ${stateHolder.currentSubtitleTrack.value}" }
                 observer?.let { obs ->
+                    Logger.i(TAG) { "Observer pendingSubtitleTracks: ${obs.pendingSubtitleTracks.size}" }
                     val view = mpvView
                     if (view != null) {
                         try {
+                            val trackCount = view.getTrackCount()
                             val (subs, audio) = view.loadTracks()
                             stateHolder.updateTracks(subs, audio)
-                            Logger.i(TAG) { "Manual track refresh: ${subs.size} subs, ${audio.size} audio" }
+                            Logger.i(TAG) { "Manual track refresh: ${subs.size} subs, ${audio.size} audio (MPV track-list/count=$trackCount)" }
+                            if (subs.isNotEmpty()) {
+                                subs.forEach { sub ->
+                                    Logger.i(TAG) { "  Sub track: id=${sub.id}, name=${sub.name}, lang=${sub.lang}" }
+                                }
+                            }
                         } catch (e: Exception) {
                             Logger.w(TAG) { "Manual track refresh failed: ${e.message}" }
                         }
+                    } else {
+                        Logger.w(TAG) { "mpvView is null — cannot refresh tracks" }
                     }
-                }
+                } ?: Logger.w(TAG) { "observer is null — cannot refresh tracks" }
             },
         )
     }

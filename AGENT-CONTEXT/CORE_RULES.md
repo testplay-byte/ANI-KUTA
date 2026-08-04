@@ -256,6 +256,15 @@ ANIKUTA-PROJECT/
 - **What NOT to log**: user credentials, tokens, personal data, full request/response bodies (log URLs + status codes only).
 - **Implementation**: Use a central `Logger` wrapper (in `:core:common`) that respects the level + tag + toggle. Never call `Log.d()` directly — always go through `Logger`.
 - **Performance**: When logging is OFF, the Logger is a no-op (zero overhead). Use `if (Logger.isEnabled)` guards around expensive log message construction.
+- **Logcat filter format for Android Studio**: When giving the user a logcat filter to diagnose an issue, ALWAYS use this format (directly pasteable into Android Studio's Logcat filter bar):
+  ```
+  tag:Anikuta:Feature:Details | tag:Anikuta:Feature:Watch | tag:Anikuta:Core:Player:Observer message~:(?i)(keyword1|keyword2|keyword3)
+  ```
+  Rules:
+  - Use `tag:` prefix for each tag, separated by ` | ` (space-pipe-space).
+  - Add `message~:(?i)(keywords)` to filter by message content (case-insensitive regex). List keywords separated by `|` inside the group.
+  - NEVER use `adb logcat` commands — the user uses Android Studio's Logcat panel, not the command line.
+  - Replace the tags + keywords with the ones relevant to the issue being diagnosed.
 
 ---
 

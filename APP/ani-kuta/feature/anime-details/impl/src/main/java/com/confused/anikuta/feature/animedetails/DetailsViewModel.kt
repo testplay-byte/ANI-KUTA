@@ -270,7 +270,7 @@ class DetailsViewModel(
                                 _resolvedVideosKey.value = key
                                 Logger.d(TAG) { "Stored ${servers.size} servers in registry (key: $key) — derived from same resolve() call, no double-resolve" }
                             }
-                            ResolverState.Success(s.videos)
+                            ResolverState.Success(s.videos, servers)
                         }
                         is com.confused.anikuta.core.videoresolver.ResolverState.Error ->
                             ResolverState.Error(s.message)
@@ -325,6 +325,9 @@ sealed interface EpisodeState {
 sealed interface ResolverState {
     data object Idle : ResolverState
     data object Loading : ResolverState
-    data class Success(val videos: List<ResolvedVideo>) : ResolverState
+    data class Success(
+        val videos: List<ResolvedVideo>,
+        val servers: List<com.confused.anikuta.core.videoresolver.ResolverServer> = emptyList(),
+    ) : ResolverState
     data class Error(val message: String) : ResolverState
 }

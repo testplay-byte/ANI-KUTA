@@ -77,7 +77,12 @@ class VideoResolver {
             }
 
             val resolvedVideos = validVideos.map { video ->
-                Logger.d(TAG) { "Valid video: quality='${video.videoTitle}', videoUrl='${video.videoUrl.take(80)}', subs=${video.subtitleTracks.size}, audio=${video.audioTracks.size}" }
+                Logger.i(TAG) { "Valid video: quality='${video.videoTitle}', subs=${video.subtitleTracks.size}, audio=${video.audioTracks.size}" }
+                if (video.subtitleTracks.isNotEmpty()) {
+                    video.subtitleTracks.forEach { sub ->
+                        Logger.i(TAG) { "  Subtitle track: url=${sub.url.take(80)}, lang=${sub.lang}" }
+                    }
+                }
                 ResolvedVideo(
                     url = video.videoUrl,
                     quality = parseQuality(video),
@@ -88,7 +93,8 @@ class VideoResolver {
                 )
             }
 
-            Logger.i(TAG) { "Resolved ${resolvedVideos.size} videos: ${resolvedVideos.map { it.quality }}" }
+            val totalSubs = resolvedVideos.sumOf { it.subtitleTracks.size }
+            Logger.i(TAG) { "Resolved ${resolvedVideos.size} videos, total subtitle tracks: $totalSubs" }
             emit(ResolverState.Success(resolvedVideos, validVideos))
 
         } catch (e: Throwable) {

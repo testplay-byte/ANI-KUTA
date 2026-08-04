@@ -215,6 +215,7 @@ fun DetailsScreen(
     if (showResolverSheet) {
         ResolverSheet(
             resolverState = resolverState,
+            episodeNumber = currentEpisode?.episode_number ?: 0f,
             onPickVideo = { video ->
                 val anime = (state as? DetailsState.Success)?.anime
                 val linked = linkedSource
