@@ -530,3 +530,33 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** Ported from old project's 3-layer error handling (efEvent + 30s switching timeout + 15s fatal-error watchdog). The new project only had layers 1 + 2; layer 3 was missing. App-exit pause matches old project's `pauseOnAppExit` behavior.
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-082 — Episode switch: STOP current video immediately + separate isSwitchingEpisode
+- **What:** Two fixes: (1) `onEpisodeSwitch` now calls `MPVLib.command(arrayOf("stop"))` BEFORE starting the resolve — the old video stops instantly so the user doesn't hear/see it playing while the new one loads. (2) Separated `isSwitching` (error suppression, used for both quality + episode switches) from `isSwitchingEpisode` (overlay display, episode switches only). Quality/server switches no longer show the "Loading episode..." overlay — they just show the buffering spinner.
+- **Why:** User reported: "When I switch to a higher resolution video, the video started playing in the background but on the foreground it was still showing me loading." And: "As soon as the user clicks on another episode, the currently playing one should immediately stop all of its actions." The root cause was that quality switches showed the EpisodeSwitchingOverlay (confusing — it says "Loading episode" for a quality switch) AND the old video kept playing during the resolve.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-083 — Error banner should NOT auto-disappear during auto-retry
+- **What:** Removed `clearErrorForRetry()` from the auto-retry `LaunchedEffect`. The error banner now stays visible during the auto-retry. If the retry succeeds, `FILE_LOADED` clears the error (banner disappears). If the retry fails, the error stays (or gets updated with the new efEvent message).
+- **Why:** User reported: "After it shows playback error, the error shows for a little bit while and then it automatically disappears. That is something which needs to be adjusted for." The auto-retry was clearing the error (hiding the banner) before re-sending loadfile, which made the banner look like it auto-dismissed.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-084 — EpisodeTitleParser: better hash/code detection + large number handling
+- **What:** (1) `looksLikeCodeOrHash` lowered threshold from 25 to 15 chars. Added detection for all-caps + digits with no spaces (>10 chars) — catches strings like "DGFV024L2R0V2IXL0F1" (20 chars, all uppercase + digits). (2) `formatEpisodeNumber` now returns "?" for numbers > 1000 — catches timestamps/IDs like "1784388992" that extensions sometimes put in `episode_number`.
+- **Why:** User reported: "The episode numbering was something like 1784388992. The actual name of the episode was being shown as some random letters and characters, like DGFV024L2R0V2IXL0F1." The previous threshold (>25 chars) didn't catch 20-char strings.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-085 — Subtitle detection: delayed retry + better logging
+- **What:** (1) Added a delayed track reload 2s after `FILE_LOADED` — some HLS formats take a moment to fully parse, and the first `loadTracksFromMpv()` might run before MPV has registered all tracks. The 2s retry catches this. (2) Better logging in `loadTracksFromMpv`: logs the MPV `track-list/count` value + a warning when no tracks are detected, so we can diagnose whether subs are internal (muxed) or external (sub-add).
+- **Why:** User reported: "The subtitles were apparently not being detected or not being handled properly." The delayed retry helps with slow-parsing formats. The logging helps diagnose the issue if it persists.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-086 — CORE_RULES §3: test checklist after improvements
+- **What:** Added a rule to CORE_RULES §3: "After implementing improvements/fixes, ALWAYS provide a test checklist the user can follow to verify each fix on their device." Format: grouped by category, checkbox format, user reports back ✅/❌/⚠️.
+- **Why:** User requested: "Make sure that this checklist functionality is added into the rules too. If improvements have been made and such then the user should be given a checklist so that he can check out what he needs to check."
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).

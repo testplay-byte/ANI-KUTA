@@ -280,3 +280,22 @@
 - Wiring remaining dead fullscreen buttons (audio, server, more, PiP, rotate) — Phase D continued
 - Auto-play-next, skip OP/ED — Phase E continued
 - Full doc-drift sweep — Phase F
+
+## Session web-f53f0459 (continued) — User Feedback Round 2
+
+### What was done (based on user device testing feedback)
+- **Episode switch STOP (D-082, CRITICAL)**: `onEpisodeSwitch` now calls `MPVLib.command(arrayOf("stop"))` before resolve — old video stops instantly. User reported old episode kept playing while new one loaded.
+- **Quality switch overlay fix (D-082, CRITICAL)**: Separated `isSwitching` (error suppression) from `isSwitchingEpisode` (overlay). Quality switches no longer show "Loading episode..." overlay — just the buffering spinner. Episode switches show the overlay.
+- **Error banner persistence (D-083)**: Auto-retry no longer clears the error. Banner stays visible during retry. User reported banner "automatically disappears out of the blue."
+- **Episode name sanitization (D-084)**: Lowered hash detection threshold from 25 to 15 chars. Added all-caps+digits detection (>10 chars). Episode numbers > 1000 now show "?" (catches timestamps like 1784388992).
+- **Subtitle detection (D-085)**: Added 2s delayed track reload after FILE_LOADED (safety for slow-parsing HLS). Better logging (track count + warning when empty).
+- **CORE_RULES §3 (D-086)**: Added test checklist rule — always provide a checklist after improvements.
+
+### CI status
+- Commit 6fab757: CI GREEN ✅
+
+### What's deferred
+- Seek buffering spinner (minor — user said "maybe a concerning thing maybe but maybe not")
+- Remaining dead fullscreen buttons (audio, server, more, PiP, rotate)
+- Auto-play-next, skip OP/ED
+- Full doc-drift sweep
