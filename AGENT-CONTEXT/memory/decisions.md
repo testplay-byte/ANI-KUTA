@@ -653,3 +653,17 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
 - **Date:** Phase 5c (session web-f53f0459).
 - **Sub-agent:** SUBTITLE-INVESTIGATOR (analysis), aniyomi-extensions repo analysis.
+
+### D-102 — ResolverSheet rebuilt as collapsible accordion
+- **What:** Rebuilt the ResolverSheet (video picker bottom sheet) with a collapsible server accordion design matching the old project. Features: header with "Episode N" + close button, collapsible server cards (one open at a time), audio version count chips on the right when collapsed (reversed so SUB is rightmost), FlowRow of quality chips with PlayArrow icon when expanded, proper states (Resolving/NoSources/Error), expand/collapse animations.
+- **Why:** User requested: "Instead of directly showing the entries outright, it probably shows them in a properly formatted order with proper collapsible entries and so forth. Only one server can be opened at a time."
+- **Architecture:** `ResolverState.Success` now includes `servers: List<ResolverServer>` (structured 3-tier hierarchy) so the sheet has the data it needs without a separate registry lookup. The `ServerAccordion` uses `ResolverVideo` (structured) internally, converts to `ResolvedVideo` (flat) when the user picks a video (finds matching URL in the flat list, or creates from ResolverVideo fields as fallback).
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Sub-agent:** RESOLVER-SHEET-ANALYZER (old project analysis).
+
+### D-103 — Subtitle diagnostic logging + logcat filter rule
+- **What:** (1) Upgraded VideoResolver subtitle logging from DEBUG to INFO level — now logs each video's subtitle track count + URL/lang. (2) Added comprehensive diagnostic logging in WatchScreen.onRefreshTracks — logs WatchKey.subtitleTracksSerialized, parsed track count, state holder track count, observer pendingSubtitleTracks, MPV track-list/count, and each track's id/name/lang. (3) Added CORE_RULES §20 rule: logcat filters must be in Android Studio format (`tag:X | tag:Y message~:(?i)(keywords)`), never `adb logcat`.
+- **Why:** User reported subtitles still not showing + no logs appeared with their filter. The diagnostic logging will reveal exactly where the subtitle flow breaks. The logcat filter rule ensures future filters are directly pasteable into Android Studio.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
