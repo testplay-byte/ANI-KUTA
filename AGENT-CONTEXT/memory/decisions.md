@@ -633,3 +633,16 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User said: "You could make the timeout just 30 seconds as it is quite enough for it to actually play." 30s is enough for resolve + loadfile + buffer.
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-099 — Loading spinner: buffered 1% check
+- **What:** Added `bufferedEnough` flag to `PlayerStateHolder`. Set to true when `demuxer-cache-time > position + 1% of duration`. Spinner condition changed to `isSwitching && !bufferedEnough` — once 1% buffered, spinner hides even if isSwitching is still true. `LaunchedEffect(bufferAheadTime)` clears isSwitching + isSwitchingEpisode when bufferedEnough becomes true.
+- **Why:** User reported: "video started to play but loading was still there." The spinner stayed because isSwitching was only cleared on FILE_LOADED, which may fire late or not at all for some formats. User suggested: "If the video has buffered 1%, then the loading animation will go away." This is a more reliable signal — once data is flowing, the load succeeded.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-100 — Subtitle "Off" always visible
+- **What:** Restructured `SubtitleTracksSheet` to always render the "Off" entry as the first item in the LazyColumn, regardless of whether `tracks` is empty. When empty, shows "Off" + "No subtitles found" message. When non-empty, shows "Off" + actual tracks.
+- **Why:** User reported: "I don't even see the OFF option in the subtitles." Root cause: "Off" was inside the `else` branch of `if (tracks.isEmpty())` — hidden when no tracks. Sub-agent investigation confirmed this was the PRIMARY root cause.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+- **Sub-agent:** SUBTITLE-INVESTIGATOR (analysis only — no code changes by sub-agent).
