@@ -63,8 +63,13 @@ class VideoResolver {
             }
 
             val resolvedVideos = videos.map { video ->
+                // CRITICAL: Use video.videoUrl (the actual stream URL), NOT video.url
+                // (which is the DEPRECATED page URL field — empty when the extension
+                // uses the primary constructor).
+                val streamUrl = video.videoUrl.ifBlank { video.url }
+                Logger.d(TAG) { "Video: quality='${video.videoTitle}', videoUrl='${video.videoUrl}', url='${video.url}', streamUrl='$streamUrl'" }
                 ResolvedVideo(
-                    url = video.url,
+                    url = streamUrl,
                     quality = parseQuality(video),
                     directUrl = video.videoUrl,
                     headers = formatHeaders(video.headers),
@@ -117,6 +122,10 @@ class VideoResolver {
             }
 
             val servers = groupIntoServers(videos, source.name)
+            // Log the first video's URL for debugging.
+            videos.firstOrNull()?.let { v ->
+                Logger.i(TAG) { "First video: videoUrl='${v.videoUrl}', url='${v.url}', videoTitle='${v.videoTitle}'" }
+            }
             Logger.i(TAG) { "Grouped into ${servers.size} servers: ${servers.map { "${it.name} (${it.audioVersions.sumOf { av -> av.videos.size }})" }}" }
             emit(StructuredResolverState.Success(servers))
 
@@ -239,7 +248,9 @@ class VideoResolver {
     ): List<ResolverServer> {
         // Group by server name.
         val byServer = videos.groupBy { video ->
-            parseServerName(video.videoTitle, video.url, sourceName)
+            // Use videoUrl (the stream URL) for host extraction, not video.url (deprecated page URL).
+            val urlForParsing = video.videoUrl.ifBlank { video.url }
+            parseServerName(video.videoTitle, urlForParsing, sourceName)
         }
 
         return byServer.entries.map { (serverName, serverVideos) ->
@@ -250,10 +261,12 @@ class VideoResolver {
                     label = audioLabel,
                     videos = audioVideos.map { video ->
                         val quality = parseQuality(video)
-                        val title = buildVideoTitle(serverName, audioLabel, quality, video.url)
+                        // CRITICAL: Use video.videoUrl (the actual stream URL), NOT video.url.
+                        val streamUrl = video.videoUrl.ifBlank { video.url }
+                        val title = buildVideoTitle(serverName, audioLabel, quality, streamUrl)
                         ResolverVideo(
                             quality = quality,
-                            url = video.url,
+                            url = streamUrl,
                             videoTitle = title,
                             videoHeaders = formatHeaders(video.headers),
                             subtitleTracks = video.subtitleTracks.map {

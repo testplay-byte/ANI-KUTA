@@ -543,10 +543,11 @@ private fun MinimizedMode(
         // (driven by the headerHeight animation). The player never goes
         // above the status bar because the Box always has at least
         // statusBarInset height.
+        // 6dp vertical padding creates a gap between the top bar and the player.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
         ) {
             Box(
                 modifier = Modifier

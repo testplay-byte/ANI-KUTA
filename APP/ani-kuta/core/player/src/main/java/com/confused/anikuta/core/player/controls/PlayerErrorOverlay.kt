@@ -17,8 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 /**
  * Full-screen error overlay for the player — ported from the old project's
@@ -40,12 +39,9 @@ import androidx.compose.ui.unit.sp
  * - Tap "Retry" to re-load the same URL.
  * - Tap "OK" to dismiss the error (and open the QualitySheet to pick a different video).
  *
- * The overlay has a dark semi-transparent background so the video (if any)
- * is hidden behind it. The error message is shown in a card with:
- * - Red error icon
- * - "Playback Error" title
- * - The error message (may include HTTP error context)
- * - Retry + OK buttons
+ * Design: dark semi-transparent background (0.85 alpha black), centered card
+ * with surface color, red error icon, "Playback Error" title, error message,
+ * and two buttons (OK + Retry). Uses RobotoFamily font for consistency.
  *
  * @param errorMessage The error message to display.
  * @param onRetry Called when the user taps "Retry" — re-loads the same URL.
@@ -64,31 +60,42 @@ fun PlayerErrorOverlay(
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            shadowElevation = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp),
+                .padding(horizontal = 40.dp),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // ── Error icon ──
-                Icon(
-                    imageVector = Icons.Default.ErrorOutline,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(48.dp),
-                )
-                Spacer(Modifier.height(12.dp))
+                // ── Error icon (red circle background) ──
+                Surface(
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.size(56.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(32.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
 
                 // ── Title ──
                 Text(
                     text = "Playback Error",
-                    fontSize = 18.sp,
+                    fontFamily = RobotoFamily,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
@@ -96,53 +103,76 @@ fun PlayerErrorOverlay(
                 Spacer(Modifier.height(8.dp))
 
                 // ── Error message ──
-                Text(
-                    text = errorMessage,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(20.dp))
+                ) {
+                    Text(
+                        text = errorMessage,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                }
+                Spacer(Modifier.height(24.dp))
 
                 // ── Buttons ──
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     // OK — dismiss the error
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ),
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clickable { onDismiss() },
                     ) {
-                        Text(
-                            text = "OK",
-                            fontWeight = FontWeight.ExtraBold,
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "OK",
+                                fontFamily = RobotoFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     // Retry — re-load the same URL
-                    Button(
-                        onClick = onRetry,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clickable { onRetry() },
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "Retry",
-                            fontWeight = FontWeight.ExtraBold,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Retry",
+                                fontFamily = RobotoFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
                     }
                 }
             }
