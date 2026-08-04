@@ -60,3 +60,17 @@
 - Session: web-3a43f99b (eleventh pass) — Phase 5c player overhaul
 - By: main agent (player overhaul) + documentation subagent (DOCS-UPDATE)
 - Note: Phase 5c player overhaul complete — initOptions ported (D-061), top-padding bug fixed (D-062), ResolvedVideosRegistry (D-063), SubtitleSettingsSheet with non-reactive prefs (D-064), Animiru repo cloned as read-only reference (D-065). Next: device testing + episode switching + resume position.
+
+## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
+
+### What was done
+- ROOT CAUSE of "loading failed" identified via 2 parallel subagent analyses (COMPARE-OLD-TO-NEW + COMPARE-NEW-TO-OLD): VideoResolver called getHosterList TWICE (once for flat resolve(), once for structured resolveStructured()). AniKotoS extension creates a local proxy server on each call — second call killed first call's proxy URLs.
+- FIX: Merged into single resolve() call. ResolverState.Success now includes rawVideos: List<Video>. DetailsViewModel calls videoResolver.buildServers(rawVideos) to derive structured servers from the SAME video list — NO second getHosterList.
+- Also matched old project's filter: `videos.filter { it.videoUrl.isNotBlank() }` — rejects videos with empty URLs.
+- PlayerErrorOverlay redesigned: inline on player surface (not popup), Close (X) button + Retry button.
+- Added === VIDEO PICKED === log at DetailsScreen.onPickVideo showing quality, URL, headers, registry key.
+- CI GREEN (8100d91, run 30900950702).
+
+### Key decisions
+- D-066: Double-resolve is forbidden. Single resolve() + buildServers() derivation.
+- D-067: Error overlay is inline on player surface with Close button (not popup, not force-opening QualitySheet).
