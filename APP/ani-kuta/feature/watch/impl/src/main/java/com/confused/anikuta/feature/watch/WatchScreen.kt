@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -24,6 +25,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,8 +59,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -235,10 +242,11 @@ fun WatchScreen(
 
                 PlayerInitializer.initialize(context, view)
 
-                // Register observer
+                // Register observer — route all MPV callbacks through PlayerObserver
+                // for proper severity routing, HTTP error capture, and event handling.
                 val logObs = object : `is`.xyz.mpv.MPVLib.LogObserver {
                     override fun logMessage(prefix: String, level: Int, text: String) {
-                        Logger.d(TAG) { "MPV log: $prefix: $text" }
+                        obs.onLogMessage(prefix, level, text)
                     }
                 }
                 val eventObs = object : `is`.xyz.mpv.MPVLib.EventObserver {
@@ -249,8 +257,7 @@ fun WatchScreen(
                     override fun eventProperty(property: String, value: String) { obs.onProperty(property, value) }
                     override fun eventProperty(property: String, value: Double) { obs.onProperty(property, value.toString()) }
                     override fun efEvent(err: String?) {
-                        Logger.w(TAG) { "MPV efEvent: $err" }
-                        if (err != null) stateHolder.updateError(err)
+                        obs.onEfEvent(err)
                     }
                 }
                 MPVLib.addLogObserver(logObs)
@@ -262,14 +269,18 @@ fun WatchScreen(
                     else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                 try {
                     MPVLib.setOptionString("http-header-fields", headers)
-                    Logger.i(TAG) { "Set http-header-fields: ${headers.take(80)}..." }
+                    Logger.i(TAG) { "=== MPV LOADFILE ===" }
+                    Logger.i(TAG) { "URL: $currentVideoUrl" }
+                    Logger.i(TAG) { "Headers (full): $headers" }
+                    Logger.i(TAG) { "Video title: $currentVideoTitle" }
                 } catch (e: Exception) {
                     Logger.w(TAG) { "Failed to set http-header-fields: ${e.message}" }
                 }
 
-                Logger.i(TAG) { "Loading video: $currentVideoUrl" }
+                Logger.i(TAG) { "Sending loadfile command to MPV..." }
                 MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
                 MPVLib.setPropertyBoolean("pause", false)
+                Logger.i(TAG) { "loadfile command sent. Waiting for FILE_LOADED event..." }
             }
         }
     }
@@ -291,22 +302,50 @@ fun WatchScreen(
     var showQualitySheet by remember { mutableStateOf(false) }
     var showSubtitleSettingsSheet by remember { mutableStateOf(false) }
 
+    // ── Retry handler — re-load the current video URL ──
+    val onRetry: () -> Unit = {
+        Logger.i(TAG) { "=== RETRY: Re-loading video ===" }
+        Logger.i(TAG) { "URL: $currentVideoUrl" }
+        Logger.i(TAG) { "Headers: ${currentVideoHeaders.take(120)}" }
+        stateHolder.setSwitching(true)
+        try {
+            val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+            MPVLib.setOptionString("http-header-fields", headers)
+            MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+            stateHolder.updateError(null)
+            stateHolder.updateLoadingState(PlayerLoadingState.LOADING)
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Retry failed" }
+            stateHolder.updateError("Retry failed: ${e.message}")
+        }
+    }
+
+    // ── Dismiss error handler — clear error, open QualitySheet ──
+    val onDismissError: () -> Unit = {
+        Logger.i(TAG) { "Error dismissed by user" }
+        stateHolder.updateError(null)
+        showQualitySheet = true
+    }
+
     // ── Quality switch handler — re-loadfile with new video ──
     val onQualitySelected: (com.confused.anikuta.core.videoresolver.ResolverVideo) -> Unit = { video ->
-        Logger.i(TAG) { "Quality selected: ${video.quality} (${video.url})" }
+        Logger.i(TAG) { "=== QUALITY SWITCH ===" }
+        Logger.i(TAG) { "New video: ${video.quality} (${video.url})" }
+        Logger.i(TAG) { "New headers: ${(video.videoHeaders ?: "").take(120)}" }
         currentVideoUrl = video.url
         currentVideoTitle = video.videoTitle
         currentVideoHeaders = video.videoHeaders ?: ""
-        // Set new headers + loadfile
+        // Set switching flag so efEvent from old file doesn't show a spurious error.
+        stateHolder.setSwitching(true)
         try {
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             MPVLib.setOptionString("http-header-fields", headers)
             MPVLib.command(arrayOf("loadfile", video.url, "replace"))
-            stateHolder.updateError(null)  // clear any previous error
-            stateHolder.updateLoadingState(PlayerLoadingState.LOADING)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to switch quality" }
+            stateHolder.updateError("Failed to switch: ${e.message}")
         }
     }
 
@@ -336,6 +375,8 @@ fun WatchScreen(
             onBack = { stateHolder.updateMode(PlayerMode.MINIMIZED) },
             onQualityClick = { showQualitySheet = true },
             onSubtitleClick = { showSubtitleSheet = true },
+            onRetry = onRetry,
+            onDismissError = onDismissError,
         )
     } else {
         MinimizedMode(
@@ -352,6 +393,8 @@ fun WatchScreen(
             onMaximize = { stateHolder.updateMode(PlayerMode.FULLSCREEN) },
             onQualityClick = { showQualitySheet = true },
             onSubtitleClick = { showSubtitleSheet = true },
+            onRetry = onRetry,
+            onDismissError = onDismissError,
         )
     }
 
@@ -411,78 +454,95 @@ private fun MinimizedMode(
     onMaximize: () -> Unit,
     onQualityClick: () -> Unit = {},
     onSubtitleClick: () -> Unit = {},
+    onRetry: () -> Unit = {},
+    onDismissError: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
-    val collapsed = listState.firstVisibleItemIndex > 0 ||
-        listState.firstVisibleItemScrollOffset > 200
+    // Wrap in derivedStateOf to prevent excessive recompositions.
+    val collapsed by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 ||
+                listState.firstVisibleItemScrollOffset > 200
+        }
+    }
 
+    // Get the status bar inset height so the player can slide up to sit
+    // FLUSH BELOW the status bar (not behind it).
+    val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+    // Header height: 48dp when expanded, 0dp when collapsed.
     val headerHeight by animateDpAsState(
         targetValue = if (collapsed) 0.dp else 48.dp,
-        animationSpec = tween(300),
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "headerHeight",
     )
-
-    // Animate the player's top padding — when collapsed, player slides up to fill
-    // the space previously occupied by the top bar.
-    val playerTopPadding by animateDpAsState(
-        targetValue = if (collapsed) 0.dp else headerHeight,
-        animationSpec = tween(300),
-        label = "playerTopPadding",
-    )
-
-    // Sheet visibility state (passed from parent)
-    // (No local state — the parent WatchScreen manages showSubtitleSheet/showQualitySheet)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        // ── Floating pill top bar — minimal padding, close to status bar ──
-        if (headerHeight > 0.dp) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(20.dp),
-                    tonalElevation = 2.dp,
-                    shadowElevation = 4.dp,
-                    modifier = Modifier.fillMaxWidth(),
+        // ── Top bar area — wraps in a Box with clipToBounds so the top bar
+        // slides up + fades out smoothly when scrolling. The Box height
+        // animates from (48dp + statusBarInset) to (0dp + statusBarInset),
+        // so the player naturally slides up to sit flush BELOW the status bar. ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(headerHeight + statusBarInset)
+                .clipToBounds(),
+        ) {
+            if (headerHeight > 0.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .graphicsLayer {
+                            alpha = if (headerHeight == 0.dp) 0f else 1f
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(20.dp),
+                        tonalElevation = 2.dp,
+                        shadowElevation = 4.dp,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        ControlButton(
-                            icon = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            onClick = onBack,
-                        )
-                        Text(
-                            text = "ANI-KUTA",
-                            fontFamily = RobotoFamily,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        )
-                        Spacer(Modifier.size(40.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ControlButton(
+                                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                onClick = onBack,
+                            )
+                            Text(
+                                text = "ANI-KUTA",
+                                fontFamily = RobotoFamily,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                            Spacer(Modifier.size(40.dp))
+                        }
                     }
                 }
             }
         }
 
         // ── Player 16:9 with ported MinimizedControls ──
-        // The player's top padding animates from headerHeight → 0 when scrolling,
-        // so the player slides up smoothly to fill the space.
+        // The player sits right below the top bar Box. When the top bar
+        // collapses, the Box shrinks, and the player slides up smoothly
+        // (driven by the headerHeight animation). The player never goes
+        // above the status bar because the Box always has at least
+        // statusBarInset height.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -511,6 +571,8 @@ private fun MinimizedMode(
                     onMaximize = onMaximize,
                     onQualityClick = onQualityClick,
                     onSubtitleClick = onSubtitleClick,
+                    onRetry = onRetry,
+                    onDismissError = onDismissError,
                 )
             }
         }
@@ -621,6 +683,8 @@ private fun FullscreenMode(
     onBack: () -> Unit,
     onQualityClick: () -> Unit = {},
     onSubtitleClick: () -> Unit = {},
+    onRetry: () -> Unit = {},
+    onDismissError: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -645,6 +709,8 @@ private fun FullscreenMode(
             onLockToggle = { stateHolder.updateControlsLocked(!stateHolder.controlsLocked.value) },
             onQualityClick = onQualityClick,
             onSubtitleClick = onSubtitleClick,
+            onRetry = onRetry,
+            onDismissError = onDismissError,
             animeTitle = watchKey.animeTitle,
             episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
             qualityInfo = watchKey.quality,

@@ -65,18 +65,27 @@ class AnikutaMPVView(
      * - [applySubtitlePreferencesInit]: all sub-* options via setOptionString.
      */
     override fun initOptions(vo: String) {
+        Logger.i(TAG) { "=== initOptions START ===" }
+        Logger.i(TAG) { "vo param: $vo" }
+
         // ── Video output — CRITICAL (was missing → no video) ──
-        setVo(if (playerPreferences.gpuNext) "gpu-next" else "gpu")
+        val voChoice = if (playerPreferences.gpuNext) "gpu-next" else "gpu"
+        Logger.i(TAG) { "Setting vo = $voChoice" }
+        setVo(voChoice)
 
         MPVLib.setPropertyBoolean("pause", true)
+        Logger.i(TAG) { "Set pause = true" }
+
         MPVLib.setOptionString("profile", "fast")
+        Logger.i(TAG) { "Set profile = fast" }
 
         // ── Hardware decoding — auto (zero-copy), NOT auto-copy ──
-        MPVLib.setOptionString(
-            "hwdec",
-            if (playerPreferences.tryHwDecoding) "auto" else "no",
-        )
+        val hwdecChoice = if (playerPreferences.tryHwDecoding) "auto" else "no"
+        Logger.i(TAG) { "Setting hwdec = $hwdecChoice" }
+        MPVLib.setOptionString("hwdec", hwdecChoice)
+
         MPVLib.setOptionString("msg-level", "all=warn")
+        Logger.i(TAG) { "Set msg-level = all=warn" }
 
         // Keep the file loaded so seeking works after EOF.
         MPVLib.setPropertyBoolean("keep-open", true)
@@ -88,21 +97,27 @@ class AnikutaMPVView(
         // downloads.
         MPVLib.setOptionString("tls-verify", "yes")
         MPVLib.setOptionString("tls-ca-file", "${context.filesDir.path}/$MPV_DIR/cacert.pem")
+        Logger.i(TAG) { "Set tls-verify=yes, tls-ca-file=${context.filesDir.path}/$MPV_DIR/cacert.pem" }
 
         // ── Demuxer cache — 256MB on Android 8.1+, 128MB on older ──
         val cacheMegs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) 256 else 128
         val backCacheMegs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) 64 else 32
         MPVLib.setOptionString("demuxer-max-bytes", "${cacheMegs * 1024 * 1024}")
         MPVLib.setOptionString("demuxer-max-back-bytes", "${backCacheMegs * 1024 * 1024}")
+        Logger.i(TAG) { "Set demuxer-max-bytes=${cacheMegs}MB, demuxer-max-back-bytes=${backCacheMegs}MB" }
 
         MPVLib.setOptionString("speed", playerPreferences.playbackSpeed.toString())
         MPVLib.setOptionString("alang", playerPreferences.preferredAudioLanguages)
         MPVLib.setOptionString("volume-max", (playerPreferences.volumeBoostCap + 100).toString())
+        Logger.i(TAG) { "Set speed=${playerPreferences.playbackSpeed}, alang=${playerPreferences.preferredAudioLanguages}" }
+
         // Workaround for https://github.com/mpv-player/mpv/issues/14651
         MPVLib.setOptionString("vd-lavc-film-grain", "cpu")
+        Logger.i(TAG) { "Set vd-lavc-film-grain=cpu (AV1 workaround)" }
 
         // ── Subtitle style — all init-time setOptionString ──
         applySubtitlePreferencesInit()
+        Logger.i(TAG) { "=== initOptions COMPLETE ===" }
     }
 
     /**
@@ -284,11 +299,14 @@ class AnikutaMPVView(
     /**
      * Load all audio and subtitle tracks from MPV's track-list.
      * Returns a pair: (subtitleTracks, audioTracks).
-     * Each list includes an "Off" entry (id = -1) at the start.
+     *
+     * NOTE: Does NOT prepend an "Off" entry — the SubtitleTracksSheet handles
+     * the "Off" option explicitly (adding it here would create a duplicate
+     * "Off" entry in the sheet).
      */
     fun loadTracks(): Pair<List<VideoTrack>, List<VideoTrack>> {
-        val subTracks = mutableListOf(VideoTrack(-1, "Off", null))
-        val audioTracks = mutableListOf(VideoTrack(-1, "Off", null))
+        val subTracks = mutableListOf<VideoTrack>()
+        val audioTracks = mutableListOf<VideoTrack>()
 
         try {
             val count = getTrackCount()
@@ -309,7 +327,7 @@ class AnikutaMPVView(
             Logger.e(TAG, e) { "Failed to load tracks: ${e.message}" }
         }
 
-        Logger.d(TAG) { "Loaded ${subTracks.size - 1} sub tracks, ${audioTracks.size - 1} audio tracks" }
+        Logger.d(TAG) { "Loaded ${subTracks.size} sub tracks, ${audioTracks.size} audio tracks" }
         return Pair(subTracks, audioTracks)
     }
 

@@ -132,13 +132,16 @@ object PlayerInitializer {
      * @param view The AnikutaMPVView to initialize.
      */
     fun initialize(context: Context, view: AnikutaMPVView) {
-        Logger.i(TAG) { "Initializing MPV..." }
+        Logger.i(TAG) { "=== MPV INITIALIZATION START ===" }
+        Logger.i(TAG) { "View: $view" }
+        Logger.i(TAG) { "Context filesDir: ${context.filesDir}" }
 
         val mpvDir = File(context.filesDir, MPV_DIR)
         if (!mpvDir.exists()) {
             mpvDir.mkdirs()
             Logger.d(TAG) { "Created MPV dir: ${mpvDir.absolutePath}" }
         }
+        Logger.i(TAG) { "MPV config dir: ${mpvDir.absolutePath}" }
 
         copyAssets(context, mpvDir)
         writeConfig(mpvDir)
@@ -149,11 +152,15 @@ object PlayerInitializer {
             cacheDir.mkdirs()
             Logger.d(TAG) { "Created MPV cache dir: ${cacheDir.absolutePath}" }
         }
+        Logger.i(TAG) { "MPV cache dir: ${cacheDir.absolutePath}" }
 
         // Initialize the MPV view.
         // After this returns, BaseMPVView calls initOptions(vo) which sets
         // all the critical options (setVo, hwdec, demuxer-max-bytes, etc.).
+        Logger.i(TAG) { "Calling view.initialize(configDir, cacheDir, 'warn')..." }
         view.initialize(mpvDir.absolutePath, cacheDir.absolutePath, "warn")
-        Logger.i(TAG) { "MPV initialized (config: ${mpvDir.absolutePath}, cache: ${cacheDir.absolutePath})" }
+        Logger.i(TAG) { "=== MPV INITIALIZATION COMPLETE ===" }
+        Logger.i(TAG) { "initOptions() has been called by BaseMPVView." }
+        Logger.i(TAG) { "Ready for loadfile command." }
     }
 }

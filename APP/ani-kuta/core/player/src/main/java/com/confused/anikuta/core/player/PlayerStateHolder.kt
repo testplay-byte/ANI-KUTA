@@ -1,7 +1,6 @@
 package com.confused.anikuta.core.player
 
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.preferences.PlayerPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +19,16 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * The host (Activity / WatchScreen) pushes MPV events into this holder via
  * the `update*` methods. The UI observes the [StateFlow]s.
+ *
+ * ## Error handling (ported from old project)
+ *
+ * The old project tracks:
+ * - `isSwitchingEpisode` — when true, efEvent (load failure) does NOT set the
+ *   error state, because the failure is expected (the old file ends as the new
+ *   one loads). Only set the error if the user explicitly tried to load a video
+ *   and it failed.
+ * - `httpError` — captured from MPV log messages (HTTP error lines), appended
+ *   to the efEvent error message for better diagnostics.
  *
  * CORE_RULES §23: All state is reactive (StateFlow) — UI updates automatically.
  * CORE_RULES §20: All updates logged with tag "Anikuta:Core:Player:State".
@@ -42,6 +51,15 @@ class PlayerStateHolder {
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    // ── Episode switching flag (prevents spurious errors during switches) ──
+    private val _isSwitching = MutableStateFlow(false)
+    val isSwitching: StateFlow<Boolean> = _isSwitching.asStateFlow()
+
+    // ── HTTP error captured from MPV logs (appended to efEvent message) ──
+    @Volatile
+    var httpError: String? = null
+        private set
 
     // ── Playback state ──
     private val _isPlaying = MutableStateFlow(false)
@@ -92,10 +110,64 @@ class PlayerStateHolder {
         _loadingState.value = state
     }
 
+    /**
+     * Set the error message. Called from efEvent (MPV load failure).
+     *
+     * CRITICAL: Only sets the error if NOT switching episodes. During a switch
+     * (quality change, episode change), efEvent fires for the OLD file ending
+     * — that's not a real error. The old project checks `isSwitchingEpisode`
+     * before setting the error state.
+     */
     fun updateError(message: String?) {
-        Logger.w(TAG) { "Error → $message" }
-        _errorMessage.value = message
-        if (message != null) _loadingState.value = PlayerLoadingState.ERROR
+        if (message != null) {
+            if (_isSwitching.value) {
+                Logger.d(TAG) { "Error suppressed (switching): $message" }
+                return
+            }
+            // Append HTTP error context if available.
+            val fullMessage = if (httpError != null) {
+                "$message\nHTTP: $httpError"
+            } else {
+                message
+            }
+            Logger.w(TAG) { "Error → $fullMessage" }
+            _errorMessage.value = fullMessage
+            _loadingState.value = PlayerLoadingState.ERROR
+        } else {
+            Logger.d(TAG) { "Error cleared" }
+            _errorMessage.value = null
+            if (_loadingState.value == PlayerLoadingState.ERROR) {
+                _loadingState.value = PlayerLoadingState.READY
+            }
+        }
+    }
+
+    /**
+     * Set the switching flag. When true, efEvent errors are suppressed.
+     * Cleared on FILE_LOADED (the new file successfully started).
+     */
+    fun setSwitching(switching: Boolean) {
+        Logger.d(TAG) { "Switching → $switching" }
+        _isSwitching.value = switching
+        if (switching) {
+            // Clear any previous error when starting a switch.
+            _errorMessage.value = null
+            httpError = null
+            _loadingState.value = PlayerLoadingState.LOADING
+        }
+    }
+
+    /**
+     * Capture an HTTP error from MPV log messages.
+     * Stored in [httpError] and appended to the next efEvent error message.
+     */
+    fun setHttpError(error: String?) {
+        if (error != null) {
+            Logger.w(TAG) { "HTTP error captured: $error" }
+            httpError = error
+        } else {
+            httpError = null
+        }
     }
 
     fun updatePlaying(playing: Boolean) {
@@ -148,6 +220,8 @@ class PlayerStateHolder {
         _isPlaying.value = false
         _buffering.value = false
         _errorMessage.value = null
+        httpError = null
+        _isSwitching.value = false
         _loadingState.value = PlayerLoadingState.READY
         _subtitleTracks.value = emptyList()
         _audioTracks.value = emptyList()

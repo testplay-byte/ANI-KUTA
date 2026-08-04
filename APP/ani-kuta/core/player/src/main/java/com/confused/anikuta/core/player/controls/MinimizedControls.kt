@@ -72,6 +72,8 @@ fun MinimizedControls(
     onMaximize: () -> Unit,
     onQualityClick: () -> Unit,
     onSubtitleClick: () -> Unit,
+    onRetry: () -> Unit = {},
+    onDismissError: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
@@ -155,7 +157,20 @@ fun MinimizedControls(
             )
         }
 
-        // Loading indicator
+        // ── ERROR OVERLAY (blocks all controls when shown) ──
+        // Ported from old project's PlayerErrorOverlay. When an error is active,
+        // this full-screen overlay is shown INSTEAD of the controls. The user
+        // must tap "Retry" or "OK" to dismiss it.
+        if (errorMessage != null) {
+            PlayerErrorOverlay(
+                errorMessage = errorMessage!!,
+                onRetry = onRetry,
+                onDismiss = onDismissError,
+            )
+            return@Box  // Skip drawing controls when error is shown
+        }
+
+        // Loading indicator (only if no error)
         if (buffering || loadingState == PlayerLoadingState.LOADING) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -173,26 +188,6 @@ fun MinimizedControls(
                             modifier = Modifier.size(32.dp),
                         )
                     }
-                }
-            }
-        }
-
-        // Error display
-        if (errorMessage != null) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.Black.copy(alpha = 0.7f),
-                ) {
-                    Text(
-                        text = errorMessage!!,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(16.dp),
-                    )
                 }
             }
         }

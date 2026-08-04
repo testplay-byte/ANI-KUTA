@@ -95,6 +95,8 @@ fun FullscreenControls(
     onSkipForward: () -> Unit = {},
     onPiPClick: () -> Unit = {},
     onRotateClick: () -> Unit = {},
+    onRetry: () -> Unit = {},
+    onDismissError: () -> Unit = {},
     modifier: Modifier = Modifier,
     animeTitle: String = "",
     episodeInfo: String = "",
@@ -163,27 +165,16 @@ fun FullscreenControls(
                     },
             )
 
-            // Error display
+            // ── ERROR OVERLAY (blocks all controls when shown) ──
+            // Same PlayerErrorOverlay as minimized mode — full-screen, blocks
+            // controls, has Retry + OK buttons.
             if (errorMessage != null) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Playback error",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = errorMessage!!,
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 14.sp,
-                        )
-                    }
-                }
+                PlayerErrorOverlay(
+                    errorMessage = errorMessage!!,
+                    onRetry = onRetry,
+                    onDismiss = onDismissError,
+                )
+                return@Box  // Skip drawing controls when error is shown
             }
 
             // ── Top elements (slide in from top) ──

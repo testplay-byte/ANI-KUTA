@@ -9,11 +9,14 @@ import com.confused.anikuta.core.common.Logger
  * on the MPV view. MPV calls back on its own thread — the observer just pushes
  * the values into StateFlows (thread-safe).
  *
- * CRITICAL (loading-failed overlay fix): The previous version did not clear the
- * error state on FILE_LOADED. When a video failed once (e.g. 403), then the user
- * picked a different quality/server, the new video would load + play audio, but
- * the "Loading failed" overlay stayed on screen because the error state was
- * never cleared. Now [onEvent] for FILE_LOADED clears the error + sets READY.
+ * ## Logging strategy (ported from old project)
+ *
+ * - MPV events: logged at INFO level with human-readable event names.
+ * - MPV property changes: only logged at VERBOSE (time-pos fires ~4x/sec, so
+ *   we don't log those at DEBUG to avoid log spam).
+ * - HTTP errors from MPV logs: captured into [PlayerStateHolder.httpError] and
+ *   appended to the next efEvent error message.
+ * - FILE_LOADED: clears error + switching flag + sets READY + loads tracks.
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Core:Player:Observer".
  */
@@ -29,6 +32,10 @@ class PlayerObserver(
         private const val MPV_EVENT_END_FILE = 7
         private const val MPV_EVENT_FILE_LOADED = 11
         private const val MPV_EVENT_TRACKS_CHANGED = 26
+        private const val MPV_EVENT_SHUTDOWN = 0
+        private const val MPV_EVENT_LOG_MESSAGE = 1
+        private const val MPV_EVENT_IDLE = 12
+        private const val MPV_EVENT_TICK = 27
     }
 
     /**
@@ -40,9 +47,20 @@ class PlayerObserver(
     /**
      * Called when an MPV property changes.
      * The host registers this as the property-change callback.
+     *
+     * NOTE: time-pos fires ~4x/sec — we log it at VERBOSE only to avoid spam.
      */
     fun onProperty(property: String, value: String) {
-        Logger.v(TAG) { "Property: $property = $value" }
+        // Only log non-noisy properties at DEBUG. time-pos, demuxer-cache-time
+        // are too frequent to log at DEBUG.
+        when (property) {
+            "time-pos", "demuxer-cache-time" -> {
+                Logger.v(TAG) { "Property: $property = $value" }
+            }
+            else -> {
+                Logger.d(TAG) { "Property: $property = $value" }
+            }
+        }
 
         when (property) {
             "time-pos" -> {
@@ -72,8 +90,6 @@ class PlayerObserver(
             }
             "track-list/count" -> {
                 // Track list changed — reload tracks from MPV.
-                // This fires when sub-add/audio-add commands complete, or when
-                // a new file's tracks are discovered.
                 loadTracksFromMpv()
             }
         }
@@ -82,15 +98,20 @@ class PlayerObserver(
     /**
      * Called when an MPV event occurs.
      * The host registers this as the event callback.
+     *
+     * Events are logged at INFO with human-readable names so the user can
+     * share logs and we can diagnose issues.
      */
     fun onEvent(eventId: Int) {
-        Logger.v(TAG) { "Event: $eventId" }
+        val eventName = eventName(eventId)
+        Logger.i(TAG) { "Event: $eventName ($eventId)" }
 
         when (eventId) {
             MPV_EVENT_FILE_LOADED -> {
-                Logger.i(TAG) { "File loaded — clearing error, setting READY" }
-                // CRITICAL: Clear any previous error state so the "Loading failed"
+                Logger.i(TAG) { "✓ File loaded — clearing error, setting READY, loading tracks" }
+                // CRITICAL: Clear switching flag + error state so the "Loading failed"
                 // overlay doesn't persist when a new video successfully loads.
+                stateHolder.setSwitching(false)
                 stateHolder.updateError(null)
                 stateHolder.updateLoadingState(PlayerLoadingState.READY)
                 stateHolder.updateBuffering(false)
@@ -102,16 +123,70 @@ class PlayerObserver(
                 stateHolder.updateLoadingState(PlayerLoadingState.LOADING)
             }
             MPV_EVENT_END_FILE -> {
-                Logger.i(TAG) { "End file" }
-                // Don't set ERROR here — END_FILE fires normally when the user
-                // switches quality/server. Only the efEvent callback (error
-                // loading file) should set the error state.
+                // END_FILE fires normally when switching quality/server.
+                // Do NOT set ERROR here — only efEvent indicates a real load failure.
+                Logger.i(TAG) { "End file (normal — switching or finished)" }
             }
             MPV_EVENT_TRACKS_CHANGED -> {
-                Logger.d(TAG) { "Tracks changed" }
+                Logger.d(TAG) { "Tracks changed — reloading" }
                 loadTracksFromMpv()
             }
+            MPV_EVENT_IDLE -> {
+                Logger.w(TAG) { "MPV idle (no file loaded)" }
+            }
+            MPV_EVENT_SHUTDOWN -> {
+                Logger.w(TAG) { "MPV shutdown" }
+            }
+            else -> {
+                Logger.v(TAG) { "Unhandled event: $eventName ($eventId)" }
+            }
         }
+    }
+
+    /**
+     * Called when MPV reports a log message. The host routes MPV's LogObserver
+     * callback to this method.
+     *
+     * CRITICAL: Capture HTTP errors from MPV logs. When MPV fails to load a URL,
+     * it logs an HTTP error line BEFORE firing efEvent. We capture this and store
+     * it in [PlayerStateHolder.httpError] so it can be appended to the error
+     * message shown to the user.
+     *
+     * @param prefix MPV log prefix (e.g. "stream", "http", "demux")
+     * @param level MPV log level (20=info, 30=warn, 40=error, 10=v, 0=trace)
+     * @param text The log message text.
+     */
+    fun onLogMessage(prefix: String, level: Int, text: String) {
+        // Route by severity — matches old project's PlayerObserver.
+        when (level) {
+            in 40..Int.MAX_VALUE -> Logger.e(TAG) { "MPV [$prefix] ERROR: $text" }
+            30 -> Logger.w(TAG) { "MPV [$prefix] WARN: $text" }
+            20 -> Logger.i(TAG) { "MPV [$prefix] INFO: $text" }
+            else -> Logger.v(TAG) { "MPV [$prefix]: $text" }
+        }
+
+        // Capture HTTP errors for the efEvent message.
+        val lowerText = text.lowercase()
+        if (lowerText.contains("http error") || lowerText.contains("403") ||
+            lowerText.contains("404") || lowerText.contains("connection refused") ||
+            lowerText.contains("network unreachable") || lowerText.contains("timed out")
+        ) {
+            stateHolder.setHttpError("[$prefix] $text")
+        }
+    }
+
+    /**
+     * Called when MPV fires efEvent (error loading file).
+     * The host registers this as the efEvent callback.
+     *
+     * CRITICAL: Only set the error if NOT switching episodes. During a switch,
+     * efEvent fires for the OLD file ending — that's not a real error.
+     * [PlayerStateHolder.updateError] checks the switching flag and suppresses
+     * the error if switching.
+     */
+    fun onEfEvent(err: String?) {
+        Logger.e(TAG) { "efEvent (load failure): $err" }
+        stateHolder.updateError(err ?: "Unknown playback error")
     }
 
     /**
@@ -127,5 +202,37 @@ class PlayerObserver(
         } catch (e: Exception) {
             Logger.w(TAG) { "Failed to load tracks: ${e.message}" }
         }
+    }
+
+    /**
+     * Convert an MPV event ID to a human-readable name for logging.
+     */
+    private fun eventName(id: Int): String = when (id) {
+        0 -> "SHUTDOWN"
+        1 -> "LOG_MESSAGE"
+        2 -> "GET_PROPERTY_REPLY"
+        3 -> "SET_PROPERTY_REPLY"
+        4 -> "COMMAND_REPLY"
+        5 -> "START_FILE_READ"
+        6 -> "START_FILE"
+        7 -> "END_FILE"
+        8 -> "FILE_ERROR"
+        9 -> "IDLE"
+        10 -> "TICK"
+        11 -> "FILE_LOADED"
+        12 -> "IDLE"
+        13 -> "CACHE_UPDATE"
+        14 -> "AUDIO_RECONFIG"
+        15 -> "VIDEO_RECONFIG"
+        16 -> "SEEK"
+        17 -> "PLAYBACK_RESTART"
+        18 -> "PROPERTY_CHANGE"
+        19 -> "QUEUE_OVERFLOW"
+        20 -> "HOOK"
+        21 -> "RENDER"
+        22 -> "SEND_COMMAND_REPLY"
+        26 -> "TRACKS_CHANGED"
+        27 -> "TICK"
+        else -> "UNKNOWN($id)"
     }
 }
