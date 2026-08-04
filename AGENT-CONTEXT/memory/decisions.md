@@ -646,3 +646,10 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
 - **Sub-agent:** SUBTITLE-INVESTIGATOR (analysis only — no code changes by sub-agent).
+
+### D-101 — Subtitles: carry tracks directly in WatchKey (no registry lookup)
+- **What:** Added `subtitleTracks` + `audioTracks` to the flat `ResolvedVideo` type. Added `subtitleTracksSerialized` + `audioTracksSerialized` to `WatchKey` (with `parseSubtitleTracks()` + `parseAudioTracks()` methods). Updated `DetailsScreen` to serialize tracks from the picked video + pass them through `onNavigateToWatch`. Updated `WatchScreen.initMpv` to use WatchKey tracks as PRIMARY source, registry lookup as FALLBACK.
+- **Why:** User reported subtitles not showing. Sub-agent investigation found the root cause: `ResolvedVideo` (flat type) did NOT carry `subtitleTracks` — only the structured `ResolverVideo` (in registry) did. WatchScreen relied on a registry lookup that could fail. The old project carries `subtitleTracks` directly in `WatchRequest`. Analysis of the AniKotoS extension repo confirmed: subtitles are provided as `Track(url, lang)` pairs in `Video.subtitleTracks`, with URLs like `http://127.0.0.1:PORT/sub/0/0` (localhost proxy).
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Sub-agent:** SUBTITLE-INVESTIGATOR (analysis), aniyomi-extensions repo analysis.
