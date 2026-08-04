@@ -22,6 +22,16 @@ package com.confused.anikuta.core.common
  */
 object EpisodeTitleParser {
 
+    /**
+     * The field delimiter used for episode list serialization (WatchKey.episodeListSerialized).
+     *
+     * CRITICAL: Uses \u001F (ASCII Unit Separator) instead of '|' because episode
+     * URLs can contain '|' characters. Using '|' corrupts the URL, episode number,
+     * AND name when the URL contains '|'. \u001F is a control character that never
+     * appears in URLs or episode names.
+     */
+    const val EPISODE_FIELD_DELIMITER = "\u001F"
+
     private val PREFIX_REGEX = Regex(
         """^(?:Episode|Ep\.?|EP)\s*\d+(?:\.\d+)?\s*[-:–—]\s*""",
         RegexOption.IGNORE_CASE,

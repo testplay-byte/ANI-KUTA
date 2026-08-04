@@ -9,5 +9,6 @@ android {
 
 dependencies {
     implementation(project(":core:navigation-api"))
+    implementation(project(":core:common"))
     implementation(libs.kotlinx.serialization.json)
 }

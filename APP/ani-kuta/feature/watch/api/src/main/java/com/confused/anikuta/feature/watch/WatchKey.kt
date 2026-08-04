@@ -56,8 +56,9 @@ data class WatchKey(
      */
     fun parseEpisodeList(): List<SimpleEpisode> {
         if (episodeListSerialized.isBlank()) return emptyList()
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
         return episodeListSerialized.split("\n").mapNotNull { line ->
-            val parts = line.split("\u001F", limit = 3)
+            val parts = line.split(delim, limit = 3)
             if (parts.size == 3) {
                 SimpleEpisode(
                     url = parts[0],
@@ -66,11 +67,6 @@ data class WatchKey(
                 )
             } else null
         }
-    }
-
-    companion object {
-        /** The field delimiter used for episode list serialization. */
-        const val EPISODE_FIELD_DELIMITER = "\u001F"
     }
 }
 
