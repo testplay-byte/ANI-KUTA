@@ -87,7 +87,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun DetailsScreen(
     animeId: Int,
     onBack: () -> Unit,
-    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long) -> Unit = { _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -232,6 +232,14 @@ fun DetailsScreen(
                     val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
                         "${e.url}${delim}${e.episode_number}${delim}${e.name}"
                     } ?: ""
+                    // Serialize subtitle + audio tracks from the picked video.
+                    // CRITICAL: Carrying these directly ensures subtitles are always
+                    // available in WatchScreen (no ResolvedVideosRegistry lookup).
+                    val subTracksStr = video.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
+                    val audioTracksStr = video.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
+                    Logger.i("Anikuta:Feature:Details") {
+                        "Subtitle tracks: ${video.subtitleTracks.size}, Audio tracks: ${video.audioTracks.size}"
+                    }
                     onNavigateToWatch(
                         video.url,
                         anime.displayName,
@@ -243,6 +251,8 @@ fun DetailsScreen(
                         video.headers,
                         resolvedVideosKey,
                         linked.sourceId,
+                        subTracksStr,
+                        audioTracksStr,
                     )
                 }
                 showResolverSheet = false

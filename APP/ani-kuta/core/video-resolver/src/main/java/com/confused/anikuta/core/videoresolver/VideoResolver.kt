@@ -77,12 +77,14 @@ class VideoResolver {
             }
 
             val resolvedVideos = validVideos.map { video ->
-                Logger.d(TAG) { "Valid video: quality='${video.videoTitle}', videoUrl='${video.videoUrl.take(80)}'" }
+                Logger.d(TAG) { "Valid video: quality='${video.videoTitle}', videoUrl='${video.videoUrl.take(80)}', subs=${video.subtitleTracks.size}, audio=${video.audioTracks.size}" }
                 ResolvedVideo(
                     url = video.videoUrl,
                     quality = parseQuality(video),
                     directUrl = video.videoUrl,
                     headers = formatHeaders(video.headers),
+                    subtitleTracks = video.subtitleTracks.map { ResolverSubtitleTrack(it.url, it.lang) },
+                    audioTracks = video.audioTracks.map { ResolverSubtitleTrack(it.url, it.lang) },
                 )
             }
 

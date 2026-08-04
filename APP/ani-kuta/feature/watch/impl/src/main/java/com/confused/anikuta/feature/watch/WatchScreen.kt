@@ -435,13 +435,25 @@ fun WatchScreen(
                 obs.mpvView = view  // Wire so observer can call loadTracks() on FILE_LOADED
                 observer = obs      // Store reference so switch handlers can set pending tracks
 
-                // Set pending external subtitle/audio tracks from the initial
-                // picked video. The observer sends sub-add/audio-add on FILE_LOADED.
-                initialPickedVideo?.let { pv ->
-                    obs.pendingSubtitleTracks = pv.subtitleTracks.map { Pair(it.url, it.lang) }
-                    obs.pendingAudioTracks = pv.audioTracks.map { Pair(it.url, it.lang) }
-                    obs.trackHeaders = pv.videoHeaders ?: ""
-                    Logger.i(TAG) { "Pending external tracks: ${pv.subtitleTracks.size} subs, ${pv.audioTracks.size} audio" }
+                // Set pending external subtitle/audio tracks.
+                // PRIMARY source: WatchKey.subtitleTracksSerialized (always available,
+                // passed directly from DetailsScreen — no registry lookup needed).
+                // FALLBACK: initialPickedVideo from ResolvedVideosRegistry (for
+                // cases where the serialized tracks are empty but the registry has them).
+                val keySubs = watchKey.parseSubtitleTracks()
+                val keyAudios = watchKey.parseAudioTracks()
+                if (keySubs.isNotEmpty() || keyAudios.isNotEmpty()) {
+                    obs.pendingSubtitleTracks = keySubs
+                    obs.pendingAudioTracks = keyAudios
+                    obs.trackHeaders = currentVideoHeaders
+                    Logger.i(TAG) { "Pending external tracks (from WatchKey): ${keySubs.size} subs, ${keyAudios.size} audio" }
+                } else {
+                    initialPickedVideo?.let { pv ->
+                        obs.pendingSubtitleTracks = pv.subtitleTracks.map { Pair(it.url, it.lang) }
+                        obs.pendingAudioTracks = pv.audioTracks.map { Pair(it.url, it.lang) }
+                        obs.trackHeaders = pv.videoHeaders ?: ""
+                        Logger.i(TAG) { "Pending external tracks (from registry): ${pv.subtitleTracks.size} subs, ${pv.audioTracks.size} audio" }
+                    }
                 }
 
                 PlayerInitializer.initialize(context, view)

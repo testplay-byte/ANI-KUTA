@@ -45,14 +45,26 @@ data class WatchKey(
      *  uses this ID to get the source from the ExtensionManager and call
      *  VideoResolver.resolve() for the new episode. */
     val sourceId: Long = 0L,
+
+    /** Serialized subtitle tracks for external subtitle loading via MPV's sub-add.
+     *  Format: "url\u001Flang" per line, separated by newlines.
+     *  Populated from the picked video's `subtitleTracks` — the extension provides
+     *  these as `Track(url, lang)` pairs. For AniKotoS, the URL is a localhost proxy
+     *  URL like `http://127.0.0.1:PORT/sub/0/0`.
+     *
+     *  CRITICAL: Carrying these directly in WatchKey (instead of relying on
+     *  ResolvedVideosRegistry lookup) ensures subtitles are always available
+     *  even if the registry lookup fails (URL mismatch, key blank, etc.). */
+    val subtitleTracksSerialized: String = "",
+
+    /** Serialized audio tracks for external audio loading via MPV's audio-add.
+     *  Same format as [subtitleTracksSerialized]. */
+    val audioTracksSerialized: String = "",
 ) : NavKey {
 
     /**
      * Parse the serialized episode list into a list of SimpleEpisode.
      * Format: "url\u001FepisodeNumber\u001Fname" per line.
-     *
-     * Uses \u001F (Unit Separator) as the delimiter — see
-     * [episodeListSerialized] for why.
      */
     fun parseEpisodeList(): List<SimpleEpisode> {
         if (episodeListSerialized.isBlank()) return emptyList()
@@ -66,6 +78,32 @@ data class WatchKey(
                     name = parts[2],
                 )
             } else null
+        }
+    }
+
+    /**
+     * Parse the serialized subtitle tracks into a list of (url, lang) pairs.
+     * Format: "url\u001Flang" per line.
+     */
+    fun parseSubtitleTracks(): List<Pair<String, String>> {
+        if (subtitleTracksSerialized.isBlank()) return emptyList()
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+        return subtitleTracksSerialized.split("\n").mapNotNull { line ->
+            val parts = line.split(delim, limit = 2)
+            if (parts.size == 2) Pair(parts[0], parts[1]) else null
+        }
+    }
+
+    /**
+     * Parse the serialized audio tracks into a list of (url, lang) pairs.
+     * Format: "url\u001Flang" per line.
+     */
+    fun parseAudioTracks(): List<Pair<String, String>> {
+        if (audioTracksSerialized.isBlank()) return emptyList()
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+        return audioTracksSerialized.split("\n").mapNotNull { line ->
+            val parts = line.split(delim, limit = 2)
+            if (parts.size == 2) Pair(parts[0], parts[1]) else null
         }
     }
 }

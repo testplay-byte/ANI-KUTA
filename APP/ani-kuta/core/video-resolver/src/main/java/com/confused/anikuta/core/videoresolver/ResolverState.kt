@@ -31,6 +31,12 @@ sealed interface ResolverState {
 
 /**
  * A resolved video with quality information.
+ *
+ * @param subtitleTracks External subtitle tracks to load via MPV's `sub-add`.
+ *   Populated from `Video.subtitleTracks` — the extension provides these as
+ *   `Track(url, lang)` pairs. For AniKotoS, the URL is a localhost proxy URL
+ *   like `http://127.0.0.1:PORT/sub/0/0`.
+ * @param audioTracks External audio tracks to load via MPV's `audio-add`.
  */
 data class ResolvedVideo(
     val url: String,
@@ -39,4 +45,6 @@ data class ResolvedVideo(
     /** HTTP headers required by the video URL (from the extension's Video.headers).
      *  Format: "Key: Value,Key2: Value2" (comma-separated for MPV's http-header-fields). */
     val headers: String = "",
+    val subtitleTracks: List<ResolverSubtitleTrack> = emptyList(),
+    val audioTracks: List<ResolverSubtitleTrack> = emptyList(),
 )
