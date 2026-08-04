@@ -67,8 +67,9 @@ ANIKUTA-PROJECT/
 - **Document with comments**: what lives where, what the relations are. Comments explain *why*, not *what*.
 - **One module = one responsibility.**
 - Reuse before you write. Look a few files over before implementing.
-- No unrequested abstractions (no interface with one impl, no factory for one product).
+- No unrequested abstractions (no interface with one impl, no factory for one product). **Exception:** an interface with one impl is OK when a future swap is explicitly planned (e.g. `WatchProgressStore` — in-memory now, SQLDelight later; or a player-host interface for MPV → ExoPlayer swap).
 - Mark deliberate simplifications with a `ponytail:` comment naming the ceiling + upgrade path.
+- **Player lifecycle scaffolding is NOT boilerplate.** `DisposableEffect`s (keep-screen-on, immersive mode, app-exit pause/resume), watchdogs (switching timeout, fatal-error, auto-hide controls), and periodic progress saves are load-bearing per ADR-025 + D-049. Do not delete them as "unnecessary complexity" without explicit user confirmation.
 
 > See `skills/ponytail.md` for the full lazy-senior-dev decision ladder.
 
@@ -90,6 +91,7 @@ ANIKUTA-PROJECT/
 - **Frontend (UI)** renders data, handles input only. No data-fetching logic baked in.
 - **Backend (data)** fetches, processes, stores. Exposes clean interfaces to the UI.
 - They communicate via **defined contracts** (interfaces/repositories), so UI can be customized without touching data logic.
+- **Player screen carve-out (ADR-025):** The watch page is exempt from strict UI/backend separation due to the single-MPV-instance constraint. The screen composable owns the MPV view cache + event bridge + lifecycle effects; a `PlayerStateHolder` (plain class, NOT ViewModel) holds observable state; a `PlayerObserver` decouples MPV events via a Callback interface. This is the old project's proven pattern (D-044). The watch page's *surrounding* UI (top nav bar, episode list, episode details) SHOULD still be split into separate composables for customizability — only the player surface + its controls + the MPV lifecycle stay coupled.
 
 > Concept diagrams + module graph live in `knowledge/architecture.md`. This section is the **rule**; that file is the **design**.
 
@@ -210,6 +212,7 @@ ANIKUTA-PROJECT/
 - **Files**: `kebab-case` for markdown/data files (`lessons-learned.md`, `open-questions.md`). `PascalCase` for Kotlin/TS classes. `camelCase` for functions/variables.
 - **Folders**: `kebab-case` (`old-kuta`, `ani-kuta`). Uppercase for top-level project zones (`APP/`, `DASHBOARD/`, `REFERENCES/`, `AGENT-CONTEXT/`).
 - **Modules**: `:lower:case:colon` in Gradle (`:core:ui`). `com.confused.anikuta.<module>` for packages.
+- **When porting code from `REFERENCES/old-kuta/`** (old package `app.confused.anikuta`), rewrite ALL imports to `com.confused.anikuta`. The old project uses `app.confused.anikuta.*`; the new project uses `com.confused.anikuta.*`. Forgetting this breaks the build with unresolved references.
 - **Decisions**: `D-NNN` (zero-padded, sequential). **Questions**: `Q-NNN`. **Tasks**: `Task NN`.
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`).
 - If you need to rename something: update **all** references. Grep before and after.

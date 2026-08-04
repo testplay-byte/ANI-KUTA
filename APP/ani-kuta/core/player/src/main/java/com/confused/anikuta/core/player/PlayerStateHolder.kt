@@ -20,15 +20,22 @@ import kotlinx.coroutines.flow.asStateFlow
  * The host (Activity / WatchScreen) pushes MPV events into this holder via
  * the `update*` methods. The UI observes the [StateFlow]s.
  *
- * ## Error handling (ported from old project)
+ * ## Error handling (ported from old project + stuck-loading fix)
  *
- * The old project tracks:
- * - `isSwitchingEpisode` — when true, efEvent (load failure) does NOT set the
- *   error state, because the failure is expected (the old file ends as the new
- *   one loads). Only set the error if the user explicitly tried to load a video
- *   and it failed.
+ * Two error methods:
+ * - [updateError] — for efEvent (MPV load failure). SUPPRESSED while switching
+ *   because the old file's END_FILE fires during a switch — that's not a real
+ *   error. This is the old project's behavior.
+ * - [setSwitchingError] — for resolve/loadfile failures (no videos, resolve
+ *   error, exception). ALWAYS shown — these are real failures that need user
+ *   attention. This method clears the switching flag AND sets the error in one
+ *   call, so the player never gets stuck in loading when a switch fails.
+ *
+ * The 30s switching-timeout watchdog (in WatchScreen) is a safety net: if
+ * `isSwitching` stays true for 30s, it calls `setSwitchingError("timeout")`.
+ *
  * - `httpError` — captured from MPV log messages (HTTP error lines), appended
- *   to the efEvent error message for better diagnostics.
+ *   to the error message for better diagnostics.
  *
  * CORE_RULES §23: All state is reactive (StateFlow) — UI updates automatically.
  * CORE_RULES §20: All updates logged with tag "Anikuta:Core:Player:State".
@@ -102,6 +109,24 @@ class PlayerStateHolder {
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
+    // ── Current episode state (hoisted from WatchKey so it updates on switch) ──
+    // WatchKey is immutable (Nav3 contract) — these fields track the CURRENTLY
+    // PLAYING episode so the UI (episode list highlight, "now playing" card,
+    // QualitySheet servers) reflects what's actually playing after a switch.
+    private val _currentEpisodeUrl = MutableStateFlow("")
+    val currentEpisodeUrl: StateFlow<String> = _currentEpisodeUrl.asStateFlow()
+
+    private val _currentEpisodeNumber = MutableStateFlow(0f)
+    val currentEpisodeNumber: StateFlow<Float> = _currentEpisodeNumber.asStateFlow()
+
+    private val _currentEpisodeTitle = MutableStateFlow("")
+    val currentEpisodeTitle: StateFlow<String> = _currentEpisodeTitle.asStateFlow()
+
+    // The registry key for the CURRENT episode's resolved servers (QualitySheet).
+    // Updated on episode switch so the QualitySheet shows the new episode's servers.
+    private val _currentResolvedVideosKey = MutableStateFlow("")
+    val currentResolvedVideosKey: StateFlow<String> = _currentResolvedVideosKey.asStateFlow()
+
     // ── Update methods (called by PlayerObserver) ──
 
     fun updateMode(mode: PlayerMode) {
@@ -148,7 +173,8 @@ class PlayerStateHolder {
 
     /**
      * Set the switching flag. When true, efEvent errors are suppressed.
-     * Cleared on FILE_LOADED (the new file successfully started).
+     * Cleared on FILE_LOADED (the new file successfully started) or by
+     * [setSwitchingError] when a switch fails.
      */
     fun setSwitching(switching: Boolean) {
         Logger.d(TAG) { "Switching → $switching" }
@@ -159,6 +185,57 @@ class PlayerStateHolder {
             httpError = null
             _loadingState.value = PlayerLoadingState.LOADING
         }
+    }
+
+    /**
+     * Set a switching error — clears the switching flag AND shows the error.
+     *
+     * Use this for REAL failures during a switch: no videos found, resolve
+     * error, exception, timeout. Unlike [updateError], this is NEVER suppressed
+     * — the user needs to see it and the loading spinner must stop.
+     *
+     * This fixes the stuck-in-loading regression where `setSwitching(true)` +
+     * `updateError()` suppression left the player in a perpetual spinner with
+     * no error and no recovery path.
+     */
+    fun setSwitchingError(message: String) {
+        Logger.w(TAG) { "Switching error: $message" }
+        _isSwitching.value = false
+        val fullMessage = if (httpError != null) {
+            "$message\nHTTP: $httpError"
+        } else {
+            message
+        }
+        _errorMessage.value = fullMessage
+        _loadingState.value = PlayerLoadingState.ERROR
+    }
+
+    /**
+     * Seed the current-episode state from the WatchKey (called once on init).
+     */
+    fun seedEpisodeState(url: String, number: Float, title: String, resolvedVideosKey: String) {
+        _currentEpisodeUrl.value = url
+        _currentEpisodeNumber.value = number
+        _currentEpisodeTitle.value = title
+        _currentResolvedVideosKey.value = resolvedVideosKey
+    }
+
+    /**
+     * Update the current-episode state after an episode switch.
+     */
+    fun updateCurrentEpisode(url: String, number: Float, title: String, resolvedVideosKey: String) {
+        Logger.d(TAG) { "Current episode → num=$number url=${url.take(60)}" }
+        _currentEpisodeUrl.value = url
+        _currentEpisodeNumber.value = number
+        _currentEpisodeTitle.value = title
+        _currentResolvedVideosKey.value = resolvedVideosKey
+    }
+
+    /**
+     * Update the resolved-videos key after an episode switch (QualitySheet reads this).
+     */
+    fun updateResolvedVideosKey(key: String) {
+        _currentResolvedVideosKey.value = key
     }
 
     /**

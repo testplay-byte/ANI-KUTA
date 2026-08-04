@@ -213,3 +213,38 @@
 - **Decisions logged**: D-061 (initOptions root cause), D-062 (top-padding root cause), D-063 (ResolvedVideosRegistry), D-064 (non-reactive subtitle prefs), D-065 (Animiru read-only reference).
 - **Lessons logged**: empty `initOptions()` → no video; `setDecorFitsSystemWindows(true)` conflicts with `enableEdgeToEdge()`; empty `onDispose` leaks window state; `setPropertyString` unreliable for numeric MPV properties (use `setPropertyInt`/`setPropertyDouble`); `hwdec=auto-copy` fails on some devices (use `hwdec=auto`); don't clear error in `END_FILE` event (only on `FILE_LOADED`).
 - **What's deferred** (next pass): episode switching inside WatchScreen (next/prev from minimized list — needs `PlayerStateHolder` fields: `episodeList`, `currentEpisodeIndex`, `isSwitchingEpisode`), resume position (wire `WatchProgressStore` — save on pause/exit, restore on loadfile), top-nav pill polish, device verification of all 5 fixes.
+
+## Session web-f53f0459 — Phase 5c Player: Stuck-Loading Fix + Episode State + External Subtitles + Capture-Only Progress
+
+### What was done
+- **Stuck-loading regression FIXED (D-068, CRITICAL)**: Root cause — `setSwitching(true)` + `updateError()` suppression (intended to ignore old file's END_FILE during switch) left the player in a perpetual loading spinner when a switch ACTUALLY failed (no videos, resolve error, exception, 403, dead proxy). Fix: added `PlayerStateHolder.setSwitchingError(message)` — ALWAYS shows the error (never suppressed) AND clears the switching flag. Used in ALL explicit failure paths (retry catch, quality switch catch, episode switch no-videos/resolve-error/catch). Also added 30s `LaunchedEffect(isSwitching)` watchdog that calls `setSwitchingError("timeout")` if switching stays true for 30s — catches cases where efEvent is suppressed AND FILE_LOADED never fires.
+- **Episode-switch state hoisted into PlayerStateHolder (D-069)**: Added 4 new StateFlows: `currentEpisodeUrl`, `currentEpisodeNumber`, `currentEpisodeTitle`, `currentResolvedVideosKey`. Seeded from WatchKey on init, updated on switch via `updateCurrentEpisode(...)`. Episode list highlight, "Currently playing episode N" card, and QualitySheet servers now read from the state holder (reactive) instead of the immutable WatchKey (which never changed after a switch). This fixes the bug where the highlight + "now playing" card + QualitySheet stayed on the OLD episode after a switch.
+- **External subtitle/audio track loading re-added (D-070)**: Re-added `pendingSubtitleTracks`, `pendingAudioTracks`, `trackHeaders` fields to `PlayerObserver`. On `FILE_LOADED`, `loadExternalTracks()` sends `sub-add`/`audio-add` on `Dispatchers.IO` (each triggers HTTPS download), waits 300ms, then calls `loadTracksFromMpv()`. Host (`WatchScreen`) sets these fields before every `loadfile`: in `initMpv` (from initial picked video looked up in ResolvedVideosRegistry), in `onQualitySelected`, and in `onEpisodeSwitch`. Fixes the regression where external subtitles from extensions (AniKotoS, etc.) were silently dropped.
+- **SubtitleTrackFormatter ported (D-071)**: Created `core/player/subtitles/SubtitleTrackFormatter.kt` with ISO 639 → English name mapping (50+ languages). `AnikutaMPVView.loadTracks()` now uses this formatter. Subtitle sheet shows "English" instead of "eng", "Japanese" instead of "jpn". Also discards ugly filenames (.vtt/.srt/.ass/.ssa, >20-char hashes). Improvement over the old project (which showed raw codes).
+- **EpisodeSwitchingOverlay ported (D-073)**: Created `core/player/controls/EpisodeSwitchingOverlay.kt` — dark gradient + spinner + "Loading episode..." + optional title with pulse animation. Shown in both minimized + fullscreen modes when `isSwitching` is true. Covers the video during the switch so the user sees a clear loading state.
+- **Speed setter bug fixed (D-073)**: `AnikutaMPVView.playbackSpeed` setter was `setPropertyInt("speed", value.toInt())` — truncated 1.5f→1, 0.5f→0. Changed to `setPropertyDouble("speed", value.toDouble())`.
+- **Capture-only WatchProgressStore (D-072)**: Created `InMemoryWatchProgressStore` (writes to in-memory ConcurrentHashMap). Registered in Koin via `watchProgressModule`. `WatchScreen` saves progress every 10s + on dispose. NOT restored yet (Phase 5e when database is wired). Key format: `"$sourceId|$episodeUrl"`.
+- **Headers-override bug fixed**: `trackHeaders` is now set on EVERY video change (quality switch AND episode switch), not just quality switch. Previously, after an episode switch, external subtitle downloads used stale/empty headers.
+- **Dead Koin registration removed (D-074)**: Removed `singleOf(::PlayerStateHolder)` from `playerModule` — it was never injected (WatchScreen creates its own via `remember`). The old project never registered it in Koin either.
+- **CORE_RULES updated**: §5 — added "Player lifecycle scaffolding is NOT boilerplate" + interface-with-one-impl exception for planned future swaps. §7 — added "Player screen carve-out (ADR-025)" for the single-MPV-instance pattern. §17 — added "When porting from REFERENCES/old-kuta/, rewrite all imports from `app.confused.anikuta` to `com.confused.anikuta`".
+- **Doc backfill**: D-066 + D-067 (were in progress.md but missing from decisions.md) now backfilled.
+
+### Key decisions
+- D-068: Stuck-loading fix — `setSwitchingError()` + 30s watchdog
+- D-069: Episode-switch state hoisted into PlayerStateHolder
+- D-070: External subtitle/audio track loading re-added
+- D-071: SubtitleTrackFormatter with ISO 639 mapping
+- D-072: Capture-only InMemoryWatchProgressStore
+- D-073: EpisodeSwitchingOverlay + speed setter bug fix
+- D-074: Dead singleOf(::PlayerStateHolder) removed
+
+### Files changed
+- **Created**: `core/player/subtitles/SubtitleTrackFormatter.kt`, `core/player/controls/EpisodeSwitchingOverlay.kt`, `core/watch-progress/.../InMemoryWatchProgressStore.kt`, `core/watch-progress/.../WatchProgressModule.kt`
+- **Modified**: `core/player/PlayerStateHolder.kt` (+episode state, +setSwitchingError), `core/player/PlayerObserver.kt` (+external tracks), `core/player/AnikutaMPVView.kt` (+formatter, +speed fix), `core/player/PlayerModule.kt` (-dead singleton), `feature/watch/impl/.../WatchScreen.kt` (+watchdog, +progress save, +overlay, +state hoisting, +external tracks wiring), `app/.../AnikutaApp.kt` (+watchProgressModule), `AGENT-CONTEXT/CORE_RULES.md` (§5, §7, §17 updates), `AGENT-CONTEXT/memory/decisions.md` (D-066–D-074), `AGENT-CONTEXT/memory/lessons-learned.md` (+4 lessons), `AGENT-CONTEXT/memory/changelog.md` (this entry)
+
+### What's deferred (next pass)
+- Wire the 7 dead fullscreen buttons (skip-next, audio, server, speed, more, PiP, rotate) — Phase D.
+- 15s fatal-error watchdog (catches silently-stalled HLS) — Phase E.
+- Auto-play-next, skip OP/ED, app-exit pause/resume — Phase E.
+- Full doc-drift sweep (navigation.md section count, module-map, architecture, old-vs-new, workflow phase table) — Phase F.
+- Device verification of all fixes.

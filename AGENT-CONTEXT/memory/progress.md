@@ -74,3 +74,25 @@
 ### Key decisions
 - D-066: Double-resolve is forbidden. Single resolve() + buildServers() derivation.
 - D-067: Error overlay is inline on player surface with Close button (not popup, not force-opening QualitySheet).
+
+## Session web-f53f0459 — Phase 5c Player: Stuck-Loading Fix + Episode State + External Subtitles + Capture-Only Progress
+
+### What was done
+- **Stuck-loading regression FIXED (D-068)**: `setSwitchingError()` + 30s watchdog. All explicit failure paths now show errors immediately.
+- **Episode-switch state hoisted (D-069)**: `currentEpisodeUrl/Number/Title/resolvedVideosKey` on `PlayerStateHolder`. Episode list highlight + "now playing" card + QualitySheet now reactive to switches.
+- **External subtitle/audio loading re-added (D-070)**: `pendingSubtitleTracks/AudioTracks/trackHeaders` on `PlayerObserver`. `sub-add`/`audio-add` on FILE_LOADED with 300ms delay. Wired in initMpv + onQualitySelected + onEpisodeSwitch.
+- **SubtitleTrackFormatter ported (D-071)**: ISO 639 → English names. "English" instead of "eng".
+- **EpisodeSwitchingOverlay ported (D-073)**: Loading shield over player during switches. Both minimized + fullscreen.
+- **Speed setter bug fixed (D-073)**: `setPropertyDouble` instead of `setPropertyInt` (was truncating 1.5f→1).
+- **Capture-only WatchProgressStore (D-072)**: InMemoryWatchProgressStore + periodic save (10s) + save-on-dispose. No restore yet.
+- **Dead singleOf(::PlayerStateHolder) removed (D-074)**.
+- **CORE_RULES updated**: §5 (player scaffolding is not boilerplate + interface exception), §7 (player carve-out), §17 (import rewrite rule).
+
+### Status
+- CI pending push (will push after this commit).
+- Awaiting device verification.
+
+### What's next
+- Phase D: Wire 7 dead fullscreen buttons (skip-next, audio, server, speed, more, PiP, rotate).
+- Phase E: 15s fatal-error watchdog, auto-play-next, skip OP/ED, app-exit pause/resume.
+- Phase F: Full doc-drift sweep + D-050 re-decide (companion hack).

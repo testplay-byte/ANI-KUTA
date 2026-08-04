@@ -300,6 +300,10 @@ class AnikutaMPVView(
      * Load all audio and subtitle tracks from MPV's track-list.
      * Returns a pair: (subtitleTracks, audioTracks).
      *
+     * Uses [SubtitleTrackFormatter] for display names — this gives proper
+     * human-readable names like "English" instead of "eng", and discards
+     * ugly filenames (.vtt/.srt/.ass/.ssa).
+     *
      * NOTE: Does NOT prepend an "Off" entry — the SubtitleTracksSheet handles
      * the "Off" option explicitly (adding it here would create a duplicate
      * "Off" entry in the sheet).
@@ -316,7 +320,8 @@ class AnikutaMPVView(
                 val title = getTrackTitle(i)
                 val lang = getTrackLang(i)
 
-                val displayName = buildDisplayName(title, lang)
+                val displayName = com.confused.anikuta.core.player.subtitles.SubtitleTrackFormatter
+                    .formatTrackName(id, title, lang)
 
                 when (type) {
                     "sub" -> subTracks.add(VideoTrack(id, displayName, lang))
@@ -331,24 +336,14 @@ class AnikutaMPVView(
         return Pair(subTracks, audioTracks)
     }
 
-    private fun buildDisplayName(title: String, lang: String?): String {
-        // Prefer language; only fall back to title if it looks human-readable
-        if (lang != null && lang.isNotEmpty()) {
-            return if (title.isNotEmpty() && !title.contains(".vtt") && !title.contains(".srt")) {
-                "$lang ($title)"
-            } else {
-                lang.uppercase()
-            }
-        }
-        return if (title.isNotEmpty()) title else "Track"
-    }
-
     // ── Playback speed ──
 
     var playbackSpeed: Float
         get() = getPropertyInt("speed")?.toFloat() ?: 1.0f
         set(value) {
-            MPVLib.setPropertyInt("speed", value.toInt())
+            // CRITICAL: use setPropertyDouble, NOT setPropertyInt — the int
+            // version truncates 1.5f → 1, 0.5f → 0. Ported fix from old project.
+            MPVLib.setPropertyDouble("speed", value.toDouble())
         }
 
     // ── Video loading ──

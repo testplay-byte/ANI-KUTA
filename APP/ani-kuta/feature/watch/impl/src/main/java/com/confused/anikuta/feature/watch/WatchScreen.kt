@@ -75,10 +75,14 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.AnikutaMPVView
 import com.confused.anikuta.core.player.PlayerInitializer
-import com.confused.anikuta.core.player.PlayerLoadingState
 import com.confused.anikuta.core.player.PlayerMode
 import com.confused.anikuta.core.player.PlayerObserver
 import com.confused.anikuta.core.player.PlayerStateHolder
+import com.confused.anikuta.core.player.controls.EpisodeSwitchingOverlay
+import com.confused.anikuta.core.videoresolver.ResolverVideo
+import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
+import com.confused.anikuta.core.watchprogress.WatchProgress
+import com.confused.anikuta.core.watchprogress.WatchProgressStore
 import `is`.xyz.mpv.MPVLib
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -140,10 +144,27 @@ fun WatchScreen(
     val playerPreferences = koinInject<com.confused.anikuta.core.preferences.PlayerPreferences>()
     val extensionManager = koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
     val videoResolver = koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
+    val watchProgressStore = koinInject<WatchProgressStore>()
     val scope = rememberCoroutineScope()
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
     var mpvInitialized by remember { mutableStateOf(false) }
+    // Hoist the observer so switch handlers can set pending subtitle/audio tracks
+    // + track headers before calling loadfile.
+    var observer by remember { mutableStateOf<PlayerObserver?>(null) }
+
+    // Seed the current-episode state from the WatchKey (immutable Nav3 contract —
+    // we track the CURRENTLY playing episode in the state holder so it updates
+    // on switch). This fixes the bug where the episode list highlight + "now
+    // playing" card + QualitySheet servers stayed on the old episode after a switch.
+    LaunchedEffect(Unit) {
+        stateHolder.seedEpisodeState(
+            url = watchKey.episodeUrl,
+            number = watchKey.episodeNumber,
+            title = watchKey.episodeTitle,
+            resolvedVideosKey = watchKey.resolvedVideosKey,
+        )
+    }
 
     val playerMode by stateHolder.playerMode.collectAsState()
     val isPlaying by stateHolder.isPlaying.collectAsState()
@@ -152,6 +173,11 @@ fun WatchScreen(
     val buffering by stateHolder.buffering.collectAsState()
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
     val errorMessage by stateHolder.errorMessage.collectAsState()
+    val isSwitching by stateHolder.isSwitching.collectAsState()
+    val currentEpisodeUrl by stateHolder.currentEpisodeUrl.collectAsState()
+    val currentEpisodeNumber by stateHolder.currentEpisodeNumber.collectAsState()
+    val currentEpisodeTitle by stateHolder.currentEpisodeTitle.collectAsState()
+    val currentResolvedVideosKey by stateHolder.currentResolvedVideosKey.collectAsState()
 
     // ── Keep screen on ──
     DisposableEffect(Unit) {
@@ -226,15 +252,75 @@ fun WatchScreen(
         if (isVideoFinished) stateHolder.updateControlsVisible(true)
     }
 
-    // ── Resolved servers (for QualitySheet) ──
-    // Read from the registry if the Details screen passed a key.
-    val resolvedServers = remember(watchKey.resolvedVideosKey) {
-        if (watchKey.resolvedVideosKey.isNotBlank()) {
-            com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry.get(watchKey.resolvedVideosKey)
-                ?: emptyList()
+    // ── Switching timeout watchdog (30s) ──
+    // SAFETY NET: if isSwitching stays true for 30s, force-clear + show timeout
+    // error. This catches failed switches where efEvent is suppressed (because
+    // isSwitching=true) AND FILE_LOADED never fires (server hung, proxy dead,
+    // network error that MPV doesn't surface as efEvent). Without this, the
+    // player gets stuck in a perpetual loading spinner with no error + no recovery.
+    LaunchedEffect(isSwitching) {
+        if (isSwitching) {
+            delay(30_000L)
+            if (stateHolder.isSwitching.value) {
+                Logger.w(TAG) { "Switching timeout (30s) — force-clearing" }
+                stateHolder.setSwitchingError("Video failed to load (timeout)")
+            }
+        }
+    }
+
+    // ── Periodic watch progress save (every 10s) ──
+    // Phase 5c capture-only: saves to InMemoryWatchProgressStore. Restore is
+    // Phase 5e when the database is wired. Reads values directly from the state
+    // holder (not collected state) so they're fresh at save time.
+    LaunchedEffect(mpvInitialized) {
+        if (!mpvInitialized) return@LaunchedEffect
+        while (true) {
+            delay(10_000L)
+            val pos = stateHolder.position.value
+            val dur = stateHolder.duration.value
+            val epUrl = stateHolder.currentEpisodeUrl.value
+            if (dur > 0 && epUrl.isNotBlank()) {
+                val epKey = "${watchKey.sourceId}|$epUrl"
+                val progress = WatchProgress(
+                    episodeKey = epKey,
+                    position = pos.toLong(),
+                    duration = dur.toLong(),
+                    completed = false,
+                    completedAt = null,
+                    lastWatchedAt = System.currentTimeMillis(),
+                )
+                scope.launch {
+                    runCatching { watchProgressStore.save(epKey, progress) }
+                        .onFailure { Logger.w(TAG) { "Progress save failed: ${it.message}" } }
+                }
+            }
+        }
+    }
+
+    // ── Resolved servers (for QualitySheet) — reactive to episode switches ──
+    // Reads from the state holder's currentResolvedVideosKey so the QualitySheet
+    // shows the CURRENT episode's servers after a switch (not the old episode's).
+    val resolvedServers = remember(currentResolvedVideosKey) {
+        if (currentResolvedVideosKey.isNotBlank()) {
+            ResolvedVideosRegistry.get(currentResolvedVideosKey) ?: emptyList()
         } else emptyList()
     }
-    var currentVideoTitle by remember { mutableStateOf("") }
+
+    // Find the picked video in the registry (matches watchKey.videoUrl) to seed
+    // the video title (for QualitySheet highlight) + external subtitle/audio
+    // tracks (for sub-add on FILE_LOADED). This fixes the bug where
+    // currentVideoTitle started as "" so the QualitySheet couldn't highlight the
+    // currently-playing video.
+    val initialPickedVideo: ResolverVideo? = remember(watchKey.videoUrl, watchKey.resolvedVideosKey) {
+        if (watchKey.resolvedVideosKey.isNotBlank()) {
+            ResolvedVideosRegistry.get(watchKey.resolvedVideosKey)
+                ?.flatMap { it.audioVersions }
+                ?.flatMap { it.videos }
+                ?.firstOrNull { it.url == watchKey.videoUrl }
+        } else null
+    }
+
+    var currentVideoTitle by remember { mutableStateOf(initialPickedVideo?.videoTitle ?: "") }
     var currentVideoUrl by remember { mutableStateOf(watchKey.videoUrl) }
     var currentVideoHeaders by remember { mutableStateOf(watchKey.videoHeaders) }
     var currentServerName by remember { mutableStateOf("") }
@@ -247,6 +333,16 @@ fun WatchScreen(
                 mpvInitialized = true
                 val obs = PlayerObserver(stateHolder)
                 obs.mpvView = view  // Wire so observer can call loadTracks() on FILE_LOADED
+                observer = obs      // Store reference so switch handlers can set pending tracks
+
+                // Set pending external subtitle/audio tracks from the initial
+                // picked video. The observer sends sub-add/audio-add on FILE_LOADED.
+                initialPickedVideo?.let { pv ->
+                    obs.pendingSubtitleTracks = pv.subtitleTracks.map { Pair(it.url, it.lang) }
+                    obs.pendingAudioTracks = pv.audioTracks.map { Pair(it.url, it.lang) }
+                    obs.trackHeaders = pv.videoHeaders ?: ""
+                    Logger.i(TAG) { "Pending external tracks: ${pv.subtitleTracks.size} subs, ${pv.audioTracks.size} audio" }
+                }
 
                 PlayerInitializer.initialize(context, view)
 
@@ -293,9 +389,27 @@ fun WatchScreen(
         }
     }
 
-    // ── Destroy MPV on dispose ──
+    // ── Destroy MPV on dispose + save final progress ──
     DisposableEffect(Unit) {
         onDispose {
+            // Save final progress before destroying MPV.
+            val pos = stateHolder.position.value
+            val dur = stateHolder.duration.value
+            val epUrl = stateHolder.currentEpisodeUrl.value
+            if (dur > 0 && epUrl.isNotBlank()) {
+                val epKey = "${watchKey.sourceId}|$epUrl"
+                val progress = WatchProgress(
+                    episodeKey = epKey,
+                    position = pos.toLong(),
+                    duration = dur.toLong(),
+                    completed = false,
+                    completedAt = null,
+                    lastWatchedAt = System.currentTimeMillis(),
+                )
+                scope.launch {
+                    runCatching { watchProgressStore.save(epKey, progress) }
+                }
+            }
             mpvView?.let { view ->
                 runCatching { MPVLib.command(arrayOf("stop")) }
                 runCatching { view.destroy() }
@@ -321,11 +435,11 @@ fun WatchScreen(
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             MPVLib.setOptionString("http-header-fields", headers)
             MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
-            stateHolder.updateError(null)
-            stateHolder.updateLoadingState(PlayerLoadingState.LOADING)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Retry failed" }
-            stateHolder.updateError("Retry failed: ${e.message}")
+            // Use setSwitchingError so the error is ALWAYS shown (not suppressed
+            // by the isSwitching flag) and the spinner stops.
+            stateHolder.setSwitchingError("Retry failed: ${e.message}")
         }
     }
 
@@ -336,13 +450,21 @@ fun WatchScreen(
     }
 
     // ── Quality switch handler — re-loadfile with new video ──
-    val onQualitySelected: (com.confused.anikuta.core.videoresolver.ResolverVideo) -> Unit = { video ->
+    val onQualitySelected: (ResolverVideo) -> Unit = { video ->
         Logger.i(TAG) { "=== QUALITY SWITCH ===" }
         Logger.i(TAG) { "New video: ${video.quality} (${video.url})" }
         Logger.i(TAG) { "New headers: ${(video.videoHeaders ?: "").take(120)}" }
         currentVideoUrl = video.url
         currentVideoTitle = video.videoTitle
         currentVideoHeaders = video.videoHeaders ?: ""
+        // Set pending external tracks + headers on the observer so they load on
+        // the next FILE_LOADED. This fixes the bug where external subtitles
+        // were lost on quality switch.
+        observer?.let { obs ->
+            obs.pendingSubtitleTracks = video.subtitleTracks.map { Pair(it.url, it.lang) }
+            obs.pendingAudioTracks = video.audioTracks.map { Pair(it.url, it.lang) }
+            obs.trackHeaders = video.videoHeaders ?: ""
+        }
         // Set switching flag so efEvent from old file doesn't show a spurious error.
         stateHolder.setSwitching(true)
         try {
@@ -352,7 +474,7 @@ fun WatchScreen(
             MPVLib.command(arrayOf("loadfile", video.url, "replace"))
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to switch quality" }
-            stateHolder.updateError("Failed to switch: ${e.message}")
+            stateHolder.setSwitchingError("Failed to switch: ${e.message}")
         }
     }
 
@@ -380,7 +502,7 @@ fun WatchScreen(
 
         if (source == null) {
             Logger.w(TAG) { "Cannot switch episode — source not available (sourceId=${watchKey.sourceId})" }
-            stateHolder.updateError("Cannot switch episode: source not available")
+            stateHolder.setSwitchingError("Cannot switch episode: source not available")
         } else {
             // Set switching flag so efEvent from old file doesn't show a spurious error.
             stateHolder.setSwitching(true)
@@ -405,16 +527,40 @@ fun WatchScreen(
                                     val video = state.videos.first()
                                     Logger.i(TAG) { "Episode switch — got ${state.videos.size} videos, picking first: ${video.quality} (${video.url.take(60)})" }
 
-                                    // Also build structured servers for QualitySheet.
+                                    // Build structured servers for QualitySheet +
+                                    // find the matching ResolverVideo (first video
+                                    // of first server's first audio version) to get
+                                    // external tracks + videoTitle.
                                     val servers = videoResolver.buildServers(state.rawVideos, source.name)
-                                    if (servers.isNotEmpty()) {
-                                        com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry.put(servers)
-                                    }
+                                    val newRegistryKey = if (servers.isNotEmpty()) {
+                                        ResolvedVideosRegistry.put(servers)
+                                    } else ""
+                                    val pickedResolverVideo: ResolverVideo? = servers
+                                        .firstOrNull()?.audioVersions?.firstOrNull()?.videos?.firstOrNull()
 
-                                    // Update state.
+                                    // Update local video state.
                                     currentVideoUrl = video.url
-                                    currentVideoTitle = ""
+                                    currentVideoTitle = pickedResolverVideo?.videoTitle ?: ""
                                     currentVideoHeaders = video.headers
+
+                                    // Update the state holder's current-episode state
+                                    // so the episode list highlight + "now playing" card
+                                    // + QualitySheet servers reflect the new episode.
+                                    stateHolder.updateCurrentEpisode(
+                                        url = ep.url,
+                                        number = ep.episodeNumber,
+                                        title = ep.name,
+                                        resolvedVideosKey = newRegistryKey,
+                                    )
+
+                                    // Set pending external tracks + headers on the observer.
+                                    pickedResolverVideo?.let { pv ->
+                                        observer?.let { obs ->
+                                            obs.pendingSubtitleTracks = pv.subtitleTracks.map { Pair(it.url, it.lang) }
+                                            obs.pendingAudioTracks = pv.audioTracks.map { Pair(it.url, it.lang) }
+                                            obs.trackHeaders = pv.videoHeaders ?: video.headers
+                                        }
+                                    }
 
                                     // Set headers + loadfile.
                                     val headers = if (video.headers.isNotBlank()) video.headers
@@ -423,19 +569,19 @@ fun WatchScreen(
                                     MPVLib.command(arrayOf("loadfile", video.url, "replace"))
                                     Logger.i(TAG) { "Episode switch — loadfile sent" }
                                 } else {
-                                    stateHolder.updateError("No videos found for this episode")
+                                    stateHolder.setSwitchingError("No videos found for this episode")
                                 }
                             }
                             is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
                                 Logger.e(TAG) { "Episode switch resolve failed: ${state.message}" }
-                                stateHolder.updateError("Failed to resolve: ${state.message}")
+                                stateHolder.setSwitchingError("Failed to resolve: ${state.message}")
                             }
                             else -> {}
                         }
                     }
                 } catch (e: Exception) {
                     Logger.e(TAG, e) { "Episode switch failed" }
-                    stateHolder.updateError("Episode switch failed: ${e.message}")
+                    stateHolder.setSwitchingError("Episode switch failed: ${e.message}")
                 }
             }
         }
@@ -456,6 +602,8 @@ fun WatchScreen(
             onSubtitleClick = { showSubtitleSheet = true },
             onRetry = onRetry,
             onDismissError = onDismissError,
+            isSwitching = isSwitching,
+            switchingEpisodeTitle = currentEpisodeTitle,
         )
     } else {
         MinimizedMode(
@@ -475,6 +623,11 @@ fun WatchScreen(
             onRetry = onRetry,
             onDismissError = onDismissError,
             onEpisodeSwitch = onEpisodeSwitch,
+            isSwitching = isSwitching,
+            switchingEpisodeTitle = currentEpisodeTitle,
+            currentEpisodeUrl = currentEpisodeUrl,
+            currentEpisodeNumber = currentEpisodeNumber,
+            currentEpisodeTitle = currentEpisodeTitle,
         )
     }
 
@@ -537,6 +690,11 @@ private fun MinimizedMode(
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
     onEpisodeSwitch: (SimpleEpisode) -> Unit = {},
+    isSwitching: Boolean = false,
+    switchingEpisodeTitle: String = "",
+    currentEpisodeUrl: String = "",
+    currentEpisodeNumber: Float = 0f,
+    currentEpisodeTitle: String = "",
 ) {
     val listState = rememberLazyListState()
     // Wrap in derivedStateOf to prevent excessive recompositions.
@@ -656,6 +814,15 @@ private fun MinimizedMode(
                     onRetry = onRetry,
                     onDismissError = onDismissError,
                 )
+
+                // Episode switching overlay — shown over the player while a new
+                // episode resolves + loads. Covers the video so the user sees a
+                // clear loading state instead of a frozen frame.
+                if (isSwitching) {
+                    EpisodeSwitchingOverlay(
+                        episodeTitle = switchingEpisodeTitle.ifBlank { null },
+                    )
+                }
             }
         }
 
@@ -677,7 +844,7 @@ private fun MinimizedMode(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
                     ) {
                         Text(
-                            text = "Currently playing episode ${formatEpisodeNumber(watchKey.episodeNumber)}",
+                            text = "Currently playing episode ${formatEpisodeNumber(currentEpisodeNumber)}",
                             fontFamily = RobotoFamily,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -685,7 +852,7 @@ private fun MinimizedMode(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = watchKey.episodeTitle.ifBlank { "Episode ${formatEpisodeNumber(watchKey.episodeNumber)}" },
+                            text = currentEpisodeTitle.ifBlank { "Episode ${formatEpisodeNumber(currentEpisodeNumber)}" },
                             fontFamily = RobotoFamily,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -734,7 +901,7 @@ private fun MinimizedMode(
                             }
                             Spacer(Modifier.height(8.dp))
                             episodeList.forEach { ep ->
-                                val isCurrent = ep.url == watchKey.episodeUrl
+                                val isCurrent = ep.url == currentEpisodeUrl
                                 EpisodeListRow(
                                     episode = ep,
                                     isCurrent = isCurrent,
@@ -784,6 +951,8 @@ private fun FullscreenMode(
     onSubtitleClick: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
+    isSwitching: Boolean = false,
+    switchingEpisodeTitle: String = "",
 ) {
     Box(
         modifier = Modifier
@@ -814,6 +983,14 @@ private fun FullscreenMode(
             episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
             qualityInfo = watchKey.quality,
         )
+
+        // Episode switching overlay — shown over the fullscreen player while a
+        // new episode resolves + loads. Covers the video + controls.
+        if (isSwitching) {
+            EpisodeSwitchingOverlay(
+                episodeTitle = switchingEpisodeTitle.ifBlank { null },
+            )
+        }
     }
 }
 

@@ -1,6 +1,12 @@
 package com.confused.anikuta.core.player
 
 import com.confused.anikuta.core.common.Logger
+import `is`.xyz.mpv.MPVLib
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Observer for MPV events. Translates MPV callbacks into [PlayerStateHolder] updates.
@@ -36,13 +42,45 @@ class PlayerObserver(
         private const val MPV_EVENT_LOG_MESSAGE = 1
         private const val MPV_EVENT_IDLE = 12
         private const val MPV_EVENT_TICK = 27
+
+        /** Delay (ms) after sending sub-add/audio-add before reloading tracks.
+         *  Without this, loadTracksFromMpv() runs before MPV has registered the
+         *  new tracks → external subtitles don't appear in the sheet. */
+        private const val EXTERNAL_TRACK_LOAD_DELAY_MS = 300L
     }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * The MPV view — set by the host so we can call loadTracks() on FILE_LOADED.
      * Without this, the subtitle/audio track lists never populate.
      */
     var mpvView: AnikutaMPVView? = null
+
+    /**
+     * External subtitle tracks to load on the next FILE_LOADED.
+     * Set by the host before calling `loadfile` (from the picked video's tracks).
+     * Each entry is (url, lang).
+     */
+    var pendingSubtitleTracks: List<Pair<String, String>> = emptyList()
+
+    /**
+     * External audio tracks to load on the next FILE_LOADED.
+     * Each entry is (url, lang).
+     */
+    var pendingAudioTracks: List<Pair<String, String>> = emptyList()
+
+    /**
+     * HTTP headers (MPV `http-header-fields` format) for downloading external
+     * tracks. Set by the host from the current video's headers on EVERY video
+     * change (quality switch, episode switch) — not just once.
+     *
+     * CRITICAL: this is set BEFORE `sub-add` so MPV uses the right headers for
+     * the HTTPS subtitle download. We restore the video's headers afterward
+     * (MPV keeps the last-set http-header-fields, so we just re-set them before
+     * the next loadfile from the host).
+     */
+    var trackHeaders: String = ""
 
     /**
      * Called when an MPV property changes.
@@ -120,8 +158,9 @@ class PlayerObserver(
                 stateHolder.updateError(null)
                 stateHolder.updateLoadingState(PlayerLoadingState.READY)
                 stateHolder.updateBuffering(false)
-                // Load tracks now that the file is loaded.
-                loadTracksFromMpv()
+                // Load external tracks (sub-add / audio-add) BEFORE reading the
+                // track list — external tracks need to be registered first.
+                loadExternalTracks()
             }
             MPV_EVENT_START_FILE -> {
                 Logger.i(TAG) { "Start file — loading" }
@@ -192,6 +231,74 @@ class PlayerObserver(
     fun onEfEvent(err: String?) {
         Logger.e(TAG) { "efEvent (load failure): $err" }
         stateHolder.updateError(err ?: "Unknown playback error")
+    }
+
+    /**
+     * Load external subtitle and audio tracks via MPV's `sub-add` / `audio-add`
+     * commands.
+     *
+     * CRITICAL: Must be called AFTER `FILE_LOADED` — sending `sub-add` before
+     * the file is loaded causes MPV to silently drop the track.
+     *
+     * Each `sub-add` triggers an HTTPS download in MPV's native code, so this
+     * runs on Dispatchers.IO. After sending all commands, we wait
+     * [EXTERNAL_TRACK_LOAD_DELAY_MS] before calling [loadTracksFromMpv] so MPV
+     * has time to register the tracks — otherwise the track sheet shows stale
+     * data and the external subtitles don't appear until the next event.
+     *
+     * Ported from the old project's external-track loading logic.
+     */
+    private fun loadExternalTracks() {
+        val subs = pendingSubtitleTracks
+        val audios = pendingAudioTracks
+        if (subs.isEmpty() && audios.isEmpty()) {
+            // No external tracks — just load internal tracks directly.
+            loadTracksFromMpv()
+            return
+        }
+
+        // Clear pending tracks so they don't get re-added on the next FILE_LOADED
+        // (e.g. after a seek that reloads the file). The host re-sets them before
+        // each loadfile if needed.
+        pendingSubtitleTracks = emptyList()
+        pendingAudioTracks = emptyList()
+
+        scope.launch {
+            try {
+                // Set headers for the track downloads (subtitles often need
+                // the same Referer/User-Agent as the video).
+                if (trackHeaders.isNotBlank()) {
+                    runCatching {
+                        MPVLib.setOptionString("http-header-fields", trackHeaders)
+                    }
+                    Logger.d(TAG) { "Set http-header-fields for external track downloads" }
+                }
+
+                for ((url, lang) in subs) {
+                    runCatching {
+                        MPVLib.command(arrayOf("sub-add", url, "auto", "", lang))
+                        Logger.d(TAG) { "sub-add: $url (lang=$lang)" }
+                    }.onFailure {
+                        Logger.w(TAG) { "sub-add failed for $url: ${it.message}" }
+                    }
+                }
+                for ((url, lang) in audios) {
+                    runCatching {
+                        MPVLib.command(arrayOf("audio-add", url, "auto", "", lang))
+                        Logger.d(TAG) { "audio-add: $url (lang=$lang)" }
+                    }.onFailure {
+                        Logger.w(TAG) { "audio-add failed for $url: ${it.message}" }
+                    }
+                }
+
+                // Wait for MPV to register the tracks before reading the list.
+                delay(EXTERNAL_TRACK_LOAD_DELAY_MS)
+                loadTracksFromMpv()
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "loadExternalTracks failed" }
+                loadTracksFromMpv()
+            }
+        }
     }
 
     /**

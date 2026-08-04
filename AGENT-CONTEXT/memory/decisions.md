@@ -426,3 +426,64 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Date:** Phase 5c (session web-3a43f99b).
 - **Sub-agents:** ANIMIRU-CLONE (repo clone), ANIMIRU-ANALYSIS (documentation).
 - **Note:** The Animiru repo is GPL-licensed — code must NOT be copied verbatim into ANI-KUTA (different license strategy). Use only as architectural reference; port patterns, not code.
+
+### D-066 — Double-resolve is FORBIDDEN (single `resolve()` + `buildServers()` derivation)
+- **What:** Never call `getHosterList` TWICE for the same episode. AniKotoS creates a new local HTTP proxy on each call — the second call kills the first call's proxy URLs. The new `VideoResolver.resolve()` returns `ResolverState.Success(videos, rawVideos)` — both the flat list AND the raw `List<Video>`. `buildServers(rawVideos)` is a pure function (no source calls) that derives the structured Server → AudioVersion → Video hierarchy.
+- **Why:** Previous `VideoResolver` had two methods (`resolve()` + `resolveStructured()`), each calling `getHosterList` internally. `DetailsViewModel` called both → second call killed the first call's proxy → user picked a dead URL → MPV `loadfile` failed → "loading failed".
+- **Status:** ✅ Implemented (Phase 5c, session web-3a43f99b, twelfth pass). CI green.
+- **Date:** Phase 5c (session web-3a43f99b, twelfth pass).
+- **Related lesson:** "DOUBLE-RESOLVE BUG — Never call getHosterList twice for the same episode".
+
+### D-067 — Error overlay is inline on player surface with Close button (not popup)
+- **What:** `PlayerErrorOverlay` renders directly on the player surface (full-screen dark overlay with red icon, "Playback Error" title, error message, Close + Retry buttons) — NOT a popup, NOT a force-open of the QualitySheet. The Close button dismisses the error (clears `errorMessage`); Retry re-sends `loadfile` with the current URL.
+- **Why:** User spec: "Don't show up a pop-up." The old project's error overlay was also inline on the player surface. Force-opening the QualitySheet on error was confusing (user didn't ask for it).
+- **Status:** ✅ Implemented (Phase 5c, session web-3a43f99b, twelfth pass). Reworked 3 times across commits 70d9c59 + be059e5 + 8100d91.
+- **Date:** Phase 5c (session web-3a43f99b, twelfth pass).
+
+### D-068 — Stuck-loading fix: `setSwitchingError()` + 30s switching-timeout watchdog
+- **What:** Added `PlayerStateHolder.setSwitchingError(message)` — a new error method that ALWAYS shows the error (never suppressed by `isSwitching`) AND clears the switching flag in one call. This fixes the regression where `setSwitching(true)` + `updateError()` suppression (intended to ignore the old file's `END_FILE` during a switch) left the player in a perpetual loading spinner with no error and no recovery when a switch ACTUALLY failed (no videos, resolve error, exception, server 403, dead proxy). Also added a 30s `LaunchedEffect(isSwitching)` watchdog in `WatchScreen` that calls `setSwitchingError("Video failed to load (timeout)")` if `isSwitching` stays true for 30s — catches cases where `efEvent` is suppressed AND `FILE_LOADED` never fires (server hung, network error MPV doesn't surface).
+- **Why:** The old project had a 3-layer error handling system: (1) `onFileEnded` for MPV END_FILE errors, (2) 30s switching timeout watchdog, (3) 15s fatal-error "video stuck after load" watchdog. The new project only had layer 1 + the switching-suppression logic, but NOT the timeout watchdog — so any suppressed error = stuck forever. Root cause: `updateError()` suppressed ALL errors during switching, including real failures.
+- **Usage:** `setSwitchingError` is used in ALL explicit failure paths: retry catch, quality switch catch, episode switch (no videos / resolve error / catch). `updateError` (suppressed during switching) is ONLY for `efEvent` (MPV's END_FILE) — which is the old file ending during a switch, correctly suppressed.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). Awaiting device verification.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Related:** CORE_RULES §5 "Player lifecycle scaffolding is NOT boilerplate".
+
+### D-069 — Episode-switch state hoisted into `PlayerStateHolder` (WatchKey stays immutable)
+- **What:** Added 4 new `StateFlow`s to `PlayerStateHolder`: `currentEpisodeUrl`, `currentEpisodeNumber`, `currentEpisodeTitle`, `currentResolvedVideosKey`. Seeded from `WatchKey` on init via `seedEpisodeState(...)`, updated on switch via `updateCurrentEpisode(...)`. The episode list highlight, "Currently playing episode N" card, and QualitySheet servers now read from these state-holder flows (reactive to switches) instead of the immutable `WatchKey` fields (which never changed after a switch).
+- **Why:** `WatchKey` is a `@Serializable data class : NavKey` — it's immutable per the Nav3 contract. After an episode switch, `watchKey.episodeUrl` / `episodeNumber` / `resolvedVideosKey` still held the OLD episode's values → the episode list highlight stayed on the old row, the "now playing" card showed the old episode, and the QualitySheet showed the old episode's servers. Hoisting the "current episode" state into the state holder (the old project's pattern — it had `currentEpisodeUrl` / `currentEpisodeNumber` on `PlayerStateHolder`) fixes all three issues without mutating `WatchKey`.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-070 — External subtitle/audio track loading re-added to `PlayerObserver`
+- **What:** Re-added `pendingSubtitleTracks`, `pendingAudioTracks`, and `trackHeaders` fields to `PlayerObserver`. On `FILE_LOADED`, `loadExternalTracks()` sends `sub-add` / `audio-add` MPV commands (on `Dispatchers.IO` because each triggers an HTTPS download), then waits 300ms before calling `loadTracksFromMpv()` so MPV has time to register the tracks. The host (`WatchScreen`) sets these fields on the observer before every `loadfile`: in `initMpv` (from the initial picked video), in `onQualitySelected`, and in `onEpisodeSwitch`.
+- **Why:** The `loadExternalTracks()` method was deleted entirely in a previous session, causing a regression: extensions providing external subtitle/audio URLs (AniKotoS, some Crunchyroll sources) were silently dropped — only muxed tracks worked. `ResolverVideo.subtitleTracks` / `audioTracks` were populated but never consumed. Also fixes the headers-override bug: `trackHeaders` is now set on EVERY video change (quality + episode switch), not just quality switch.
+- **Ported from:** Old project's `PlayerObserver` + `WatchScreen` external-track loading logic (sub-add AFTER FILE_LOADED on Dispatchers.IO).
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+- **Related lesson:** "sub-add MUST be sent AFTER FILE_LOADED — sending before causes MPV to silently drop the track".
+
+### D-071 — `SubtitleTrackFormatter` ported with ISO 639 → English name mapping
+- **What:** Created `core/player/subtitles/SubtitleTrackFormatter.kt` — a standalone object that formats MPV track-list display names. Ported from the old project's `SubtitleTrackFormatter` with one improvement: an ISO 639-2/B + ISO 639-1 → English name map (eng → English, jpn → Japanese, etc. — 50+ languages). `AnikutaMPVView.loadTracks()` now uses this formatter instead of the old basic `buildDisplayName()` which showed raw codes ("ENG", "JPN").
+- **Rules (mirrors old project + ISO improvement):** A title that looks like an ugly filename (`.vtt`/`.srt`/`.ass`/`.ssa` suffix, or >20-char hash with no spaces) is discarded. When both a real title and a language are available: `"Title (Language)"`. When only one: that one. When neither: `"Track N"`.
+- **Why:** The old project showed raw language codes. The new project's `buildDisplayName` was even worse — just `lang.uppercase()`. Users see "ENG" instead of "English". The ISO mapping is an improvement over the old project.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-072 — Capture-only `WatchProgressStore` (in-memory, no restore yet)
+- **What:** Created `InMemoryWatchProgressStore` (implements `WatchProgressStore`) — saves watch progress to an in-memory `ConcurrentHashMap`. Registered in Koin via `watchProgressModule`. `WatchScreen` saves progress every 10s + on dispose. Progress is NOT restored on next playback yet (restore is Phase 5e when the database is wired). Key format: `"$sourceId|$episodeUrl"`.
+- **Why:** User explicitly asked for a "simple system which captures the watch page progress but never does anything with it because we are going to implement it later on." This exercises the save path end-to-end so it's ready for the database swap. The `WatchProgressStore` interface stays the same — only the impl changes in Phase 5e.
+- **ponytail:** in-memory map → upgrade to SQLDelight impl in Phase 5e. Ceiling: full persistent progress with resume + "Continue Watching".
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). Capture-only — restore deferred to Phase 5e.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-073 — `EpisodeSwitchingOverlay` ported + speed setter bug fixed
+- **What:** (1) Created `core/player/controls/EpisodeSwitchingOverlay.kt` — a Compose overlay shown over the player surface while a new episode resolves + loads. Dark gradient + spinner + "Loading episode..." + optional episode title with a subtle pulse animation. Shown in both minimized and fullscreen modes when `isSwitching` is true. (2) Fixed the speed setter bug in `AnikutaMPVView`: `setPropertyInt("speed", value.toInt())` truncated Float to Int (1.5f → 1, 0.5f → 0). Changed to `setPropertyDouble("speed", value.toDouble())`.
+- **Why:** (1) The old project had an `EpisodeSwitchingOverlay` — the new project didn't, so during a switch the user saw a frozen frame with no feedback. (2) The speed setter bug was latent (no SpeedSheet wired yet) but would break 1.5x/0.5x playback the moment a speed control is added.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-074 — Dead `singleOf(::PlayerStateHolder)` removed from `playerModule`
+- **What:** Removed the `singleOf(::PlayerStateHolder)` Koin registration from `PlayerModule.kt`. `PlayerStateHolder` is a plain class owned by `WatchScreen` via `remember { PlayerStateHolder() }` (per ADR-025). It was registered as a Koin singleton but NEVER injected anywhere — `WatchScreen` creates its own. The registration was dead weight.
+- **Why:** The old project never registered `PlayerStateHolder` in Koin either. Only one `WatchScreen` exists at a time, so it needs its own holder instance, not a shared singleton. Keeping the dead registration was confusing (implied it should be injected).
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).

@@ -17,6 +17,7 @@ import com.confused.anikuta.core.metadata.metadataModule
 import com.confused.anikuta.core.player.playerModule
 import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
+import com.confused.anikuta.core.watchprogress.watchProgressModule
 import com.confused.anikuta.data.extension.extensionModule
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
@@ -82,6 +83,7 @@ class AnikutaApp : Application() {
                 downloadModule,
                 metadataModule,
                 trackerAniListModule,
+                watchProgressModule,
                 appModule,
             )
         }
