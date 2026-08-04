@@ -487,3 +487,46 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** The old project never registered `PlayerStateHolder` in Koin either. Only one `WatchScreen` exists at a time, so it needs its own holder instance, not a shared singleton. Keeping the dead registration was confusing (implied it should be injected).
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-075 — TLS CA cert fix: deleted empty cacert.pem, guarded tls-ca-file
+- **What:** The `cacert.pem` file in `core/player/src/main/assets/` was 0 bytes (empty). mbedTLS tried to parse it, failed with `MBEDTLS_ERR_X509_INVALID_FORMAT` (-8576), and did NOT fall back to system CAs → ALL HTTPS streams failed instantly. Fix: (1) deleted the empty file from assets; (2) `AnikutaMPVView.initOptions` now only sets `tls-ca-file` if the file exists AND is non-empty — otherwise lets mbedTLS fall back to the system CA store; (3) `PlayerInitializer.copyAssets` skips 0-byte assets defensively.
+- **Why:** An empty cacert.pem is worse than no file — mbedTLS gets INVALID_FORMAT (no fallback) vs FILE_IO_ERROR (falls back to system CAs). The old project never had cacert.pem in assets — mbedTLS fell back. Root cause traced from user logs showing `tls: mbedtls_x509_crt_parse_file for CA cert returned -8576`.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Related lesson:** "Empty cacert.pem causes mbedTLS INVALID_FORMAT — worse than missing the file."
+
+### D-076 — Observer cleanup: remove MPVLib observers on dispose
+- **What:** `MPVLib.addLogObserver()` and `MPVLib.addObserver()` were called in `initMpv` but the corresponding `removeLogObserver()` / `removeObserver()` were NEVER called in `onDispose`. Each screen entry added 2 new observers → after N entries, every event fired N times. User logs showed 4x duplication (4 observers after 4 entries). Fix: hoisted `logObserverRef` + `eventObserverRef` as state; `onDispose` now removes both observers before destroying the view.
+- **Why:** Without removal, observers accumulate → state corruption (each `updateError` fires Nx, each `setSwitching` fires Nx), error multiplication, track loading races. Root cause traced from user logs showing every event firing 4 times.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-077 — Error handling rework: non-intrusive banner + auto-retry
+- **What:** Replaced the full-screen `PlayerErrorOverlay` "dialog box" with a small non-intrusive `PlayerErrorBanner` (top-aligned bar with message + retry + close buttons, video surface stays visible). Added auto-retry: on error (non-switching), auto-retry same URL once after 1.5s delay. `autoRetryAttempted` flag in `PlayerStateHolder` (reset on each new video). `clearErrorForRetry()` method to clear error without clearing switching flag.
+- **Why:** User explicitly said: "The error dialog box is not the way to go. I don't want you to show an error dialog box inside the video player itself." Auto-retry handles transient failures (network hiccup, TLS renegotiation) silently before the banner appears.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-078 — Pause→loading spinner fix + episode switch title fix
+- **What:** (1) Loading spinner condition was `!isPlaying && (buffering || loadingState == LOADING)` — when user paused, `!isPlaying` was true and if `loadingState` was still LOADING (e.g. during a seek), the spinner showed. Changed to `buffering || (loadingState == LOADING && duration == 0)` — spinner only shows when actually buffering or during initial load (before video has a duration). (2) Episode switch overlay showed old episode name because `currentEpisodeTitle` was only updated AFTER resolve succeeded. Now `updateCurrentEpisode()` is called IMMEDIATELY when the switch starts (before resolve).
+- **Why:** User reported "when I pause the video, the loading animation starts to play" and "it was still showing me 'loading episode 14' for a while on the video player" when switching to episode 10.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-079 — EpisodeTitleParser: sanitize extension episode names + numbers
+- **What:** Created `EpisodeTitleParser` in `:core:common` (shared by Details + Watch). Strips "Episode X - " prefixes to extract clean titles. Detects hash/URL/code-like names (>25 chars, no spaces, mostly hex) and falls back to "Episode N". Formats episode numbers: 5.0 → "5", 5.5 → "5.5", 0/negative → "?" (handles bad extension data). `EpisodeListRow` + "Currently playing" card now use the parser.
+- **Why:** User reported "random numbers for the episodes, like random code words or something like that. The same thing goes for the name of them too." Some extensions return raw URLs/hashes as episode names.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-080 — SpeedSheet + skip-next wired in fullscreen
+- **What:** Created `SpeedSheet` (ported from old project) — presets (0.25x–2.0x) + custom slider (0.1x–5.0x). Wired `onSpeedClick` in `FullscreenControls` → opens SpeedSheet. `onSpeedSelected` applies live via `AnikutaMPVView.playbackSpeed = speed` (which uses `setPropertyDouble` — fixes the 1.5x truncation bug). Wired `onSkipForward` → finds next episode in list + switches to it.
+- **Why:** User reported "I tried selecting the speed and it did not give me any options." The speed button was dead (Phase D work). Skip-next was also dead.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-081 — Safety nets: 15s fatal-error watchdog + app-exit pause/resume
+- **What:** (1) 15s fatal-error watchdog: after video loads (duration > 0), if position stays at 0 or stuck at duration-2 for 15s with no error + not playing, shows "This server is not responding. Try another server or quality." Catches HLS demuxer errors that don't trigger END_FILE. (2) App-exit pause/resume: `DisposableEffect(lifecycleOwner)` with `LifecycleEventObserver` — ON_STOP pauses playback, ON_START logs return. Uses ON_STOP/ON_START (not ON_PAUSE/ON_RESUME) so multi-window focus changes don't trigger a pause.
+- **Why:** Ported from old project's 3-layer error handling (efEvent + 30s switching timeout + 15s fatal-error watchdog). The new project only had layers 1 + 2; layer 3 was missing. App-exit pause matches old project's `pauseOnAppExit` behavior.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).

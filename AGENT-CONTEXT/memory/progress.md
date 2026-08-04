@@ -96,3 +96,29 @@
 - Phase D: Wire 7 dead fullscreen buttons (skip-next, audio, server, speed, more, PiP, rotate).
 - Phase E: 15s fatal-error watchdog, auto-play-next, skip OP/ED, app-exit pause/resume.
 - Phase F: Full doc-drift sweep + D-050 re-decide (companion hack).
+
+## Session web-f53f0459 (continued) — Player Playback Fixes + Remaining Phases
+
+### Critical playback fixes (from user log analysis)
+- TLS CA cert fix (D-075): deleted empty cacert.pem, guarded tls-ca-file → HTTPS streams work now
+- Observer cleanup (D-076): remove MPVLib observers on dispose → no more 4x event duplication
+- Error handling rework (D-077): non-intrusive banner + auto-retry (no more dialog box)
+- Spinner fix (D-078): pause no longer shows loading spinner
+- Episode switch title (D-078): overlay shows correct episode name during switching
+- Better error messages: TLS/SSL/HTTP/stream errors captured + appended
+
+### Remaining phases completed
+- Episode sanitization (D-079): EpisodeTitleParser — clean titles, no more hashes/code as names
+- Speed control (D-080): SpeedSheet wired in fullscreen — presets + slider, live apply
+- Skip-next (D-080): wired → switches to next episode
+- 15s fatal-error watchdog (D-081): catches stuck HLS streams
+- App-exit pause/resume (D-081): ON_STOP pauses playback
+
+### CI status
+- All commits green (last: 061c17b)
+
+### What's next
+- User device testing of all fixes
+- Remaining dead fullscreen buttons (audio, server, more, PiP, rotate)
+- Auto-play-next, skip OP/ED
+- Full doc-drift sweep

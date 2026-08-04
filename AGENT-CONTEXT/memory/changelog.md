@@ -248,3 +248,35 @@
 - Auto-play-next, skip OP/ED, app-exit pause/resume — Phase E.
 - Full doc-drift sweep (navigation.md section count, module-map, architecture, old-vs-new, workflow phase table) — Phase F.
 - Device verification of all fixes.
+
+## Session web-f53f0459 (continued) — Player Playback Fixes + Remaining Phases
+
+### Critical playback fixes (from user log analysis)
+- **TLS CA cert fix (D-075, CRITICAL)**: cacert.pem was 0 bytes → mbedTLS INVALID_FORMAT → ALL HTTPS streams failed. Deleted empty file + guarded tls-ca-file setting. Now mbedTLS falls back to system CA store.
+- **Observer cleanup (D-076, CRITICAL)**: MPVLib observers never removed in onDispose → 4x event duplication. Hoisted observer refs + remove in onDispose.
+- **Error handling rework (D-077)**: Replaced full-screen error dialog with non-intrusive PlayerErrorBanner (top bar). Added auto-retry (1.5s delay, once per video).
+- **Spinner fix (D-078)**: Pause no longer shows loading spinner. Condition changed to `buffering || (loadingState == LOADING && duration == 0)`.
+- **Episode switch title (D-078)**: Overlay now shows correct episode name during switching (updateCurrentEpisode called before resolve, not after).
+- **Better error messages**: PlayerObserver captures TLS/SSL/HTTP/stream errors into httpError, appended to efEvent message.
+
+### Remaining phases
+- **Episode sanitization (D-079)**: Created EpisodeTitleParser in :core:common. Strips prefixes, detects hash/URL/code names, formats numbers (0 → "?"). EpisodeListRow + "Currently playing" card use it.
+- **Speed control (D-080)**: Created SpeedSheet (presets + slider). Wired onSpeedClick in FullscreenControls. Applies via setPropertyDouble (fixes 1.5x truncation).
+- **Skip-next (D-080)**: Wired onSkipForward → finds next episode + switches.
+- **15s fatal-error watchdog (D-081)**: Catches HLS demuxer errors that don't trigger END_FILE. Shows "This server is not responding" after 15s stuck.
+- **App-exit pause/resume (D-081)**: ON_STOP pauses playback, ON_START logs return.
+
+### Files changed
+- **Created**: `core/common/.../EpisodeTitleParser.kt`, `core/player/controls/SpeedSheet.kt`
+- **Modified**: `core/player/AnikutaMPVView.kt` (TLS guard), `core/player/PlayerInitializer.kt` (skip 0-byte assets), `core/player/PlayerObserver.kt` (better error capture), `core/player/PlayerStateHolder.kt` (autoRetryAttempted + clearErrorForRetry), `core/player/controls/PlayerErrorOverlay.kt` (rewritten as PlayerErrorBanner), `core/player/controls/MinimizedControls.kt` (spinner fix + banner), `core/player/controls/FullscreenControls.kt` (spinner fix + banner), `feature/watch/impl/.../WatchScreen.kt` (observer cleanup, auto-retry, watchdog, app-exit pause, speed sheet, skip-next, episode sanitization)
+
+### CI status
+- Commits d26c304 + 1e95c9a (critical fixes): CI green
+- Commit 97aaa33 (remaining phases): CI failed (LocalLifecycleOwner in DisposableEffect)
+- Commit 061c17b (CI fix): CI GREEN ✅
+
+### What's deferred
+- Device verification of all fixes (user will test)
+- Wiring remaining dead fullscreen buttons (audio, server, more, PiP, rotate) — Phase D continued
+- Auto-play-next, skip OP/ED — Phase E continued
+- Full doc-drift sweep — Phase F
