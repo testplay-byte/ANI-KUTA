@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
@@ -219,6 +220,11 @@ fun DetailsScreen(
                 val linked = linkedSource
                 val ep = currentEpisode
                 if (anime != null && linked != null && ep != null) {
+                    // CRITICAL: Log the URL at pick time so we can trace where it
+                    // might become empty between here and the WatchScreen.
+                    Logger.i("Anikuta:Feature:Details") {
+                        "=== VIDEO PICKED === quality='${video.quality}', url='${video.url}', headers='${video.headers.take(80)}', resolvedVideosKey='$resolvedVideosKey'"
+                    }
                     // Serialize the episode list for the watch screen.
                     val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
                         "${e.url}|${e.episode_number}|${e.name}"

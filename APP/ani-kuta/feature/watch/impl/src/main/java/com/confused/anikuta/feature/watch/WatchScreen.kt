@@ -321,11 +321,10 @@ fun WatchScreen(
         }
     }
 
-    // ── Dismiss error handler — clear error, open QualitySheet ──
+    // ── Dismiss error handler — just clear the error (close button) ──
     val onDismissError: () -> Unit = {
-        Logger.i(TAG) { "Error dismissed by user" }
+        Logger.i(TAG) { "Error dismissed by user (close button)" }
         stateHolder.updateError(null)
-        showQualitySheet = true
     }
 
     // ── Quality switch handler — re-loadfile with new video ──

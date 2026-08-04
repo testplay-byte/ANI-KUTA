@@ -261,18 +261,14 @@ class DetailsViewModel(
                         is com.confused.anikuta.core.videoresolver.ResolverState.Loading ->
                             ResolverState.Loading
                         is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
-                            // Also resolve structured servers (for QualitySheet) and store in registry.
-                            // We do this AFTER the flat list succeeds so the user sees the
-                            // resolver sheet immediately, while structured resolution continues
-                            // in the background.
-                            viewModelScope.launch {
-                                videoResolver.resolveStructured(source, episode).collect { ss ->
-                                    if (ss is com.confused.anikuta.core.videoresolver.StructuredResolverState.Success) {
-                                        val key = ResolvedVideosRegistry.put(ss.servers)
-                                        _resolvedVideosKey.value = key
-                                        Logger.d(TAG) { "Stored ${ss.servers.size} servers in registry (key: $key)" }
-                                    }
-                                }
+                            // Build structured servers from the SAME video list — NO second
+                            // getHosterList call. This prevents the double-resolve bug where
+                            // the second call kills the first call's proxy URLs.
+                            val servers = videoResolver.buildServers(s.rawVideos, source.name)
+                            if (servers.isNotEmpty()) {
+                                val key = ResolvedVideosRegistry.put(servers)
+                                _resolvedVideosKey.value = key
+                                Logger.d(TAG) { "Stored ${servers.size} servers in registry (key: $key) — derived from same resolve() call, no double-resolve" }
                             }
                             ResolverState.Success(s.videos)
                         }

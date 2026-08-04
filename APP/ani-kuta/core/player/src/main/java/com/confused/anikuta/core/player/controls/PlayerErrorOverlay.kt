@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
@@ -32,20 +34,23 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 /**
- * Full-screen error overlay for the player — ported from the old project's
- * `PlayerErrorOverlay`.
+ * Inline error overlay rendered directly on the player surface (NOT a popup).
  *
- * BLOCKS all controls (play/pause/seekbar) when shown — the user MUST either:
- * - Tap "Retry" to re-load the same URL.
- * - Tap "OK" to dismiss the error (and open the QualitySheet to pick a different video).
+ * Per user spec: "Don't show up a pop-up or anything like that. It can show
+ * directly on the video player itself and it could give a close button option."
  *
- * Design: dark semi-transparent background (0.85 alpha black), centered card
- * with surface color, red error icon, "Playback Error" title, error message,
- * and two buttons (OK + Retry). Uses RobotoFamily font for consistency.
+ * Layout:
+ * - Full-screen dark background (fills the player surface)
+ * - Centered error card with:
+ *   - Red error icon
+ *   - "Playback Error" title
+ *   - Error message in a muted surface
+ *   - Close (X) button in top-right of the card
+ *   - Retry button at the bottom
  *
  * @param errorMessage The error message to display.
  * @param onRetry Called when the user taps "Retry" — re-loads the same URL.
- * @param onDismiss Called when the user taps "OK" — dismisses the error.
+ * @param onDismiss Called when the user taps the Close (X) button — just dismisses.
  */
 @Composable
 fun PlayerErrorOverlay(
@@ -56,7 +61,7 @@ fun PlayerErrorOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f)),
+            .background(Color.Black.copy(alpha = 0.9f)),
         contentAlignment = Alignment.Center,
     ) {
         Surface(
@@ -74,9 +79,32 @@ fun PlayerErrorOverlay(
                     .padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // ── Error icon (red circle background) ──
+                // ── Close button (top-right) ──
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(32.dp)
+                            .clickable { onDismiss() },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+
+                // ── Error icon ──
                 Surface(
-                    shape = androidx.compose.foundation.shape.CircleShape,
+                    shape = CircleShape,
                     color = MaterialTheme.colorScheme.errorContainer,
                     modifier = Modifier.size(56.dp),
                 ) {
@@ -121,58 +149,33 @@ fun PlayerErrorOverlay(
                 }
                 Spacer(Modifier.height(24.dp))
 
-                // ── Buttons ──
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                // ── Retry button ──
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clickable { onRetry() },
                 ) {
-                    // OK — dismiss the error
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .clickable { onDismiss() },
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "OK",
-                                fontFamily = RobotoFamily,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    // Retry — re-load the same URL
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .clickable { onRetry() },
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "Retry",
-                                fontFamily = RobotoFamily,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Retry",
+                            fontFamily = RobotoFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
                     }
                 }
             }
