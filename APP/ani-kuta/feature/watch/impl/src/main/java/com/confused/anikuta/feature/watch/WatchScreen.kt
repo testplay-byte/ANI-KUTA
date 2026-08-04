@@ -81,6 +81,7 @@ import com.confused.anikuta.core.player.PlayerObserver
 import com.confused.anikuta.core.player.PlayerStateHolder
 import `is`.xyz.mpv.MPVLib
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 private const val TAG = "Anikuta:Feature:Watch"
