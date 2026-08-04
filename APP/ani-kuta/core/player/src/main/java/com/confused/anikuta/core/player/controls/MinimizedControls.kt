@@ -81,6 +81,7 @@ fun MinimizedControls(
     val position by stateHolder.position.collectAsState()
     val duration by stateHolder.duration.collectAsState()
     val buffering by stateHolder.buffering.collectAsState()
+    val bufferAheadTime by stateHolder.bufferAheadTime.collectAsState()
     val loadingState by stateHolder.loadingState.collectAsState()
     val errorMessage by stateHolder.errorMessage.collectAsState()
 
@@ -170,8 +171,11 @@ fun MinimizedControls(
             return@Box  // Skip drawing controls when error is shown
         }
 
-        // Loading indicator (only if no error)
-        if (buffering || loadingState == PlayerLoadingState.LOADING) {
+        // Loading indicator — only show if NOT playing.
+        // If the video is playing (isPlaying == true), the loading state has
+        // effectively ended even if paused-for-cache briefly fires.
+        // This prevents the spinner from staying after the video starts.
+        if (!isPlaying && (buffering || loadingState == PlayerLoadingState.LOADING)) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -320,6 +324,7 @@ fun MinimizedControls(
                     MinimalSeekbar(
                         position = position,
                         duration = duration,
+                        bufferAheadTime = bufferAheadTime,
                         onSeekTo = onSeekTo,
                         modifier = Modifier.weight(1f),
                     )

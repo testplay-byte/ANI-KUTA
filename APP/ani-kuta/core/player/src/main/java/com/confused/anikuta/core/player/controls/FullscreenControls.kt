@@ -109,6 +109,7 @@ fun FullscreenControls(
     val position by stateHolder.position.collectAsState()
     val duration by stateHolder.duration.collectAsState()
     val buffering by stateHolder.buffering.collectAsState()
+    val bufferAheadTime by stateHolder.bufferAheadTime.collectAsState()
     val loadingState by stateHolder.loadingState.collectAsState()
     val errorMessage by stateHolder.errorMessage.collectAsState()
 
@@ -258,7 +259,7 @@ fun FullscreenControls(
                     ) {
                         FSSkipButton(label = "-10s", onClick = { onSeekRelative(-10) })
                         Box(contentAlignment = Alignment.Center) {
-                            if (buffering || loadingState == PlayerLoadingState.LOADING) {
+                            if (!isPlaying && (buffering || loadingState == PlayerLoadingState.LOADING)) {
                                 CircularProgressIndicator(
                                     color = MaterialTheme.colorScheme.primary,
                                     strokeWidth = 3.dp,
@@ -307,6 +308,7 @@ fun FullscreenControls(
                         FullscreenSeekbarCustom(
                             position = position,
                             duration = duration,
+                            bufferAheadTime = bufferAheadTime,
                             onSeekTo = onSeekTo,
                             onSeekStart = { isSeeking = true },
                             onSeekEnd = {
@@ -357,6 +359,7 @@ fun FullscreenControls(
 private fun FullscreenSeekbarCustom(
     position: Int,
     duration: Int,
+    bufferAheadTime: Int = 0,
     onSeekTo: (Int) -> Unit,
     onSeekStart: () -> Unit,
     onSeekEnd: () -> Unit,
@@ -370,8 +373,12 @@ private fun FullscreenSeekbarCustom(
 
     val trackColor = Color.White.copy(alpha = 0.2f)
     val progressColor = MaterialTheme.colorScheme.primary
+    val bufferColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
     val barHeightDp = 6.dp
     val thumbSizeDp = 18.dp
+    val bufferProgress = if (duration > 0 && bufferAheadTime > 0) {
+        (bufferAheadTime.toFloat() / maxRange).coerceIn(0f, 1f)
+    } else 0f
 
     Box(
         modifier = Modifier
@@ -419,6 +426,15 @@ private fun FullscreenSeekbarCustom(
             val cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx())
 
             drawRoundRect(color = trackColor, topLeft = Offset(0f, barY), size = Size(barWidth, barHeight), cornerRadius = cornerRadius)
+            // Buffer-ahead segment (drawn between progress and end)
+            if (bufferProgress > progress) {
+                drawRoundRect(
+                    color = bufferColor,
+                    topLeft = Offset(barWidth * progress, barY),
+                    size = Size(barWidth * (bufferProgress - progress), barHeight),
+                    cornerRadius = cornerRadius,
+                )
+            }
             drawRoundRect(color = progressColor, topLeft = Offset(0f, barY), size = Size(barWidth * progress, barHeight), cornerRadius = cornerRadius)
 
             val thumbSize = thumbSizeDp.toPx()

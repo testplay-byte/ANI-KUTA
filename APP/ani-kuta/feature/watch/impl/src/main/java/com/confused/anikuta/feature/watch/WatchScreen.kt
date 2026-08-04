@@ -55,6 +55,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,6 +137,9 @@ fun WatchScreen(
     val stateHolder = remember { PlayerStateHolder() }
     val episodeList = remember { watchKey.parseEpisodeList() }
     val playerPreferences = koinInject<com.confused.anikuta.core.preferences.PlayerPreferences>()
+    val extensionManager = koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+    val videoResolver = koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
+    val scope = rememberCoroutineScope()
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
     var mpvInitialized by remember { mutableStateOf(false) }
@@ -182,7 +186,10 @@ fun WatchScreen(
                 // to true — that conflicts with enableEdgeToEdge() in MainActivity
                 // and leaves the next screen with double top padding.
                 controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                // Force portrait when exiting fullscreen — matches old project.
+                // Even if the device is in landscape, the watch page should be portrait.
+                // The user can rotate back to landscape if they re-enter fullscreen.
+                (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             }
         }
         onDispose {
@@ -361,6 +368,78 @@ fun WatchScreen(
         }
     }
 
+    // ── Episode switch handler — re-resolve and load a different episode ──
+    val onEpisodeSwitch: (SimpleEpisode) -> Unit = { ep ->
+        Logger.i(TAG) { "=== EPISODE SWITCH ===" }
+        Logger.i(TAG) { "New episode: ${ep.name} (num: ${ep.episodeNumber}, url: ${ep.url})" }
+
+        val source = if (watchKey.sourceId != 0L) {
+            extensionManager.getSource(watchKey.sourceId) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+        } else null
+
+        if (source == null) {
+            Logger.w(TAG) { "Cannot switch episode — source not available (sourceId=${watchKey.sourceId})" }
+            stateHolder.updateError("Cannot switch episode: source not available")
+        } else {
+            // Set switching flag so efEvent from old file doesn't show a spurious error.
+            stateHolder.setSwitching(true)
+
+            scope.launch {
+                try {
+                    // Build a full SEpisode for the resolver.
+                    val sEpisode = eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                        url = ep.url
+                        name = ep.name
+                        episode_number = ep.episodeNumber
+                    }
+
+                    Logger.i(TAG) { "Re-resolving videos for episode ${ep.url}..." }
+                    videoResolver.resolve(source, sEpisode).collect { state ->
+                        when (state) {
+                            is com.confused.anikuta.core.videoresolver.ResolverState.Loading -> {
+                                Logger.d(TAG) { "Resolving..." }
+                            }
+                            is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
+                                if (state.videos.isNotEmpty()) {
+                                    val video = state.videos.first()
+                                    Logger.i(TAG) { "Episode switch — got ${state.videos.size} videos, picking first: ${video.quality} (${video.url.take(60)})" }
+
+                                    // Also build structured servers for QualitySheet.
+                                    val servers = videoResolver.buildServers(state.rawVideos, source.name)
+                                    if (servers.isNotEmpty()) {
+                                        com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry.put(servers)
+                                    }
+
+                                    // Update state.
+                                    currentVideoUrl = video.url
+                                    currentVideoTitle = ""
+                                    currentVideoHeaders = video.headers
+
+                                    // Set headers + loadfile.
+                                    val headers = if (video.headers.isNotBlank()) video.headers
+                                        else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                                    MPVLib.setOptionString("http-header-fields", headers)
+                                    MPVLib.command(arrayOf("loadfile", video.url, "replace"))
+                                    Logger.i(TAG) { "Episode switch — loadfile sent" }
+                                } else {
+                                    stateHolder.updateError("No videos found for this episode")
+                                }
+                            }
+                            is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
+                                Logger.e(TAG) { "Episode switch resolve failed: ${state.message}" }
+                                stateHolder.updateError("Failed to resolve: ${state.message}")
+                            }
+                            else -> {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    Logger.e(TAG, e) { "Episode switch failed" }
+                    stateHolder.updateError("Episode switch failed: ${e.message}")
+                }
+            }
+        }
+    }
+
     if (playerMode == PlayerMode.FULLSCREEN) {
         FullscreenMode(
             watchKey = watchKey,
@@ -394,6 +473,7 @@ fun WatchScreen(
             onSubtitleClick = { showSubtitleSheet = true },
             onRetry = onRetry,
             onDismissError = onDismissError,
+            onEpisodeSwitch = onEpisodeSwitch,
         )
     }
 
@@ -455,6 +535,7 @@ private fun MinimizedMode(
     onSubtitleClick: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
+    onEpisodeSwitch: (SimpleEpisode) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     // Wrap in derivedStateOf to prevent excessive recompositions.
@@ -578,10 +659,13 @@ private fun MinimizedMode(
         }
 
         // ── Scrollable content: episode description + episode list ──
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-        ) {
+        // Wrapped in a Box so we can overlay a ScrollBlurOverlay at the top edge,
+        // creating a gradient blur effect where the content meets the player.
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+            ) {
             item {
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
@@ -654,7 +738,9 @@ private fun MinimizedMode(
                                     episode = ep,
                                     isCurrent = isCurrent,
                                     onClick = {
-                                        Logger.i(TAG) { "Episode tapped: ${ep.name} (not implemented yet)" }
+                                        if (!isCurrent) {
+                                            onEpisodeSwitch(ep)
+                                        }
                                     },
                                 )
                             }
@@ -662,7 +748,19 @@ private fun MinimizedMode(
                     }
                 }
             }
-        }
+            } // end LazyColumn
+
+            // ScrollBlurOverlay — gradient at the top edge of the scrollable content,
+            // creating a smooth fade where content meets the player.
+            com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay(
+                scrollOffset = {
+                    if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                    else listState.firstVisibleItemScrollOffset.toFloat()
+                },
+                backgroundColor = MaterialTheme.colorScheme.background,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        } // end Box
     }
 }
 

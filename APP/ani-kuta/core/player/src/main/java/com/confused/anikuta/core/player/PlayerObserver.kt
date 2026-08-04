@@ -66,6 +66,11 @@ class PlayerObserver(
             "time-pos" -> {
                 value.toIntOrNull()?.let { stateHolder.updatePosition(it) }
             }
+            "demuxer-cache-time" -> {
+                // Buffer-ahead time — how much of the video is demuxed/cached.
+                // Used by the seekbar to render the buffer zone (colored segment).
+                value.toIntOrNull()?.let { stateHolder.updateBufferAheadTime(it) }
+            }
             "duration" -> {
                 value.toIntOrNull()?.let { stateHolder.updateDuration(it) }
             }

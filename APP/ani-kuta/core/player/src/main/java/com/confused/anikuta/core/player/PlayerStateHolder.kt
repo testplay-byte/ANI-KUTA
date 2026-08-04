@@ -74,6 +74,10 @@ class PlayerStateHolder {
     private val _buffering = MutableStateFlow(false)
     val buffering: StateFlow<Boolean> = _buffering.asStateFlow()
 
+    // ── Buffer-ahead time (for seekbar buffer zone) ──
+    private val _bufferAheadTime = MutableStateFlow(0)
+    val bufferAheadTime: StateFlow<Int> = _bufferAheadTime.asStateFlow()
+
     // ── Controls visibility ──
     private val _controlsVisible = MutableStateFlow(false)
     val controlsVisible: StateFlow<Boolean> = _controlsVisible.asStateFlow()
@@ -186,6 +190,10 @@ class PlayerStateHolder {
         _buffering.value = buffering
     }
 
+    fun updateBufferAheadTime(time: Int) {
+        _bufferAheadTime.value = time
+    }
+
     fun updateControlsVisible(visible: Boolean) {
         _controlsVisible.value = visible
     }
@@ -219,6 +227,7 @@ class PlayerStateHolder {
         _duration.value = 0
         _isPlaying.value = false
         _buffering.value = false
+        _bufferAheadTime.value = 0
         _errorMessage.value = null
         httpError = null
         _isSwitching.value = false

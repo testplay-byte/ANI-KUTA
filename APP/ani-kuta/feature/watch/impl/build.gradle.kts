@@ -16,6 +16,8 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:video-resolver"))
     implementation(project(":core:watch-progress"))
+    implementation(project(":data:extension"))
+    implementation(project(":core:source-api"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

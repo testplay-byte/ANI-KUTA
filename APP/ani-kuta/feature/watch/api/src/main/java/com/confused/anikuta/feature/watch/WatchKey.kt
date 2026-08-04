@@ -32,6 +32,12 @@ data class WatchKey(
      *  registry to populate the QualitySheet accordion.
      *  Empty string = no pre-resolved servers (QualitySheet will show empty). */
     val resolvedVideosKey: String = "",
+
+    /** The source ID for re-resolving episodes when switching.
+     *  When the user taps a different episode in the list, the watch screen
+     *  uses this ID to get the source from the ExtensionManager and call
+     *  VideoResolver.resolve() for the new episode. */
+    val sourceId: Long = 0L,
 ) : NavKey {
 
     /**
