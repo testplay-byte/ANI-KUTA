@@ -259,18 +259,22 @@ fun WatchScreen(
         if (isVideoFinished) stateHolder.updateControlsVisible(true)
     }
 
-    // ── Switching timeout watchdog (30s) ──
-    // SAFETY NET: if isSwitching stays true for 30s, force-clear + show timeout
+    // ── Switching timeout watchdog (60s) ──
+    // SAFETY NET: if isSwitching stays true for 60s, force-clear + show timeout
     // error. This catches failed switches where efEvent is suppressed (because
     // isSwitching=true) AND FILE_LOADED never fires (server hung, proxy dead,
-    // network error that MPV doesn't surface as efEvent). Without this, the
-    // player gets stuck in a perpetual loading spinner with no error + no recovery.
+    // network error that MPV doesn't surface as efEvent).
+    //
+    // 60s (not 30s) because episode switches include a resolve phase (network
+    // call to the extension, which can take 20-30s) BEFORE loadfile is sent.
+    // 30s was firing prematurely during the resolve phase. The old project used
+    // 30s but its resolve was pre-done on the details page (instant).
     LaunchedEffect(isSwitching) {
         if (isSwitching) {
-            delay(30_000L)
+            delay(60_000L)
             if (stateHolder.isSwitching.value) {
-                Logger.w(TAG) { "Switching timeout (30s) — force-clearing" }
-                stateHolder.setSwitchingError("Video failed to load (timeout)")
+                Logger.w(TAG) { "Switching timeout (60s) — force-clearing" }
+                stateHolder.setSwitchingError("Video failed to load (timeout — the server took too long to respond)")
             }
         }
     }

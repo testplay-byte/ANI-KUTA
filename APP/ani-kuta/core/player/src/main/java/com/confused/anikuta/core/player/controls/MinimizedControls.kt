@@ -84,6 +84,7 @@ fun MinimizedControls(
     val bufferAheadTime by stateHolder.bufferAheadTime.collectAsState()
     val loadingState by stateHolder.loadingState.collectAsState()
     val errorMessage by stateHolder.errorMessage.collectAsState()
+    val isSwitching by stateHolder.isSwitching.collectAsState()
 
     var doubleTapAnim by remember { mutableStateOf<DoubleTapFeedback?>(null) }
     val animAlpha = remember { Animatable(0f) }
@@ -173,15 +174,15 @@ fun MinimizedControls(
             return@Box  // Skip normal controls — video isn't playing anyway
         }
 
-        // Loading indicator — only show when ACTUALLY buffering or during
-        // initial load (before the video has a duration).
+        // Loading indicator — shows when:
+        //  - buffering == true (network stall / paused-for-cache), OR
+        //  - isSwitching == true (quality/server switch in progress — video is
+        //    being replaced, show spinner), OR
+        //  - loadingState == LOADING AND duration == 0 (initial load, video
+        //    hasn't started yet)
         // CRITICAL: Do NOT show the spinner just because !isPlaying — that
-        // fires when the user manually pauses, making it look like the video
-        // is loading when it's just paused. Only show when:
-        //   - buffering == true (network stall / paused-for-cache), OR
-        //   - loadingState == LOADING AND duration == 0 (initial load, video
-        //     hasn't started yet)
-        if (buffering || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
+        // fires when the user manually pauses.
+        if (buffering || isSwitching || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,

@@ -16,7 +16,14 @@ data class WatchKey(
     val episodeNumber: Float = 0f,
     val episodeTitle: String = "",
     /** Serialized episode list for episode switching in the watch screen.
-     *  Each entry is "url|episodeNumber|name" separated by newlines. */
+     *  Each entry is "url\u001FepisodeNumber\u001Fname" separated by newlines.
+     *
+     *  CRITICAL: Uses \u001F (ASCII Unit Separator) as the field delimiter
+     *  instead of '|' because episode URLs can contain '|' characters
+     *  (e.g. some extensions use '|' in their URL scheme). Using '|' as a
+     *  delimiter corrupts the URL, episode number, AND name when the URL
+     *  contains '|'. \u001F is a control character that never appears in
+     *  URLs or episode names. */
     val episodeListSerialized: String = "",
     /** HTTP headers for the video URL — CRITICAL for playback.
      *  Extensions provide headers (Referer, User-Agent, etc.) that upstream
@@ -42,12 +49,15 @@ data class WatchKey(
 
     /**
      * Parse the serialized episode list into a list of SimpleEpisode.
-     * Format: "url|episodeNumber|name" per line.
+     * Format: "url\u001FepisodeNumber\u001Fname" per line.
+     *
+     * Uses \u001F (Unit Separator) as the delimiter — see
+     * [episodeListSerialized] for why.
      */
     fun parseEpisodeList(): List<SimpleEpisode> {
         if (episodeListSerialized.isBlank()) return emptyList()
         return episodeListSerialized.split("\n").mapNotNull { line ->
-            val parts = line.split("|", limit = 3)
+            val parts = line.split("\u001F", limit = 3)
             if (parts.size == 3) {
                 SimpleEpisode(
                     url = parts[0],
@@ -56,6 +66,11 @@ data class WatchKey(
                 )
             } else null
         }
+    }
+
+    companion object {
+        /** The field delimiter used for episode list serialization. */
+        const val EPISODE_FIELD_DELIMITER = "\u001F"
     }
 }
 

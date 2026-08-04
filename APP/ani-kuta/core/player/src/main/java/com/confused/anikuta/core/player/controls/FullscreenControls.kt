@@ -112,6 +112,7 @@ fun FullscreenControls(
     val bufferAheadTime by stateHolder.bufferAheadTime.collectAsState()
     val loadingState by stateHolder.loadingState.collectAsState()
     val errorMessage by stateHolder.errorMessage.collectAsState()
+    val isSwitching by stateHolder.isSwitching.collectAsState()
 
     var isSeeking by remember { mutableStateOf(false) }
     if (isSeeking) stateHolder.updateControlsVisible(true)
@@ -258,7 +259,7 @@ fun FullscreenControls(
                     ) {
                         FSSkipButton(label = "-10s", onClick = { onSeekRelative(-10) })
                         Box(contentAlignment = Alignment.Center) {
-                            if (buffering || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
+                            if (buffering || isSwitching || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
                                 CircularProgressIndicator(
                                     color = MaterialTheme.colorScheme.primary,
                                     strokeWidth = 3.dp,

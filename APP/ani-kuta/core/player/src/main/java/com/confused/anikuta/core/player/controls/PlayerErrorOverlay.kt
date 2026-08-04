@@ -63,6 +63,7 @@ fun PlayerErrorBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     AnimatedVisibility(
         visible = true,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -88,12 +89,18 @@ fun PlayerErrorBanner(
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                // Error message (truncated)
+                // Error message (truncated) — tap to copy to clipboard
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable {
+                            // Copy the full error message to clipboard so the
+                            // user can paste it in a bug report.
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(errorMessage))
+                        },
                 ) {
                     Text(
-                        text = "Playback error",
+                        text = "Playback error (tap to copy)",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,

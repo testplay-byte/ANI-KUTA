@@ -226,8 +226,10 @@ fun DetailsScreen(
                         "=== VIDEO PICKED === quality='${video.quality}', url='${video.url}', headers='${video.headers.take(80)}', resolvedVideosKey='$resolvedVideosKey'"
                     }
                     // Serialize the episode list for the watch screen.
+                    // CRITICAL: Uses \u001F (Unit Separator) as the delimiter
+                    // instead of '|' because episode URLs can contain '|'.
                     val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                        "${e.url}|${e.episode_number}|${e.name}"
+                        "${e.url}${com.confused.anikuta.feature.watch.WatchKey.EPISODE_FIELD_DELIMITER}${e.episode_number}${com.confused.anikuta.feature.watch.WatchKey.EPISODE_FIELD_DELIMITER}${e.name}"
                     } ?: ""
                     onNavigateToWatch(
                         video.url,

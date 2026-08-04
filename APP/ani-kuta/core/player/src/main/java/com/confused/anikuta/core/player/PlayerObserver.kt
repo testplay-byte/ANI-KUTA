@@ -161,14 +161,15 @@ class PlayerObserver(
                 // Load external tracks (sub-add / audio-add) BEFORE reading the
                 // track list — external tracks need to be registered first.
                 loadExternalTracks()
-                // SAFETY: Also schedule a delayed track reload 2s later. Some
+                // SAFETY: Also schedule a delayed track reload 5s later. Some
                 // formats (especially HLS with separate subtitle tracks) take
-                // a moment to fully parse. If the first loadTracksFromMpv()
-                // runs before MPV has finished parsing, the track list is empty.
-                // This retry catches that case.
+                // a moment to fully parse. External subs also need time to
+                // download over HTTPS. If the first loadTracksFromMpv() runs
+                // before MPV has finished parsing/downloading, the track list
+                // is empty. This retry catches that case.
                 scope.launch {
-                    delay(2_000L)
-                    Logger.d(TAG) { "Delayed track reload (2s safety)" }
+                    delay(5_000L)
+                    Logger.i(TAG) { "Delayed track reload (5s safety)" }
                     loadTracksFromMpv()
                 }
             }
@@ -272,6 +273,7 @@ class PlayerObserver(
     private fun loadExternalTracks() {
         val subs = pendingSubtitleTracks
         val audios = pendingAudioTracks
+        Logger.i(TAG) { "loadExternalTracks: ${subs.size} subs, ${audios.size} audio pending" }
         if (subs.isEmpty() && audios.isEmpty()) {
             // No external tracks — just load internal tracks directly.
             loadTracksFromMpv()
@@ -292,28 +294,36 @@ class PlayerObserver(
                     runCatching {
                         MPVLib.setOptionString("http-header-fields", trackHeaders)
                     }
-                    Logger.d(TAG) { "Set http-header-fields for external track downloads" }
+                    Logger.i(TAG) { "Set http-header-fields for ${subs.size} external sub downloads + ${audios.size} audio" }
+                } else {
+                    Logger.w(TAG) { "trackHeaders is blank — external subs may fail to download (403)" }
                 }
 
                 for ((url, lang) in subs) {
+                    Logger.i(TAG) { "Sending sub-add: url=${url.take(80)}... lang=$lang" }
                     runCatching {
                         MPVLib.command(arrayOf("sub-add", url, "auto", "", lang))
-                        Logger.d(TAG) { "sub-add: $url (lang=$lang)" }
+                    }.onSuccess {
+                        Logger.i(TAG) { "sub-add sent OK: ${url.take(60)}..." }
                     }.onFailure {
-                        Logger.w(TAG) { "sub-add failed for $url: ${it.message}" }
+                        Logger.w(TAG) { "sub-add FAILED for ${url.take(60)}: ${it.message}" }
                     }
                 }
                 for ((url, lang) in audios) {
+                    Logger.i(TAG) { "Sending audio-add: url=${url.take(80)}... lang=$lang" }
                     runCatching {
                         MPVLib.command(arrayOf("audio-add", url, "auto", "", lang))
-                        Logger.d(TAG) { "audio-add: $url (lang=$lang)" }
+                    }.onSuccess {
+                        Logger.i(TAG) { "audio-add sent OK: ${url.take(60)}..." }
                     }.onFailure {
-                        Logger.w(TAG) { "audio-add failed for $url: ${it.message}" }
+                        Logger.w(TAG) { "audio-add FAILED for ${url.take(60)}: ${it.message}" }
                     }
                 }
 
                 // Wait for MPV to register the tracks before reading the list.
-                delay(EXTERNAL_TRACK_LOAD_DELAY_MS)
+                // 500ms — external subs need time to download (HTTPS) + register.
+                delay(500L)
+                Logger.i(TAG) { "External tracks sent — loading track list from MPV" }
                 loadTracksFromMpv()
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "loadExternalTracks failed" }
