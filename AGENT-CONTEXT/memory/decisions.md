@@ -560,3 +560,33 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User requested: "Make sure that this checklist functionality is added into the rules too. If improvements have been made and such then the user should be given a checklist so that he can check out what he needs to check."
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-087 — Episode list serialization: use \u001F delimiter (not '|')
+- **What:** Changed the episode list serialization delimiter from `|` to `\u001F` (ASCII Unit Separator). Updated `WatchKey.parseEpisodeList()` + `DetailsScreen` serialization. Moved `EPISODE_FIELD_DELIMITER` constant to `EpisodeTitleParser` in `:core:common` (both modules depend on it — avoids module cycle).
+- **Why:** User reported: "On the details page the name shows properly but on the player page the names change to random strings. Even the episode number does not show properly." Root cause: episode URLs can contain `|` characters (some extensions use `|` in their URL scheme). When the URL contains `|`, the `split("|", limit=3)` puts the URL's `|` tail into the episode number field → corrupts the URL, number, AND name. `\u001F` is a control character that never appears in URLs or names.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-088 — Quality switch spinner: add isSwitching to spinner condition
+- **What:** Added `isSwitching` to the loading spinner condition in both `MinimizedControls` and `FullscreenControls`. New condition: `buffering || isSwitching || (loadingState == LOADING && duration == 0)`.
+- **Why:** User reported: "The loading animation does not start to play" during quality switch. Root cause: during a quality switch, `loadingState == LOADING` but `duration > 0` (from the previous video), so the old condition `buffering || (loadingState == LOADING && duration == 0)` was false → no spinner. Adding `isSwitching` makes the spinner show during any switch (quality or episode). Episode switches show the EpisodeSwitchingOverlay on top, which covers the spinner.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-089 — Switching timeout: 30s → 60s
+- **What:** Increased the switching timeout watchdog from 30s to 60s.
+- **Why:** User reported: "It outright gave me this error that video failed to load, time out" during episode switch. Root cause: the 30s watchdog starts when `isSwitching` becomes true, but the resolve phase (network call to extension) can take 20-30s BEFORE loadfile is sent. Then loadfile needs 5-10s to load. Total > 30s → premature timeout. The old project used 30s but its resolve was pre-done on the details page (instant). 60s gives enough time for resolve + load.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-090 — Error banner: tap to copy error message
+- **What:** The error banner text is now clickable — tapping it copies the full error message to the clipboard. Label changed to "Playback error (tap to copy)".
+- **Why:** User requested: "If I tap the error itself, the text of the error itself, what it should do is that it should copy the whole error message."
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-091 — Subtitle detection: detailed logging + longer retry
+- **What:** (1) Added INFO-level logging for every `sub-add`/`audio-add` command — logs success AND failure with the URL. (2) Added warning when `trackHeaders` is blank (subs may fail to download). (3) Increased delayed track retry from 2s to 5s. (4) Increased external track load delay from 300ms to 500ms.
+- **Why:** User reported: "There were no subtitles. It did not detect any subtitles at all." The detailed logging will show exactly what's happening: whether `sub-add` commands are sent, whether they succeed, whether tracks are registered. The longer delays give external subs more time to download over HTTPS.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). Needs logcat verification.
+- **Date:** Phase 5c (session web-f53f0459).
