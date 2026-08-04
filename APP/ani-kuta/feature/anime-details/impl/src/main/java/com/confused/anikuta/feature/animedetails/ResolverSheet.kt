@@ -225,8 +225,27 @@ fun ResolverSheet(
                         ServerAccordion(
                             servers = servers,
                             videos = resolverState.videos,
-                            onPickVideo = { video ->
-                                onPickVideo(video)
+                            onPickVideo = { resolverVideo ->
+                                // Find the matching flat ResolvedVideo by URL.
+                                // The accordion uses ResolverVideo (structured) but
+                                // onPickVideo expects ResolvedVideo (flat, carries
+                                // subtitleTracks for WatchKey serialization).
+                                val flatVideo = resolverState.videos.firstOrNull { it.url == resolverVideo.url }
+                                if (flatVideo != null) {
+                                    onPickVideo(flatVideo)
+                                } else {
+                                    // Fallback: create a ResolvedVideo from the ResolverVideo.
+                                    onPickVideo(
+                                        ResolvedVideo(
+                                            url = resolverVideo.url,
+                                            quality = resolverVideo.quality,
+                                            directUrl = resolverVideo.url,
+                                            headers = resolverVideo.videoHeaders ?: "",
+                                            subtitleTracks = resolverVideo.subtitleTracks,
+                                            audioTracks = resolverVideo.audioTracks,
+                                        )
+                                    )
+                                }
                             },
                         )
                     }
@@ -245,8 +264,7 @@ fun ResolverSheet(
 @Composable
 private fun ServerAccordion(
     servers: List<ResolverServer>,
-    videos: List<ResolvedVideo>,
-    onPickVideo: (ResolvedVideo) -> Unit,
+    onPickVideo: (com.confused.anikuta.core.videoresolver.ResolverVideo) -> Unit,
 ) {
     // Track which server is expanded (only one at a time). null = all collapsed.
     var expandedServer by remember { mutableStateOf<String?>(servers.firstOrNull()?.name) }
@@ -259,14 +277,11 @@ private fun ServerAccordion(
             val isExpanded = expandedServer == server.name
             ServerCard(
                 server = server,
-                videos = videos,
                 isExpanded = isExpanded,
                 onToggle = {
                     expandedServer = if (isExpanded) null else server.name
                 },
-                onPickVideo = { video ->
-                    onPickVideo(video)
-                },
+                onPickVideo = onPickVideo,
             )
         }
     }
@@ -276,10 +291,9 @@ private fun ServerAccordion(
 @Composable
 private fun ServerCard(
     server: ResolverServer,
-    videos: List<ResolvedVideo>,
     isExpanded: Boolean,
     onToggle: () -> Unit,
-    onPickVideo: (ResolvedVideo) -> Unit,
+    onPickVideo: (com.confused.anikuta.core.videoresolver.ResolverVideo) -> Unit,
 ) {
     Surface(
         color = if (isExpanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
