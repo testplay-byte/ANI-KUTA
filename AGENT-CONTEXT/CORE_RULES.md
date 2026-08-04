@@ -98,13 +98,23 @@ ANIKUTA-PROJECT/
 ## 8. GitHub Actions & Branching
 
 - **Always use GitHub Actions** for builds (APK + dashboard). Never build locally.
-- **Create a branch** for each feature/fix: `feature/<name>`, `fix/<name>`, `docs/<name>`.
+- **Create a branch** for each feature/fix: `feature/<name>`, `fix:<name>`, `docs/<name>`.
 - **Merge to `main` only after** the feature is verified working and satisfactory. Not before.
 - Commit messages: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`).
 - Never force-push to `main`.
 
 ### Build Rules (APK)
 - **NEVER** build the APK locally. GitHub Actions only.
+- **NEVER** install the Android SDK, JDK (with javac), or any Android build tooling in the local environment. The local environment does NOT have these and MUST NOT acquire them. GitHub Actions provides everything needed.
+- **NEVER** run `./gradlew compileDebugKotlin`, `./gradlew assembleDebug`, or ANY Gradle build task locally. Not even for "just checking compilation". Not even for "just finding the error".
+- **NEVER** write `sdk.dir=...` to `local.properties`. Do not create `local.properties` at all.
+- **How to find compile errors WITHOUT building locally:**
+  1. Read the code carefully, line by line, checking every import, type, and API call.
+  2. Use sub-agents (Explore type) to review the code for compile errors — they can read files and compare against reference code.
+  3. Cross-reference against the OLD project (in `REFERENCES/old-kuta/ANIKUTA/`) which compiles successfully.
+  4. Cross-reference against the Animiru documentation (in `REFERENCES/animiru/documentation/`).
+  5. Push to CI and read the failure annotations from the GitHub API (`/repos/{owner}/{repo}/check-runs/{id}/annotations`).
+  6. Iterate: fix → push → read CI annotations → fix again. This is the ONLY loop.
 - **ONLY** `arm64-v8a` + `armeabi-v7a` ABIs. No x86/x86_64.
   - Set in `APP/ani-kuta/app/build.gradle.kts` (`ndk.abiFilters`).
   - Verified post-build in CI (fails on any forbidden `lib/<abi>/`).
