@@ -3,9 +3,6 @@ package com.confused.anikuta.core.watchprogress
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -31,7 +28,6 @@ class InMemoryWatchProgressStore : WatchProgressStore {
 
     private val store = ConcurrentHashMap<String, WatchProgress>()
     private val flows = ConcurrentHashMap<String, MutableStateFlow<WatchProgress?>>()
-    private val mutex = Mutex()
 
     override suspend fun save(episodeKey: String, progress: WatchProgress) {
         Logger.d(TAG) { "save: key=$episodeKey pos=${progress.position}s dur=${progress.duration}s" }
