@@ -590,3 +590,22 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User reported: "There were no subtitles. It did not detect any subtitles at all." The detailed logging will show exactly what's happening: whether `sub-add` commands are sent, whether they succeed, whether tracks are registered. The longer delays give external subs more time to download over HTTPS.
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). Needs logcat verification.
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-092 — CRITICAL: Cleartext traffic permission (root cause of proxy/subtitle/spinner issues)
+- **What:** Added `android:usesCleartextTraffic="true"` + `android:networkSecurityConfig="@xml/network_security_config"` to the AndroidManifest. Created `res/xml/network_security_config.xml` with `cleartextTrafficPermitted="true"` for all domains + system+user trust anchors.
+- **Why:** The AniKotoS extension starts a local HTTP proxy on `http://127.0.0.1:PORT` during `getHosterList()`. All video URLs point to this proxy. But Android 9+ blocks cleartext traffic by default → proxy can't be reached → proxy dies immediately (2ms later) → all videos fail → 60s timeout → subtitles can't download → spinner never clears (FILE_LOADED never fires). User logs showed: `Proxy started at http://127.0.0.1:40815` → `Proxy stopped` (2ms later) → 60s timeout. The OLD project had this permission; the NEW project was missing it. Root cause found by comparing old vs new AndroidManifest.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Related lesson:** "Cleartext traffic blocked on Android 9+ — extensions using localhost proxies (AniKotoS) need usesCleartextTraffic + network_security_config.xml."
+
+### D-093 — Subtitle sheet: refresh tracks on open
+- **What:** `SubtitleTracksSheet` now takes an `onRefreshTracks` callback, called via `LaunchedEffect(Unit)` when the sheet opens. `WatchScreen` passes a lambda that manually calls `mpvView.loadTracks()` + `stateHolder.updateTracks()`.
+- **Why:** Subtitles might not be detected on the first `loadTracksFromMpv()` call (runs too early, before external subs finished downloading). Refreshing when the sheet opens catches cases where tracks were loaded too early or where the track list changed. The user reported the subtitle sheet was empty even for subbed streams.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-094 — Seeking treated as buffering
+- **What:** `PlayerObserver.onProperty` now handles the `"seeking"` property → `stateHolder.updateBuffering(value == "yes")`. Previously, `seeking` was observed (in `AnikutaMPVView.observeProperties`) but NOT handled in the observer — so seeking didn't set `buffering=true`.
+- **Why:** The old project treats seeking as buffering (`WatchScreen.kt:580`). While MPV is seeking, the video is not playing and the user should see a spinner. The new project's spinner condition includes `buffering`, so without seeking → buffering, seeking wouldn't show the spinner.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
