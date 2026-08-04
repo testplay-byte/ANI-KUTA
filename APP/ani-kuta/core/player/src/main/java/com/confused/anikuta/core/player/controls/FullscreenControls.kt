@@ -166,16 +166,15 @@ fun FullscreenControls(
                     },
             )
 
-            // ── ERROR OVERLAY (blocks all controls when shown) ──
-            // Same PlayerErrorOverlay as minimized mode — full-screen, blocks
-            // controls, has Retry + OK buttons.
+            // ── ERROR BANNER (non-intrusive, top-aligned) ──
+            // Replaces the old full-screen PlayerErrorOverlay "dialog box".
             if (errorMessage != null) {
-                PlayerErrorOverlay(
+                PlayerErrorBanner(
                     errorMessage = errorMessage!!,
                     onRetry = onRetry,
                     onDismiss = onDismissError,
+                    modifier = Modifier.align(Alignment.TopCenter),
                 )
-                return@Box  // Skip drawing controls when error is shown
             }
 
             // ── Top elements (slide in from top) ──
@@ -259,7 +258,7 @@ fun FullscreenControls(
                     ) {
                         FSSkipButton(label = "-10s", onClick = { onSeekRelative(-10) })
                         Box(contentAlignment = Alignment.Center) {
-                            if (!isPlaying && (buffering || loadingState == PlayerLoadingState.LOADING)) {
+                            if (buffering || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
                                 CircularProgressIndicator(
                                     color = MaterialTheme.colorScheme.primary,
                                     strokeWidth = 3.dp,

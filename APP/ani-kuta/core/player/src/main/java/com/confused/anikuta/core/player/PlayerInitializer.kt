@@ -40,7 +40,10 @@ object PlayerInitializer {
      * Without it, libass logs "Error opening memory font" and NO subtitle
      * text can render (video/audio still work).
      *
-     * `cacert.pem` (Mozilla CA bundle) is required for HTTPS subtitle downloads.
+     * `cacert.pem` (Mozilla CA bundle) is optional — if missing or empty,
+     * mbedTLS falls back to the system CA store. An EMPTY cacert.pem is worse
+     * than no file (causes INVALID_FORMAT error, no fallback). So we skip
+     * 0-byte assets.
      */
     fun copyAssets(context: Context, mpvDir: File) {
         val assetManager = context.assets
@@ -48,8 +51,16 @@ object PlayerInitializer {
         for (filename in files) {
             try {
                 val ins = assetManager.open(filename, android.content.res.AssetManager.ACCESS_STREAMING)
+                val available = ins.available()
+                if (available <= 0) {
+                    // Skip 0-byte assets — an empty cacert.pem causes mbedTLS
+                    // INVALID_FORMAT error (worse than missing the file).
+                    Logger.w(TAG) { "Asset is empty (skipped): $filename" }
+                    ins.close()
+                    continue
+                }
                 val outFile = File(mpvDir, filename)
-                if (!outFile.exists() || outFile.length() != ins.available().toLong()) {
+                if (!outFile.exists() || outFile.length() != available.toLong()) {
                     java.io.FileOutputStream(outFile).use { out -> ins.copyTo(out) }
                     Logger.d(TAG) { "Copied asset: $filename (${outFile.length()} bytes) -> mpv/" }
                 }

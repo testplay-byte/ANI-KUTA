@@ -152,6 +152,12 @@ fun WatchScreen(
     // Hoist the observer so switch handlers can set pending subtitle/audio tracks
     // + track headers before calling loadfile.
     var observer by remember { mutableStateOf<PlayerObserver?>(null) }
+    // CRITICAL: Hoist the MPVLib observer wrappers so onDispose can REMOVE them.
+    // Without removal, observers accumulate across screen entries → every event
+    // fires N times (N = number of entries). This was causing 4x duplication
+    // in the logs (4 observers registered after 4 entries).
+    var logObserverRef by remember { mutableStateOf<`is`.xyz.mpv.MPVLib.LogObserver?>(null) }
+    var eventObserverRef by remember { mutableStateOf<`is`.xyz.mpv.MPVLib.EventObserver?>(null) }
 
     // Seed the current-episode state from the WatchKey (immutable Nav3 contract —
     // we track the CURRENTLY playing episode in the state holder so it updates
@@ -268,6 +274,32 @@ fun WatchScreen(
         }
     }
 
+    // ── Auto-retry on error (non-switching errors only) ──
+    // When an error occurs (NOT during switching — switching errors are real
+    // failures), auto-retry the same URL once after 1.5s. This handles
+    // transient failures (network hiccup, brief TLS renegotiation) silently
+    // without showing the error banner. If the retry also fails, the error
+    // banner appears.
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null && !stateHolder.isSwitching.value && !stateHolder.autoRetryAttempted) {
+            Logger.i(TAG) { "Auto-retry: error occurred, retrying same URL in 1.5s..." }
+            stateHolder.markAutoRetryAttempted()
+            delay(1_500L)
+            // Clear the error + re-send loadfile.
+            stateHolder.clearErrorForRetry()
+            try {
+                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                MPVLib.setOptionString("http-header-fields", headers)
+                MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+                Logger.i(TAG) { "Auto-retry: loadfile re-sent" }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Auto-retry failed" }
+                stateHolder.setSwitchingError("Retry failed: ${e.message}")
+            }
+        }
+    }
+
     // ── Periodic watch progress save (every 10s) ──
     // Phase 5c capture-only: saves to InMemoryWatchProgressStore. Restore is
     // Phase 5e when the database is wired. Reads values directly from the state
@@ -366,6 +398,10 @@ fun WatchScreen(
                 }
                 MPVLib.addLogObserver(logObs)
                 MPVLib.addObserver(eventObs)
+                // Store refs so onDispose can remove them (prevents observer
+                // accumulation across screen entries).
+                logObserverRef = logObs
+                eventObserverRef = eventObs
 
                 // CRITICAL: Set HTTP headers BEFORE loadfile.
                 // Without proper headers, upstream servers return 403 Forbidden.
@@ -389,7 +425,7 @@ fun WatchScreen(
         }
     }
 
-    // ── Destroy MPV on dispose + save final progress ──
+    // ── Destroy MPV on dispose + save final progress + remove observers ──
     DisposableEffect(Unit) {
         onDispose {
             // Save final progress before destroying MPV.
@@ -410,11 +446,17 @@ fun WatchScreen(
                     runCatching { watchProgressStore.save(epKey, progress) }
                 }
             }
+            // CRITICAL: Remove MPVLib observers BEFORE destroying the view.
+            // Without this, observers accumulate across screen entries → every
+            // event fires N times (N = number of entries). This was causing
+            // 4x event duplication in the logs.
+            logObserverRef?.let { runCatching { MPVLib.removeLogObserver(it) } }
+            eventObserverRef?.let { runCatching { MPVLib.removeObserver(it) } }
             mpvView?.let { view ->
                 runCatching { MPVLib.command(arrayOf("stop")) }
                 runCatching { view.destroy() }
             }
-            Logger.i(TAG) { "MPV destroyed" }
+            Logger.i(TAG) { "MPV destroyed + observers removed" }
         }
     }
 
@@ -506,6 +548,18 @@ fun WatchScreen(
         } else {
             // Set switching flag so efEvent from old file doesn't show a spurious error.
             stateHolder.setSwitching(true)
+
+            // CRITICAL: Update the episode title IMMEDIATELY (before resolve)
+            // so the EpisodeSwitchingOverlay shows the NEW episode's name during
+            // loading, not the old one. Previously, the title was only updated
+            // after resolve succeeded — so the overlay showed "Loading episode 14"
+            // when the user was switching to episode 10.
+            stateHolder.updateCurrentEpisode(
+                url = ep.url,
+                number = ep.episodeNumber,
+                title = ep.name,
+                resolvedVideosKey = "", // will be updated after resolve
+            )
 
             scope.launch {
                 try {

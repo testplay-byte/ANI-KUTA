@@ -158,24 +158,30 @@ fun MinimizedControls(
             )
         }
 
-        // ── ERROR OVERLAY (blocks all controls when shown) ──
-        // Ported from old project's PlayerErrorOverlay. When an error is active,
-        // this full-screen overlay is shown INSTEAD of the controls. The user
-        // must tap "Retry" or "OK" to dismiss it.
+        // ── ERROR BANNER (non-intrusive, top-aligned) ──
+        // Replaces the old full-screen PlayerErrorOverlay "dialog box".
+        // Shows a small dismissable banner at the top of the player with the
+        // error message + retry button. The video surface stays visible.
+        // Auto-retry (in WatchScreen) handles most errors before this appears.
         if (errorMessage != null) {
-            PlayerErrorOverlay(
+            PlayerErrorBanner(
                 errorMessage = errorMessage!!,
                 onRetry = onRetry,
                 onDismiss = onDismissError,
+                modifier = Modifier.align(Alignment.TopCenter),
             )
-            return@Box  // Skip drawing controls when error is shown
+            return@Box  // Skip normal controls — video isn't playing anyway
         }
 
-        // Loading indicator — only show if NOT playing.
-        // If the video is playing (isPlaying == true), the loading state has
-        // effectively ended even if paused-for-cache briefly fires.
-        // This prevents the spinner from staying after the video starts.
-        if (!isPlaying && (buffering || loadingState == PlayerLoadingState.LOADING)) {
+        // Loading indicator — only show when ACTUALLY buffering or during
+        // initial load (before the video has a duration).
+        // CRITICAL: Do NOT show the spinner just because !isPlaying — that
+        // fires when the user manually pauses, making it look like the video
+        // is loading when it's just paused. Only show when:
+        //   - buffering == true (network stall / paused-for-cache), OR
+        //   - loadingState == LOADING AND duration == 0 (initial load, video
+        //     hasn't started yet)
+        if (buffering || (loadingState == PlayerLoadingState.LOADING && duration == 0)) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,

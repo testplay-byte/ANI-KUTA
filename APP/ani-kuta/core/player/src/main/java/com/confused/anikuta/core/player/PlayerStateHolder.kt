@@ -68,6 +68,14 @@ class PlayerStateHolder {
     var httpError: String? = null
         private set
 
+    // ── Auto-retry tracking ──
+    // When an error occurs, the player auto-retries the same URL once before
+    // showing the error banner. This flag tracks whether the auto-retry has
+    // been attempted. Reset when a new video is loaded (setSwitching(true)).
+    @Volatile
+    var autoRetryAttempted: Boolean = false
+        private set
+
     // ── Playback state ──
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -184,7 +192,26 @@ class PlayerStateHolder {
             _errorMessage.value = null
             httpError = null
             _loadingState.value = PlayerLoadingState.LOADING
+            // Reset auto-retry flag for the new video.
+            autoRetryAttempted = false
         }
+    }
+
+    /**
+     * Mark that an auto-retry has been attempted (so we don't retry infinitely).
+     */
+    fun markAutoRetryAttempted() {
+        autoRetryAttempted = true
+    }
+
+    /**
+     * Clear the error WITHOUT clearing the switching flag (used by auto-retry
+     * before re-sending loadfile).
+     */
+    fun clearErrorForRetry() {
+        _errorMessage.value = null
+        httpError = null
+        _loadingState.value = PlayerLoadingState.LOADING
     }
 
     /**

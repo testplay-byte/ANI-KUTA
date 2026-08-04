@@ -209,13 +209,24 @@ class PlayerObserver(
             else -> Logger.v(TAG) { "MPV [$prefix]: $text" }
         }
 
-        // Capture HTTP errors for the efEvent message.
+        // Capture specific errors for the efEvent message — gives the user
+        // a actionable error instead of just "loading failed".
         val lowerText = text.lowercase()
-        if (lowerText.contains("http error") || lowerText.contains("403") ||
-            lowerText.contains("404") || lowerText.contains("connection refused") ||
-            lowerText.contains("network unreachable") || lowerText.contains("timed out")
-        ) {
-            stateHolder.setHttpError("[$prefix] $text")
+        when {
+            // TLS / SSL errors (app-side — usually a cacert.pem or config issue)
+            lowerText.contains("mbedtls") || lowerText.contains("tls:") || lowerText.contains("ssl") -> {
+                stateHolder.setHttpError("[$prefix] $text")
+            }
+            // HTTP status errors (source-side — server returned an error)
+            lowerText.contains("http error") || lowerText.contains("403") ||
+                lowerText.contains("404") || lowerText.contains("500") -> {
+                stateHolder.setHttpError("[$prefix] $text")
+            }
+            // Connection errors (network-side)
+            lowerText.contains("connection refused") || lowerText.contains("network unreachable") ||
+                lowerText.contains("timed out") || lowerText.contains("failed to open") -> {
+                stateHolder.setHttpError("[$prefix] $text")
+            }
         }
     }
 

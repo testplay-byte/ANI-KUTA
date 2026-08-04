@@ -92,12 +92,26 @@ class AnikutaMPVView(
         MPVLib.setPropertyBoolean("input-default-bindings", true)
 
         MPVLib.setOptionString("ytdl", "no")
-        // TLS: cacert.pem (Mozilla CA bundle) is copied to the mpv config dir
-        // root by PlayerInitializer.copyAssets(). Required for HTTPS subtitle
-        // downloads.
-        MPVLib.setOptionString("tls-verify", "yes")
-        MPVLib.setOptionString("tls-ca-file", "${context.filesDir.path}/$MPV_DIR/cacert.pem")
-        Logger.i(TAG) { "Set tls-verify=yes, tls-ca-file=${context.filesDir.path}/$MPV_DIR/cacert.pem" }
+        // TLS: only set tls-ca-file if a valid (non-empty) cacert.pem exists.
+        // CRITICAL: an empty or corrupt cacert.pem causes mbedTLS to fail with
+        // MBEDTLS_ERR_X509_INVALID_FORMAT (-8576) and NOT fall back to system
+        // CAs → ALL HTTPS streams fail. If the file is missing, mbedTLS gets
+        // FILE_IO_ERROR and falls back to the system CA store (which works on
+        // Android). This matches the old project's behavior (it never had a
+        // cacert.pem in assets — copyAssets skipped it, and mbedTLS fell back).
+        val cacertFile = java.io.File("${context.filesDir.path}/$MPV_DIR/cacert.pem")
+        if (cacertFile.exists() && cacertFile.length() > 0) {
+            MPVLib.setOptionString("tls-verify", "yes")
+            MPVLib.setOptionString("tls-ca-file", cacertFile.absolutePath)
+            Logger.i(TAG) { "Set tls-verify=yes, tls-ca-file=${cacertFile.absolutePath} (${cacertFile.length()} bytes)" }
+        } else {
+            // No valid cacert.pem — let mbedTLS use the system CA store.
+            // tls-verify=yes is still safe: mbedTLS falls back to system CAs
+            // when no ca-file is specified (on Android, the system store is
+            // accessible via conscrypt/KeyStore).
+            MPVLib.setOptionString("tls-verify", "yes")
+            Logger.i(TAG) { "tls-verify=yes, no cacert.pem (using system CA store fallback)" }
+        }
 
         // ── Demuxer cache — 256MB on Android 8.1+, 128MB on older ──
         val cacheMegs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) 256 else 128

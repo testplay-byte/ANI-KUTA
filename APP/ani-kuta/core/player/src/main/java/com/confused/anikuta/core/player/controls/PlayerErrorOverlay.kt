@@ -1,5 +1,10 @@
 package com.confused.anikuta.core.player.controls
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -28,153 +32,115 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 /**
- * Inline error overlay rendered directly on the player surface (NOT a popup).
+ * Non-intrusive error banner — replaces the old full-screen PlayerErrorOverlay
+ * "dialog box".
  *
- * Per user spec: "Don't show up a pop-up or anything like that. It can show
- * directly on the video player itself and it could give a close button option."
+ * Design:
+ *  - Bottom-aligned, small height (not full-screen).
+ *  - Semi-transparent dark background so the video surface is still visible.
+ *  - Shows the error message (truncated to 2 lines).
+ *  - Retry button (circular) + Close button (circular).
+ *  - Slides in from the bottom (smooth animation per CORE_RULES §22).
  *
- * Layout:
- * - Full-screen dark background (fills the player surface)
- * - Centered error card with:
- *   - Red error icon
- *   - "Playback Error" title
- *   - Error message in a muted surface
- *   - Close (X) button in top-right of the card
- *   - Retry button at the bottom
+ * The user explicitly said: "The error dialog box is not the way to go. I don't
+ * want you to show an error dialog box inside the video player itself and the
+ * errors should be much better handled and managed."
  *
- * @param errorMessage The error message to display.
- * @param onRetry Called when the user taps "Retry" — re-loads the same URL.
- * @param onDismiss Called when the user taps the Close (X) button — just dismisses.
+ * This banner is non-intrusive: it doesn't block the video surface, doesn't
+ * prevent the user from tapping elsewhere, and can be dismissed with the X
+ * button. The auto-retry logic in WatchScreen handles most errors before this
+ * banner even appears.
  */
 @Composable
-fun PlayerErrorOverlay(
+fun PlayerErrorBanner(
     errorMessage: String,
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.9f)),
-        contentAlignment = Alignment.Center,
+    AnimatedVisibility(
+        visible = true,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = modifier,
     ) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 40.dp),
+            color = Color.Black.copy(alpha = 0.85f),
+            shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                // ── Close button (top-right) ──
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
+                // Error icon
+                Icon(
+                    imageVector = Icons.Default.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                // Error message (truncated)
+                Column(
+                    modifier = Modifier.weight(1f),
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(32.dp)
-                            .clickable { onDismiss() },
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
+                    Text(
+                        text = "Playback error",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = errorMessage,
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 11.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-
-                // ── Error icon ──
+                Spacer(modifier = Modifier.width(8.dp))
+                // Retry button
                 Surface(
+                    color = MaterialTheme.colorScheme.primary,
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.size(56.dp),
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clickable(onClick = onRetry),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Default.ErrorOutline,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-
-                // ── Title ──
-                Text(
-                    text = "Playback Error",
-                    fontFamily = RobotoFamily,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(8.dp))
-
-                // ── Error message ──
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = errorMessage,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                    )
-                }
-                Spacer(Modifier.height(24.dp))
-
-                // ── Retry button ──
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .clickable { onRetry() },
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        Icon(
                             imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
+                            contentDescription = "Retry",
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(18.dp),
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "Retry",
-                            fontFamily = RobotoFamily,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                    }
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                // Close button
+                Surface(
+                    color = Color.White.copy(alpha = 0.2f),
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clickable(onClick = onDismiss),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
