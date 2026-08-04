@@ -224,7 +224,6 @@ fun ResolverSheet(
                         // Collapsible server accordion
                         ServerAccordion(
                             servers = servers,
-                            videos = resolverState.videos,
                             onPickVideo = { resolverVideo ->
                                 // Find the matching flat ResolvedVideo by URL.
                                 // The accordion uses ResolverVideo (structured) but
