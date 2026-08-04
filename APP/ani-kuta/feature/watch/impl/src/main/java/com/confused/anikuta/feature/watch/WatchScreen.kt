@@ -274,6 +274,56 @@ fun WatchScreen(
         }
     }
 
+    // ── Fatal-error watchdog (15s after video starts playing) ──
+    // Catches HLS demuxer errors that don't trigger END_FILE (e.g. "error reading
+    // packet: Invalid argument" → "treating it as fatal error"). These leave the
+    // player stuck: position stays at 0 (or stuck at duration-2) with no error.
+    // After 15s of "stuck", we show "This server is not responding" so the user
+    // can retry or switch server.
+    // Conditions: duration > 0 (video loaded), not playing, no error already shown,
+    // and either position == 0 OR position >= duration - 2.
+    LaunchedEffect(isPlaying, duration, position) {
+        if (duration > 0 && !isPlaying && stateHolder.errorMessage.value == null && !stateHolder.isSwitching.value) {
+            val stuck = position == 0 || position >= duration - 2
+            if (stuck) {
+                delay(15_000L)
+                // Re-check after delay — if still stuck, show error
+                if (duration > 0 && !stateHolder.isPlaying.value &&
+                    stateHolder.errorMessage.value == null && !stateHolder.isSwitching.value &&
+                    (stateHolder.position.value == 0 || stateHolder.position.value >= duration - 2)
+                ) {
+                    Logger.w(TAG) { "Fatal-error watchdog: video stuck for 15s" }
+                    stateHolder.setSwitchingError("This server is not responding. Try another server or quality.")
+                }
+            }
+        }
+    }
+
+    // ── App-exit pause / resume ──
+    // Pause playback when the app goes to background (ON_STOP) and resume when
+    // it returns to foreground (ON_START). Uses LifecycleEventObserver to match
+    // the old project's behavior. ON_STOP/ON_START (not ON_PAUSE/ON_RESUME) so
+    // multi-window focus changes don't trigger a pause.
+    DisposableEffect(Unit) {
+        val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
+                    Logger.i(TAG) { "App backgrounded — pausing playback" }
+                    runCatching { MPVLib.setPropertyBoolean("pause", true) }
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    Logger.i(TAG) { "App foregrounded" }
+                    // Don't auto-resume — let the user tap play. This matches the
+                    // old project's default (resumeOnAppReturn pref can be added later).
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // ── Periodic watch progress save (every 10s) ──
     // Phase 5c capture-only: saves to InMemoryWatchProgressStore. Restore is
     // Phase 5e when the database is wired. Reads values directly from the state
@@ -467,6 +517,7 @@ fun WatchScreen(
     var showSubtitleSheet by remember { mutableStateOf(false) }
     var showQualitySheet by remember { mutableStateOf(false) }
     var showSubtitleSettingsSheet by remember { mutableStateOf(false) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
 
     // ── Retry handler — re-load the current video URL ──
     val onRetry: () -> Unit = {
@@ -533,6 +584,14 @@ fun WatchScreen(
         } catch (e: Exception) {
             Logger.w(TAG) { "Failed to set subtitle track: ${e.message}" }
         }
+    }
+
+    // ── Speed selection handler — applies live via setPropertyDouble ──
+    val onSpeedSelected: (Float) -> Unit = { speed ->
+        Logger.i(TAG) { "Speed → $speed" }
+        stateHolder.updatePlaybackSpeed(speed)
+        try { mpvView?.playbackSpeed = speed }
+        catch (e: Exception) { Logger.w(TAG) { "Failed to set speed: ${e.message}" } }
     }
 
     // ── Episode switch handler — re-resolve and load a different episode ──
@@ -643,6 +702,21 @@ fun WatchScreen(
         }
     }
 
+    // ── Skip forward (next episode) handler ──
+    // Finds the next episode in the list and switches to it. If there's no next
+    // episode, does nothing. Declared AFTER onEpisodeSwitch (Kotlin requires it).
+    val onSkipForward: () -> Unit = {
+        val currentUrl = stateHolder.currentEpisodeUrl.value
+        val currentIndex = episodeList.indexOfFirst { it.url == currentUrl }
+        if (currentIndex >= 0 && currentIndex < episodeList.size - 1) {
+            val nextEp = episodeList[currentIndex + 1]
+            Logger.i(TAG) { "Skip forward → episode ${nextEp.episodeNumber} (${nextEp.name})" }
+            onEpisodeSwitch(nextEp)
+        } else {
+            Logger.i(TAG) { "Skip forward — no next episode (at end of list)" }
+        }
+    }
+
     if (playerMode == PlayerMode.FULLSCREEN) {
         FullscreenMode(
             watchKey = watchKey,
@@ -656,10 +730,13 @@ fun WatchScreen(
             onBack = { stateHolder.updateMode(PlayerMode.MINIMIZED) },
             onQualityClick = { showQualitySheet = true },
             onSubtitleClick = { showSubtitleSheet = true },
+            onSpeedClick = { showSpeedSheet = true },
+            onSkipForward = onSkipForward,
             onRetry = onRetry,
             onDismissError = onDismissError,
             isSwitching = isSwitching,
             switchingEpisodeTitle = currentEpisodeTitle,
+            currentSpeed = stateHolder.playbackSpeed.collectAsState().value,
         )
     } else {
         MinimizedMode(
@@ -720,6 +797,14 @@ fun WatchScreen(
                 catch (e: Exception) { Logger.w(TAG) { "Failed to apply subtitle settings: ${e.message}" } }
             },
             onDismiss = { showSubtitleSettingsSheet = false },
+        )
+    }
+
+    if (showSpeedSheet) {
+        com.confused.anikuta.core.player.controls.SpeedSheet(
+            currentSpeed = stateHolder.playbackSpeed.value,
+            onSpeedSelected = onSpeedSelected,
+            onDismiss = { showSpeedSheet = false },
         )
     }
 }
@@ -900,7 +985,7 @@ private fun MinimizedMode(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp),
                     ) {
                         Text(
-                            text = "Currently playing episode ${formatEpisodeNumber(currentEpisodeNumber)}",
+                            text = "Currently playing episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(currentEpisodeNumber)}",
                             fontFamily = RobotoFamily,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -908,7 +993,8 @@ private fun MinimizedMode(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = currentEpisodeTitle.ifBlank { "Episode ${formatEpisodeNumber(currentEpisodeNumber)}" },
+                            text = com.confused.anikuta.core.common.EpisodeTitleParser
+                                .getDisplayTitle(currentEpisodeTitle, currentEpisodeNumber),
                             fontFamily = RobotoFamily,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -1005,10 +1091,13 @@ private fun FullscreenMode(
     onBack: () -> Unit,
     onQualityClick: () -> Unit = {},
     onSubtitleClick: () -> Unit = {},
+    onSpeedClick: () -> Unit = {},
+    onSkipForward: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
     isSwitching: Boolean = false,
     switchingEpisodeTitle: String = "",
+    currentSpeed: Float = 1.0f,
 ) {
     Box(
         modifier = Modifier
@@ -1033,11 +1122,14 @@ private fun FullscreenMode(
             onLockToggle = { stateHolder.updateControlsLocked(!stateHolder.controlsLocked.value) },
             onQualityClick = onQualityClick,
             onSubtitleClick = onSubtitleClick,
+            onSpeedClick = onSpeedClick,
+            onSkipForward = onSkipForward,
             onRetry = onRetry,
             onDismissError = onDismissError,
             animeTitle = watchKey.animeTitle,
             episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
             qualityInfo = watchKey.quality,
+            currentSpeed = currentSpeed,
         )
 
         // Episode switching overlay — shown over the fullscreen player while a
@@ -1087,6 +1179,15 @@ private fun EpisodeListRow(
     isCurrent: Boolean,
     onClick: () -> Unit,
 ) {
+    // Use EpisodeTitleParser to get a clean display title. This handles:
+    //  - "Episode 5 - Title" → "Title"
+    //  - Hashes/code-like names → "Episode N" (fallback)
+    //  - episode_number <= 0 → "?" (bad extension data)
+    val displayTitle = com.confused.anikuta.core.common.EpisodeTitleParser
+        .getDisplayTitle(episode.name, episode.episodeNumber)
+    val epNumText = com.confused.anikuta.core.common.EpisodeTitleParser
+        .formatEpisodeNumber(episode.episodeNumber)
+
     Surface(
         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -1109,7 +1210,7 @@ private fun EpisodeListRow(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = formatEpisodeNumber(episode.episodeNumber),
+                        text = epNumText,
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -1120,7 +1221,7 @@ private fun EpisodeListRow(
             }
             Spacer(Modifier.width(12.dp))
             Text(
-                text = episode.name,
+                text = displayTitle,
                 fontFamily = RobotoFamily,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
@@ -1162,8 +1263,7 @@ private fun ControlButton(
     }
 }
 
-private fun formatEpisodeNumber(num: Float): String = when {
-    num == num.toInt().toFloat() -> num.toInt().toString()
-    else -> num.toString()
+private fun formatEpisodeNumber(num: Float): String {
+    return com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(num)
 }
 
