@@ -274,32 +274,6 @@ fun WatchScreen(
         }
     }
 
-    // ── Auto-retry on error (non-switching errors only) ──
-    // When an error occurs (NOT during switching — switching errors are real
-    // failures), auto-retry the same URL once after 1.5s. This handles
-    // transient failures (network hiccup, brief TLS renegotiation) silently
-    // without showing the error banner. If the retry also fails, the error
-    // banner appears.
-    LaunchedEffect(errorMessage) {
-        if (errorMessage != null && !stateHolder.isSwitching.value && !stateHolder.autoRetryAttempted) {
-            Logger.i(TAG) { "Auto-retry: error occurred, retrying same URL in 1.5s..." }
-            stateHolder.markAutoRetryAttempted()
-            delay(1_500L)
-            // Clear the error + re-send loadfile.
-            stateHolder.clearErrorForRetry()
-            try {
-                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
-                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                MPVLib.setOptionString("http-header-fields", headers)
-                MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
-                Logger.i(TAG) { "Auto-retry: loadfile re-sent" }
-            } catch (e: Exception) {
-                Logger.e(TAG, e) { "Auto-retry failed" }
-                stateHolder.setSwitchingError("Retry failed: ${e.message}")
-            }
-        }
-    }
-
     // ── Periodic watch progress save (every 10s) ──
     // Phase 5c capture-only: saves to InMemoryWatchProgressStore. Restore is
     // Phase 5e when the database is wired. Reads values directly from the state
@@ -357,6 +331,34 @@ fun WatchScreen(
     var currentVideoHeaders by remember { mutableStateOf(watchKey.videoHeaders) }
     var currentServerName by remember { mutableStateOf("") }
     var currentAudioVersion by remember { mutableStateOf("") }
+
+    // ── Auto-retry on error (non-switching errors only) ──
+    // When an error occurs (NOT during switching — switching errors are real
+    // failures), auto-retry the same URL once after 1.5s. This handles
+    // transient failures (network hiccup, brief TLS renegotiation) silently
+    // without showing the error banner. If the retry also fails, the error
+    // banner appears.
+    // NOTE: Must be declared AFTER currentVideoUrl/currentVideoHeaders (Kotlin
+    // requires variables to be declared before use).
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null && !stateHolder.isSwitching.value && !stateHolder.autoRetryAttempted) {
+            Logger.i(TAG) { "Auto-retry: error occurred, retrying same URL in 1.5s..." }
+            stateHolder.markAutoRetryAttempted()
+            delay(1_500L)
+            // Clear the error + re-send loadfile.
+            stateHolder.clearErrorForRetry()
+            try {
+                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                MPVLib.setOptionString("http-header-fields", headers)
+                MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+                Logger.i(TAG) { "Auto-retry: loadfile re-sent" }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Auto-retry failed" }
+                stateHolder.setSwitchingError("Retry failed: ${e.message}")
+            }
+        }
+    }
 
     // ── Init MPV + load video (once) ──
     val initMpv: (AnikutaMPVView) -> Unit = remember {
