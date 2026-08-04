@@ -63,6 +63,14 @@ class PlayerStateHolder {
     private val _isSwitching = MutableStateFlow(false)
     val isSwitching: StateFlow<Boolean> = _isSwitching.asStateFlow()
 
+    // ── Episode-switch-specific flag (shows the "Loading episode..." overlay) ──
+    // Quality/server switches set isSwitching (for error suppression) but NOT
+    // isSwitchingEpisode (no overlay). Episode switches set BOTH. This way,
+    // quality switches don't show the "Loading episode..." overlay — they just
+    // show the buffering spinner.
+    private val _isSwitchingEpisode = MutableStateFlow(false)
+    val isSwitchingEpisode: StateFlow<Boolean> = _isSwitchingEpisode.asStateFlow()
+
     // ── HTTP error captured from MPV logs (appended to efEvent message) ──
     @Volatile
     var httpError: String? = null
@@ -183,6 +191,9 @@ class PlayerStateHolder {
      * Set the switching flag. When true, efEvent errors are suppressed.
      * Cleared on FILE_LOADED (the new file successfully started) or by
      * [setSwitchingError] when a switch fails.
+     *
+     * For quality/server switches, call this WITHOUT [setSwitchingEpisode] —
+     * the overlay won't show, just the buffering spinner.
      */
     fun setSwitching(switching: Boolean) {
         Logger.d(TAG) { "Switching → $switching" }
@@ -194,7 +205,21 @@ class PlayerStateHolder {
             _loadingState.value = PlayerLoadingState.LOADING
             // Reset auto-retry flag for the new video.
             autoRetryAttempted = false
+        } else {
+            // Also clear episode-switch flag when clearing switching.
+            _isSwitchingEpisode.value = false
         }
+    }
+
+    /**
+     * Set the episode-switch flag. When true, the EpisodeSwitchingOverlay
+     * ("Loading episode...") is shown. Call this IN ADDITION to [setSwitching]
+     * for episode switches. Quality/server switches should NOT call this —
+     * they just show the buffering spinner.
+     */
+    fun setSwitchingEpisode(switching: Boolean) {
+        Logger.d(TAG) { "SwitchingEpisode → $switching" }
+        _isSwitchingEpisode.value = switching
     }
 
     /**
@@ -228,6 +253,7 @@ class PlayerStateHolder {
     fun setSwitchingError(message: String) {
         Logger.w(TAG) { "Switching error: $message" }
         _isSwitching.value = false
+        _isSwitchingEpisode.value = false
         val fullMessage = if (httpError != null) {
             "$message\nHTTP: $httpError"
         } else {

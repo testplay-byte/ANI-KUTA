@@ -31,22 +31,31 @@ object EpisodeTitleParser {
      * Detect strings that look like hashes, URLs, or code (not human-readable names).
      *
      * A name is "ugly" if:
-     *  - It's a long hex string (>20 chars, no spaces, mostly hex chars)
-     *  - It looks like a URL path (starts with "/" or contains "://")
-     *  - It's a long alphanumeric string with no spaces (>25 chars)
+     *  - It's a URL path (starts with "/" or contains "://")
+     *  - It's a long alphanumeric string with no spaces (>15 chars)
+     *  - It's all-uppercase + digits with no spaces (>10 chars) — like "DGFV024L2R0V2IXL0F1"
+     *  - It's mostly hex (>15 chars, >70% hex chars) — like a SHA hash
      */
     private fun looksLikeCodeOrHash(name: String): Boolean {
         if (name.isBlank()) return false
         val trimmed = name.trim()
         // URL-like
         if (trimmed.startsWith("/") || trimmed.contains("://")) return true
-        // Long string with no spaces
-        if (trimmed.length > 25 && !trimmed.contains(" ")) {
-            // Check if it's mostly hex (hash-like)
-            val hexCount = trimmed.count { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
-            if (hexCount >= trimmed.length * 0.7) return true
+        // All-uppercase + digits, no spaces, >10 chars (e.g. "DGFV024L2R0V2IXL0F1")
+        if (trimmed.length > 10 && !trimmed.contains(" ")) {
+            val hasLower = trimmed.any { it in 'a'..'z' }
+            val hasUpper = trimmed.any { it in 'A'..'Z' }
+            val hasDigit = trimmed.any { it in '0'..'9' }
+            // All-caps + digits (no lowercase) = likely a code/ID
+            if (hasUpper && hasDigit && !hasLower) return true
             // Long alphanumeric with no spaces = likely code
-            return true
+            if (trimmed.length > 15) {
+                // Check if it's mostly hex (hash-like)
+                val hexCount = trimmed.count { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+                if (hexCount >= trimmed.length * 0.7) return true
+                // Long alphanumeric with no spaces = likely code
+                return true
+            }
         }
         return false
     }
@@ -90,13 +99,18 @@ object EpisodeTitleParser {
     }
 
     /**
-     * Format an episode number: 5.0 → "5", 5.5 → "5.5", 0 or negative → "?".
+     * Format an episode number: 5.0 → "5", 5.5 → "5.5", 0 or negative → "?",
+     * unreasonably large (>1000, likely a timestamp/ID) → "?".
      *
-     * The "?" fallback handles extensions that return 0 or -1 for episode_number
-     * (which would otherwise show "0" or "-1" — confusing for the user).
+     * The "?" fallback handles extensions that return 0, -1, or timestamps/IDs
+     * (like 1784388992) for episode_number — which would otherwise show a
+     * confusing 10-digit number to the user.
      */
     fun formatEpisodeNumber(episodeNumber: Float): String {
         if (episodeNumber <= 0f) return "?"
+        // Unreasonably large — probably a timestamp or ID, not a real episode number.
+        // Real episode numbers are typically 1-100 (up to ~1000 for long-running series).
+        if (episodeNumber > 1000f) return "?"
         return if (episodeNumber % 1f == 0f) {
             episodeNumber.toInt().toString()
         } else {

@@ -40,6 +40,7 @@ After completing a task, give the user a **short summary**:
 - Use **multiple empty lines** for spacing where one line isn't enough.
 - Lead with the **key outcome**. Then what changed. Then what's next.
 - Reference file paths, not file contents (the user opens files if they want detail).
+- **Test checklist**: After implementing improvements/fixes, ALWAYS provide a **test checklist** the user can follow to verify each fix on their device. Format: grouped by category (e.g. Playback, Error Handling, Episode Switching), each item as a checkbox `[ ]` with a clear description of what to test + what the expected result is. The user tests, reports back (✅/❌/⚠️), and the agent fixes any remaining issues. This closes the feedback loop and ensures nothing is missed.
 
 ---
 

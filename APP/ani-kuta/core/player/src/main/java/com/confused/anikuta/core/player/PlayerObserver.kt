@@ -161,6 +161,16 @@ class PlayerObserver(
                 // Load external tracks (sub-add / audio-add) BEFORE reading the
                 // track list — external tracks need to be registered first.
                 loadExternalTracks()
+                // SAFETY: Also schedule a delayed track reload 2s later. Some
+                // formats (especially HLS with separate subtitle tracks) take
+                // a moment to fully parse. If the first loadTracksFromMpv()
+                // runs before MPV has finished parsing, the track list is empty.
+                // This retry catches that case.
+                scope.launch {
+                    delay(2_000L)
+                    Logger.d(TAG) { "Delayed track reload (2s safety)" }
+                    loadTracksFromMpv()
+                }
             }
             MPV_EVENT_START_FILE -> {
                 Logger.i(TAG) { "Start file — loading" }
@@ -317,11 +327,19 @@ class PlayerObserver(
      * Safe to call from any thread — StateFlow is thread-safe.
      */
     private fun loadTracksFromMpv() {
-        val view = mpvView ?: return
+        val view = mpvView
+        if (view == null) {
+            Logger.w(TAG) { "loadTracksFromMpv: mpvView is null — skipping" }
+            return
+        }
         try {
+            val trackCount = view.getTrackCount()
             val (subs, audio) = view.loadTracks()
             stateHolder.updateTracks(subs, audio)
-            Logger.d(TAG) { "Loaded ${subs.size} sub tracks, ${audio.size} audio tracks" }
+            Logger.i(TAG) { "Tracks loaded: ${subs.size} subs, ${audio.size} audio (MPV track-list/count=$trackCount)" }
+            if (subs.isEmpty() && audio.isEmpty() && trackCount == 0) {
+                Logger.w(TAG) { "No tracks detected — video may not have embedded subtitles. External subs need sub-add (see loadExternalTracks)." }
+            }
         } catch (e: Exception) {
             Logger.w(TAG) { "Failed to load tracks: ${e.message}" }
         }

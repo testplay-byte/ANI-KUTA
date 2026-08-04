@@ -180,6 +180,7 @@ fun WatchScreen(
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
     val errorMessage by stateHolder.errorMessage.collectAsState()
     val isSwitching by stateHolder.isSwitching.collectAsState()
+    val isSwitchingEpisode by stateHolder.isSwitchingEpisode.collectAsState()
     val currentEpisodeUrl by stateHolder.currentEpisodeUrl.collectAsState()
     val currentEpisodeNumber by stateHolder.currentEpisodeNumber.collectAsState()
     val currentEpisodeTitle by stateHolder.currentEpisodeTitle.collectAsState()
@@ -385,24 +386,28 @@ fun WatchScreen(
     // ── Auto-retry on error (non-switching errors only) ──
     // When an error occurs (NOT during switching — switching errors are real
     // failures), auto-retry the same URL once after 1.5s. This handles
-    // transient failures (network hiccup, brief TLS renegotiation) silently
-    // without showing the error banner. If the retry also fails, the error
-    // banner appears.
-    // NOTE: Must be declared AFTER currentVideoUrl/currentVideoHeaders (Kotlin
-    // requires variables to be declared before use).
+    // transient failures (network hiccup, brief TLS renegotiation) silently.
+    //
+    // CRITICAL: Do NOT clear the error during auto-retry. The banner stays
+    // visible so the user knows something is wrong. If the retry succeeds,
+    // FILE_LOADED clears the error (banner disappears). If the retry fails,
+    // the error stays (or gets updated with the new efEvent message).
+    // The user explicitly said: "it should always show and it should not
+    // automatically disappear out of the blue."
     LaunchedEffect(errorMessage) {
         if (errorMessage != null && !stateHolder.isSwitching.value && !stateHolder.autoRetryAttempted) {
             Logger.i(TAG) { "Auto-retry: error occurred, retrying same URL in 1.5s..." }
             stateHolder.markAutoRetryAttempted()
             delay(1_500L)
-            // Clear the error + re-send loadfile.
-            stateHolder.clearErrorForRetry()
+            // Re-send loadfile WITHOUT clearing the error. The banner stays visible.
+            // If this succeeds, FILE_LOADED clears the error. If it fails, efEvent
+            // updates the error (or it stays as-is).
             try {
                 val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                     else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                 MPVLib.setOptionString("http-header-fields", headers)
                 MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
-                Logger.i(TAG) { "Auto-retry: loadfile re-sent" }
+                Logger.i(TAG) { "Auto-retry: loadfile re-sent (banner stays visible)" }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Auto-retry failed" }
                 stateHolder.setSwitchingError("Retry failed: ${e.message}")
@@ -607,8 +612,19 @@ fun WatchScreen(
             Logger.w(TAG) { "Cannot switch episode — source not available (sourceId=${watchKey.sourceId})" }
             stateHolder.setSwitchingError("Cannot switch episode: source not available")
         } else {
-            // Set switching flag so efEvent from old file doesn't show a spurious error.
+            // CRITICAL: STOP the current video IMMEDIATELY so the user doesn't
+            // hear/see the old episode playing while the new one resolves.
+            // The user explicitly said: "As soon as the user clicks on another
+            // episode, the currently playing one should immediately stop all of
+            // its actions."
+            runCatching { MPVLib.command(arrayOf("stop")) }
+            Logger.i(TAG) { "Stopped current playback for episode switch" }
+
+            // Set switching flags: isSwitching (error suppression) + isSwitchingEpisode
+            // (shows the "Loading episode..." overlay). Quality switches only set
+            // isSwitching (no overlay) — episode switches set BOTH.
             stateHolder.setSwitching(true)
+            stateHolder.setSwitchingEpisode(true)
 
             // CRITICAL: Update the episode title IMMEDIATELY (before resolve)
             // so the EpisodeSwitchingOverlay shows the NEW episode's name during
@@ -734,7 +750,7 @@ fun WatchScreen(
             onSkipForward = onSkipForward,
             onRetry = onRetry,
             onDismissError = onDismissError,
-            isSwitching = isSwitching,
+            isSwitchingEpisode = isSwitchingEpisode,
             switchingEpisodeTitle = currentEpisodeTitle,
             currentSpeed = stateHolder.playbackSpeed.collectAsState().value,
         )
@@ -756,7 +772,7 @@ fun WatchScreen(
             onRetry = onRetry,
             onDismissError = onDismissError,
             onEpisodeSwitch = onEpisodeSwitch,
-            isSwitching = isSwitching,
+            isSwitchingEpisode = isSwitchingEpisode,
             switchingEpisodeTitle = currentEpisodeTitle,
             currentEpisodeUrl = currentEpisodeUrl,
             currentEpisodeNumber = currentEpisodeNumber,
@@ -831,7 +847,7 @@ private fun MinimizedMode(
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
     onEpisodeSwitch: (SimpleEpisode) -> Unit = {},
-    isSwitching: Boolean = false,
+    isSwitchingEpisode: Boolean = false,
     switchingEpisodeTitle: String = "",
     currentEpisodeUrl: String = "",
     currentEpisodeNumber: Float = 0f,
@@ -957,9 +973,9 @@ private fun MinimizedMode(
                 )
 
                 // Episode switching overlay — shown over the player while a new
-                // episode resolves + loads. Covers the video so the user sees a
-                // clear loading state instead of a frozen frame.
-                if (isSwitching) {
+                // episode resolves + loads. ONLY shown for episode switches (not
+                // quality/server switches — those just show the buffering spinner).
+                if (isSwitchingEpisode) {
                     EpisodeSwitchingOverlay(
                         episodeTitle = switchingEpisodeTitle.ifBlank { null },
                     )
@@ -1095,7 +1111,7 @@ private fun FullscreenMode(
     onSkipForward: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
-    isSwitching: Boolean = false,
+    isSwitchingEpisode: Boolean = false,
     switchingEpisodeTitle: String = "",
     currentSpeed: Float = 1.0f,
 ) {
@@ -1133,8 +1149,9 @@ private fun FullscreenMode(
         )
 
         // Episode switching overlay — shown over the fullscreen player while a
-        // new episode resolves + loads. Covers the video + controls.
-        if (isSwitching) {
+        // new episode resolves + loads. ONLY shown for episode switches (not
+        // quality/server switches).
+        if (isSwitchingEpisode) {
             EpisodeSwitchingOverlay(
                 episodeTitle = switchingEpisodeTitle.ifBlank { null },
             )
