@@ -700,3 +700,12 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
 - **Date:** Phase 5c (session web-f53f0459).
 - **Sub-agent:** METADATA-RESEARCH (old project analysis).
+
+### D-109 — CRITICAL: Handle PLAYBACK_RESTART as FILE_LOADED fallback for subtitles
+- **What:** Added `MPV_EVENT_PLAYBACK_RESTART` (17) handler to `PlayerObserver.onEvent()`. When PLAYBACK_RESTART fires and `isSwitching` is still true or `bufferedEnough` is false, it: clears switching flag, clears error, sets READY, loads external subtitle tracks (sub-add), reloads track list, schedules 5s delayed safety reload.
+- **Why:** User logs showed that for some HLS streams, MPV fires event 8 (FILE_ERROR) instead of event 11 (FILE_LOADED). Since FILE_LOADED never fires, `loadExternalTracks()` never runs → `sub-add` is never sent → subtitles don't load. However, the video DOES play — event 17 (PLAYBACK_RESTART) fires right after event 8, meaning playback actually started. The old project doesn't have this issue because it gets FILE_LOADED. This is the root cause of all subtitle failures.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Evidence:** User log comparison showed:
+  - New project: `FILE_ERROR (8)` at 17:39:49.893, `PLAYBACK_RESTART (17)` at 17:39:49.894 — no FILE_LOADED
+  - Old project: `MPV_EVENT_FILE_LOADED` at 17:38:12.395, `sub-add` at 17:38:12.433 — subtitles loaded
