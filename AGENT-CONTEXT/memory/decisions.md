@@ -770,3 +770,19 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User: "The watch page episode list should show the episode metadata properly... Each individual episode is a thumbnail, its title, the description, the sub and dub availability, and the download button. The details below the video player should show the full info of the currently playing episode."
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-120 — Extension details page Phase A (MVP) — UnifiedAnime + sealed NavKey + providers
+- **What:** Implemented Phase A of the extension details page architecture:
+  1. `UnifiedAnime` model in `:core:common` — source-agnostic, all fields nullable except title. Has `displayName`, `temporaryContentId`, `isExtensionOnly`, `isFromExtension` properties.
+  2. `AnimeDetailsProvider` interface + `AnimeDetailsProviderRegistry` in `:core:common` — modular provider pattern (AniList + Extension providers, registered via Koin with named qualifiers).
+  3. `AniListDetailsProvider` in `:core:anilist` — `fetchFromAniList()` + `mergeInto()` for auto-link + `AniListAnime.toUnifiedAnime()` mapper.
+  4. `ExtensionDetailsProvider` in `:data:extension` — `fetchFromExtension()` calls `source.getAnimeDetails()`, catches Throwable, falls back to sparse data + `SAnime.toUnifiedAnime()` mapper.
+  5. `AnimeDetailsKey` changed to sealed interface: `AniList(animeId)` + `Extension(sourceId, animeUrl, title, thumbnailUrl)`, both `@Serializable`.
+  6. `DetailsViewModel`: added `loadFromAniList()` + `loadFromExtension()`. `DetailsState.Success` now holds `UnifiedAnime` (not `AniListAnime`).
+  7. `DetailsScreen`: accepts `detailsKey: AnimeDetailsKey` (was `animeId: Int`). `DetailBanner` + `InfoSection` use `UnifiedAnime`.
+  8. `SearchScreen`: `onNavigateToExtensionAnime` callback now passes `(sourceId, url, title, thumbnailUrl)` — wired in `MainActivity`.
+  9. `BrowseScreen`, `LibraryScreen`: updated to use `AnimeDetailsKey.AniList(...)`.
+- **Why:** User: "Currently we are only able to open up the details page from AniList... If the user goes to the search page and switches to the extension and tries to open up an anime from there, then he cannot open up the anime from there."
+- **Status:** ✅ Implemented (Phase 5d, session web-f53f0459). CI green.
+- **Date:** Phase 5d (session web-f53f0459).
+- **Not yet implemented:** Phase B (auto-link, SmartMatcher, manual link sheet), Phase C (contentId system).
