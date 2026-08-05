@@ -51,6 +51,7 @@ dependencies {
     implementation(project(":core:metadata"))
     implementation(project(":core:tracker-api"))
     implementation(project(":core:tracker-anilist"))
+    implementation(project(":core:smart-matcher"))
 
     // Data modules
     implementation(project(":data:extension"))

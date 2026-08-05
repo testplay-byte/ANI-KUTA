@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:source-api"))
     implementation(project(":core:video-resolver"))
+    implementation(project(":core:smart-matcher"))
     implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))

@@ -4,9 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.anilist.provider.AniListDetailsProvider
 import com.confused.anikuta.core.anilist.provider.toUnifiedAnime
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.common.model.UnifiedAnime
+import com.confused.anikuta.core.preferences.AutoLinkPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
+import com.confused.anikuta.core.smartmatcher.AutoLinkResult
+import com.confused.anikuta.core.smartmatcher.AutoLinkService
 import com.confused.anikuta.core.videoresolver.ResolvedVideo
 import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
 import com.confused.anikuta.core.videoresolver.ResolverServer
@@ -36,14 +41,15 @@ import kotlinx.coroutines.withContext
  *    SAnime and links it. The link is persisted per-anilist-id.
  * 3. Episode fetching — once a source is linked, fetches the episode list.
  * 4. Video resolution — when the user taps an episode, resolves available videos.
+ * 5. **Auto-link (Phase B)** — for extension entries, searches AniList by title
+ *    and merges metadata if a match is found. Falls back to a manual link sheet.
  *
- * Architecture (Phase 5B — temporary):
- * - Uses `AniListAnime` for metadata (not `UnifiedAnime` — that's Phase 5d).
- * - Source linking stored in PreferenceStore as a JSON-ish string keyed by
- *   `"details_source_link:$anilistId"` → `"$sourceId:$animeUrl"`.
- *   Phase 5d will migrate this to ContentUID + ExternalReference.
- * - Episode list is NOT persisted — re-fetched on each Details open. Phase 5e
- *   will add caching + new-episode detection.
+ * ## Auto-link flow (Phase B)
+ * - `loadFromExtension()` → fetches extension details → kicks off `performAutoLink()`.
+ * - `performAutoLink()` → checks per-source setting → cache check → AniList search →
+ *   SmartMatcher → on match, merges AniList data via `AniListDetailsProvider.mergeInto()`.
+ * - On NoMatch → UI shows `ManualLinkSheet` (user picks the right AniList entry).
+ * - On Skipped (auto-link disabled) → UI stays on extension data only.
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Feature:Details".
  * CORE_RULES §23: Reactive state (StateFlow).
@@ -55,6 +61,9 @@ class DetailsViewModel(
     private val videoResolver: VideoResolver,
     private val episodeMetadataFetcher: com.confused.anikuta.core.metadata.EpisodeMetadataFetcher,
     private val extensionProvider: com.confused.anikuta.data.extension.provider.ExtensionDetailsProvider,
+    private val anilistProvider: AniListDetailsProvider,
+    private val autoLinkService: AutoLinkService,
+    private val autoLinkPreferences: AutoLinkPreferences,
 ) : ViewModel() {
 
     companion object {
@@ -75,7 +84,7 @@ class DetailsViewModel(
     private val _linkedSource = MutableStateFlow<LinkedSource?>(null)
     val linkedSource: StateFlow<LinkedSource?> = _linkedSource.asStateFlow()
 
-    /** Manual search state. */
+    /** Manual search state (for source linking — AniList entries only). */
     private val _manualSearchState = MutableStateFlow<ManualSearchState>(ManualSearchState.Idle)
     val manualSearchState: StateFlow<ManualSearchState> = _manualSearchState.asStateFlow()
 
@@ -95,6 +104,24 @@ class DetailsViewModel(
     private val _resolvedVideosKey = MutableStateFlow("")
     val resolvedVideosKey: StateFlow<String> = _resolvedVideosKey.asStateFlow()
 
+    // ── Phase B: Auto-link state ──
+
+    /** Auto-link state — tracks the auto-linking lifecycle for extension entries. */
+    private val _autoLinkState = MutableStateFlow<AutoLinkState>(AutoLinkState.Idle)
+    val autoLinkState: StateFlow<AutoLinkState> = _autoLinkState.asStateFlow()
+
+    /** AniList search state for the manual link sheet. */
+    private val _anilistSearchState = MutableStateFlow<AniListSearchState>(AniListSearchState.Idle)
+    val anilistSearchState: StateFlow<AniListSearchState> = _anilistSearchState.asStateFlow()
+
+    /**
+     * Whether the manual link sheet should be shown.
+     * Set to true when auto-link returns NoMatch (or user taps "Link to AniList" in the menu).
+     * Set to false when the user picks/skips/dismisses.
+     */
+    private val _showManualLinkSheet = MutableStateFlow(false)
+    val showManualLinkSheet: StateFlow<Boolean> = _showManualLinkSheet.asStateFlow()
+
     private var currentAnimeId: Int = 0
 
     // ── Load from AniList (existing flow) ──
@@ -102,6 +129,9 @@ class DetailsViewModel(
     fun loadFromAniList(animeId: Int) {
         currentAnimeId = animeId
         _state.value = DetailsState.Loading
+        _autoLinkState.value = AutoLinkState.Idle
+        _showManualLinkSheet.value = false
+        _anilistSearchState.value = AniListSearchState.Idle
         viewModelScope.launch {
             try {
                 val anime = anilistApi.fetchAnimeDetails(animeId)
@@ -117,16 +147,18 @@ class DetailsViewModel(
         }
     }
 
-    // ── Load from Extension (new flow) ──
+    // ── Load from Extension (Phase A + Phase B auto-link) ──
 
     fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?) {
-        currentAnimeId = 0 // No AniList ID yet
+        currentAnimeId = 0 // No AniList ID yet — will be set by auto-link if it matches.
         _state.value = DetailsState.Loading
+        _autoLinkState.value = AutoLinkState.Idle
+        _showManualLinkSheet.value = false
+        _anilistSearchState.value = AniListSearchState.Idle
         viewModelScope.launch {
             try {
                 // Use the ExtensionDetailsProvider to fetch full details.
-                val provider = extensionProvider
-                val unifiedAnime = provider?.fetchFromExtension(sourceId, animeUrl, title, thumbnailUrl)
+                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, thumbnailUrl)
 
                 if (unifiedAnime != null) {
                     Logger.i(TAG) { "Loaded extension details: $title from source $sourceId" }
@@ -134,6 +166,9 @@ class DetailsViewModel(
 
                     // Fetch episodes from the extension source directly.
                     fetchEpisodesFromSource(sourceId, animeUrl, title)
+
+                    // ── Phase B: Kick off auto-link (non-blocking) ──
+                    performAutoLink(sourceId, animeUrl, unifiedAnime)
                 } else {
                     _state.value = DetailsState.Error("Failed to load extension details")
                 }
@@ -142,6 +177,202 @@ class DetailsViewModel(
                 _state.value = DetailsState.Error(e.message ?: "Unknown error")
             }
         }
+    }
+
+    // ── Phase B: Auto-link ──
+
+    /**
+     * Attempt to auto-link an extension entry to AniList.
+     *
+     * Delegates to [AutoLinkService]. On match/cached, merges AniList data into
+     * the current UnifiedAnime. On NoMatch, shows the manual link sheet.
+     */
+    private suspend fun performAutoLink(sourceId: Long, animeUrl: String, anime: UnifiedAnime) {
+        _autoLinkState.value = AutoLinkState.Searching
+        val title = anime.displayName
+        val year = anime.seasonYear
+
+        Logger.i(TAG) { "Auto-link started: sourceId=$sourceId, title='$title', year=$year" }
+
+        val result = autoLinkService.attemptAutoLink(sourceId, animeUrl, title, year)
+        when (result) {
+            is AutoLinkResult.Cached -> {
+                Logger.i(TAG) { "Auto-link cache HIT: anilistId=${result.anilistId}" }
+                mergeAniListIntoUnified(result.anilistId)
+                _autoLinkState.value = AutoLinkState.Matched(result.anilistId, 1.0f, cached = true)
+            }
+            is AutoLinkResult.Matched -> {
+                Logger.i(TAG) { "Auto-link MATCH: anilistId=${result.anilistId} (score=${result.score})" }
+                mergeAniListIntoUnified(result.anilistId)
+                _autoLinkState.value = AutoLinkState.Matched(result.anilistId, result.score, cached = false)
+            }
+            is AutoLinkResult.NoMatch -> {
+                Logger.i(TAG) { "Auto-link NO MATCH: best=${result.bestScore} — showing manual sheet" }
+                _autoLinkState.value = AutoLinkState.NoMatch(result.bestScore, result.searchedTitle)
+                _showManualLinkSheet.value = true
+            }
+            is AutoLinkResult.Skipped -> {
+                Logger.i(TAG) { "Auto-link SKIPPED: ${result.reason}" }
+                _autoLinkState.value = AutoLinkState.Skipped(result.reason)
+            }
+            is AutoLinkResult.Error -> {
+                Logger.e(TAG) { "Auto-link ERROR: ${result.message}" }
+                _autoLinkState.value = AutoLinkState.Error(result.message)
+            }
+        }
+    }
+
+    /**
+     * Merge AniList metadata into the current UnifiedAnime.
+     *
+     * Sets the anilistId, fetches AniList details via [AniListDetailsProvider.mergeInto],
+     * and updates the state. Also kicks off episode metadata fetch (now that we
+     * have an anilistId).
+     */
+    private suspend fun mergeAniListIntoUnified(anilistId: Int) {
+        try {
+            val current = (_state.value as? DetailsState.Success)?.anime ?: return
+            // Set the anilistId first so mergeInto knows what to fetch.
+            // NOTE: Do NOT change entryMode — the entry was opened from an extension
+            // search result; auto-linking only enriches it with AniList metadata.
+            val baseWithId = current.copy(anilistId = anilistId)
+            val merged = anilistProvider.mergeInto(baseWithId)
+            _state.value = DetailsState.Success(merged)
+            currentAnimeId = anilistId // So episode metadata fetch can use it.
+
+            // Now that we have an anilistId, kick off episode metadata fetch.
+            val malId = merged.idMal
+            val episodes = (_episodeState.value as? EpisodeState.Loaded)?.episodes ?: emptyList()
+            if (episodes.isNotEmpty()) {
+                viewModelScope.launch {
+                    try {
+                        val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
+                            anilistId = anilistId,
+                            malId = malId,
+                            episodeCount = episodes.size,
+                        )
+                        _episodeMetadata.value = metadata
+                        Logger.i(TAG) { "Episode metadata loaded post-link: ${metadata.size} entries" }
+                    } catch (e: Exception) {
+                        Logger.w(TAG) { "Episode metadata fetch (post-link) failed: ${e.message}" }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "mergeAniListIntoUnified failed for anilistId=$anilistId" }
+        }
+    }
+
+    // ── Phase B: Manual link sheet ──
+
+    /**
+     * Search AniList for the manual link sheet.
+     * Pre-fills with the extension title if [query] is blank.
+     */
+    fun searchAniListForLink(query: String) {
+        val effectiveQuery = if (query.isBlank()) {
+            (_state.value as? DetailsState.Success)?.anime?.displayName ?: ""
+        } else query
+        if (effectiveQuery.isBlank()) {
+            Logger.w(TAG) { "searchAniListForLink: no query + no current title" }
+            return
+        }
+
+        _anilistSearchState.value = AniListSearchState.Searching
+        viewModelScope.launch {
+            try {
+                val results = anilistApi.searchAnime(effectiveQuery, page = 1, perPage = 20)
+                Logger.i(TAG) { "AniList manual search: ${results.size} results for '$effectiveQuery'" }
+                _anilistSearchState.value = if (results.isEmpty()) {
+                    AniListSearchState.Empty
+                } else {
+                    AniListSearchState.Results(results)
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "AniList manual search failed: ${e.message}" }
+                _anilistSearchState.value = AniListSearchState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    /**
+     * Manually link the current extension entry to an AniList anime.
+     * Caches the link, merges AniList data, closes the manual sheet.
+     */
+    fun linkAniListEntry(anilistId: Int) {
+        val anime = (_state.value as? DetailsState.Success)?.anime ?: run {
+            Logger.w(TAG) { "linkAniListEntry: no current anime" }
+            return
+        }
+        val sourceId = anime.sourceId ?: run {
+            Logger.w(TAG) { "linkAniListEntry: no sourceId (not an extension entry)" }
+            return
+        }
+        val animeUrl = anime.animeUrl ?: run {
+            Logger.w(TAG) { "linkAniListEntry: no animeUrl" }
+            return
+        }
+
+        Logger.i(TAG) { "Manually linking extension entry to anilistId=$anilistId" }
+        autoLinkService.cacheManualLink(sourceId, animeUrl, anilistId)
+
+        viewModelScope.launch {
+            mergeAniListIntoUnified(anilistId)
+            _autoLinkState.value = AutoLinkState.Matched(anilistId, 1.0f, cached = false)
+            _anilistSearchState.value = AniListSearchState.Idle
+            _showManualLinkSheet.value = false
+        }
+    }
+
+    /**
+     * User skipped the manual link sheet — proceed without linking.
+     */
+    fun skipAniListLink() {
+        Logger.i(TAG) { "User skipped AniList link" }
+        _autoLinkState.value = AutoLinkState.Skipped("User skipped manual link")
+        _anilistSearchState.value = AniListSearchState.Idle
+        _showManualLinkSheet.value = false
+    }
+
+    /**
+     * Unlink the current AniList entry (from the three-dot menu).
+     * Clears the cache + removes AniList-specific fields from the UnifiedAnime.
+     */
+    fun unlinkAniList() {
+        val anime = (_state.value as? DetailsState.Success)?.anime ?: return
+        val sourceId = anime.sourceId ?: return
+        val animeUrl = anime.animeUrl ?: return
+        val anilistId = anime.anilistId ?: return
+
+        Logger.i(TAG) { "Unlinking AniList entry: sourceId=$sourceId, url=$animeUrl, anilistId=$anilistId" }
+        autoLinkService.clearCachedLink(sourceId, animeUrl)
+
+        // Clear AniList-specific fields. The extension data stays.
+        val cleared = anime.copy(
+            anilistId = null,
+            idMal = null,
+        )
+        _state.value = DetailsState.Success(cleared)
+        _autoLinkState.value = AutoLinkState.Idle
+        currentAnimeId = 0
+        _episodeMetadata.value = emptyMap() // Clear AniList-sourced metadata.
+    }
+
+    /**
+     * Force-open the manual link sheet (from the three-dot menu "Link to AniList").
+     */
+    fun openManualLinkSheet() {
+        Logger.i(TAG) { "User opened manual link sheet from menu" }
+        _anilistSearchState.value = AniListSearchState.Idle
+        _showManualLinkSheet.value = true
+    }
+
+    fun clearAniListSearch() {
+        _anilistSearchState.value = AniListSearchState.Idle
+    }
+
+    fun dismissManualLinkSheet() {
+        _showManualLinkSheet.value = false
     }
 
     // ── Fetch episodes from a specific source (used by extension flow) ──
@@ -273,7 +504,7 @@ class DetailsViewModel(
         }
     }
 
-    // ── Manual search ──
+    // ── Manual search (source linking — AniList entries) ──
 
     /**
      * Search a single source by title. Updates [manualSearchState].
@@ -308,8 +539,18 @@ class DetailsViewModel(
      * The UI shows the resolver sheet when the state is Success.
      */
     fun resolveEpisode(episode: SEpisode) {
+        // For extension entries, the linked source may not be set (source linking
+        // is for AniList entries). Fall back to the UnifiedAnime's sourceId.
         val linked = _linkedSource.value ?: run {
-            Logger.w(TAG) { "Cannot resolve — no source linked" }
+            val anime = (_state.value as? DetailsState.Success)?.anime
+            val sourceId = anime?.sourceId
+            val sourceName = anime?.sourceName
+            if (sourceId != null && sourceName != null) {
+                LinkedSource(sourceId, sourceName, anime.animeUrl ?: "")
+            } else null
+        }
+        if (linked == null) {
+            Logger.w(TAG) { "Cannot resolve — no source linked and no extension sourceId" }
             return
         }
         val source = extensionManager.getSource(linked.sourceId) as? AnimeHttpSource ?: run {
@@ -365,7 +606,7 @@ class DetailsViewModel(
 
 sealed interface DetailsState {
     data object Loading : DetailsState
-    data class Success(val anime: com.confused.anikuta.core.common.model.UnifiedAnime) : DetailsState
+    data class Success(val anime: UnifiedAnime) : DetailsState
     data class Error(val message: String) : DetailsState
 }
 
@@ -376,12 +617,42 @@ data class LinkedSource(
     val animeUrl: String,
 )
 
-/** Manual search state. */
+/** Manual search state (source linking — AniList entries). */
 sealed interface ManualSearchState {
     data object Idle : ManualSearchState
     data object Searching : ManualSearchState
     data class Results(val source: AnimeCatalogueSource, val sAnimes: List<SAnime>) : ManualSearchState
     data class Error(val sourceName: String, val message: String) : ManualSearchState
+}
+
+// ── Phase B: Auto-link + AniList search states ──
+
+/**
+ * Auto-link lifecycle for extension entries.
+ *
+ * - [Idle]: Not an extension entry, or not yet started.
+ * - [Searching]: AutoLinkService is running (cache check + AniList search + SmartMatcher).
+ * - [Matched]: A confident match was found (and merged into UnifiedAnime).
+ * - [NoMatch]: No confident match — manual link sheet should be shown.
+ * - [Skipped]: Auto-link disabled for this source, or strategy = MANUAL, or user skipped.
+ * - [Error]: AniList search or matching failed.
+ */
+sealed interface AutoLinkState {
+    data object Idle : AutoLinkState
+    data object Searching : AutoLinkState
+    data class Matched(val anilistId: Int, val score: Float, val cached: Boolean) : AutoLinkState
+    data class NoMatch(val bestScore: Float, val searchedTitle: String) : AutoLinkState
+    data class Skipped(val reason: String) : AutoLinkState
+    data class Error(val message: String) : AutoLinkState
+}
+
+/** AniList search state for the manual link sheet. */
+sealed interface AniListSearchState {
+    data object Idle : AniListSearchState
+    data object Searching : AniListSearchState
+    data object Empty : AniListSearchState
+    data class Results(val anime: List<AniListAnime>) : AniListSearchState
+    data class Error(val message: String) : AniListSearchState
 }
 
 /** Episode list state. */
@@ -399,7 +670,7 @@ sealed interface ResolverState {
     data object Loading : ResolverState
     data class Success(
         val videos: List<ResolvedVideo>,
-        val servers: List<com.confused.anikuta.core.videoresolver.ResolverServer> = emptyList(),
+        val servers: List<ResolverServer> = emptyList(),
     ) : ResolverState
     data class Error(val message: String) : ResolverState
 }

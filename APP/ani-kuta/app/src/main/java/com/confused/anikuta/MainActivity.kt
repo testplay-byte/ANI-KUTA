@@ -47,6 +47,8 @@ import com.confused.anikuta.feature.animesearch.AnimeSearchKey
 import com.confused.anikuta.feature.animesearch.SearchScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
+import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsKey
+import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
 import com.confused.anikuta.feature.watch.WatchKey
@@ -203,6 +205,7 @@ fun AppRoot() {
             is SettingsKey -> SettingsScreen(
                 onOpenAppearance = { backstack.add(AppearanceKey) },
                 onOpenExtensions = { backstack.add(ExtensionsSettingsKey) },
+                onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
                 onBack = pop,
             )
             is ExtensionsSettingsKey -> ExtensionsSettingsScreen(
@@ -210,6 +213,9 @@ fun AppRoot() {
                 onOpenRepoSettings = { backstack.add(ExtensionRepoSettingsKey) },
             )
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
+                onBack = pop,
+            )
+            is AutoLinkSettingsKey -> AutoLinkSettingsScreen(
                 onBack = pop,
             )
             is AppearanceKey -> AppearanceScreen(

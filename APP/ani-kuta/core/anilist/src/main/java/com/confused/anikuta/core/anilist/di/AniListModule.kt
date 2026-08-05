@@ -19,7 +19,9 @@ val anilistModule = module {
             coerceInputValues = true
         }
     }
-    // Register AniList as an AnimeDetailsProvider
+    // Register AniList as a concrete type (for direct injection into DetailsViewModel)
+    single { AniListDetailsProvider(get()) }
+    // Also register as AnimeDetailsProvider interface (for the provider registry)
     single<AnimeDetailsProvider>(qualifier = org.koin.core.qualifier.named("anilist")) {
         AniListDetailsProvider(get())
     }

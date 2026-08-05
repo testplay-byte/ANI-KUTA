@@ -11,6 +11,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:common"))
     implementation(project(":core:navigation-api"))
+    implementation(project(":core:preferences"))
     implementation(project(":core:source-api"))
     implementation(project(":data:extension"))
 

@@ -1,14 +1,17 @@
 package com.confused.anikuta.feature.animedetails.di
 
-import com.confused.anikuta.core.common.model.AnimeDetailsProvider
 import com.confused.anikuta.core.videoresolver.VideoResolver
-import com.confused.anikuta.data.extension.provider.ExtensionDetailsProvider
 import com.confused.anikuta.feature.animedetails.DetailsViewModel
 import org.koin.core.module.dsl.viewModelOf
-import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val detailsModule = module {
     single { VideoResolver() }
+    // DetailsViewModel's 9 constructor params are resolved by Koin:
+    //   AniListApi, ExtensionManager, PreferenceStore, VideoResolver,
+    //   EpisodeMetadataFetcher, ExtensionDetailsProvider (all registered
+    //   in their respective modules) + AniListDetailsProvider (registered
+    //   as concrete type in anilistModule) + AutoLinkService + AutoLinkPreferences
+    //   (registered in smartMatcherModule + appModule).
     viewModelOf(::DetailsViewModel)
 }

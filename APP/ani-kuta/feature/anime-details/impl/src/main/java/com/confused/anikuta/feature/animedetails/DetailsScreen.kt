@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -52,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -115,6 +117,11 @@ fun DetailsScreen(
     val availableSources by viewModel.availableSources.collectAsState()
     val manualSearchState by viewModel.manualSearchState.collectAsState()
 
+    // Phase B: auto-link state
+    val autoLinkState by viewModel.autoLinkState.collectAsState()
+    val anilistSearchState by viewModel.anilistSearchState.collectAsState()
+    val showManualLinkSheet by viewModel.showManualLinkSheet.collectAsState()
+
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
@@ -155,6 +162,18 @@ fun DetailsScreen(
                                 onMore = { showMenu = true },
                                 showMenu = showMenu,
                                 onDismissMenu = { showMenu = false },
+                                // Phase B: AniList link state + callbacks
+                                isExtensionEntry = anime.isFromExtension,
+                                isAniListLinked = anime.anilistId != null,
+                                isAutoLinkSearching = autoLinkState is AutoLinkState.Searching,
+                                onLinkAniList = {
+                                    showMenu = false
+                                    viewModel.openManualLinkSheet()
+                                },
+                                onUnlinkAniList = {
+                                    showMenu = false
+                                    viewModel.unlinkAniList()
+                                },
                             )
                         }
 
@@ -298,6 +317,18 @@ fun DetailsScreen(
             },
         )
     }
+
+    // ── Phase B: Manual link sheet (AniList linking for extension entries) ──
+    if (showManualLinkSheet) {
+        ManualLinkSheet(
+            anilistSearchState = anilistSearchState,
+            initialQuery = (state as? DetailsState.Success)?.anime?.displayName ?: "",
+            onSearch = { query -> viewModel.searchAniListForLink(query) },
+            onLink = { anilistId -> viewModel.linkAniListEntry(anilistId) },
+            onSkip = { viewModel.skipAniListLink() },
+            onDismiss = { viewModel.skipAniListLink() },
+        )
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -313,6 +344,12 @@ private fun DetailBanner(
     onMore: () -> Unit,
     showMenu: Boolean,
     onDismissMenu: () -> Unit,
+    // Phase B: AniList link state + callbacks
+    isExtensionEntry: Boolean = false,
+    isAniListLinked: Boolean = false,
+    isAutoLinkSearching: Boolean = false,
+    onLinkAniList: () -> Unit = {},
+    onUnlinkAniList: () -> Unit = {},
 ) {
     val coverUrl = anime.coverUrl
     // Per user: use the cover image as the background (like old project).
@@ -392,6 +429,21 @@ private fun DetailBanner(
                             text = { Text("Share", fontFamily = RobotoFamily) },
                             onClick = onDismissMenu,
                         )
+                        // ── Phase B: AniList link/unlink (extension entries only) ──
+                        if (isExtensionEntry) {
+                            androidx.compose.material3.HorizontalDivider()
+                            if (isAniListLinked) {
+                                DropdownMenuItem(
+                                    text = { Text("Unlink AniList", fontFamily = RobotoFamily) },
+                                    onClick = onUnlinkAniList,
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text("Link to AniList", fontFamily = RobotoFamily) },
+                                    onClick = onLinkAniList,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -426,6 +478,46 @@ private fun DetailBanner(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
+                // Phase B: auto-link badge / searching indicator.
+                // Shows "Linked to AniList" (green check) when extension entry has anilistId,
+                // or a small spinner + "Auto-linking..." while searching.
+                if (isExtensionEntry && (isAniListLinked || isAutoLinkSearching)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    ) {
+                        if (isAutoLinkSearching) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                strokeWidth = 1.5.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                text = "Auto-linking...",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        } else if (isAniListLinked) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Linked to AniList",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                text = "Linked to AniList",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(2.dp))
                 // Meta row: score · status · episode count
                 val metaParts = buildList {
                     anime.averageScore?.let { add("\u2605 $it%") }
@@ -993,14 +1085,10 @@ private fun EpisodeRow(
                                 }
                             }
                             // Download button — shown here (next to pills) when no synopsis.
+                            // CORE_RULES §22: consistent size + clickable + toast feedback.
                             if (description.isNullOrBlank()) {
                                 Spacer(Modifier.weight(1f))
-                                Icon(
-                                    imageVector = Icons.Filled.Download,
-                                    contentDescription = "Download",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp),
-                                )
+                                DownloadEpisodeButton()
                             }
                         }
                     }
@@ -1036,14 +1124,8 @@ private fun EpisodeRow(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = "Download",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .padding(start = 8.dp, bottom = 2.dp),
-                    )
+                    Spacer(Modifier.width(8.dp))
+                    DownloadEpisodeButton()
                 }
             } else {
                 // No synopsis — move download button up to the date/audio pills row.
@@ -1066,6 +1148,40 @@ private data class AudioAvailability(
         if (hasSub) add("SUB")
         if (hasDub) add("DUB")
         if (hasHsub) add("HSUB")
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Download button — consistent size in both synopsis + no-synopsis layouts.
+//  Shows a toast on tap (download functionality not yet implemented).
+//  CORE_RULES §22: ripple feedback on tap (clickable Box).
+//  CORE_RULES §23: live UI feedback (toast) — no silent taps.
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun DownloadEpisodeButton() {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable {
+                android.widget.Toast.makeText(
+                    context,
+                    "Download functionality not yet implemented",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Download,
+            contentDescription = "Download",
+            tint = MaterialTheme.colorScheme.primary,
+            // 24dp icon — consistent in both layouts. The 40dp Box gives a
+            // proper touch target without shrinking the visible icon.
+            modifier = Modifier.size(24.dp),
+        )
     }
 }
 

@@ -10,11 +10,13 @@ import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
 import com.confused.anikuta.core.network.HttpClientFactory
 import com.confused.anikuta.core.preferences.AppPreferences
+import com.confused.anikuta.core.preferences.AutoLinkPreferences
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.core.download.downloadModule
 import com.confused.anikuta.core.metadata.metadataModule
 import com.confused.anikuta.core.player.playerModule
+import com.confused.anikuta.core.smartmatcher.smartMatcherModule
 import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.core.watchprogress.watchProgressModule
@@ -91,6 +93,7 @@ class AnikutaApp : Application() {
                 metadataModule,
                 trackerAniListModule,
                 watchProgressModule,
+                smartMatcherModule,
                 appModule,
             )
         }
@@ -112,6 +115,7 @@ class AnikutaApp : Application() {
             // Preferences
             single { PreferenceStore(get()) }
             single { AppPreferences(get()) }
+            single { AutoLinkPreferences(get()) }
             single { PlayerPreferences(get()) }
             single { ThemePreferences(get()) }
         }

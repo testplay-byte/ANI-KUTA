@@ -122,3 +122,37 @@
 - Remaining dead fullscreen buttons (audio, server, more, PiP, rotate)
 - Auto-play-next, skip OP/ED
 - Full doc-drift sweep
+
+## Session web-f53f0459 (continued) — Phase B: Auto-Link System
+
+### What was done
+- **Download button fix (D-122)**: Created `DownloadEpisodeButton` composable (24dp icon in 40dp clickable Box) used consistently in BOTH places (with/without synopsis). Shows toast "Download functionality not yet implemented" on tap.
+- **`:core:smart-matcher` module created (D-123)**: New module with:
+  - `TitleNormalizer` — normalizes titles (lowercase, strip punctuation, remove season/year suffixes like S2, Season 2, (TV), 2nd Season, II/III/IV).
+  - `LevenshteinDistance` — character-level edit distance + similarity ratio (two-row DP, O(n) space).
+  - `MatchResult` — sealed: Match/NoMatch/Skipped/Error.
+  - `SmartMatcherConfig` — threshold (0.80 default), strategy (FUZZY/STRICT/MANUAL), yearBonus (0.10), containsBonus (0.05).
+  - `SmartMatcher` — main matcher: normalize → Levenshtein → contains bonus → year bonus → cap 1.0 → threshold check.
+  - `AutoLinkResult` — sealed: Cached/Matched/NoMatch/Skipped/Error.
+  - `AutoLinkService` — orchestrator: cache check → per-source setting → AniList search → SmartMatcher → cache result.
+  - `SmartMatcherModule` — Koin DI.
+- **`AutoLinkPreferences` (D-124)**: Added to `:core:preferences`. Stores:
+  - Global toggle (auto_link_enabled, default true)
+  - Strategy (auto_link_strategy: fuzzy/strict/manual, default fuzzy)
+  - Threshold (auto_link_threshold, default 0.80)
+  - Per-source overrides (auto_link_source:$sourceId: default/on/off)
+  - Link cache (auto_link_cache:$sourceId:$hash(animeUrl): anilistId)
+- **DetailsViewModel rewrite (D-125)**: Added 9th + 10th + 11th constructor params (anilistProvider, autoLinkService, autoLinkPreferences). New state: `autoLinkState` (Idle/Searching/Matched/NoMatch/Skipped/Error), `anilistSearchState` (Idle/Searching/Empty/Results/Error), `showManualLinkSheet`. New methods: `performAutoLink()`, `searchAniListForLink()`, `linkAniListEntry()`, `skipAniListLink()`, `unlinkAniList()`, `openManualLinkSheet()`, `dismissManualLinkSheet()`, `mergeAniListIntoUnified()`. Auto-link kicks off after `loadFromExtension()` succeeds. On match, merges AniList data via `AniListDetailsProvider.mergeInto()` + triggers episode metadata fetch.
+- **ManualLinkSheet (D-126)**: Bottom sheet for manual AniList linking. Header "Link to AniList" + search field (pre-filled with extension title) + search button + results list (cover + title + score + year + Link button) + "Skip AniList link" button. Auto-searches on open. Full states (Idle/Searching/Empty/Results/Error).
+- **AutoLinkSettingsScreen (D-127)**: New settings screen accessible from SettingsScreen hub → "Metadata" → "Auto-Link". Global section: master toggle + strategy selector (Fuzzy/Strict/Manual segmented toggle) + threshold slider (0.50–1.00). Per-extension section: 3-way override (Default/Always link/Never link) per installed extension.
+- **DetailsScreen updates (D-128)**: Added auto-link badge ("Linked to AniList" with check icon) + searching spinner ("Auto-linking...") in the banner. Added "Link to AniList" / "Unlink AniList" to the three-dot menu (extension entries only, with divider). Wired ManualLinkSheet.
+- **`AniListDetailsProvider` registered as concrete type (D-129)**: anilistModule now registers it both as `AnimeDetailsProvider` (named "anilist") AND as concrete `AniListDetailsProvider` for direct injection into DetailsViewModel.
+- **Subagent review**: All 24 files reviewed for compile errors — clean. No issues found.
+
+### CI status
+- Awaiting push + CI build.
+
+### What's next
+- User device testing of Phase B (auto-link ON match, auto-link OFF, manual link, skip, per-extension override).
+- Phase C: contentId system (migrate identity, watch progress, library).
+- Phase D: Multi-source metadata (MAL, TMDB, Kitsu providers).

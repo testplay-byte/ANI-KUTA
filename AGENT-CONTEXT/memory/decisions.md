@@ -786,3 +786,69 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Implemented (Phase 5d, session web-f53f0459). CI green.
 - **Date:** Phase 5d (session web-f53f0459).
 - **Not yet implemented:** Phase B (auto-link, SmartMatcher, manual link sheet), Phase C (contentId system).
+
+### D-122 — Download button consistent size + toast
+- **What:** Created `DownloadEpisodeButton` composable (24dp Download icon in 40dp clickable Box). Used in BOTH the no-synopsis layout (date/audio pills row) AND the with-synopsis layout (bottom-right of synopsis). Shows toast "Download functionality not yet implemented" on tap.
+- **Why:** User: "I like the size of it when there is no synopsis but when there is a synopsis then the button is way too small. I would like you to make the download button bigger and as big as it will be when there is no synopsis... when I click the download button, it should just give me a small toast notification that 'Download functionality not yet implemented'."
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).
+
+### D-123 — `:core:smart-matcher` module
+- **What:** New Gradle module `:core:smart-matcher` containing:
+  - `TitleNormalizer` — normalizes titles for comparison (lowercase, strip punctuation/parentheticals, remove season/year suffixes).
+  - `LevenshteinDistance` — character-level edit distance + similarity ratio (two-row DP).
+  - `MatchResult` / `AutoLinkResult` — sealed result types.
+  - `SmartMatcherConfig` — threshold + strategy (FUZZY/STRICT/MANUAL) + bonuses.
+  - `SmartMatcher` — main matching logic with contains bonus + year bonus.
+  - `AutoLinkService` — orchestrator (cache → per-source check → AniList search → SmartMatcher → cache result).
+- **Why:** Phase B of the extension details page architecture. Needed a standalone, testable module for fuzzy title matching between extension SAnime titles and AniList search results.
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).
+
+### D-124 — `AutoLinkPreferences` (global + per-source + cache)
+- **What:** Added `AutoLinkPreferences` to `:core:preferences`. Backed by SharedPreferences via PreferenceStore. Stores:
+  - Global: `auto_link_enabled` (bool, default true), `auto_link_strategy` (string: fuzzy/strict/manual), `auto_link_threshold` (float, default 0.80).
+  - Per-source: `auto_link_source:$sourceId` (string: default/on/off).
+  - Link cache: `auto_link_cache:$sourceId:$hash(animeUrl)` (int: anilistId).
+  - `isAutoLinkEnabledForSource(sourceId)` resolves global ANDed with per-source override.
+- **Why:** Needed persistent storage for auto-link settings. Per-source overrides let users disable auto-link for specific extensions that have unreliable titles. Link cache prevents re-searching AniList on every details page open.
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).
+
+### D-125 — DetailsViewModel auto-link integration
+- **What:** DetailsViewModel constructor expanded to 9 params (added `anilistProvider: AniListDetailsProvider`, `autoLinkService: AutoLinkService`, `autoLinkPreferences: AutoLinkPreferences`). New state flows: `autoLinkState` (Idle/Searching/Matched/NoMatch/Skipped/Error), `anilistSearchState` (Idle/Searching/Empty/Results/Error), `showManualLinkSheet`. New methods: `performAutoLink()`, `searchAniListForLink()`, `linkAniListEntry()`, `skipAniListLink()`, `unlinkAniList()`, `openManualLinkSheet()`, `dismissManualLinkSheet()`, `mergeAniListIntoUnified()`. `loadFromExtension()` now calls `performAutoLink()` after extension details load. `mergeAniListIntoUnified()` sets anilistId + calls `AniListDetailsProvider.mergeInto()` + triggers episode metadata fetch.
+- **Why:** Core Phase B integration — wires the auto-link flow into the details page lifecycle.
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).
+- **Note:** `entryMode` is NOT changed during merge — the entry was opened from an extension search result; auto-linking only enriches it with AniList metadata. `isExtensionOnly` becomes false (anilistId set), but `isFromExtension` stays true (entryMode stays EXTENSION).
+
+### D-126 — ManualLinkSheet
+- **What:** Bottom sheet for manual AniList linking. Layout: header "Link to AniList" + explanation text + search field (pre-filled with extension title) + search button + results list (AniList anime rows: cover + title + score + year + "Link" button) + "Skip AniList link" button. Auto-searches on open via LaunchedEffect. Full state handling (Idle/Searching/Empty/Results/Error).
+- **Why:** User: "also the manual linking sheet is implemented properly." Needed when auto-link fails (NoMatch) or is disabled (Skipped). Lets the user pick the correct AniList entry by hand.
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).
+
+### D-127 — AutoLinkSettingsScreen
+- **What:** New settings screen accessible from SettingsScreen hub → "Metadata" → "Auto-Link". Two sections:
+  1. Global: master toggle (Switch) + strategy selector (Fuzzy/Strict/Manual segmented toggle) + threshold slider (0.50–1.00, only enabled when strategy=Fuzzy + global enabled).
+  2. Per-extension: list of installed extensions, each with a 3-way toggle (Default/Always link/Never link). Uses the first source's ID as the key (most extensions have one source).
+- **Why:** User: "make sure that the smart search functionality is implemented properly and per extension Auto-linking settings are kind of configured properly." Needed a dedicated settings UI for auto-link configuration.
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).
+
+### D-128 — DetailsScreen auto-link UI
+- **What:** Added to DetailsScreen:
+  1. Auto-link badge in the banner: "Linked to AniList" (check icon, primary color) when `isAniListLinked && isExtensionEntry`. "Auto-linking..." (12dp spinner + text) when `isAutoLinkSearching`.
+  2. Three-dot menu: "Link to AniList" (if not linked) / "Unlink AniList" (if linked), with a divider. Only for extension entries.
+  3. ManualLinkSheet wired: shows when `showManualLinkSheet` is true. Callbacks: onSearch → `searchAniListForLink()`, onLink → `linkAniListEntry()`, onSkip/onDismiss → `skipAniListLink()`.
+- **Why:** User needs visual feedback during auto-link + a way to manually relink/unlink.
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).
+
+### D-129 — AniListDetailsProvider registered as concrete type
+- **What:** `anilistModule` now registers `AniListDetailsProvider` TWICE:
+  1. As concrete type `single { AniListDetailsProvider(get()) }` — for direct injection into DetailsViewModel.
+  2. As interface `single<AnimeDetailsProvider>(named("anilist")) { AniListDetailsProvider(get()) }` — for the provider registry.
+- **Why:** DetailsViewModel needs `AniListDetailsProvider.mergeInto()` (concrete method, not on the interface). Koin can't inject a named-qualified interface as a concrete type. Following the same pattern as `ExtensionDetailsProvider` (which is also registered twice in extensionModule).
+- **Status:** ✅ Implemented (Phase B, session web-f53f0459).
+- **Date:** Phase B (session web-f53f0459).

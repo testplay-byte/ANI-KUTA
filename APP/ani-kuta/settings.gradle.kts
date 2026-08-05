@@ -40,6 +40,7 @@ include(":core:download")
 include(":core:metadata")
 include(":core:tracker-api")
 include(":core:tracker-anilist")
+include(":core:smart-matcher")
 
 // ── :data ──
 include(":data:extension")

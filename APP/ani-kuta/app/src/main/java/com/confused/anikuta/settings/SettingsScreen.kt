@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Icon
@@ -47,6 +48,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenExtensions: () -> Unit,
+    onOpenAutoLink: () -> Unit,
     onBack: () -> Unit,
 ) {
     val lazyListState = rememberLazyListState()
@@ -85,6 +87,17 @@ fun SettingsScreen(
                             title = "Extensions",
                             subtitle = "Install, trust, and manage sources",
                             onClick = onOpenExtensions,
+                        )
+                    }
+
+                    // ── Auto-Link (Phase B) ──
+                    item {
+                        SettingsSectionLabel("Metadata")
+                        SettingsNavRow(
+                            icon = Icons.Filled.AutoAwesome,
+                            title = "Auto-Link",
+                            subtitle = "Link extension anime to AniList metadata",
+                            onClick = onOpenAutoLink,
                         )
                     }
                 }
