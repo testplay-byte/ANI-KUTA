@@ -296,7 +296,7 @@ fun DetailsScreen(
 
 @Composable
 private fun DetailBanner(
-    anime: AniListAnime,
+    anime: com.confused.anikuta.core.common.model.UnifiedAnime,
     onBack: () -> Unit,
     saved: Boolean,
     onToggleSave: () -> Unit,
@@ -1075,7 +1075,7 @@ private fun formatDate(epochMillis: Long): String {
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun InfoSection(anime: AniListAnime) {
+private fun InfoSection(anime: com.confused.anikuta.core.common.model.UnifiedAnime) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Text(
             text = "Information",
