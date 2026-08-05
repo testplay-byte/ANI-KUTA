@@ -1,7 +1,5 @@
 package com.confused.anikuta.core.videoresolver
 
-import eu.kanade.tachiyomi.animesource.model.Video
-
 /**
  * State of video resolution.
  */
@@ -16,13 +14,13 @@ sealed interface ResolverState {
     /** Resolution succeeded — videos are available.
      *
      * @param videos The flat list of resolved videos (for the ResolverSheet).
-     * @param rawVideos The original Aniyomi Video objects (for building structured
-     *   servers via [VideoResolver.buildServers] — avoids a second getHosterList call).
-     *   Cleared after structured servers are built.
+     * @param rawEntries The original video entries (Video + hosterName) for
+     *   building structured servers via [VideoResolver.buildServers] — avoids
+     *   a second getHosterList call.
      */
     data class Success(
         val videos: List<ResolvedVideo>,
-        val rawVideos: List<Video> = emptyList(),
+        val rawEntries: List<VideoEntry> = emptyList(),
     ) : ResolverState
 
     /** Resolution failed. */

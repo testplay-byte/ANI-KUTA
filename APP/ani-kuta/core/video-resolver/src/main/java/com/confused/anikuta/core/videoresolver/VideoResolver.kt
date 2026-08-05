@@ -12,26 +12,34 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
+ * A video with its associated hoster name (if from the hoster-based API).
+ *
+ * The hoster name is used as the server name in the QualitySheet. Without it,
+ * the server name would have to be parsed from the video title (which often
+ * doesn't contain it — e.g. AniKotoS video titles are just "SUB - 1080p").
+ */
+data class VideoEntry(
+    val video: Video,
+    val hosterName: String?,
+)
+
+/**
  * Resolves playable video URLs from extension sources.
  *
  * CRITICAL FIX (double-resolve bug): The previous version called `getHosterList`
  * TWICE — once for the flat [resolve] method and once for a separate structured
  * resolve. For extensions like AniKotoS that create a local proxy server on each
- * `getHosterList` call, the second call KILLS the proxy from the first call →
- * the user picks a video with a dead proxy URL → "loading failed".
+ * `getHosterList` call, the second call KILLS the proxy from the first call.
  *
  * Fix: [resolve] now returns BOTH the flat `List<ResolvedVideo>` AND the raw
- * `List<Video>` in [ResolverState.Success]. The DetailsViewModel calls
+ * `List<VideoEntry>` in [ResolverState.Success]. The DetailsViewModel calls
  * [buildServers] to derive structured servers from the SAME video list —
  * NO second `getHosterList` call.
  *
- * Ported from the old project's `ResolverService.kt`. Key behaviors:
- * - Calls `getHosterList` (ext-lib 16+) first, falls back to `getVideoList(episode)`.
- * - Checks `hoster.videoList` first (non-lazy hosters like AnikotoS).
- * - FILTERS OUT videos where `videoUrl` is blank (matching old project line 49).
- * - Uses `video.videoUrl` (NOT the deprecated `video.url`).
- *
- * CORE_RULES §20: All operations logged with tag "Anikuta:Core:VideoResolver".
+ * CRITICAL FIX (hoster name tracking): The previous version lost the
+ * `hoster.hosterName` when collecting videos — it just did `videos.addAll()`.
+ * This caused the server name to be parsed from the video title (which often
+ * doesn't contain it). Now we carry `VideoEntry(video, hosterName)` throughout.
  */
 class VideoResolver {
 
@@ -40,14 +48,6 @@ class VideoResolver {
         private const val SOURCE_TIMEOUT_MS = 30_000L
     }
 
-    /**
-     * Resolve videos for an episode from a given source.
-     * Returns a Flow emitting [ResolverState] updates. Runs on `Dispatchers.IO`.
-     *
-     * The DetailsViewModel collects this flow. When it reaches Success, the
-     * DetailsViewModel ALSO derives structured servers from the same result
-     * (no second getHosterList call).
-     */
     fun resolve(
         source: AnimeHttpSource,
         episode: SEpisode,
@@ -56,28 +56,25 @@ class VideoResolver {
         emit(ResolverState.Loading())
 
         try {
-            val videos = withContext(Dispatchers.IO) {
+            val entries = withContext(Dispatchers.IO) {
                 resolveVideoEntries(source, episode)
             }
-            Logger.d(TAG) { "Fetched ${videos.size} raw videos from ${source.name}" }
+            Logger.d(TAG) { "Fetched ${entries.size} raw video entries from ${source.name}" }
 
-            // CRITICAL: Filter out videos with blank videoUrl — matching old project
-            // (ResolverService.kt line 49: `videoEntries.filter { it.video.videoUrl.isNotBlank() }`).
-            // The old project NEVER uses video.url (deprecated). If videoUrl is blank,
-            // the video is unplayable and should be rejected.
-            val validVideos = videos.filter { it.videoUrl.isNotBlank() }
-            if (validVideos.size < videos.size) {
-                Logger.w(TAG) { "Filtered out ${videos.size - validVideos.size} videos with blank videoUrl" }
+            val validEntries = entries.filter { it.video.videoUrl.isNotBlank() }
+            if (validEntries.size < entries.size) {
+                Logger.w(TAG) { "Filtered out ${entries.size - validEntries.size} videos with blank videoUrl" }
             }
 
-            if (validVideos.isEmpty()) {
+            if (validEntries.isEmpty()) {
                 Logger.w(TAG) { "No valid videos found for ${episode.url} (all had blank videoUrl)" }
                 emit(ResolverState.Error("No videos available"))
                 return@flow
             }
 
-            val resolvedVideos = validVideos.map { video ->
-                Logger.i(TAG) { "Valid video: quality='${video.videoTitle}', subs=${video.subtitleTracks.size}, audio=${video.audioTracks.size}" }
+            val resolvedVideos = validEntries.map { entry ->
+                val video = entry.video
+                Logger.i(TAG) { "Valid video: quality='${video.videoTitle}', subs=${video.subtitleTracks.size}, audio=${video.audioTracks.size}, hoster=${entry.hosterName}" }
                 if (video.subtitleTracks.isNotEmpty()) {
                     video.subtitleTracks.forEach { sub ->
                         Logger.i(TAG) { "  Subtitle track: url=${sub.url.take(80)}, lang=${sub.lang}" }
@@ -85,7 +82,7 @@ class VideoResolver {
                 }
                 ResolvedVideo(
                     url = video.videoUrl,
-                    quality = parseQuality(video),
+                    quality = extractQuality(video.videoTitle),
                     directUrl = video.videoUrl,
                     headers = formatHeaders(video.headers),
                     subtitleTracks = video.subtitleTracks.map { ResolverSubtitleTrack(it.url, it.lang) },
@@ -95,7 +92,7 @@ class VideoResolver {
 
             val totalSubs = resolvedVideos.sumOf { it.subtitleTracks.size }
             Logger.i(TAG) { "Resolved ${resolvedVideos.size} videos, total subtitle tracks: $totalSubs" }
-            emit(ResolverState.Success(resolvedVideos, validVideos))
+            emit(ResolverState.Success(resolvedVideos, validEntries))
 
         } catch (e: Throwable) {
             Logger.e(TAG, e) {
@@ -108,32 +105,32 @@ class VideoResolver {
     /**
      * Build structured servers from an ALREADY-RESOLVED video list.
      * Does NOT call getHosterList again — derives from the flat result.
-     *
-     * Called by DetailsViewModel after `resolve()` succeeds, to populate
-     * the ResolvedVideosRegistry for the QualitySheet.
      */
     fun buildServers(
-        videos: List<Video>,
+        entries: List<VideoEntry>,
         sourceName: String,
     ): List<ResolverServer> {
-        val validVideos = videos.filter { it.videoUrl.isNotBlank() }
-        if (validVideos.isEmpty()) return emptyList()
-        val servers = groupIntoServers(validVideos, sourceName)
-        Logger.i(TAG) { "Built ${servers.size} servers from ${validVideos.size} videos" }
+        val validEntries = entries.filter { it.video.videoUrl.isNotBlank() }
+        if (validEntries.isEmpty()) return emptyList()
+        val servers = groupIntoServers(validEntries, sourceName)
+        Logger.i(TAG) { "Built ${servers.size} servers from ${validEntries.size} videos" }
+        servers.forEach { server ->
+            Logger.i(TAG) { "  Server: ${server.name} — ${server.audioVersions.size} audio versions, ${server.audioVersions.sumOf { it.videos.size }} videos" }
+            server.audioVersions.forEach { av ->
+                Logger.i(TAG) { "    Audio: ${av.label} — ${av.videos.size} qualities: ${av.videos.map { it.quality }}" }
+            }
+        }
         return servers
     }
 
     /**
      * Try getHosterList first (ext-lib 16+), fall back to getVideoList.
-     *
-     * Ported from the old project's ResolverService.resolveVideoEntries.
-     * Key fix for AnikotoS: checks `hoster.videoList` first (non-lazy hosters).
+     * Returns VideoEntry list (carries hoster name alongside each video).
      */
     private suspend fun resolveVideoEntries(
         source: AnimeHttpSource,
         episode: SEpisode,
-    ): List<Video> {
-        // Try getHosterList first (ext-lib 16+ API).
+    ): List<VideoEntry> {
         val hosters = try {
             withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
                 source.getHosterList(episode)
@@ -148,35 +145,38 @@ class VideoResolver {
 
         if (hosters.isNotEmpty()) {
             Logger.i(TAG) { "Got ${hosters.size} hosters from ${source.name}" }
-            // For each hoster: use hoster.videoList if pre-populated (non-lazy, like AnikotoS),
-            // else source.getVideoList(hoster) (lazy hosters).
-            val videos = mutableListOf<Video>()
+            val entries = mutableListOf<VideoEntry>()
             for (hoster in hosters) {
                 val hosterVideos = hoster.videoList
                 if (hosterVideos != null && hosterVideos.isNotEmpty()) {
                     Logger.d(TAG) { "Hoster '${hoster.hosterName}' has ${hosterVideos.size} pre-loaded videos" }
-                    videos.addAll(hosterVideos)
+                    for (video in hosterVideos) {
+                        entries.add(VideoEntry(video, hoster.hosterName))
+                    }
                 } else {
                     Logger.d(TAG) { "Hoster '${hoster.hosterName}' is lazy — calling getVideoList(hoster)" }
                     try {
-                        val resolvedVideos = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+                        val resolved = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
                             source.getVideoList(hoster)
                         } ?: emptyList()
-                        videos.addAll(resolvedVideos)
+                        for (video in resolved) {
+                            entries.add(VideoEntry(video, hoster.hosterName))
+                        }
                     } catch (e: Throwable) {
                         Logger.w(TAG, e) { "getVideoList for hoster ${hoster.hosterName} failed: ${e.message}" }
                     }
                 }
             }
-            return videos
+            return entries
         }
 
-        // Fallback: old direct API (ext-lib < 16).
+        // Fallback: old direct API (ext-lib < 16) — no hoster names available.
         Logger.d(TAG) { "Falling back to getVideoList(episode) for ${source.name}" }
         return try {
-            withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+            val videos = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
                 source.getVideoList(episode)
             } ?: emptyList()
+            videos.map { VideoEntry(it, null) }
         } catch (e: Throwable) {
             Logger.e(TAG, e) { "getVideoList(episode) failed for ${source.name}: ${e.message}" }
             emptyList()
@@ -184,16 +184,20 @@ class VideoResolver {
     }
 
     /**
-     * Parse the quality label from a Video.
+     * Extract just the quality/resolution from a video title.
+     * Examples:
+     *   "SUB - 1080p" → "1080p"
+     *   "DUB - 720p" → "720p"
+     *   "1080p" → "1080p"
+     *   "Default" → "Default"
      */
-    private fun parseQuality(video: Video): String {
-        if (video.videoTitle.isNotBlank()) {
-            return video.videoTitle
-        }
-        val url = video.videoUrl.lowercase()
-        val qualityPattern = Regex("(\\d{3,4})p")
-        qualityPattern.find(url)?.let { return "${it.groupValues[1]}p" }
-        return "Default"
+    private fun extractQuality(videoTitle: String): String {
+        if (videoTitle.isBlank()) return "Default"
+        // Try to find a resolution pattern like "1080p", "720p", "360p"
+        val qualityPattern = Regex("(\\d{3,4})p", RegexOption.IGNORE_CASE)
+        qualityPattern.find(videoTitle)?.let { return "${it.groupValues[1]}p" }
+        // No resolution found — return the title as-is (might be "Default" or custom)
+        return videoTitle
     }
 
     private fun formatError(e: Throwable): String {
@@ -202,10 +206,6 @@ class VideoResolver {
         return "$type: $msg"
     }
 
-    /**
-     * Format Video.headers (okhttp3.Headers?) into MPV's
-     * http-header-fields format: "Key: Value,Key2: Value2".
-     */
     private fun formatHeaders(headers: okhttp3.Headers?): String {
         if (headers == null || headers.size == 0) return ""
         return (0 until headers.size).joinToString(",") { i ->
@@ -214,23 +214,34 @@ class VideoResolver {
     }
 
     /**
-     * Group a flat list of Videos into a 3-tier server/audio/quality hierarchy.
+     * Group video entries into a 3-tier server/audio/quality hierarchy.
+     *
+     * Server name priority:
+     * 1. Hoster name (if available — from getHosterList)
+     * 2. Parsed from video title (known server names or text before " - ")
+     * 3. URL host
+     * 4. Source name (fallback)
      */
     private fun groupIntoServers(
-        videos: List<Video>,
+        entries: List<VideoEntry>,
         sourceName: String,
     ): List<ResolverServer> {
-        val byServer = videos.groupBy { video ->
-            parseServerName(video.videoTitle, video.videoUrl, sourceName)
+        val byServer = entries.groupBy { entry ->
+            // Primary: use hoster name if available
+            entry.hosterName?.takeIf { it.isNotBlank() }
+                ?: parseServerName(entry.video.videoTitle, entry.video.videoUrl, sourceName)
         }
 
-        return byServer.entries.map { (serverName, serverVideos) ->
-            val byAudio = serverVideos.groupBy { video -> parseAudioVersion(video.videoTitle) }
-            val audioVersions = byAudio.entries.map { (audioLabel, audioVideos) ->
+        return byServer.entries.map { (serverName, serverEntries) ->
+            val byAudio = serverEntries.groupBy { entry ->
+                parseAudioVersion(entry.video.videoTitle)
+            }
+            val audioVersions = byAudio.entries.map { (audioLabel, audioEntries) ->
                 ResolverAudioVersion(
                     label = audioLabel,
-                    videos = audioVideos.map { video ->
-                        val quality = parseQuality(video)
+                    videos = audioEntries.map { entry ->
+                        val video = entry.video
+                        val quality = extractQuality(video.videoTitle)
                         val title = buildVideoTitle(serverName, audioLabel, quality, video.videoUrl)
                         ResolverVideo(
                             quality = quality,
@@ -252,7 +263,7 @@ class VideoResolver {
     }
 
     /**
-     * Parse the server name from a video title.
+     * Parse the server name from a video title (fallback when no hoster name).
      */
     private fun parseServerName(videoTitle: String, url: String, sourceName: String): String {
         val knownServers = listOf(
@@ -274,11 +285,16 @@ class VideoResolver {
     }
 
     /**
-     * Parse the audio-version prefix from a quality label.
+     * Parse the audio-version from a video title.
+     * Examples:
+     *   "SUB - 1080p" → "SUB"
+     *   "DUB - 720p" → "DUB"
+     *   "HSUB - 360p" → "HSUB"
+     *   "1080p" → "Default"
      */
-    private fun parseAudioVersion(quality: String): String {
-        val upper = quality.uppercase().trim()
-        val match = Regex("^(SUB|DUB|HSUB|MIX|RAW)[\\s\\-]").find(upper)
+    private fun parseAudioVersion(videoTitle: String): String {
+        val upper = videoTitle.uppercase().trim()
+        val match = Regex("^(SUB|DUB|HSUB|MIX|RAW|HARDSUB|SUBBED|DUBBED)[\\s\\-]").find(upper)
         return match?.groupValues?.get(1) ?: "Default"
     }
 
@@ -289,14 +305,4 @@ class VideoResolver {
         val urlHash = url.hashCode().toString(16)
         return "$server|$audio|$quality|$urlHash"
     }
-}
-
-/**
- * Structured resolver state — drives the [QualitySheet] UI.
- */
-sealed interface StructuredResolverState {
-    data object Idle : StructuredResolverState
-    data class Loading(val message: String = "Resolving video...") : StructuredResolverState
-    data class Success(val servers: List<ResolverServer>) : StructuredResolverState
-    data class Error(val message: String) : StructuredResolverState
 }

@@ -318,28 +318,33 @@ private fun ServerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // Audio version chips — reversed so SUB appears rightmost
-                // (matches old project's design).
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    server.audioVersions.reversed().forEach { av ->
-                        val count = av.videos.size
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(6.dp),
-                        ) {
-                            Text(
-                                text = "$count ${av.label}",
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
+                // Audio version chips — show just the label (SUB, DUB, HSUB).
+                // Skip "Default" — if there's only one audio version and it's "Default",
+                // don't show any chips (the server name is enough).
+                // Reversed so SUB appears rightmost (matches old project's design).
+                val audioChips = server.audioVersions.filter { it.label != "Default" }
+                if (audioChips.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        audioChips.reversed().forEach { av ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(6.dp),
+                            ) {
+                                Text(
+                                    text = av.label,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
                         }
                     }
+                }
                     Spacer(Modifier.width(4.dp))
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,

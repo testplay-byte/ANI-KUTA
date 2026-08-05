@@ -697,7 +697,7 @@ fun WatchScreen(
                                     // find the matching ResolverVideo (first video
                                     // of first server's first audio version) to get
                                     // external tracks + videoTitle.
-                                    val servers = videoResolver.buildServers(state.rawVideos, source.name)
+                                    val servers = videoResolver.buildServers(state.rawEntries, source.name)
                                     val newRegistryKey = if (servers.isNotEmpty()) {
                                         ResolvedVideosRegistry.put(servers)
                                     } else ""

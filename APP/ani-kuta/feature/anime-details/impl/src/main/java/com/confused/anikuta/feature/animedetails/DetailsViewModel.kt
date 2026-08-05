@@ -264,7 +264,7 @@ class DetailsViewModel(
                             // Build structured servers from the SAME video list — NO second
                             // getHosterList call. This prevents the double-resolve bug where
                             // the second call kills the first call's proxy URLs.
-                            val servers = videoResolver.buildServers(s.rawVideos, source.name)
+                            val servers = videoResolver.buildServers(s.rawEntries, source.name)
                             if (servers.isNotEmpty()) {
                                 val key = ResolvedVideosRegistry.put(servers)
                                 _resolvedVideosKey.value = key
