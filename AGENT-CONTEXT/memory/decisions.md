@@ -733,3 +733,21 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User reported: "The spinner kept spinning for some time and in the end it said 'Failed to load metadata'. Then it started to try again and it started spinning again but that was not supposed to happen."
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-114 — EpisodeRow UI overhaul — match old project layout + styling
+- **What:** Rewrote EpisodeRow to match the old project's layout: (1) Top section = thumbnail (left, 120x68dp) with EP tag overlay (TopStart, themed primary, 6dp corners, Bold White, 11sp) + right column (title on top with surface@0.5f background, date+audio pills on bottom with outlineVariant background) + download icon (far right, 24dp, visual only). (2) Bottom section = synopsis below the entire top row with surface@0.35f background, 12sp, 15sp lineHeight, 2 max lines. No-thumbnail fallback = 40dp circle disc (surfaceVariant, 13sp Bold).
+- **Why:** User requested: "The synopsis should be shown below the thumbnail and title row. The release date and SUB/DUB/HSUB availability should be below the title. The EP tag should be themed primary with proper dimensions like the old project. Add a download button (visual only)."
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-115 — Audio availability detection (SUB/DUB/HSUB) from extension data
+- **What:** Added `parseAudioAvailability(scanlator, episodeName)` — parses SUB/DUB/HSUB from the episode's scanlator field + name. Displays as outlineVariant pills with dot separators (SUB•DUB•HSUB). Only shown if audio availability is detected. Ported from the old project.
+- **Why:** User: "The availability of subbed episodes and dubbed episode data is fetched from the extension itself. When you fetch the episodes list, the availability is also sent along with it."
+- **Status:** ✅ Implemented.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-116 — Details banner uses cover image (not banner image)
+- **What:** Changed `bannerUrl` from `anime.bannerImage ?: anime.coverUrl` to just `anime.coverUrl`. Matches old project (uses cover image as background).
+- **Why:** User: "Utilize the exact same cover image for the background too. A future tint-color system will extract the dominant color from the cover."
+- **Status:** ✅ Implemented.
+- **Date:** Phase 5c (session web-f53f0459).
