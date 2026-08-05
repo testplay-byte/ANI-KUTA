@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -284,7 +285,10 @@ private fun DetailBanner(
     onDismissMenu: () -> Unit,
 ) {
     val coverUrl = anime.coverUrl
-    val bannerUrl = anime.bannerImage ?: anime.coverUrl
+    // Per user: use the cover image as the background (like old project).
+    // The old project uses anime.coverUrl for the background — not bannerImage.
+    // A future tint-color system will extract the dominant color from the cover.
+    val bannerUrl = coverUrl
 
     Box(modifier = Modifier.fillMaxWidth()) {
         // ── Background: blurred banner image + gradient ──
@@ -777,6 +781,7 @@ private fun EpisodeRow(
     metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,
 ) {
+    // ── Parse display values ──
     val displayTitle = remember(episode, metadata) {
         metadata?.title
             ?: com.confused.anikuta.core.common.EpisodeTitleParser.parseTitle(
@@ -795,100 +800,222 @@ private fun EpisodeRow(
             else -> null
         }
     }
+    // Audio availability — parsed from scanlator + episode name (like old project).
+    val audio = remember(episode) { parseAudioAvailability(episode.scanlator, episode.name) }
 
+    // ── Card ──
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
-            verticalAlignment = Alignment.Top,
         ) {
-            // ── Thumbnail (left) with episode number overlay ──
-            if (thumbnailUrl != null) {
-                Box(
-                    modifier = Modifier
-                        .size(width = 120.dp, height = 68.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                ) {
-                    AsyncImage(
-                        model = thumbnailUrl,
-                        contentDescription = displayTitle,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                    )
+            // ══ TOP SECTION: thumbnail (left) + title/meta (right) + download (far right) ══
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+            ) {
+                // ── Thumbnail (left) with EP tag overlay (TopStart, themed primary) ──
+                if (thumbnailUrl != null) {
+                    Box(
+                        modifier = Modifier.size(width = 120.dp, height = 68.dp),
+                    ) {
+                        AsyncImage(
+                            model = thumbnailUrl,
+                            contentDescription = displayTitle,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(10.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                        // EP tag — themed primary background, 6dp corners, Bold White text.
+                        // Positioned at TopStart (like old project).
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                        ) {
+                            Text(
+                                text = epNumText,
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                } else {
+                    // No thumbnail — circle episode number (40dp disc)
                     Surface(
-                        color = Color.Black.copy(alpha = 0.7f),
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = epNumText,
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                }
+
+                // ── Right column: title (top) + date/audio pills (bottom) ──
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    // Title — with subtle background surface
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(
-                            text = "EP $epNumText",
+                            text = displayTitle,
                             fontFamily = RobotoFamily,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
-                }
-                Spacer(Modifier.width(10.dp))
-            } else {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.size(width = 44.dp, height = 32.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = epNumText,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
+                    // Date + Audio pills
+                    if (dateText != null || audio.hasAny) {
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // Date pill
+                            if (dateText != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                ) {
+                                    Text(
+                                        text = dateText,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        lineHeight = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+                            }
+                            // Audio pills — SUB/DUB/HSUB with dot separators
+                            if (audio.hasAny) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    ) {
+                                        audio.labels.forEachIndexed { idx, label ->
+                                            if (idx > 0) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(3.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                                                )
+                                            }
+                                            Text(
+                                                text = label,
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 10.sp,
+                                                lineHeight = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                Spacer(Modifier.width(10.dp))
-            }
-            // ── Right column: title + description + date ──
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = displayTitle,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+
+                // ── Download button (visual only, non-functional for now) ──
+                Icon(
+                    imageVector = Icons.Filled.Download,
+                    contentDescription = "Download",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .padding(start = 4.dp),
                 )
-                if (!description.isNullOrBlank()) {
-                    Spacer(Modifier.height(2.dp))
+            }
+
+            // ══ BOTTOM SECTION: Synopsis (below thumbnail + title row) ══
+            if (!description.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text(
                         text = description,
                         fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 15.sp,
+                        fontWeight = FontWeight.Normal,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (dateText != null) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = dateText,
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                     )
                 }
             }
         }
     }
+}
+
+// ── Audio availability parsing (ported from old project) ──
+
+private data class AudioAvailability(
+    val hasSub: Boolean,
+    val hasDub: Boolean,
+    val hasHsub: Boolean,
+) {
+    val hasAny: Boolean get() = hasSub || hasDub || hasHsub
+    val labels: List<String> get() = buildList {
+        if (hasSub) add("SUB")
+        if (hasDub) add("DUB")
+        if (hasHsub) add("HSUB")
+    }
+}
+
+private fun parseAudioAvailability(scanlator: String?, episodeName: String): AudioAvailability {
+    val haystack = ((scanlator ?: "") + " " + episodeName).uppercase()
+    val hasHsub = haystack.contains("HSUB") || haystack.contains("HARDSUB")
+    val hasSub = haystack.contains("SUB") && !hasHsub
+    val hasDub = haystack.contains("DUB") && !hasHsub
+    return AudioAvailability(hasSub = hasSub, hasDub = hasDub, hasHsub = hasHsub)
 }
 
 private fun formatEpisodeNumber(num: Float): String {
