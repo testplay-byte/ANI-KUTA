@@ -57,6 +57,7 @@ class AniListApi(
                 {
                     Media(id: $id, type: ANIME) {
                         id
+                        idMal
                         title { romaji english }
                         coverImage { large extraLarge }
                         bannerImage

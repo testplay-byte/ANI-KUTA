@@ -197,14 +197,17 @@ class DetailsViewModel(
                     EpisodeState.Loaded(sorted)
                 }
 
-                // Fetch episode metadata (titles, thumbnails) from AniList.
+                // Fetch episode metadata (titles, thumbnails, descriptions, dates).
+                // Uses Anikage.cc (primary), Jikan/MAL (secondary), AniList streaming (tertiary).
                 // Runs in parallel — doesn't block the episode list display.
                 val animeId = currentAnimeId
+                val malId = (_state.value as? DetailsState.Success)?.anime?.idMal
                 if (animeId > 0 && episodes.isNotEmpty()) {
                     viewModelScope.launch {
                         try {
                             val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
                                 anilistId = animeId,
+                                malId = malId,
                                 episodeCount = episodes.size,
                             )
                             _episodeMetadata.value = metadata

@@ -542,12 +542,32 @@ private fun EpisodesSection(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
-        val showMetadataSpinner = episodeState is EpisodeState.Loaded && episodeMetadata.isEmpty()
+        // Track whether the metadata fetch has completed (success OR failure).
+        // Once completed, the spinner hides permanently — no retry loop.
+        var metadataFetchDone by remember { mutableStateOf(false) }
         var showMetadataError by remember { mutableStateOf(false) }
-        LaunchedEffect(episodeState, episodeMetadata) {
-            if (episodeState is EpisodeState.Loaded && episodeMetadata.isEmpty()) {
-                kotlinx.coroutines.delay(10_000L)
-                if (episodeMetadata.isEmpty()) {
+        val showMetadataSpinner = episodeState is EpisodeState.Loaded &&
+            episodeMetadata.isEmpty() && !metadataFetchDone
+        LaunchedEffect(episodeState) {
+            // Reset when episodes reload.
+            if (episodeState !is EpisodeState.Loaded) {
+                metadataFetchDone = false
+                showMetadataError = false
+            }
+        }
+        LaunchedEffect(episodeMetadata) {
+            // When metadata arrives, mark as done + hide spinner.
+            if (episodeMetadata.isNotEmpty()) {
+                metadataFetchDone = true
+                showMetadataError = false
+            }
+        }
+        // Safety timeout: if metadata is still empty after 15s, show error briefly.
+        LaunchedEffect(episodeState) {
+            if (episodeState is EpisodeState.Loaded) {
+                kotlinx.coroutines.delay(15_000L)
+                if (episodeMetadata.isEmpty() && !metadataFetchDone) {
+                    metadataFetchDone = true
                     showMetadataError = true
                     kotlinx.coroutines.delay(5_000L)
                     showMetadataError = false

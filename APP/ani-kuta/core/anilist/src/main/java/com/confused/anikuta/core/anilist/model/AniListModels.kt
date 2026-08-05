@@ -15,6 +15,7 @@ data class AniListAnime(
     val season: String? = null,
     val seasonYear: Int? = null,
     val status: String? = null,
+    val idMal: Int? = null,
 ) {
     val displayName: String get() = title.english ?: title.romaji ?: "Unknown"
     val coverUrl: String? get() = coverImage.extraLarge ?: coverImage.large

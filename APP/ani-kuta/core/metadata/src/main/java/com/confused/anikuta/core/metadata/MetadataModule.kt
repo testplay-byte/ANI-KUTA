@@ -25,5 +25,6 @@ val metadataModule = module {
     }
 
     // Episode metadata fetcher — fetches per-episode titles, thumbnails, etc.
-    single { EpisodeMetadataFetcher(get()) }
+    // Uses Anikage.cc (primary), Jikan/MAL (secondary), AniList streaming (tertiary).
+    single { EpisodeMetadataFetcher(get(), get()) }
 }
