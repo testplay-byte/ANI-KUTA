@@ -264,8 +264,22 @@ class VideoResolver {
 
     /**
      * Parse the server name from a video title (fallback when no hoster name).
+     *
+     * Handles formats like:
+     *   "HD-1 - Sub - 1080p"       → "HD-1"
+     *   "Vidstream-2 - Sub - 1080p" → "Vidstream-2"
+     *   "VidPlay-1 - Dub - 720p"   → "VidPlay-1"
+     *   "SUB - 1080p"              → (no server name, parse from URL)
      */
     private fun parseServerName(videoTitle: String, url: String, sourceName: String): String {
+        // First, try splitting by " - " and taking the first segment.
+        // This handles "ServerName - AudioVersion - Quality" format.
+        val dashIdx = videoTitle.indexOf(" - ")
+        if (dashIdx > 0) {
+            val candidate = videoTitle.substring(0, dashIdx).trim()
+            if (candidate.isNotEmpty() && candidate.length <= 30) return candidate
+        }
+        // No " - " separator — try known server names as prefix.
         val knownServers = listOf(
             "Vidstream", "Mp4Upload", "Doodstream", "Streamtape", "MixDrop",
             "StreamSB", "Vidcloud", "Beta2", "Akira", "Googledrive", "HD-1",
@@ -274,28 +288,40 @@ class VideoResolver {
         val titleLower = videoTitle.lowercase()
         for (server in knownServers) {
             if (titleLower.startsWith(server.lowercase())) return server
-            if (" - $server".lowercase() in titleLower) return server
-        }
-        val dashIdx = videoTitle.indexOf(" - ")
-        if (dashIdx > 0) {
-            val candidate = videoTitle.substring(0, dashIdx).trim()
-            if (candidate.isNotEmpty() && candidate.length <= 30) return candidate
         }
         return runCatching { java.net.URI(url).host }.getOrNull() ?: sourceName
     }
 
     /**
      * Parse the audio-version from a video title.
-     * Examples:
-     *   "SUB - 1080p" → "SUB"
-     *   "DUB - 720p" → "DUB"
-     *   "HSUB - 360p" → "HSUB"
-     *   "1080p" → "Default"
+     *
+     * Handles multiple title formats:
+     *   "SUB - 1080p"              → "SUB"    (audio at start)
+     *   "HD-1 - Sub - 1080p"       → "SUB"    (audio in middle, mixed case)
+     *   "Vidstream-2 - Dub - 720p" → "DUB"    (audio in middle, mixed case)
+     *   "HSUB - 360p"              → "HSUB"
+     *   "1080p"                    → "Default" (no audio version found)
+     *
+     * The regex searches the ENTIRE title (not just the start) and is
+     * case-insensitive — handles "Sub", "sub", "SUB", "DUB", "Dub", etc.
+     * Normalizes to uppercase for consistent grouping.
      */
     private fun parseAudioVersion(videoTitle: String): String {
-        val upper = videoTitle.uppercase().trim()
-        val match = Regex("^(SUB|DUB|HSUB|MIX|RAW|HARDSUB|SUBBED|DUBBED)[\\s\\-]").find(upper)
-        return match?.groupValues?.get(1) ?: "Default"
+        // Case-insensitive search for audio version keywords anywhere in the title.
+        // Word-boundary aware so "HSub" doesn't match as "Sub" first.
+        val patterns = listOf(
+            Regex("\\b(hsub|hardsub|h-hardsub)\\b", RegexOption.IGNORE_CASE) to "HSUB",
+            Regex("\\b(subbed|sub)\\b", RegexOption.IGNORE_CASE) to "SUB",
+            Regex("\\b(dubbed|dub)\\b", RegexOption.IGNORE_CASE) to "DUB",
+            Regex("\\b(mix)\\b", RegexOption.IGNORE_CASE) to "MIX",
+            Regex("\\b(raw)\\b", RegexOption.IGNORE_CASE) to "RAW",
+        )
+        for ((pattern, label) in patterns) {
+            if (pattern.containsMatchIn(videoTitle)) {
+                return label
+            }
+        }
+        return "Default"
     }
 
     /**
