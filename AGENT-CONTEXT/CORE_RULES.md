@@ -415,3 +415,18 @@ APP/ani-kuta/DOCUMENTATION/database/
 4. **The environment often self-recovers.** If the user says "continue" or sends a new message, try the tool again — it may work now.
 5. **Log the failure** in `lessons-learned.md` with the `[PATTERN]` tag if it recurs across sessions (e.g. "Bash fails after long sessions — context limit or sandbox issue").
 6. **If a critical action is blocked** (e.g. can't `git push`), tell the user explicitly: "I can't push to GitHub right now because Bash is failing. The changes are saved locally. Please retry in a new message or run `git push` manually."
+
+---
+
+## 28. Log Comparison Debugging (When Stuck in Circles)
+
+> When debugging a feature that "should work but doesn't" — and you've been going in circles for multiple sessions — **stop guessing and compare logs line-by-line** between the working reference and the broken implementation.
+
+### Rules
+1. **Ask the user for logs from BOTH projects.** One log from the working (old) project, one from the broken (new) project. Same scenario, same video, same extension.
+2. **Compare the exact sequence of events.** Don't skim — list every event/error/warning in order for both projects, side by side. The difference is the bug.
+3. **Look for MISSING events, not just extra ones.** If the old project fires `FILE_LOADED` but the new project fires `FILE_ERROR` + `PLAYBACK_RESTART` — the missing `FILE_LOADED` is the root cause. The `PLAYBACK_RESTART` is the fallback.
+4. **Don't assume your code is correct.** Even if sub-agents confirmed "the code is correct," the code may be correct BUT the prerequisite (FILE_LOADED) never fires. The code is right, the trigger is wrong.
+5. **Handle fallback events.** If event A doesn't fire but event B does (and B means the same thing), handle event B as a fallback for A. Example: `PLAYBACK_RESTART` (17) as a fallback for `FILE_LOADED` (11).
+6. **Don't go in circles.** If you've tried the same fix approach 3+ times and it doesn't work, you're fixing the wrong thing. Step back, get logs from both projects, and compare. The answer is in the diff.
+7. **Document the root cause.** Once found, log it in `lessons-learned.md` with the `[PATTERN]` tag. Future agents should not repeat the same circle.

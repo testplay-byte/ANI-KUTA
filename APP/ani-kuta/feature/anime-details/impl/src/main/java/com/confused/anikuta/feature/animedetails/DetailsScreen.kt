@@ -99,6 +99,7 @@ fun DetailsScreen(
     val state by viewModel.state.collectAsState()
     val linkedSource by viewModel.linkedSource.collectAsState()
     val episodeState by viewModel.episodeState.collectAsState()
+    val episodeMetadata by viewModel.episodeMetadata.collectAsState()
     val resolverState by viewModel.resolverState.collectAsState()
     val resolvedVideosKey by viewModel.resolvedVideosKey.collectAsState()
     val availableSources by viewModel.availableSources.collectAsState()
@@ -162,6 +163,7 @@ fun DetailsScreen(
                             EpisodesSection(
                                 linkedSource = linkedSource,
                                 episodeState = episodeState,
+                                episodeMetadata = episodeMetadata,
                                 onOpenSourcePicker = { showManualSearch = true },
                                 onUnlinkSource = { viewModel.unlinkSource() },
                                 onEpisodeClick = { episode ->
@@ -533,25 +535,58 @@ private fun SynopsisSection(description: String) {
 private fun EpisodesSection(
     linkedSource: LinkedSource?,
     episodeState: EpisodeState,
+    episodeMetadata: Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>,
     onOpenSourcePicker: () -> Unit,
     onUnlinkSource: () -> Unit,
     onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        // ── Header: "Episodes" + source selector ──
+        // ── Header: "Episodes" + metadata spinner + source selector ──
+        val showMetadataSpinner = episodeState is EpisodeState.Loaded && episodeMetadata.isEmpty()
+        var showMetadataError by remember { mutableStateOf(false) }
+        LaunchedEffect(episodeState, episodeMetadata) {
+            if (episodeState is EpisodeState.Loaded && episodeMetadata.isEmpty()) {
+                kotlinx.coroutines.delay(10_000L)
+                if (episodeMetadata.isEmpty()) {
+                    showMetadataError = true
+                    kotlinx.coroutines.delay(5_000L)
+                    showMetadataError = false
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "Episodes",
-                fontFamily = RobotoFamily,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Episodes",
+                    fontFamily = RobotoFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                if (showMetadataSpinner && !showMetadataError) {
+                    Spacer(Modifier.width(8.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (showMetadataError) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Failed to load metadata",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             Spacer(Modifier.weight(1f))
             // Source selector pill — shows linked source name or "No source".
             Surface(
@@ -685,14 +720,17 @@ private fun EpisodesSection(
             }
 
             is EpisodeState.Loaded -> {
-                // Episode list — each episode is a row.
+                // Episode list — each episode is a row with metadata.
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     episodeState.episodes.forEach { episode ->
+                        val epNum = episode.episode_number.toInt()
+                        val metadata = episodeMetadata[epNum]
                         EpisodeRow(
                             episode = episode,
+                            metadata = metadata,
                             onClick = { onEpisodeClick(episode) },
                         )
                     }
@@ -716,54 +754,131 @@ private fun EpisodesSection(
 @Composable
 private fun EpisodeRow(
     episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
+    metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,
 ) {
+    val displayTitle = remember(episode, metadata) {
+        metadata?.title
+            ?: com.confused.anikuta.core.common.EpisodeTitleParser.parseTitle(
+                episode.name, episode.episode_number,
+            )
+            ?: episode.name.ifBlank { "Episode ${formatEpisodeNumber(episode.episode_number)}" }
+    }
+    val description = metadata?.description ?: episode.summary
+    val thumbnailUrl = metadata?.thumbnailUrl
+    val epNumText = formatEpisodeNumber(episode.episode_number)
+    val dateText = remember(episode, metadata) {
+        val airDate = metadata?.airDate
+        when {
+            airDate != null && airDate > 0 -> formatDate(airDate)
+            episode.date_upload > 0 -> formatDate(episode.date_upload)
+            else -> null
+        }
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            // Episode number badge
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.size(width = 44.dp, height = 32.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
+            // ── Thumbnail (left) with episode number overlay ──
+            if (thumbnailUrl != null) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 120.dp, height = 68.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                ) {
+                    AsyncImage(
+                        model = thumbnailUrl,
+                        contentDescription = displayTitle,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                    ) {
+                        Text(
+                            text = "EP $epNumText",
+                            fontFamily = RobotoFamily,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.size(width = 44.dp, height = 32.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = epNumText,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+            }
+            // ── Right column: title + description + date ──
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = displayTitle,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!description.isNullOrBlank()) {
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        text = formatEpisodeNumber(episode.episode_number),
+                        text = description,
                         fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (dateText != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = dateText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            // Episode title
-            Text(
-                text = episode.name,
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
         }
     }
 }
 
-private fun formatEpisodeNumber(num: Float): String = when {
-    num == num.toInt().toFloat() -> num.toInt().toString()
-    else -> num.toString()
+private fun formatEpisodeNumber(num: Float): String {
+    return com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(num)
+}
+
+private fun formatDate(epochMillis: Long): String {
+    if (epochMillis <= 0) return ""
+    val sdf = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
+    return sdf.format(java.util.Date(epochMillis))
 }
 
 // ════════════════════════════════════════════════════════════════════════════
