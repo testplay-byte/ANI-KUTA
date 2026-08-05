@@ -763,3 +763,10 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User: "The title should only be shown on one single line. It should show EP 6, EP 7, EP 8. Move the download button to the very bottom right corner of the episode summary with a themed tinted color."
 - **Status:** ✅ Implemented.
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-119 — Watch page episode list with metadata + currently-playing details
+- **What:** Watch page episode list now shows rich episode rows matching the details page: thumbnail (120x68dp) with EP tag overlay, title (1 line, surface bg), date pill, audio pills (SUB/DUB/HSUB), synopsis (2 lines, surface bg), download button (bottom-right, themed primary tint). Currently-playing episode details section below the player shows: "Currently playing episode N" header, title (20sp), date + audio pills row, synopsis with "Show more"/"Show less" expand button.
+- **Data flow:** DetailsScreen serializes episodeMetadata (title, thumbnail, airDate, description, scanlator) into WatchKey.episodeMetadataSerialized → WatchScreen parses via watchKey.parseEpisodeMetadata() → passed to MinimizedMode → EpisodeListRow + currently-playing section.
+- **Why:** User: "The watch page episode list should show the episode metadata properly... Each individual episode is a thumbnail, its title, the description, the sub and dub availability, and the download button. The details below the video player should show the full info of the currently playing episode."
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
