@@ -23,4 +23,7 @@ val metadataModule = module {
             merger = get(),
         )
     }
+
+    // Episode metadata fetcher — fetches per-episode titles, thumbnails, etc.
+    single { EpisodeMetadataFetcher(get()) }
 }

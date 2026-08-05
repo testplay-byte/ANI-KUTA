@@ -52,6 +52,7 @@ class DetailsViewModel(
     private val extensionManager: ExtensionManager,
     private val preferenceStore: PreferenceStore,
     private val videoResolver: VideoResolver,
+    private val episodeMetadataFetcher: com.confused.anikuta.core.metadata.EpisodeMetadataFetcher,
 ) : ViewModel() {
 
     companion object {
@@ -79,6 +80,10 @@ class DetailsViewModel(
     /** Episode list state. */
     private val _episodeState = MutableStateFlow<EpisodeState>(EpisodeState.Idle)
     val episodeState: StateFlow<EpisodeState> = _episodeState.asStateFlow()
+
+    /** Episode metadata (titles, thumbnails, descriptions, air dates). */
+    private val _episodeMetadata = MutableStateFlow<Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>>(emptyMap())
+    val episodeMetadata: StateFlow<Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>> = _episodeMetadata.asStateFlow()
 
     /** Video resolution state (for the resolver sheet). */
     private val _resolverState = MutableStateFlow<ResolverState>(ResolverState.Idle)
@@ -190,6 +195,24 @@ class DetailsViewModel(
                     // Sort descending (newest first) per D-056.
                     val sorted = episodes.sortedByDescending { it.episode_number }
                     EpisodeState.Loaded(sorted)
+                }
+
+                // Fetch episode metadata (titles, thumbnails) from AniList.
+                // Runs in parallel — doesn't block the episode list display.
+                val animeId = currentAnimeId
+                if (animeId > 0 && episodes.isNotEmpty()) {
+                    viewModelScope.launch {
+                        try {
+                            val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
+                                anilistId = animeId,
+                                episodeCount = episodes.size,
+                            )
+                            _episodeMetadata.value = metadata
+                            Logger.i(TAG) { "Episode metadata loaded: ${metadata.size} entries" }
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "Episode metadata fetch failed: ${e.message}" }
+                        }
+                    }
                 }
             } catch (e: Throwable) {
                 // Catch Throwable — binary-incompat throws NoClassDefFoundError,

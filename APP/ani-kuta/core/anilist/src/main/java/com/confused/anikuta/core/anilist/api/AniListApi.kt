@@ -128,6 +128,41 @@ class AniListApi(
         return executeRequest(requestBody)
     }
 
+    /**
+     * Fetch streaming episode metadata (title + thumbnail) from AniList.
+     *
+     * AniList's `streamingEpisodes` field provides per-episode titles + thumbnails
+     * from streaming services. This is the simplest source — no authentication
+     * needed, just the AniList anime ID.
+     *
+     * Returns a list of (title, thumbnailUrl) pairs, ordered by episode number.
+     * May be empty if AniList has no streaming episode data for this anime.
+     */
+    suspend fun fetchStreamingEpisodes(id: Int): List<AniListStreamingEpisode> =
+        withContext(dispatchers.io) {
+            val query = """
+                {
+                    Media(id: $id, type: ANIME) {
+                        streamingEpisodes {
+                            title
+                            thumbnail
+                        }
+                    }
+                }
+            """.trimIndent()
+
+            Logger.d("Anikuta:Core:AniList") { "fetchStreamingEpisodes(id=$id)" }
+
+            try {
+                val response = executeQuery(query)
+                val parsed = json.decodeFromString<StreamingEpisodesResponse>(response)
+                parsed.data.Media.streamingEpisodes ?: emptyList()
+            } catch (e: Exception) {
+                Logger.w("Anikuta:Core:AniList") { "fetchStreamingEpisodes failed: ${e.message}" }
+                emptyList()
+            }
+        }
+
     private fun executeQueryWithVariables(query: String, variables: kotlinx.serialization.json.JsonObject): String {
         val requestBody = buildJsonObject {
             put("query", query)

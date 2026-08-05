@@ -12,6 +12,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
+    implementation(project(":core:metadata"))
     implementation(project(":core:preferences"))
     implementation(project(":core:source-api"))
     implementation(project(":core:video-resolver"))

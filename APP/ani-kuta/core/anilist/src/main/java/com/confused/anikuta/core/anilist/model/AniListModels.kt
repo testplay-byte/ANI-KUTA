@@ -51,3 +51,21 @@ data class DetailsData(val Media: AniListAnime)
 // Search response (reuses TrendingData/Page shape — AniList returns the same Media list)
 @Serializable
 data class SearchResponse(val data: TrendingData)
+
+// ── Streaming episodes response ──
+@Serializable
+data class AniListStreamingEpisode(
+    val title: String? = null,
+    val thumbnail: String? = null,
+)
+
+@Serializable
+data class StreamingEpisodesResponse(val data: StreamingEpisodesData)
+
+@Serializable
+data class StreamingEpisodesData(val Media: StreamingEpisodesMedia)
+
+@Serializable
+data class StreamingEpisodesMedia(
+    val streamingEpisodes: List<AniListStreamingEpisode>? = null,
+)
