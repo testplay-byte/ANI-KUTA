@@ -1050,7 +1050,6 @@ private fun EpisodeRow(
                 // Show it at the end of the top section's right column.
                 // (Already rendered inline in the date/audio pills Row above if no synopsis.)
             }
-            }
         }
     }
 }
