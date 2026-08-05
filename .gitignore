@@ -34,3 +34,7 @@ secrets.properties
 
 # OS
 .DS_Store
+
+# Tool artifacts (persisted Read outputs, agent caches, etc.)
+tool-results/
+agent-ctx/
