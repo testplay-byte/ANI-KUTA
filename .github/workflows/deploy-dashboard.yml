@@ -1,8 +1,11 @@
 # ANI-KUTA — Dashboard Deploy to GitHub Pages
 #
 # Builds the Next.js dashboard (static export) and deploys to GitHub Pages.
-# The dashboard lives at DASHBOARD/webpage/ and follows DESIGN.md.
+# The dashboard lives at ANI-KUTA/DASHBOARD/webpage/ and follows DESIGN.md.
 # Pages URL: https://testplay-byte.github.io/ANI-KUTA/
+#
+# NOTE: Per CORE_RULES §4, all project zones live inside a single wrapper folder
+# `ANI-KUTA/`. The `.github/` folder stays at repo root (GitHub Actions constraint).
 
 name: Deploy Dashboard
 
@@ -10,7 +13,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'DASHBOARD/webpage/**'
+      - 'ANI-KUTA/DASHBOARD/webpage/**'
       - '.github/workflows/deploy-dashboard.yml'
   workflow_dispatch:
 
@@ -29,7 +32,7 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: DASHBOARD/webpage
+        working-directory: ANI-KUTA/DASHBOARD/webpage
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +54,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: DASHBOARD/webpage/out
+          path: ANI-KUTA/DASHBOARD/webpage/out
 
   deploy:
     needs: build

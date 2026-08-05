@@ -1,27 +1,27 @@
-# Android / Gradle (scoped under APP/ani-kuta/)
-APP/ani-kuta/**/.gradle/
-APP/ani-kuta/**/build/
-APP/ani-kuta/local.properties
-APP/ani-kuta/captures/
-APP/ani-kuta/.cxx/
-APP/ani-kuta/.externalNativeBuild/
-APP/ani-kuta/**/*.iml
-APP/ani-kuta/.idea/
+# Android / Gradle (scoped under ANI-KUTA/APP/ani-kuta/)
+ANI-KUTA/APP/ani-kuta/**/.gradle/
+ANI-KUTA/APP/ani-kuta/**/build/
+ANI-KUTA/APP/ani-kuta/local.properties
+ANI-KUTA/APP/ani-kuta/captures/
+ANI-KUTA/APP/ani-kuta/.cxx/
+ANI-KUTA/APP/ani-kuta/.externalNativeBuild/
+ANI-KUTA/APP/ani-kuta/**/*.iml
+ANI-KUTA/APP/ani-kuta/.idea/
 
 # Dashboard (Next.js)
-DASHBOARD/webpage/node_modules/
-DASHBOARD/webpage/.next/
-DASHBOARD/webpage/out/
+ANI-KUTA/DASHBOARD/webpage/node_modules/
+ANI-KUTA/DASHBOARD/webpage/.next/
+ANI-KUTA/DASHBOARD/webpage/out/
 
 # Old project reference (build artifacts only — source IS committed for reference)
-REFERENCES/old-kuta/**/build/
-REFERENCES/old-kuta/**/.gradle/
-REFERENCES/old-kuta/**/local.properties
-REFERENCES/old-kuta/**/.cxx/
-REFERENCES/old-kuta/**/.externalNativeBuild/
-REFERENCES/old-kuta/**/.idea/
-REFERENCES/old-kuta/**/*.iml
-REFERENCES/old-kuta/**/.git/
+ANI-KUTA/REFERENCES/old-kuta/**/build/
+ANI-KUTA/REFERENCES/old-kuta/**/.gradle/
+ANI-KUTA/REFERENCES/old-kuta/**/local.properties
+ANI-KUTA/REFERENCES/old-kuta/**/.cxx/
+ANI-KUTA/REFERENCES/old-kuta/**/.externalNativeBuild/
+ANI-KUTA/REFERENCES/old-kuta/**/.idea/
+ANI-KUTA/REFERENCES/old-kuta/**/*.iml
+ANI-KUTA/REFERENCES/old-kuta/**/.git/
 
 # Keystores (NEVER commit)
 *.keystore
