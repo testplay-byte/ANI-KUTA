@@ -1,5 +1,6 @@
 plugins {
     id("anikuta.library")
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -9,4 +10,5 @@ android {
 dependencies {
     implementation(project(":core:navigation-api"))
     implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.kotlinx.serialization.json)
 }

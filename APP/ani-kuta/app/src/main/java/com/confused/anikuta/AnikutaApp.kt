@@ -43,6 +43,13 @@ class AnikutaApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // ── Global crash handler (installed FIRST, before anything else) ──
+        // Catches uncaught exceptions on any thread → writes crash report →
+        // launches ErrorActivity with copyable logs + restart/close buttons.
+        Thread.setDefaultUncaughtExceptionHandler(
+            com.confused.anikuta.error.AnikutaCrashHandler(this)
+        )
+
         // CORE_RULES §20: Logger init with :app's BuildConfig.DEBUG
         Logger.setEnabled(BuildConfig.DEBUG)
 

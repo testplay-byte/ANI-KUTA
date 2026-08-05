@@ -42,6 +42,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Crash handler error screen (shown when app crashes) -->
+        <activity
+            android:name=".error.ErrorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ANIKUTA"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode" />
+
         <!-- Extension install foreground service (Phase 5a) -->
         <service
             android:name="com.confused.anikuta.data.extension.installer.ExtensionInstallService"

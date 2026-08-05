@@ -430,3 +430,20 @@ APP/ani-kuta/DOCUMENTATION/database/
 5. **Handle fallback events.** If event A doesn't fire but event B does (and B means the same thing), handle event B as a fallback for A. Example: `PLAYBACK_RESTART` (17) as a fallback for `FILE_LOADED` (11).
 6. **Don't go in circles.** If you've tried the same fix approach 3+ times and it doesn't work, you're fixing the wrong thing. Step back, get logs from both projects, and compare. The answer is in the diff.
 7. **Document the root cause.** Once found, log it in `lessons-learned.md` with the `[PATTERN]` tag. Future agents should not repeat the same circle.
+
+---
+
+## 29. Crash Handling (Global Safety Net)
+
+> The app MUST NOT silently crash to the home screen. Every uncaught exception shows a user-facing error screen with copyable logs.
+
+### Rules
+1. **Global crash handler installed in `Application.onCreate()`** — `Thread.setDefaultUncaughtExceptionHandler(AnikutaCrashHandler(this))`. Installed FIRST, before any other initialization (Logger, Koin, Injekt).
+2. **Crash report persisted to `filesDir/last_crash.txt`** — survives the process restart so `ErrorActivity` can read it.
+3. **`ErrorActivity` launched with `NEW_TASK | CLEAR_TASK`** — replaces the crashed process with a fresh one showing the error screen.
+4. **Error screen shows:** error icon + "Something went wrong" heading + explanation + scrollable monospace crash log + Copy button + Restart button + Close button.
+5. **Copy button** copies the full crash report (timestamp, thread, device info, exception, stack trace) to the clipboard.
+6. **Restart button** clears the crash report + launches `MainActivity` fresh.
+7. **Close button** clears the crash report + finishes the activity.
+8. **`ErrorActivity` registered in AndroidManifest** — `android:exported="false"`, same theme as `MainActivity`, `configChanges` to prevent recreation.
+9. **Ported from the old project** — `AnikutaCrashHandler.kt` + `ErrorActivity.kt` in `app/src/main/java/.../error/`.
