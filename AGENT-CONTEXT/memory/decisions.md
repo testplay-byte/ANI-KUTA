@@ -751,3 +751,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User: "Utilize the exact same cover image for the background too. A future tint-color system will extract the dominant color from the cover."
 - **Status:** ✅ Implemented.
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-117 — Watch page QualitySheet redesigned as accordion
+- **What:** Replaced the flat list QualitySheet with a collapsible accordion design matching the ResolverSheet. Header renamed to "Qualities and Servers" with subtitle "Tap a server to expand, then pick a quality." One server open at a time (defaults to currently playing server). Audio version chips on the right (reversed, currently playing highlighted with primary tint). Quality chips with PlayArrow icon — currently playing highlighted with primary background + border. Expand/collapse animations.
+- **Why:** User requested: "Inside the video player at the top right corner there is the qualities option. When I click it it shows a bottom-up menu which says the heading 'Pick a video' but this is not correct. I want you to improve it and it should say 'Qualities and Servers'... I need you to redesign it completely just like how it is being done in the old project."
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-118 — Details page UI fixes — title 1 line, EP tag 'EP N', download bottom-right
+- **What:** (1) Episode title maxLines=1 (was 2). (2) EP tag shows "EP N" not just "N". (3) Download button moved from far-right of top section to bottom-right of synopsis, themed primary tint. No-synopsis fallback shows download at bottom-right anyway.
+- **Why:** User: "The title should only be shown on one single line. It should show EP 6, EP 7, EP 8. Move the download button to the very bottom right corner of the episode summary with a themed tinted color."
+- **Status:** ✅ Implemented.
+- **Date:** Phase 5c (session web-f53f0459).
