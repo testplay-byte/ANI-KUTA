@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
@@ -141,6 +142,7 @@ fun WatchScreen(
     val context = LocalContext.current
     val stateHolder = remember { PlayerStateHolder() }
     val episodeList = remember { watchKey.parseEpisodeList() }
+    val episodeMetadata = remember { watchKey.parseEpisodeMetadata() }
     val playerPreferences = koinInject<com.confused.anikuta.core.preferences.PlayerPreferences>()
     val extensionManager = koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
     val videoResolver = koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
@@ -808,6 +810,7 @@ fun WatchScreen(
         MinimizedMode(
             watchKey = watchKey,
             episodeList = episodeList,
+            episodeMetadata = episodeMetadata,
             stateHolder = stateHolder,
             mpvView = mpvView,
             initMpv = initMpv,
@@ -912,6 +915,7 @@ fun WatchScreen(
 private fun MinimizedMode(
     watchKey: WatchKey,
     episodeList: List<SimpleEpisode>,
+    episodeMetadata: Map<Int, WatchEpisodeMeta>,
     stateHolder: PlayerStateHolder,
     mpvView: AnikutaMPVView?,
     initMpv: (AnikutaMPVView) -> Unit,
@@ -1071,6 +1075,18 @@ private fun MinimizedMode(
                 modifier = Modifier.fillMaxSize(),
             ) {
             item {
+                // ── Currently playing episode details ──
+                val currentEpNum = currentEpisodeNumber.toInt()
+                val currentMeta = episodeMetadata[currentEpNum]
+                val currentDisplayTitle = currentMeta?.title
+                    ?: com.confused.anikuta.core.common.EpisodeTitleParser
+                        .getDisplayTitle(currentEpisodeTitle, currentEpisodeNumber)
+                val currentDescription = currentMeta?.description
+                val currentDateText = if (currentMeta != null && currentMeta.airDateMillis > 0) {
+                    formatDate(currentMeta.airDateMillis)
+                } else null
+                val currentAudio = parseAudioAvailability(currentMeta?.scanlator, currentEpisodeTitle)
+
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -1088,8 +1104,7 @@ private fun MinimizedMode(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = com.confused.anikuta.core.common.EpisodeTitleParser
-                                .getDisplayTitle(currentEpisodeTitle, currentEpisodeNumber),
+                            text = currentDisplayTitle,
                             fontFamily = RobotoFamily,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
@@ -1097,6 +1112,102 @@ private fun MinimizedMode(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        // Date + Audio pills
+                        if (currentDateText != null || currentAudio.hasAny) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (currentDateText != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                    ) {
+                                        Text(
+                                            text = currentDateText,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 10.sp,
+                                            lineHeight = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                        )
+                                    }
+                                }
+                                if (currentAudio.hasAny) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                        ) {
+                                            currentAudio.labels.forEachIndexed { idx, label ->
+                                                if (idx > 0) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(3.dp)
+                                                            .clip(CircleShape)
+                                                            .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                                                    )
+                                                }
+                                                Text(
+                                                    text = label,
+                                                    fontFamily = RobotoFamily,
+                                                    fontSize = 10.sp,
+                                                    lineHeight = 14.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Synopsis with show more
+                        if (!currentDescription.isNullOrBlank()) {
+                            Spacer(Modifier.height(8.dp))
+                            var expanded by remember(currentEpNum) { mutableStateOf(false) }
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                ) {
+                                    Text(
+                                        text = currentDescription,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 12.sp,
+                                        lineHeight = 15.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = if (expanded) Int.MAX_VALUE else 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (currentDescription.length > 60) {
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = if (expanded) "Show less" else "Show more",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.clickable { expanded = !expanded },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1139,8 +1250,11 @@ private fun MinimizedMode(
                             Spacer(Modifier.height(8.dp))
                             episodeList.forEach { ep ->
                                 val isCurrent = ep.url == currentEpisodeUrl
+                                val epNum = ep.episodeNumber.toInt()
+                                val meta = episodeMetadata[epNum]
                                 EpisodeListRow(
                                     episode = ep,
+                                    metadata = meta,
                                     isCurrent = isCurrent,
                                     onClick = {
                                         if (!isCurrent) {
@@ -1272,60 +1386,207 @@ private fun PlayerSurface(
 @Composable
 private fun EpisodeListRow(
     episode: SimpleEpisode,
+    metadata: WatchEpisodeMeta?,
     isCurrent: Boolean,
     onClick: () -> Unit,
 ) {
-    // Use EpisodeTitleParser to get a clean display title. This handles:
-    //  - "Episode 5 - Title" → "Title"
-    //  - Hashes/code-like names → "Episode N" (fallback)
-    //  - episode_number <= 0 → "?" (bad extension data)
-    val displayTitle = com.confused.anikuta.core.common.EpisodeTitleParser
-        .getDisplayTitle(episode.name, episode.episodeNumber)
+    val displayTitle = metadata?.title
+        ?: com.confused.anikuta.core.common.EpisodeTitleParser
+            .getDisplayTitle(episode.name, episode.episodeNumber)
     val epNumText = com.confused.anikuta.core.common.EpisodeTitleParser
         .formatEpisodeNumber(episode.episodeNumber)
+    val thumbnailUrl = metadata?.thumbnailUrl
+    val description = metadata?.description
+    val dateText = if (metadata != null && metadata.airDateMillis > 0) {
+        formatDate(metadata.airDateMillis)
+    } else null
+    val audio = parseAudioAvailability(metadata?.scanlator, episode.name)
 
     Surface(
         color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(12.dp),
         border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 3.dp)
             .clickable(onClick = onClick),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
         ) {
-            Surface(
-                color = if (isCurrent) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.size(width = 44.dp, height = 32.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = epNumText,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                // ── Thumbnail with EP tag overlay ──
+                if (thumbnailUrl != null) {
+                    Box(
+                        modifier = Modifier.size(width = 120.dp, height = 68.dp),
+                    ) {
+                        coil3.compose.AsyncImage(
+                            model = thumbnailUrl,
+                            contentDescription = displayTitle,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(10.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                        ) {
+                            Text(
+                                text = "EP $epNumText",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                } else {
+                    Surface(
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.size(width = 44.dp, height = 32.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = epNumText,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isCurrent) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                }
+                // ── Right column: title + date/audio pills ──
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = displayTitle,
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    if (dateText != null || audio.hasAny) {
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (dateText != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                ) {
+                                    Text(
+                                        text = dateText,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        lineHeight = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+                            }
+                            if (audio.hasAny) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    ) {
+                                        audio.labels.forEachIndexed { idx, label ->
+                                            if (idx > 0) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(3.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.onSurfaceVariant),
+                                                )
+                                            }
+                                            Text(
+                                                text = label,
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 10.sp,
+                                                lineHeight = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // ── Synopsis + download button ──
+            if (!description.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = description,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = "Download",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .padding(start = 8.dp, bottom = 2.dp),
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = displayTitle,
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
         }
     }
 }
@@ -1361,5 +1622,34 @@ private fun ControlButton(
 
 private fun formatEpisodeNumber(num: Float): String {
     return com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(num)
+}
+
+// ── Audio availability parsing (shared with details page) ──
+
+private data class AudioAvailability(
+    val hasSub: Boolean,
+    val hasDub: Boolean,
+    val hasHsub: Boolean,
+) {
+    val hasAny: Boolean get() = hasSub || hasDub || hasHsub
+    val labels: List<String> get() = buildList {
+        if (hasSub) add("SUB")
+        if (hasDub) add("DUB")
+        if (hasHsub) add("HSUB")
+    }
+}
+
+private fun parseAudioAvailability(scanlator: String?, episodeName: String): AudioAvailability {
+    val haystack = ((scanlator ?: "") + " " + episodeName).uppercase()
+    val hasHsub = haystack.contains("HSUB") || haystack.contains("HARDSUB")
+    val hasSub = haystack.contains("SUB") && !hasHsub
+    val hasDub = haystack.contains("DUB") && !hasHsub
+    return AudioAvailability(hasSub = hasSub, hasDub = hasDub, hasHsub = hasHsub)
+}
+
+private fun formatDate(epochMillis: Long): String {
+    if (epochMillis <= 0) return ""
+    val sdf = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
+    return sdf.format(java.util.Date(epochMillis))
 }
 

@@ -60,6 +60,11 @@ data class WatchKey(
     /** Serialized audio tracks for external audio loading via MPV's audio-add.
      *  Same format as [subtitleTracksSerialized]. */
     val audioTracksSerialized: String = "",
+
+    /** Serialized episode metadata for the watch page episode list + currently-playing section.
+     *  Format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
+     *  Empty string = no metadata available (episode list shows basic rows). */
+    val episodeMetadataSerialized: String = "",
 ) : NavKey {
 
     /**
@@ -106,6 +111,29 @@ data class WatchKey(
             if (parts.size == 2) Pair(parts[0], parts[1]) else null
         }
     }
+
+    /**
+     * Parse the serialized episode metadata into a map keyed by episode number.
+     * Format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
+     */
+    fun parseEpisodeMetadata(): Map<Int, WatchEpisodeMeta> {
+        if (episodeMetadataSerialized.isBlank()) return emptyMap()
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+        return episodeMetadataSerialized.split("\n").mapNotNull { line ->
+            val parts = line.split(delim, limit = 6)
+            if (parts.size >= 5) {
+                val epNum = parts[0].toIntOrNull() ?: return@mapNotNull null
+                WatchEpisodeMeta(
+                    episodeNumber = epNum,
+                    title = parts[1].ifBlank { null },
+                    thumbnailUrl = parts[2].ifBlank { null },
+                    airDateMillis = parts[3].toLongOrNull() ?: 0L,
+                    description = parts[4].ifBlank { null },
+                    scanlator = if (parts.size > 5) parts[5] else "",
+                )
+            } else null
+        }.associateBy { it.episodeNumber }
+    }
 }
 
 /** Lightweight episode info for the watch screen's episode list. */
@@ -113,4 +141,14 @@ data class SimpleEpisode(
     val url: String,
     val episodeNumber: Float,
     val name: String,
+)
+
+/** Episode metadata for the watch page (passed from DetailsScreen via WatchKey). */
+data class WatchEpisodeMeta(
+    val episodeNumber: Int,
+    val title: String?,
+    val thumbnailUrl: String?,
+    val airDateMillis: Long,
+    val description: String?,
+    val scanlator: String,
 )

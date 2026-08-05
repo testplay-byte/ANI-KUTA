@@ -88,7 +88,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun DetailsScreen(
     animeId: Int,
     onBack: () -> Unit,
-    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -244,6 +244,16 @@ fun DetailsScreen(
                     Logger.i("Anikuta:Feature:Details") {
                         "Subtitle tracks: ${video.subtitleTracks.size}, Audio tracks: ${video.audioTracks.size}"
                     }
+                    // Serialize episode metadata for the watch page.
+                    // Format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
+                    val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
+                        val title = meta.title ?: ""
+                        val thumb = meta.thumbnailUrl ?: ""
+                        val date = meta.airDate?.toString() ?: "0"
+                        val desc = meta.description ?: ""
+                        val scanlator = ep.scanlator ?: ""
+                        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+                    }
                     onNavigateToWatch(
                         video.url,
                         anime.displayName,
@@ -257,6 +267,7 @@ fun DetailsScreen(
                         linked.sourceId,
                         subTracksStr,
                         audioTracksStr,
+                        epMetaStr,
                     )
                 }
                 showResolverSheet = false
