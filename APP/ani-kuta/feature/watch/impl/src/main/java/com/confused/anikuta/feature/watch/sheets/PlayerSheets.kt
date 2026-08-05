@@ -1,11 +1,18 @@
 package com.confused.anikuta.feature.watch
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,13 +21,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -299,7 +311,7 @@ private fun TrackRow(
  * @param onQualitySelected Called when the user picks a video.
  * @param onDismiss Close the sheet.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun QualitySheet(
     servers: List<ResolverServer>,
@@ -313,21 +325,10 @@ fun QualitySheet(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
 
-    // Flatten all servers into a single list of (serverName, audioLabel, video) triples.
-    val allVideos = remember(servers) {
-        servers.flatMap { server ->
-            server.audioVersions.flatMap { av ->
-                av.videos.map { video ->
-                    Triple(server.name, av.label, video)
-                }
-            }
-        }
-    }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
     ) {
@@ -335,67 +336,217 @@ fun QualitySheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxSheetHeight)
-                .padding(horizontal = 20.dp)
-                .padding(top = 16.dp, bottom = 16.dp)
+                .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header ──
+            // ── Header: "Qualities and Servers" + close button ──
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Pick a video",
+                    text = "Qualities and Servers",
                     fontFamily = RobotoFamily,
-                    fontSize = 20.sp,
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
-                Box(
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = CircleShape,
                     modifier = Modifier
                         .size(32.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .clickable(onClick = onDismiss),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+            // Subtitle
+            Text(
+                text = "Tap a server to expand, then pick a quality.",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+
+            // ── Server accordion (same design as ResolverSheet) ──
+            if (servers.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
                     contentAlignment = Alignment.Center,
                 ) {
+                    Text(
+                        text = "No video sources available",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            } else {
+                QualityServerAccordion(
+                    servers = servers,
+                    currentVideoTitle = currentVideoTitle,
+                    onPickVideo = { video ->
+                        onQualitySelected(video)
+                        onDismiss()
+                    },
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QualityServerAccordion(
+    servers: List<ResolverServer>,
+    currentVideoTitle: String,
+    onPickVideo: (ResolverVideo) -> Unit,
+) {
+    var expandedServer by remember {
+        mutableStateOf<String?>(
+            servers.firstOrNull { server ->
+                server.audioVersions.any { av ->
+                    av.videos.any { it.videoTitle == currentVideoTitle }
+                }
+            }?.name ?: servers.firstOrNull()?.name
+        )
+    }
+
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        items(servers, key = { it.name }) { server ->
+            val isExpanded = expandedServer == server.name
+            QualityServerCard(
+                server = server,
+                isExpanded = isExpanded,
+                currentVideoTitle = currentVideoTitle,
+                onToggle = {
+                    expandedServer = if (isExpanded) null else server.name
+                },
+                onPickVideo = onPickVideo,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QualityServerCard(
+    server: ResolverServer,
+    isExpanded: Boolean,
+    currentVideoTitle: String,
+    onToggle: () -> Unit,
+    onPickVideo: (ResolverVideo) -> Unit,
+) {
+    val hasCurrentVideo = server.audioVersions.any { av ->
+        av.videos.any { it.videoTitle == currentVideoTitle }
+    }
+
+    Surface(
+        color = if (isExpanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = server.name,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val audioChips = server.audioVersions.filter { it.label != "Default" }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    audioChips.reversed().forEach { av ->
+                        val isCurrentAudio = av.videos.any { it.videoTitle == currentVideoTitle }
+                        Surface(
+                            color = if (isCurrentAudio) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(6.dp),
+                        ) {
+                            Text(
+                                text = av.label,
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isCurrentAudio) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(4.dp))
                     Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
+                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
 
-            // ── Flat video list (matches ResolverSheet) ──
-            if (allVideos.isEmpty()) {
-                Text(
-                    text = "No videos available.\nTry resolving again from the details page.",
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp),
-                )
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth(),
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(allVideos.size) { index ->
-                        val (serverName, audioLabel, video) = allVideos[index]
-                        val isSelected = video.videoTitle == currentVideoTitle
-                        QualityVideoRow(
-                            quality = video.quality,
-                            serverInfo = if (audioLabel != "Default") "$serverName · $audioLabel"
-                                         else serverName,
-                            isSelected = isSelected,
-                            onClick = {
-                                onQualitySelected(video)
-                                onDismiss()
-                            },
-                        )
+                    server.audioVersions.forEach { av ->
+                        if (server.audioVersions.size > 1) {
+                            Text(
+                                text = av.label,
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            av.videos.forEach { video ->
+                                val isCurrent = video.videoTitle == currentVideoTitle
+                                QualityChip(
+                                    quality = video.quality,
+                                    isSelected = isCurrent,
+                                    onClick = { onPickVideo(video) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -403,55 +554,39 @@ fun QualitySheet(
     }
 }
 
-/**
- * A single video row in the QualitySheet — matches the ResolverSheet's VideoRow.
- */
 @Composable
-private fun QualityVideoRow(
+private fun QualityChip(
     quality: String,
-    serverInfo: String,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
     Surface(
-        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = RoundedCornerShape(10.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.primaryContainer,
+        shape = RoundedCornerShape(8.dp),
         border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = quality,
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = serverInfo,
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Selected",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                       else MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = quality,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                       else MaterialTheme.colorScheme.onPrimaryContainer,
+            )
         }
     }
 }
