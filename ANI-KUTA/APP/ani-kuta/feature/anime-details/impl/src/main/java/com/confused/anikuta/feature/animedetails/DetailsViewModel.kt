@@ -17,6 +17,7 @@ import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
 import com.confused.anikuta.core.videoresolver.ResolverServer
 import com.confused.anikuta.core.videoresolver.VideoResolver
 import com.confused.anikuta.data.extension.manager.ExtensionManager
+import com.confused.anikuta.data.extension.provider.toUnifiedAnime
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -124,6 +125,80 @@ class DetailsViewModel(
 
     private var currentAnimeId: Int = 0
 
+    // ── D-134: Original data bases (for data-source switching) ──
+    // The bug: merging with ANILIST priority overwrites extension fields.
+    // Switching back to EXTENSION priority can't recover the original extension
+    // data because it was overwritten.
+    // Fix: keep the ORIGINAL extension data + ORIGINAL AniList data as separate
+    // fields. The displayed UnifiedAnime is always computed by merging the two
+    // bases with the current priority. Switching priority never loses data.
+
+    /** The original extension data (null for AniList-only entries). */
+    private var extensionBase: UnifiedAnime? = null
+
+    /** The original AniList data (null for extension-only entries, set after linking). */
+    private var anilistBase: UnifiedAnime? = null
+
+    /**
+     * Re-merge [extensionBase] + [anilistBase] with the given [priority].
+     * Updates [_state] with the merged result.
+     *
+     * - If only [extensionBase] exists → display it as-is (extension-only).
+     * - If only [anilistBase] exists → display it as-is (AniList-only).
+     * - If both exist → merge by priority:
+     *   - ANILIST: AniList values win; extension fills nulls.
+     *   - EXTENSION: Extension values win; AniList fills nulls.
+     *
+     * Identity fields (sourceId, sourceName, animeUrl, anilistId, entryMode) are
+     * always preserved from whichever base has them — they're NOT subject to priority.
+     */
+    private fun remergeBases(priority: com.confused.anikuta.core.common.model.DataSourcePriority) {
+        val ext = extensionBase
+        val al = anilistBase
+        if (ext == null && al == null) {
+            Logger.w(TAG) { "remergeBases: both bases null — nothing to display" }
+            return
+        }
+        if (ext == null) {
+            // AniList-only
+            _state.value = DetailsState.Success(al!!.copy(dataSourcePriority = priority))
+            return
+        }
+        if (al == null) {
+            // Extension-only
+            _state.value = DetailsState.Success(ext.copy(dataSourcePriority = priority))
+            return
+        }
+        // Both exist — merge by priority.
+        val (primary, secondary) = if (priority == com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST) {
+            al to ext
+        } else {
+            ext to al
+        }
+        val merged = primary.copy(
+            // Identity fields — always from whichever base has them.
+            anilistId = al.anilistId ?: ext.anilistId,
+            sourceId = ext.sourceId ?: al.sourceId,
+            sourceName = ext.sourceName ?: al.sourceName,
+            animeUrl = ext.animeUrl ?: al.animeUrl,
+            entryMode = ext.entryMode, // Entry mode stays from extension (how the user opened it).
+            dataSourcePriority = priority,
+            // Metadata fields — primary wins, secondary fills nulls.
+            description = primary.description ?: secondary.description,
+            genres = if (primary.genres.isNotEmpty()) primary.genres else secondary.genres,
+            status = primary.status ?: secondary.status,
+            episodes = primary.episodes ?: secondary.episodes,
+            averageScore = primary.averageScore ?: secondary.averageScore,
+            season = primary.season ?: secondary.season,
+            seasonYear = primary.seasonYear ?: secondary.seasonYear,
+            bannerUrl = primary.bannerUrl ?: secondary.bannerUrl,
+            idMal = primary.idMal ?: secondary.idMal,
+            coverUrl = primary.coverUrl ?: secondary.coverUrl,
+        )
+        _state.value = DetailsState.Success(merged)
+        Logger.d(TAG) { "remergeBases: priority=$priority, merged ${merged.displayName}" }
+    }
+
     // ── Load from AniList (existing flow) ──
 
     fun loadFromAniList(animeId: Int) {
@@ -141,11 +216,15 @@ class DetailsViewModel(
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
         _manualSearchState.value = ManualSearchState.Idle
+        // D-134: Reset the data bases.
+        extensionBase = null
+        anilistBase = null
         viewModelScope.launch {
             try {
                 val anime = anilistApi.fetchAnimeDetails(animeId)
                 Logger.i(TAG) { "Loaded AniList details for $animeId" }
-                _state.value = DetailsState.Success(anime.toUnifiedAnime())
+                anilistBase = anime.toUnifiedAnime() // D-134: store original AniList data.
+                remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
 
                 // Check for a persisted source link.
                 loadLinkedSource(animeId)
@@ -171,6 +250,9 @@ class DetailsViewModel(
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
         _manualSearchState.value = ManualSearchState.Idle
+        // D-134: Reset the data bases.
+        extensionBase = null
+        anilistBase = null
         viewModelScope.launch {
             try {
                 // Use the ExtensionDetailsProvider to fetch full details.
@@ -178,7 +260,8 @@ class DetailsViewModel(
 
                 if (unifiedAnime != null) {
                     Logger.i(TAG) { "Loaded extension details: $title from source $sourceId" }
-                    _state.value = DetailsState.Success(unifiedAnime)
+                    extensionBase = unifiedAnime // D-134: store original extension data.
+                    remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
 
                     // Fetch episodes from the extension source directly.
                     fetchEpisodesFromSource(sourceId, animeUrl, title)
@@ -249,16 +332,16 @@ class DetailsViewModel(
     }
 
     /**
-     * Merge AniList metadata into the current UnifiedAnime.
+     * Fetch AniList data + store it in [anilistBase], then re-merge.
      *
-     * Sets the anilistId, fetches AniList details via [AniListDetailsProvider.mergeInto],
-     * and updates the state. Also kicks off episode metadata fetch (now that we
-     * have an anilistId).
+     * D-134: Instead of overwriting the current UnifiedAnime, we store the
+     * fetched AniList data as [anilistBase] and call [remergeBases]. This way:
+     * - The original extension data ([extensionBase]) is never lost.
+     * - Switching priority back to EXTENSION recovers the original extension data.
+     * - Switching priority to ANILIST shows AniList data.
      *
-     * @param priority D-130: When [DataSourcePriority.ANILIST], AniList data overwrites
-     *   extension data (used for manual link — user explicitly wants AniList).
-     *   When [DataSourcePriority.EXTENSION], extension data is kept + AniList fills
-     *   nulls (used for auto-link — non-intrusive enrichment).
+     * @param anilistId The AniList ID to fetch.
+     * @param priority The priority to use for the re-merge.
      */
     private suspend fun mergeAniListIntoUnified(
         anilistId: Int,
@@ -266,17 +349,20 @@ class DetailsViewModel(
             com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST,
     ) {
         try {
-            val current = (_state.value as? DetailsState.Success)?.anime ?: return
-            // Set the anilistId first so mergeInto knows what to fetch.
-            // NOTE: Do NOT change entryMode — the entry was opened from an extension
-            // search result; auto-linking only enriches it with AniList metadata.
-            val baseWithId = current.copy(anilistId = anilistId)
-            val merged = anilistProvider.mergeInto(baseWithId, priority)
-            _state.value = DetailsState.Success(merged)
+            // Fetch fresh AniList data + store as anilistBase.
+            val anilistData = anilistProvider.fetchFromAniList(anilistId)
+            if (anilistData != null) {
+                anilistBase = anilistData
+                Logger.i(TAG) { "AniList base stored: ${anilistData.displayName} (anilistId=$anilistId)" }
+            } else {
+                Logger.w(TAG) { "AniList fetch returned null for anilistId=$anilistId" }
+                return
+            }
             currentAnimeId = anilistId // So episode metadata fetch can use it.
+            remergeBases(priority)
 
             // Now that we have an anilistId, kick off episode metadata fetch.
-            val malId = merged.idMal
+            val malId = anilistData.idMal
             val episodes = (_episodeState.value as? EpisodeState.Loaded)?.episodes ?: emptyList()
             if (episodes.isNotEmpty()) {
                 viewModelScope.launch {
@@ -299,22 +385,24 @@ class DetailsViewModel(
     }
 
     /**
-     * Switch the displayed data source between AniList and Extension (D-130).
+     * Switch the displayed data source between AniList and Extension (D-130, D-134).
      *
      * Only works when the entry is linked (both anilistId + sourceId non-null).
-     * Re-merges the data with the new priority. The extension data is always
-     * available (it was fetched on load); AniList data is re-fetched.
+     * Re-merges [extensionBase] + [anilistBase] with the new priority.
+     * Both bases are preserved — switching back doesn't lose data.
      */
     fun switchDataSource(priority: com.confused.anikuta.core.common.model.DataSourcePriority) {
         val anime = (_state.value as? DetailsState.Success)?.anime ?: return
-        val anilistId = anime.anilistId ?: run {
-            Logger.w(TAG) { "switchDataSource: no anilistId — can't switch" }
+        // D-134: Both bases must be available for switching to make sense.
+        // If only one base exists, switching does nothing (there's nothing to switch to).
+        if (extensionBase == null || anilistBase == null) {
+            Logger.w(TAG) { "switchDataSource: need both bases (ext=${extensionBase != null}, al=${anilistBase != null})" }
             return
         }
-        Logger.i(TAG) { "Switching data source to $priority (anilistId=$anilistId)" }
-        viewModelScope.launch {
-            mergeAniListIntoUnified(anilistId, priority)
-        }
+        Logger.i(TAG) { "Switching data source to $priority" }
+        // D-134: Just re-merge the existing bases with the new priority.
+        // No network call needed — both bases are already in memory.
+        remergeBases(priority)
     }
 
     // ── Phase B: Manual link sheet ──
@@ -401,14 +489,11 @@ class DetailsViewModel(
         Logger.i(TAG) { "Unlinking AniList entry: sourceId=$sourceId, url=$animeUrl, anilistId=$anilistId" }
         autoLinkService.clearCachedLink(sourceId, animeUrl)
 
-        // Clear AniList-specific fields. The extension data stays.
-        val cleared = anime.copy(
-            anilistId = null,
-            idMal = null,
-        )
-        _state.value = DetailsState.Success(cleared)
-        _autoLinkState.value = AutoLinkState.Idle
+        // D-134: Clear the AniList base + re-merge (shows extension data only).
+        anilistBase = null
         currentAnimeId = 0
+        remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
+        _autoLinkState.value = AutoLinkState.Idle
         _episodeMetadata.value = emptyMap() // Clear AniList-sourced metadata.
     }
 
@@ -472,6 +557,10 @@ class DetailsViewModel(
 
     /**
      * Link a source + SAnime to the current anime. Persists the link + fetches episodes.
+     *
+     * D-134: For AniList entries, this also creates [extensionBase] from the picked
+     * SAnime (so the data-source selector becomes available — the user can now
+     * switch between AniList data and Extension data).
      */
     fun linkSource(source: AnimeCatalogueSource, sAnime: SAnime) {
         val animeId = currentAnimeId
@@ -481,11 +570,25 @@ class DetailsViewModel(
             "${source.id}:${sAnime.url}",
         )
         _linkedSource.value = LinkedSource(source.id, source.name, sAnime.url)
+
+        // D-134: Create extensionBase from the picked SAnime (for AniList entries).
+        // This makes the data-source selector available.
+        if (extensionBase == null) {
+            extensionBase = sAnime.toUnifiedAnime(source.id, source.name)
+            Logger.i(TAG) { "Extension base created from picked SAnime: ${sAnime.title}" }
+            // Re-merge to update the display (keeps current priority).
+            val currentPriority = (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+            remergeBases(currentPriority)
+        }
+
         fetchEpisodes(source, sAnime.url, sAnime.title)
     }
 
     /**
      * Unlink the current source.
+     *
+     * D-134: Clears [extensionBase] + re-merge (shows AniList data only, if available).
      */
     fun unlinkSource() {
         val animeId = currentAnimeId
@@ -493,6 +596,12 @@ class DetailsViewModel(
         preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + animeId, "")
         _linkedSource.value = null
         _episodeState.value = EpisodeState.Idle
+
+        // D-134: Clear the extension base + re-merge.
+        extensionBase = null
+        val currentPriority = (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+            ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+        remergeBases(currentPriority)
     }
 
     // ── Episode fetching ──

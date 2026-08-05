@@ -206,3 +206,43 @@ All 7 modified files reviewed for compile errors — clean. No issues found.
 ### What's next
 - User device testing of all fixes.
 - Phase C: contentId system (migrate identity, watch progress, library).
+
+## Session web-f53f0459 (continued) — Data Source Selector Fix + Phase C Plan v2
+
+### User testing feedback (round 2)
+User tested the Phase B fixes and reported:
+- ✅ Download button: still good + toast works.
+- ✅ Data source selector: AniList toggle works (shows AniList data).
+- ❌ Data source selector: Extension toggle does NOT update (stale AniList data shown). Had to reopen the page.
+- 📋 Selector placement: should be in the three-dot menu, not below the banner.
+- 📋 Selector should be available for AniList entries too (when they have a linked source).
+- 📋 Selector will eventually support more sources (TMDB, Kitsu) — not just AniList vs Extension.
+- ✅ Auto-link settings UI: redesigned, looks much better now. Per-extension override works live.
+- ✅ Repo structure: looks good.
+- 📋 Phase C: user reviewed the plan, gave detailed feedback on contentId design.
+
+### Fixes implemented (D-134)
+
+**D-134: Data source selector — fix reactivity + move to three-dot menu**
+- Root cause: `mergeAniListIntoUnified` overwrote the base UnifiedAnime's fields with AniList data. Switching back to EXTENSION priority couldn't recover the original extension data.
+- Fix: Added `extensionBase` + `anilistBase` to DetailsViewModel. The displayed UnifiedAnime is always computed by `remergeBases(priority)` which merges the two original bases. Switching priority never loses data.
+- Moved selector from LazyColumn body to three-dot DropdownMenu.
+- Made selector available for AniList entries with linked sources (`linkSource()` now creates `extensionBase` from the picked SAnime).
+- Updated `linkSource()`, `unlinkSource()`, `unlinkAniList()` to manage the bases.
+
+### Phase C plan v2 created
+- Replaced the old Phase C plan with a new v2 that incorporates user feedback.
+- Key design: stable UUID contentId + content_source_link table (one-to-many).
+- Database tables with full SQL (content, content_source_link, watch_progress, library, watch_history).
+- Architecture: new `:core:content` module with ContentRepository + ContentResolver.
+- 6 open questions for the user (Q-001 through Q-005 + Q-006 confirmed).
+- Honest analysis of the user's "changing contentId" proposal — explained why a stable ID is safer.
+- No migration needed (watch progress, library, history aren't set up yet).
+
+### CI status
+- Awaiting push + CI build.
+
+### What's next
+- User reviews Phase C plan v2 + answers open questions.
+- After confirmation, use full-stack-dev agent to convert plan into a web page.
+- Then implement Phase C (C.1 → C.5).

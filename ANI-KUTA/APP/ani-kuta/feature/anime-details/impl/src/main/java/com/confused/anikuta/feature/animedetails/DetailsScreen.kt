@@ -174,21 +174,14 @@ fun DetailsScreen(
                                     showMenu = false
                                     viewModel.unlinkAniList()
                                 },
+                                // D-134: Data source selector — shows when both
+                                // anilistId + sourceId are present (both data sources).
+                                hasBothDataSources = anime.anilistId != null && anime.sourceId != null,
+                                currentDataSourcePriority = anime.dataSourcePriority,
+                                onSwitchDataSource = { priority ->
+                                    viewModel.switchDataSource(priority)
+                                },
                             )
-                        }
-
-                        // ── Data source selector (D-130) ──
-                        // Only shows when BOTH anilistId + sourceId are present (linked entry).
-                        // Lets the user pick which metadata source takes priority.
-                        item {
-                            if (anime.anilistId != null && anime.sourceId != null) {
-                                DataSourceSelector(
-                                    currentPriority = anime.dataSourcePriority,
-                                    onSelect = { priority ->
-                                        viewModel.switchDataSource(priority)
-                                    },
-                                )
-                            }
                         }
 
                         // ── Genres ──
@@ -346,61 +339,69 @@ fun DetailsScreen(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Data source selector — segmented toggle (AniList / Extension) (D-130)
+//  Data source selector — for the three-dot dropdown menu (D-130, D-134)
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Lets the user pick which metadata source takes priority when both AniList
- * and extension data are available (linked entry).
+ * A data-source selector rendered inside the three-dot DropdownMenu.
  *
- * - **AniList**: synopsis, score, episodes, season, genres from AniList.
- * - **Extension**: extension's own metadata (may be sparser).
+ * Shows a "Data source" label + a segmented toggle (AniList / Extension).
+ * Tapping a segment calls [onSelect] — the caller closes the menu.
  *
- * Tapping re-merges the data with the new priority + the UI updates live.
+ * D-134: The selector only appears when both AniList + extension data are
+ * available (the entry is linked). For AniList-only or extension-only entries,
+ * the selector is hidden (there's nothing to switch).
+ *
+ * Future: This will support more sources (TMDB, Kitsu) — the toggle will
+ * become a multi-way selector.
  */
 @Composable
-private fun DataSourceSelector(
+private fun DataSourceSelectorMenu(
     currentPriority: com.confused.anikuta.core.common.model.DataSourcePriority,
     onSelect: (com.confused.anikuta.core.common.model.DataSourcePriority) -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.Center,
     ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(12.dp),
+        Text(
+            text = "Data source",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                listOf(
-                    com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST to "AniList",
-                    com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION to "Extension",
-                ).forEach { (priority, label) ->
-                    val isSelected = currentPriority == priority
-                    Surface(
-                        color = if (isSelected) MaterialTheme.colorScheme.primary
-                                else androidx.compose.ui.graphics.Color.Transparent,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSelect(priority) },
-                    ) {
-                        Text(
-                            text = label,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            maxLines = 1,
-                        )
-                    }
+            listOf(
+                com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST to "AniList",
+                com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION to "Extension",
+            ).forEach { (priority, label) ->
+                val isSelected = currentPriority == priority
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else androidx.compose.ui.graphics.Color.Transparent,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSelect(priority) },
+                ) {
+                    Text(
+                        text = label,
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        maxLines = 1,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
         }
@@ -424,6 +425,12 @@ private fun DetailBanner(
     isExtensionEntry: Boolean = false,
     isAniListLinked: Boolean = false,
     isAutoLinkSearching: Boolean = false,
+    // D-134: Data source selector params.
+    // Shows when BOTH anilistId + sourceId are present (both data sources available).
+    hasBothDataSources: Boolean = false,
+    currentDataSourcePriority: com.confused.anikuta.core.common.model.DataSourcePriority =
+        com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION,
+    onSwitchDataSource: (com.confused.anikuta.core.common.model.DataSourcePriority) -> Unit = {},
     onLinkAniList: () -> Unit = {},
     onUnlinkAniList: () -> Unit = {},
 ) {
@@ -497,6 +504,18 @@ private fun DetailBanner(
                         expanded = showMenu,
                         onDismissRequest = onDismissMenu,
                     ) {
+                        // ── D-134: Data source selector (at the top of the menu) ──
+                        // Shows when both AniList + extension data are available.
+                        if (hasBothDataSources) {
+                            DataSourceSelectorMenu(
+                                currentPriority = currentDataSourcePriority,
+                                onSelect = { priority ->
+                                    onSwitchDataSource(priority)
+                                    onDismissMenu()
+                                },
+                            )
+                            androidx.compose.material3.HorizontalDivider()
+                        }
                         DropdownMenuItem(
                             text = { Text("Refresh", fontFamily = RobotoFamily) },
                             onClick = onDismissMenu,

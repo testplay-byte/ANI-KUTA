@@ -886,3 +886,14 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User: "in the main directory, currently where all four folders are present, instead of all those four folders there will be a single folder in which all these things... will be present... This is going to be a core rule." + "if something feels off, the Github sandbox environment is off or something like that, then you will reclone the Github repository."
 - **Status:** ✅ Implemented (Phase B fix, session web-f53f0459).
 - **Date:** Phase B fix (session web-f53f0459).
+
+### D-134 — Data source selector: fix reactivity + move to three-dot menu
+- **What:** Fixed the data source selector bug where clicking "Extension" didn't update the UI (the extension data was overwritten by the previous ANILIST-priority merge and couldn't be recovered).
+- **Root cause:** `mergeAniListIntoUnified` overwrote the base UnifiedAnime's fields with AniList data. Switching back to EXTENSION priority did `base.description ?: anilistData.description` — but `base.description` was already AniList's description (not null), so it stayed.
+- **Fix:** Added `extensionBase: UnifiedAnime?` and `anilistBase: UnifiedAnime?` to DetailsViewModel. The displayed UnifiedAnime is always computed by `remergeBases(priority)` which merges the two original bases. Switching priority never loses data — both bases are preserved.
+- **Also moved** the selector from the LazyColumn body to the three-dot DropdownMenu (per user: "when the user clicks the three-dot toggle at the very top, then at the very top of it it will show the user this kind of segmented toggle").
+- **Also made** the selector available for AniList entries with linked sources (per user: "it will be available for any list entries too"). When an AniList entry links a source via `linkSource()`, `extensionBase` is created from the picked SAnime.
+- **Also updated** `linkSource()`, `unlinkSource()`, `unlinkAniList()` to manage the bases (create/clear + re-merge).
+- **Why:** User: "When I clicked the extension, nothing changed at all. Then I went back and reopened the page and I saw that the results were being shown from Any list." + "What it should be is that when the user clicks the three-dot toggle at the very top..." + "it will be available for any list entries too."
+- **Status:** ✅ Implemented (Phase B fix, session web-f53f0459).
+- **Date:** Phase B fix (session web-f53f0459).
