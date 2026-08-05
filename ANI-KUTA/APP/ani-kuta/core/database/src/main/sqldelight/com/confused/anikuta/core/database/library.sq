@@ -7,7 +7,7 @@
 -- Categories (e.g. "Default", "Watching", "Plan to Watch").
 -- The "Default" category is permanent (is_permanent = 1) — cannot be deleted.
 CREATE TABLE IF NOT EXISTS library_category (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    id INTEGER NOT NULL PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     display_order INTEGER NOT NULL DEFAULT 0,
     is_permanent INTEGER NOT NULL DEFAULT 0,
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS library_category (
 -- Links content to a category. One content can be in multiple categories
 -- (future). For now, items go into the Default category.
 CREATE TABLE IF NOT EXISTS library_item (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    id INTEGER NOT NULL PRIMARY KEY,
     main_id TEXT NOT NULL,
     category_id INTEGER NOT NULL,
     display_order INTEGER NOT NULL DEFAULT 0,
