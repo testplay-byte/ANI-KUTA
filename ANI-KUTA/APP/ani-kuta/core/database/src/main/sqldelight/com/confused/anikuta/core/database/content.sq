@@ -7,7 +7,7 @@
 -- Metadata / tracking sources (AniList, TMDB, Kitsu, MAL).
 -- Seeded once at first launch.
 CREATE TABLE IF NOT EXISTS data_source (
-    id INTEGER NOT NULL PRIMARY KEY,
+    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     name TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'metadata',
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS data_source (
 -- ── Lookup: systems ───────────────────────────────────────────────────────
 -- Extension systems (Aniyomi, CloudStream, Sora, MangaYomi).
 CREATE TABLE IF NOT EXISTS system (
-    id INTEGER NOT NULL PRIMARY KEY,
+    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     name TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     package_prefix TEXT,
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS system (
 -- Extension repository URLs per system.
 -- The URL points to the index.min.json file.
 CREATE TABLE IF NOT EXISTS extension_repo (
-    id INTEGER NOT NULL PRIMARY KEY,
+    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     system_id INTEGER NOT NULL,
     url TEXT NOT NULL,
     display_name TEXT,
@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_extension_repo_system ON extension_repo(system_id
 -- ── Lookup: extensions ────────────────────────────────────────────────────
 -- Installed extensions. repo_id is null when sideloaded without a repo.
 CREATE TABLE IF NOT EXISTS extension (
-    id INTEGER NOT NULL PRIMARY KEY,
+    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     system_id INTEGER NOT NULL,
     repo_id INTEGER,
     pkg_name TEXT NOT NULL,
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS extension_detail (
 -- ── Detail: other_source_details ──────────────────────────────────────────
 -- Generic key-value for future sources (TMDB, Kitsu, MAL).
 CREATE TABLE IF NOT EXISTS other_source_detail (
-    id INTEGER NOT NULL PRIMARY KEY,
+    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     main_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
     source_ref_id TEXT NOT NULL,
