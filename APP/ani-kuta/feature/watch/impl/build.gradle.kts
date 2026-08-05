@@ -35,5 +35,9 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
 
+    // Coil3 — for episode thumbnails in the watch page episode list
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+
     debugImplementation(libs.androidx.ui.tooling)
 }
