@@ -40,6 +40,7 @@ class PlayerObserver(
         private const val MPV_EVENT_START_FILE = 6
         private const val MPV_EVENT_END_FILE = 7
         private const val MPV_EVENT_FILE_LOADED = 11
+        private const val MPV_EVENT_PLAYBACK_RESTART = 17
         private const val MPV_EVENT_TRACKS_CHANGED = 26
         private const val MPV_EVENT_SHUTDOWN = 0
         private const val MPV_EVENT_LOG_MESSAGE = 1
@@ -196,6 +197,41 @@ class PlayerObserver(
                 // END_FILE fires normally when switching quality/server.
                 // Do NOT set ERROR here — only efEvent indicates a real load failure.
                 Logger.i(TAG) { "End file (normal — switching or finished)" }
+            }
+            MPV_EVENT_PLAYBACK_RESTART -> {
+                // CRITICAL: PLAYBACK_RESTART fires when playback actually starts
+                // (after a seek, after file load, etc.). Some HLS streams fire
+                // PLAYBACK_RESTART instead of (or in addition to) FILE_LOADED.
+                // If FILE_LOADED didn't fire (or fired but we missed it due to
+                // a FILE_ERROR event), PLAYBACK_RESTART is our fallback to:
+                //   1. Clear the switching flag (video is playing)
+                //   2. Load external subtitle tracks (sub-add)
+                //   3. Reload the track list from MPV
+                // This fixes the case where subtitles don't load because
+                // FILE_LOADED never fired (event 8 was fired instead).
+                if (stateHolder.isSwitching.value || !stateHolder.bufferedEnough) {
+                    Logger.i(TAG) { "✓ Playback restart — treating as file loaded (fallback)" }
+                    stateHolder.setSwitching(false)
+                    stateHolder.updateError(null)
+                    stateHolder.updateLoadingState(PlayerLoadingState.READY)
+                    stateHolder.updateBuffering(false)
+                    // Only load external tracks if they haven't been loaded yet.
+                    // (pendingSubtitleTracks is cleared after loadExternalTracks,
+                    // so if it's empty, they were already sent.)
+                    if (pendingSubtitleTracks.isNotEmpty() || pendingAudioTracks.isNotEmpty()) {
+                        loadExternalTracks()
+                    } else {
+                        loadTracksFromMpv()
+                    }
+                    // Safety delayed reload.
+                    scope.launch {
+                        delay(5_000L)
+                        Logger.i(TAG) { "Delayed track reload (5s safety, from PLAYBACK_RESTART)" }
+                        loadTracksFromMpv()
+                    }
+                } else {
+                    Logger.d(TAG) { "Playback restart (already loaded — skipping)" }
+                }
             }
             MPV_EVENT_TRACKS_CHANGED -> {
                 Logger.d(TAG) { "Tracks changed — reloading" }
