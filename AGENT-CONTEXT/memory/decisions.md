@@ -680,3 +680,23 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User reported: "it showed me the default text... it was supposed to show the available audio versions." The old project shows just the label.
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-106 — Audio version parsing — case-insensitive search anywhere in title
+- **What:** Rewrote `parseAudioVersion()` to use case-insensitive regex search ANYWHERE in the title (not just at the start). Checks HSUB first (so "HSub" doesn't match as "Sub"). Handles mixed case ("Sub", "Dub", "HSub"). Also fixed `parseServerName()` to try " - " split first (takes text before first " - " as server name).
+- **Why:** User logs showed titles like "HD-1 - Sub - 1080p" where audio version is in the MIDDLE. Old regex `^(SUB|DUB|HSUB)` only matched at start → returned "Default". Also "Vidstream-2" was truncated to "Vidstream" because knownServers prefix match ran before the " - " split.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-107 — Dedicated SubtitleEngine — downloads subs to temp files
+- **What:** Created `SubtitleEngine` in `:core:player/subtitles/`. Downloads external subtitle URLs to temp files using OkHttp (with proper headers). Returns local file paths. PlayerObserver sends `sub-add` with LOCAL file path instead of URL. Temp files cleaned up on player destroy.
+- **Why:** User requested: "We should create a separate dedicated engine or module to get the subtitles, download them, save them temporarily, and show them in the subtitles menu properly." MPV's `sub-add` with URLs doesn't support custom HTTP headers — subtitle downloads were failing silently.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-108 — EpisodeMetadataFetcher — AniList streamingEpisodes
+- **What:** Created `EpisodeMetadataFetcher` in `:core:metadata`. Fetches episode metadata (title, thumbnail) from AniList's `streamingEpisodes` GraphQL field. Returns `Map<Int, EpisodeMetadata>`. Registered in Koin via `metadataModule`. Wired into `DetailsViewModel` — fetches in parallel after episodes load. `EpisodeMetadataSource` interface for future sources (Jikan, Anikage.cc).
+- **Why:** User requested: "the metadata fetching capability, like how the old project has a full-fledged function of fetching the metadata and populating the episode list with that."
+- **Architecture:** Pluggable source system — new sources implement `EpisodeMetadataSource` without modifying existing code. No caching for now (re-fetch every time). Caching is a future phase.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Sub-agent:** METADATA-RESEARCH (old project analysis).
