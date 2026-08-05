@@ -667,3 +667,16 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User reported subtitles still not showing + no logs appeared with their filter. The diagnostic logging will reveal exactly where the subtitle flow breaks. The logcat filter rule ensures future filters are directly pasteable into Android Studio.
 - **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-104 — VideoResolver carries hoster names (VideoEntry) + correct parsing
+- **What:** Created `VideoEntry(video, hosterName)` data class. `resolveVideoEntries()` now returns `List<VideoEntry>` — carries the hoster name alongside each video. `buildServers()` and `groupIntoServers()` use the hoster name as the PRIMARY server name (falls back to parsing from title). `extractQuality()` extracts just the resolution (e.g. "1080p" from "SUB - 1080p") using regex. `parseAudioVersion()` handles SUB/DUB/HSUB/MIX/RAW/HARDSUB/SUBBED/DUBBED. `ResolverState.Success.rawVideos` → `rawEntries: List<VideoEntry>`.
+- **Why:** User reported: "On the very right side it showed me the default text... it was supposed to show the available audio versions (SUB, DUB, HSUB)." And: "the overall entries were shown as full names instead of just showing me the resolution number." Root cause: VideoResolver lost hoster names when collecting videos — `videos.addAll(hosterVideos)` didn't track which hoster each video came from. `parseServerName()` then tried to extract the server name from the video title, but AniKotoS titles are just "SUB - 1080p" (no server name). Also `parseQuality()` returned the full title instead of just the resolution.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+- **Sub-agent:** SUBTITLE-DEEP-DIVE (confirmed subtitle code is correct — issue is likely old test build).
+
+### D-105 — ResolverSheet audio chips show just labels (SUB/DUB/HSUB)
+- **What:** Audio version chips in the ResolverSheet now show just the label (e.g. "SUB", "DUB", "HSUB") instead of "count label" (e.g. "2 SUB"). "Default" audio versions are filtered out from the chips — if there's only one audio version and it's "Default", no chips are shown (the server name is enough).
+- **Why:** User reported: "it showed me the default text... it was supposed to show the available audio versions." The old project shows just the label.
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
