@@ -709,3 +709,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Evidence:** User log comparison showed:
   - New project: `FILE_ERROR (8)` at 17:39:49.893, `PLAYBACK_RESTART (17)` at 17:39:49.894 — no FILE_LOADED
   - Old project: `MPV_EVENT_FILE_LOADED` at 17:38:12.395, `sub-add` at 17:38:12.433 — subtitles loaded
+
+### D-110 — Episode metadata UI — thumbnails, titles, descriptions, dates + loading states
+- **What:** Updated `EpisodesSection` and `EpisodeRow` in DetailsScreen to display episode metadata (thumbnails, titles, descriptions, air dates) fetched by `EpisodeMetadataFetcher`. Added loading spinner next to "Episodes" header (shows while metadata is being fetched), red "Failed to load metadata" error message (auto-hides after 5s). `EpisodeRow` now shows: thumbnail (120x68dp, from metadata) with episode number overlay, title (from metadata or parsed via EpisodeTitleParser), description (from metadata or episode.summary), air date (formatted as "MMM d, yyyy"). No-thumbnail fallback shows episode number badge.
+- **Why:** User requested: "Make sure that it gets implemented in this session and make sure that all the metadata, like the thumbnail images of each individual episode, the titles of each episode, the synopsis or the description, and also the release date and all of those, show properly."
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-111 — CORE_RULES §28: Log Comparison Debugging
+- **What:** Added new core rule §28 documenting the log comparison debugging methodology that solved the subtitle issue. Rules: ask for logs from BOTH projects, compare exact event sequences, look for MISSING events (not just extra ones), handle fallback events, don't go in circles (3+ same approach = wrong approach), document the root cause.
+- **Why:** User requested: "I would like you to create a core rule like this, which handles these situations properly for us and guides us properly on what we should do, how we should handle things and situations like these." The subtitle fix took many sessions of going in circles before the root cause was found via log comparison.
+- **Status:** ✅ Implemented.
+- **Date:** Phase 5c (session web-f53f0459).
