@@ -28,7 +28,10 @@ val extensionModule = module {
     single { ExtensionInstaller(get(), get(named("extensionRepo"))) }
     single { ExtensionManager(get(), get(), get(), get(), get(named("extensionRepo"))) }
 
-    // Register Extension as an AnimeDetailsProvider
+    // Register ExtensionDetailsProvider (injected by DetailsViewModel directly)
+    single { ExtensionDetailsProvider(get()) }
+
+    // Also register as AnimeDetailsProvider for the registry pattern
     single<AnimeDetailsProvider>(qualifier = named("extension")) {
         ExtensionDetailsProvider(get())
     }
