@@ -833,6 +833,7 @@ private fun EpisodeRow(
                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         )
                         // EP tag — themed primary background, 6dp corners, Bold White text.
+                        // Shows 'EP N' (not just 'N').
                         // Positioned at TopStart (like old project).
                         Surface(
                             shape = RoundedCornerShape(6.dp),
@@ -840,7 +841,7 @@ private fun EpisodeRow(
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                         ) {
                             Text(
-                                text = epNumText,
+                                text = "EP $epNumText",
                                 fontFamily = RobotoFamily,
                                 fontSize = 11.sp,
                                 lineHeight = 14.sp,
@@ -890,7 +891,7 @@ private fun EpisodeRow(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
@@ -959,35 +960,56 @@ private fun EpisodeRow(
                     }
                 }
 
-                // ── Download button (visual only, non-functional for now) ──
-                Icon(
-                    imageVector = Icons.Filled.Download,
-                    contentDescription = "Download",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(24.dp)
-                        .padding(start = 4.dp),
-                )
+                // (Download button moved to the synopsis section below)
             }
 
-            // ══ BOTTOM SECTION: Synopsis (below thumbnail + title row) ══
+            // ══ BOTTOM SECTION: Synopsis (below thumbnail + title row) + download button ══
             if (!description.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(8.dp),
+                Row(
                     modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
-                    Text(
-                        text = description,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        lineHeight = 15.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = description,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                    }
+                    // Download button — bottom-right of synopsis, themed tint.
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = "Download",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .padding(start = 8.dp, bottom = 2.dp),
+                    )
+                }
+            } else {
+                // No synopsis — show download button at the bottom-right anyway.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = "Download",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .padding(top = 4.dp),
                     )
                 }
             }
