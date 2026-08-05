@@ -170,10 +170,20 @@ fun DetailsScreen(
 
                         // ── Episodes section ──
                         item {
+                            // For extension entries: the source is already known.
+                            // Create a LinkedSource from the UnifiedAnime's sourceId/sourceName.
+                            val effectiveLinkedSource = linkedSource ?: run {
+                                val sourceId = anime.sourceId
+                                val sourceName = anime.sourceName
+                                if (sourceId != null && sourceName != null) {
+                                    LinkedSource(sourceId, sourceName, anime.animeUrl ?: "")
+                                } else null
+                            }
                             EpisodesSection(
-                                linkedSource = linkedSource,
+                                linkedSource = effectiveLinkedSource,
                                 episodeState = episodeState,
                                 episodeMetadata = episodeMetadata,
+                                hasAnilistId = anime.anilistId != null,
                                 onOpenSourcePicker = { showManualSearch = true },
                                 onUnlinkSource = { viewModel.unlinkSource() },
                                 onEpisodeClick = { episode ->
@@ -560,17 +570,18 @@ private fun EpisodesSection(
     linkedSource: LinkedSource?,
     episodeState: EpisodeState,
     episodeMetadata: Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>,
+    hasAnilistId: Boolean,
     onOpenSourcePicker: () -> Unit,
     onUnlinkSource: () -> Unit,
     onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
-        // Track whether the metadata fetch has completed (success OR failure).
-        // Once completed, the spinner hides permanently — no retry loop.
+        // Metadata spinner only shows if we have an AniList ID (extension-only
+        // anime has no metadata source → no spinner).
         var metadataFetchDone by remember { mutableStateOf(false) }
         var showMetadataError by remember { mutableStateOf(false) }
-        val showMetadataSpinner = episodeState is EpisodeState.Loaded &&
+        val showMetadataSpinner = hasAnilistId && episodeState is EpisodeState.Loaded &&
             episodeMetadata.isEmpty() && !metadataFetchDone
         LaunchedEffect(episodeState) {
             // Reset when episodes reload.
@@ -587,8 +598,9 @@ private fun EpisodesSection(
             }
         }
         // Safety timeout: if metadata is still empty after 15s, show error briefly.
+        // Only runs if we have an AniList ID (extension-only: no metadata source).
         LaunchedEffect(episodeState) {
-            if (episodeState is EpisodeState.Loaded) {
+            if (hasAnilistId && episodeState is EpisodeState.Loaded) {
                 kotlinx.coroutines.delay(15_000L)
                 if (episodeMetadata.isEmpty() && !metadataFetchDone) {
                     metadataFetchDone = true
@@ -596,6 +608,9 @@ private fun EpisodesSection(
                     kotlinx.coroutines.delay(5_000L)
                     showMetadataError = false
                 }
+            } else if (!hasAnilistId) {
+                // No AniList ID → no metadata fetch → mark as done immediately.
+                metadataFetchDone = true
             }
         }
         Row(
@@ -916,12 +931,13 @@ private fun EpisodeRow(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
-                    // Date + Audio pills
-                    if (dateText != null || audio.hasAny) {
+                    // Date + Audio pills + (download button if no synopsis)
+                    if (dateText != null || audio.hasAny || description.isNullOrBlank()) {
                         Spacer(Modifier.height(6.dp))
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             // Date pill
                             if (dateText != null) {
@@ -976,14 +992,27 @@ private fun EpisodeRow(
                                     }
                                 }
                             }
+                            // Download button — shown here (next to pills) when no synopsis.
+                            if (description.isNullOrBlank()) {
+                                Spacer(Modifier.weight(1f))
+                                Icon(
+                                    imageVector = Icons.Filled.Download,
+                                    contentDescription = "Download",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                     }
                 }
 
-                // (Download button moved to the synopsis section below)
+                // (Download button moved to the synopsis section below, or to
+                //  the date/audio pills row if no synopsis)
             }
 
             // ══ BOTTOM SECTION: Synopsis (below thumbnail + title row) + download button ══
+            // If there IS a synopsis: download button goes at the bottom-right of synopsis.
+            // If there is NO synopsis: download button goes at the right of the date/audio pills row.
             if (!description.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Row(
@@ -1007,7 +1036,6 @@ private fun EpisodeRow(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                         )
                     }
-                    // Download button — bottom-right of synopsis, themed tint.
                     Icon(
                         imageVector = Icons.Filled.Download,
                         contentDescription = "Download",
@@ -1018,20 +1046,10 @@ private fun EpisodeRow(
                     )
                 }
             } else {
-                // No synopsis — show download button at the bottom-right anyway.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = "Download",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .padding(top = 4.dp),
-                    )
-                }
+                // No synopsis — move download button up to the date/audio pills row.
+                // Show it at the end of the top section's right column.
+                // (Already rendered inline in the date/audio pills Row above if no synopsis.)
+            }
             }
         }
     }

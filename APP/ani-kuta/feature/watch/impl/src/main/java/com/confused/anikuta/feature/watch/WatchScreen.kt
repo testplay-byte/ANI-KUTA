@@ -1492,11 +1492,12 @@ private fun EpisodeListRow(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
-                    if (dateText != null || audio.hasAny) {
+                    if (dateText != null || audio.hasAny || description.isNullOrBlank()) {
                         Spacer(Modifier.height(6.dp))
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (dateText != null) {
                                 Surface(
@@ -1549,11 +1550,23 @@ private fun EpisodeListRow(
                                     }
                                 }
                             }
+                            // Download button — shown here (next to pills) when no synopsis.
+                            if (description.isNullOrBlank()) {
+                                Spacer(Modifier.weight(1f))
+                                Icon(
+                                    imageVector = Icons.Filled.Download,
+                                    contentDescription = "Download",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
             // ── Synopsis + download button ──
+            // If synopsis exists: download at bottom-right of synopsis.
+            // If no synopsis: download at the right of the date/audio pills row.
             if (!description.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Row(
@@ -1587,6 +1600,7 @@ private fun EpisodeListRow(
                     )
                 }
             }
+            // No synopsis: download button already rendered inline in the pills row above.
         }
     }
 }
