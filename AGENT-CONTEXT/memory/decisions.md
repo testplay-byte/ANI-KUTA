@@ -721,3 +721,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User requested: "I would like you to create a core rule like this, which handles these situations properly for us and guides us properly on what we should do, how we should handle things and situations like these." The subtitle fix took many sessions of going in circles before the root cause was found via log comparison.
 - **Status:** ✅ Implemented.
 - **Date:** Phase 5c (session web-f53f0459).
+
+### D-112 — Metadata: 3-source fallback (Anikage.cc + Jikan + AniList streaming)
+- **What:** Rewrote `EpisodeMetadataFetcher` to use 3 sources with first-non-null-wins merge: (1) Anikage.cc (PRIMARY — title, description, thumbnail, airDate, uses AniList ID), (2) Jikan/MAL (SECONDARY — title, airDate, uses MAL ID from AniList's idMal), (3) AniList streamingEpisodes (TERTIARY — title, thumbnail). Added `idMal` to AniListAnime model + fetchAnimeDetails GraphQL query. Added OkHttp dep to `:core:metadata`.
+- **Why:** User logs showed `AniList streamingEpisodes: 0 episodes` — AniList doesn't have streaming data for every anime. The old project uses 3 sources. Anikage.cc is the most complete (uses AniList ID directly, no MAL mapping needed).
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459). CI green.
+- **Date:** Phase 5c (session web-f53f0459).
+
+### D-113 — Spinner retry loop fixed
+- **What:** Added `metadataFetchDone` flag to `EpisodesSection`. Once set (either metadata arrives OR 15s timeout), the spinner hides permanently — no retry loop. Error message shows for 5s then hides. Reset only when episodes reload (new anime).
+- **Why:** User reported: "The spinner kept spinning for some time and in the end it said 'Failed to load metadata'. Then it started to try again and it started spinning again but that was not supposed to happen."
+- **Status:** ✅ Implemented (Phase 5c, session web-f53f0459).
+- **Date:** Phase 5c (session web-f53f0459).
