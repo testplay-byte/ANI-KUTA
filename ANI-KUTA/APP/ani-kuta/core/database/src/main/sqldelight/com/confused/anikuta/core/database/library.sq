@@ -1,0 +1,120 @@
+-- ============================================================================
+-- Library System (Phase C)
+-- Per user spec: categories + items. Default category is permanent.
+-- ============================================================================
+
+-- ── library_category ──────────────────────────────────────────────────────
+-- Categories (e.g. "Default", "Watching", "Plan to Watch").
+-- The "Default" category is permanent (is_permanent = 1) — cannot be deleted.
+CREATE TABLE IF NOT EXISTS library_category (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    is_permanent INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+
+-- ── library_item ──────────────────────────────────────────────────────────
+-- Links content to a category. One content can be in multiple categories
+-- (future). For now, items go into the Default category.
+CREATE TABLE IF NOT EXISTS library_item (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    main_id TEXT NOT NULL,
+    category_id INTEGER NOT NULL,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    added_at INTEGER NOT NULL,
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE,
+    FOREIGN KEY (category_id) REFERENCES library_category(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_library_item_main ON library_item(main_id);
+CREATE INDEX IF NOT EXISTS idx_library_item_category ON library_item(category_id);
+
+-- ============================================================================
+-- Queries: library_category
+-- ============================================================================
+getAllCategories:
+SELECT * FROM library_category ORDER BY display_order ASC, name ASC;
+
+getCategoryById:
+SELECT * FROM library_category WHERE id = :id;
+
+getCategoryByName:
+SELECT * FROM library_category WHERE name = :name;
+
+getDefaultCategory:
+SELECT * FROM library_category WHERE name = 'Default' LIMIT 1;
+
+insertCategory:
+INSERT OR IGNORE INTO library_category(name, display_order, is_permanent, created_at)
+VALUES (:name, :displayOrder, :isPermanent, :createdAt);
+
+deleteCategory:
+DELETE FROM library_category WHERE id = :id AND is_permanent = 0;
+
+-- ============================================================================
+-- Queries: library_item
+-- ============================================================================
+
+-- Check if a content is in ANY library category
+isInLibrary:
+SELECT EXISTS(SELECT 1 FROM library_item WHERE main_id = :mainId);
+
+-- Check if a content is in a specific category
+isInCategory:
+SELECT EXISTS(SELECT 1 FROM library_item WHERE main_id = :mainId AND category_id = :categoryId);
+
+-- Get all library items (all categories) — for the full library view
+getAllLibraryItems:
+SELECT * FROM library_item ORDER BY added_at DESC;
+
+-- Get items in a specific category
+getItemsByCategory:
+SELECT * FROM library_item WHERE category_id = :categoryId ORDER BY display_order ASC, added_at DESC;
+
+-- Get items in the Default category
+getDefaultCategoryItems:
+SELECT li.* FROM library_item li
+JOIN library_category lc ON li.category_id = lc.id
+WHERE lc.name = 'Default'
+ORDER BY li.added_at DESC;
+
+-- Count items in a category
+countItemsInCategory:
+SELECT COUNT(*) FROM library_item WHERE category_id = :categoryId;
+
+-- Count items in the Default category
+countDefaultCategoryItems:
+SELECT COUNT(*) FROM library_item li
+JOIN library_category lc ON li.category_id = lc.id
+WHERE lc.name = 'Default';
+
+-- Get the main_ids of all library items (for batch fetching)
+getAllLibraryMainIds:
+SELECT main_id FROM library_item;
+
+-- Get the main_ids of items in a specific category
+getMainIdsByCategory:
+SELECT main_id FROM library_item WHERE category_id = :categoryId;
+
+-- Add to library (Default category)
+addToDefaultCategory:
+INSERT OR IGNORE INTO library_item(main_id, category_id, display_order, added_at)
+VALUES (:mainId, :categoryId, :displayOrder, :addedAt);
+
+-- Add to a specific category
+addToCategory:
+INSERT OR IGNORE INTO library_item(main_id, category_id, display_order, added_at)
+VALUES (:mainId, :categoryId, :displayOrder, :addedAt);
+
+-- Remove from ALL categories (full library removal)
+removeFromLibrary:
+DELETE FROM library_item WHERE main_id = :mainId;
+
+-- Remove from a specific category
+removeFromCategory:
+DELETE FROM library_item WHERE main_id = :mainId AND category_id = :categoryId;
+
+-- Get all main_ids that are in the library (as a list for fetching)
+getLibraryMainIds:
+SELECT DISTINCT main_id FROM library_item ORDER BY added_at DESC;

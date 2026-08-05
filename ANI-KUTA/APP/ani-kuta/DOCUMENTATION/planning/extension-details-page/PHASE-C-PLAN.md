@@ -35,7 +35,7 @@ The Main ID and Content ID are two columns on the same `content` row. The Main I
 ### 2.1 Format
 
 ```
-{dataSource}:{system}:{repoId|none}:{extensionPkg|none}:{sourceId|none}:{animeUrl|none}
+{dataSource}:{system}:{repoUrl|none}:{extensionPkg|none}:{sourceId|none}:{animeUrl|none}
 ```
 
 **6 sections** (was 5 — added `sourceId`).

@@ -122,6 +122,9 @@ fun DetailsScreen(
     val anilistSearchState by viewModel.anilistSearchState.collectAsState()
     val showManualLinkSheet by viewModel.showManualLinkSheet.collectAsState()
 
+    // Phase C: library state
+    val isInLibrary by viewModel.isInLibrary.collectAsState()
+
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
@@ -157,8 +160,8 @@ fun DetailsScreen(
                             DetailBanner(
                                 anime = anime,
                                 onBack = onBack,
-                                saved = false,
-                                onToggleSave = {},
+                                saved = isInLibrary,
+                                onToggleSave = { viewModel.toggleLibrary() },
                                 onMore = { showMenu = true },
                                 showMenu = showMenu,
                                 onDismissMenu = { showMenu = false },

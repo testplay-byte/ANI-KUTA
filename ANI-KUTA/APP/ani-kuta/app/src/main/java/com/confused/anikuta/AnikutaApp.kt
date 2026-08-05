@@ -16,6 +16,8 @@ import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.core.download.downloadModule
 import com.confused.anikuta.core.metadata.metadataModule
 import com.confused.anikuta.core.player.playerModule
+import com.confused.anikuta.core.content.contentModule
+import com.confused.anikuta.core.content.ContentSeeder
 import com.confused.anikuta.core.smartmatcher.smartMatcherModule
 import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
@@ -94,8 +96,18 @@ class AnikutaApp : Application() {
                 trackerAniListModule,
                 watchProgressModule,
                 smartMatcherModule,
+                contentModule,
                 appModule,
             )
+        }
+
+        // Seed lookup tables + Default library category (idempotent — INSERT OR IGNORE).
+        // Must run AFTER Koin is started so ContentRepository is available.
+        try {
+            org.koin.core.context.GlobalContext.get().get<ContentSeeder>().seed()
+            Logger.i("AnikutaApp") { "Content defaults seeded" }
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to seed content defaults" }
         }
     }
 

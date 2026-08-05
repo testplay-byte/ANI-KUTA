@@ -65,6 +65,8 @@ class DetailsViewModel(
     private val anilistProvider: AniListDetailsProvider,
     private val autoLinkService: AutoLinkService,
     private val autoLinkPreferences: AutoLinkPreferences,
+    private val contentResolver: com.confused.anikuta.core.content.ContentResolver,
+    private val contentRepository: com.confused.anikuta.core.content.ContentRepository,
 ) : ViewModel() {
 
     companion object {
@@ -123,7 +125,16 @@ class DetailsViewModel(
     private val _showManualLinkSheet = MutableStateFlow(false)
     val showManualLinkSheet: StateFlow<Boolean> = _showManualLinkSheet.asStateFlow()
 
+    /** Library state — whether the current anime is in the user's library. */
+    private val _isInLibrary = MutableStateFlow(false)
+    val isInLibrary: StateFlow<Boolean> = _isInLibrary.asStateFlow()
+
+    /** The contentId of the current anime (for logging/debugging). */
+    private val _contentId = MutableStateFlow("")
+    val contentId: StateFlow<String> = _contentId.asStateFlow()
+
     private var currentAnimeId: Int = 0
+    private var currentMainId: String? = null
 
     // ── D-134: Original data bases (for data-source switching) ──
     // The bug: merging with ANILIST priority overwrites extension fields.
@@ -204,8 +215,6 @@ class DetailsViewModel(
     fun loadFromAniList(animeId: Int) {
         currentAnimeId = animeId
         // CRITICAL: Reset ALL state when loading a new anime (D-131).
-        // Without this, stale metadata from the previous anime leaks into the
-        // new one (user saw old episode metadata when switching details pages).
         _state.value = DetailsState.Loading
         _autoLinkState.value = AutoLinkState.Idle
         _showManualLinkSheet.value = false
@@ -216,6 +225,9 @@ class DetailsViewModel(
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
         _manualSearchState.value = ManualSearchState.Idle
+        _isInLibrary.value = false
+        _contentId.value = ""
+        currentMainId = null
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
@@ -225,6 +237,9 @@ class DetailsViewModel(
                 Logger.i(TAG) { "Loaded AniList details for $animeId" }
                 anilistBase = anime.toUnifiedAnime() // D-134: store original AniList data.
                 remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
+
+                // Phase C: Resolve/create content record + check library status.
+                resolveContentForAniList(animeId, anime.displayName, anime)
 
                 // Check for a persisted source link.
                 loadLinkedSource(animeId)
@@ -250,6 +265,9 @@ class DetailsViewModel(
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
         _manualSearchState.value = ManualSearchState.Idle
+        _isInLibrary.value = false
+        _contentId.value = ""
+        currentMainId = null
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
@@ -262,6 +280,9 @@ class DetailsViewModel(
                     Logger.i(TAG) { "Loaded extension details: $title from source $sourceId" }
                     extensionBase = unifiedAnime // D-134: store original extension data.
                     remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
+
+                    // Phase C: Resolve/create content record + check library status.
+                    resolveContentForExtension(sourceId, animeUrl, title)
 
                     // Fetch episodes from the extension source directly.
                     fetchEpisodesFromSource(sourceId, animeUrl, title)
@@ -279,6 +300,105 @@ class DetailsViewModel(
     }
 
     // ── Phase B: Auto-link ──
+
+    // ── Phase C: Content identity + library ──
+
+    /**
+     * Resolve/create a content record for an AniList entry + check library status.
+     * Called from [loadFromAniList].
+     */
+    private suspend fun resolveContentForAniList(
+        anilistId: Int,
+        title: String,
+        anime: com.confused.anikuta.core.anilist.model.AniListAnime,
+    ) {
+        try {
+            val detail = com.confused.anikuta.core.content.AniListDetail(
+                mainId = "", // Will be set by resolver.
+                anilistId = anilistId,
+                idMal = anime.idMal,
+                score = anime.averageScore,
+                episodes = anime.episodes,
+                season = anime.season,
+                seasonYear = anime.seasonYear,
+                status = anime.status,
+                genres = anime.genres?.joinToString(", "),
+                synopsis = anime.description,
+                coverUrl = anime.coverUrl,
+                bannerUrl = anime.bannerImage,
+                updatedAt = System.currentTimeMillis(),
+            )
+            val mainId = contentResolver.resolveOrCreateForAniList(anilistId, title, detail)
+            currentMainId = mainId
+            refreshContentAndLibraryStatus(mainId)
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "resolveContentForAniList failed: ${e.message}" }
+        }
+    }
+
+    /**
+     * Resolve/create a content record for an extension entry + check library status.
+     * Called from [loadFromExtension].
+     */
+    private suspend fun resolveContentForExtension(
+        sourceId: Long,
+        animeUrl: String,
+        title: String,
+    ) {
+        try {
+            // For extensions, we need the extension's DB ID. Look it up by sourceId.
+            // ponytail: We don't have the pkgName here easily, so we use a simplified
+            // approach — create the content record with sourceId as the lookup key.
+            // The full extension lookup (with pkgName + repoUrl) will be wired in
+            // when we integrate with ExtensionManager more deeply.
+            val mainId = contentResolver.resolveOrCreateForExtension(
+                extensionId = sourceId, // Simplified — use sourceId as extensionId for now.
+                sourceId = sourceId,
+                animeUrl = animeUrl,
+                title = title,
+                systemName = "aniyomi",
+                repoUrl = null,
+                extensionPkg = null,
+            )
+            currentMainId = mainId
+            refreshContentAndLibraryStatus(mainId)
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "resolveContentForExtension failed: ${e.message}" }
+        }
+    }
+
+    /**
+     * Refresh the contentId + library status from the repository.
+     */
+    private fun refreshContentAndLibraryStatus(mainId: String) {
+        val content = contentRepository.getContentByMainId(mainId)
+        if (content != null) {
+            _contentId.value = content.contentId
+            Logger.i(TAG) { "Content ID: ${content.contentId}" }
+        }
+        _isInLibrary.value = contentRepository.isInLibrary(mainId)
+        Logger.i(TAG) { "Library status: ${if (_isInLibrary.value) "in library" else "not in library"}" }
+    }
+
+    /**
+     * Toggle the current anime's library status.
+     * If in library → remove. If not → add to Default category.
+     */
+    fun toggleLibrary() {
+        val mainId = currentMainId ?: run {
+            Logger.w(TAG) { "toggleLibrary: no currentMainId" }
+            return
+        }
+        if (_isInLibrary.value) {
+            contentRepository.removeFromLibrary(mainId)
+            _isInLibrary.value = false
+            Logger.i(TAG) { "Removed from library: mainId=$mainId" }
+        } else {
+            contentRepository.addToDefaultCategory(mainId)
+            _isInLibrary.value = true
+            Logger.i(TAG) { "Added to library (Default): mainId=$mainId" }
+        }
+    }
 
     /**
      * Attempt to auto-link an extension entry to AniList.

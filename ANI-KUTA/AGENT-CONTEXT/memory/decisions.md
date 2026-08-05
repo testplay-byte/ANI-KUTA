@@ -908,3 +908,19 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User reviewed plan v3 and gave detailed feedback: (a) Content ID missing extension ID + source ID, (b) repo URL format clarified (ends with index.min.json), (c) one table per row on web page, (d) split session scope — focus on content ID system only, defer watch progress/library/history/tracking, (e) use separate detail tables per source type.
 - **Status:** ✅ Plan finalized. Implementation pending (next session).
 - **Date:** Phase C planning (session web-f53f0459).
+
+### D-136 — Phase C implementation: content identity + library system
+- **What:** Implemented Phase C (content identity system + library):
+  1. New module `:core:content` with ContentIdGenerator, ContentRepository, ContentResolver, ContentSeeder.
+  2. 8 SQLDelight tables: `data_source`, `system`, `extension_repo`, `extension`, `content`, `anilist_detail`, `extension_detail`, `other_source_detail`.
+  3. 2 library tables: `library_category`, `library_item`. Default category is permanent (is_permanent=1).
+  4. ContentResolver resolves anilistId/sourceId+animeUrl → mainId (UUID). Creates content record + detail record if not found.
+  5. ContentRepository handles all CRUD + seeds lookup tables + Default category on first launch.
+  6. DetailsViewModel: added contentResolver + contentRepository. Calls resolveContentForAniList/resolveContentForExtension on load. Added toggleLibrary() method + isInLibrary state.
+  7. DetailsScreen: bookmark button wired to viewModel.toggleLibrary(). saved state from isInLibrary.
+  8. LibraryViewModel: rewritten to use ContentRepository instead of PreferenceStore comma-separated IDs. Fetches content records + AniList data for display.
+- **Content ID format change**: Uses FULL repo URL (not repo DB ID) per user request — the URL is essential for backup/restore + retrieving more extension IDs.
+- **Why:** User: "repo ID should be the repository URL. I don't have any issues with that content ID being way too long... it should be the URL because that URL is essential if the user wants to get more extension IDs and so forth. We will need to set up a system to back up that repo URL too."
+- **Subagent review**: All 18 files reviewed for compile errors — clean. No issues found.
+- **Status:** ✅ Implemented (Phase C, session web-f53f0459).
+- **Date:** Phase C (session web-f53f0459).

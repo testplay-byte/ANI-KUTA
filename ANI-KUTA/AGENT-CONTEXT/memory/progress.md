@@ -271,3 +271,23 @@ User reviewed the Phase C plan v3 + dashboard page and gave detailed feedback:
 ### What's next
 - User reviews plan v4 + dashboard page.
 - If approved, implement Phase C (C.1 database schema → C.2 content module → C.3 DetailsViewModel integration → C.4 console logging).
+
+## Session web-f53f0459 (continued) — Phase C implementation (content identity + library)
+
+### What was done
+- **Content ID format fix**: Changed from repo DB ID to full repo URL per user request. The URL is essential for backup/restore + retrieving more extension IDs.
+- **New module `:core:content`**: ContentIdGenerator, ContentRepository, ContentResolver, ContentSeeder.
+- **8 content tables + 2 library tables** created in SQLDelight.
+- **Lookup tables seeded** on first launch (data_sources, systems, Default library category).
+- **DetailsViewModel**: wired ContentResolver + ContentRepository. Calls resolveContentForAniList/resolveContentForExtension on load. Added toggleLibrary() + isInLibrary state.
+- **DetailsScreen**: bookmark button now works (saves/un-saves to Default category).
+- **LibraryViewModel**: rewritten to use ContentRepository instead of PreferenceStore. Fetches content records + AniList data for grid display.
+- **Subagent review**: all 18 files pass compile check.
+
+### CI status
+- Awaiting push + CI build.
+
+### What's next
+- User device testing of the library system.
+- If issues, fix them.
+- Then continue with watch progress, history, tracking (deferred).

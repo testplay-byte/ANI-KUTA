@@ -5,43 +5,39 @@ import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.preferences.PreferenceStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel for the Library screen.
+ * ViewModel for the Library screen (Phase C).
  *
- * Phase 4: For now, the library shows anime the user has "added" (stored as a
- * comma-separated list of AniList IDs in PreferenceStore). Phase 5 will replace
- * this with the proper identity system + SQLDelight library_entry table.
+ * Uses the content ID system (Phase C) instead of the old PreferenceStore
+ * comma-separated IDs. Library items are stored in the `library_item` table
+ * linked to the `content` table via `mainId`.
  *
- * The library supports:
- * - Display modes: Compact / Comfortable / Cover Only / List grid.
- * - Configurable columns per row (2-5).
- * - Configurable title lines (1-3).
- * - Episode badges (off / released / total) with position.
- * - Score badge toggle + position.
- * - Continue-watching + total-entries toggles.
- * - Sort by title / score / date added / last watched (asc/desc).
- * - Search within library.
+ * ## Categories
+ * For now, there is only ONE category: "Default" (permanent, cannot be deleted).
+ * The Default category only shows when it has at least 1 item.
+ * Future phases will add user-created categories.
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Feature:Library".
  * CORE_RULES §23: Reactive state (StateFlow).
  */
 class LibraryViewModel(
     private val anilistApi: AniListApi,
+    private val contentRepository: ContentRepository,
     private val preferenceStore: PreferenceStore,
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "Anikuta:Feature:Library"
 
-        // Library IDs (existing Phase 4 approach)
-        private const val KEY_LIBRARY_IDS = "library_anilist_ids"
-
-        // Customize-sheet preferences (per old project's CustomizeSheet).
+        // Customize-sheet preferences (kept from Phase 4).
         private const val KEY_DISPLAY_MODE = "library_display_mode"
         private const val KEY_COLUMNS = "library_columns"
         private const val KEY_TITLE_LINES = "library_title_lines"
@@ -56,19 +52,23 @@ class LibraryViewModel(
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
-    val state: StateFlow<LibraryState> = _state
+    val state: StateFlow<LibraryState> = _state.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery
 
-    // ── Sort ──────────────────────────────────────────────────────────────
+    /** The library categories. For now, only "Default" exists. */
+    private val _categories = MutableStateFlow<List<LibraryCategory>>(emptyList())
+    val categories: StateFlow<List<LibraryCategory>> = _categories.asStateFlow()
+
+    // ── Sort ──
     private val _sortType = MutableStateFlow(LibrarySortType.TITLE)
     val sortType: StateFlow<LibrarySortType> = _sortType
 
     private val _sortAscending = MutableStateFlow(true)
     val sortAscending: StateFlow<Boolean> = _sortAscending
 
-    // ── Display & badges ──────────────────────────────────────────────────
+    // ── Display & badges ──
     private val _displayMode = MutableStateFlow(LibraryDisplayMode.COMPACT_GRID)
     val displayMode: StateFlow<LibraryDisplayMode> = _displayMode
 
@@ -102,29 +102,78 @@ class LibraryViewModel(
     }
 
     /**
-     * Load the user's library anime from AniList.
-     * Reads the stored AniList IDs, fetches their details.
+     * Load the library from the content ID system.
+     *
+     * 1. Get all library mainIds from [ContentRepository].
+     * 2. Fetch each content record to get the title + display info.
+     * 3. For content with anilistId, fetch fresh AniList data for the grid display.
+     * 4. For extension-only content, use the stored title + cover (if available).
      */
     fun loadLibrary() {
         _state.value = LibraryState.Loading
         viewModelScope.launch {
             try {
-                val idsStr = preferenceStore.getString(KEY_LIBRARY_IDS, "")
-                if (idsStr.isBlank()) {
-                    Logger.i(TAG) { "Library is empty" }
+                // Load categories (Default only for now).
+                val cats = listOfNotNull(contentRepository.getDefaultCategory())
+                _categories.value = cats
+
+                // Get all library mainIds.
+                val mainIds = contentRepository.getLibraryMainIds()
+                Logger.i(TAG) { "Library has ${mainIds.size} items" }
+
+                if (mainIds.isEmpty()) {
                     _state.value = LibraryState.Empty
                     return@launch
                 }
 
-                val ids = idsStr.split(",").mapNotNull { it.trim().toIntOrNull() }
-                Logger.i(TAG) { "Loading ${ids.size} library anime" }
-
+                // Fetch content records + AniList data for display.
                 val animeList = mutableListOf<AniListAnime>()
-                for (id in ids) {
-                    try {
-                        animeList.add(anilistApi.fetchAnimeDetails(id))
-                    } catch (e: Exception) {
-                        Logger.w(TAG) { "Failed to load anime $id: ${e.message}" }
+                for (mainId in mainIds) {
+                    val content = contentRepository.getContentByMainId(mainId)
+                    if (content == null) continue
+
+                    // Try to get AniList detail for rich display.
+                    val anilistDetail = contentRepository.getAniListDetail(mainId)
+                    if (anilistDetail != null) {
+                        try {
+                            // Fetch fresh AniList data for the grid (cover, score, etc.)
+                            animeList.add(anilistApi.fetchAnimeDetails(anilistDetail.anilistId))
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "Failed to fetch AniList ${anilistDetail.anilistId}: ${e.message}" }
+                            // Fall back to a minimal entry from stored data.
+                            animeList.add(
+                                AniListAnime(
+                                    id = anilistDetail.anilistId,
+                                    title = com.confused.anikuta.core.anilist.model.AnimeTitle(
+                                        romaji = content.title,
+                                        english = content.title,
+                                    ),
+                                    coverImage = com.confused.anikuta.core.anilist.model.CoverImage(
+                                        large = anilistDetail.coverUrl,
+                                        extraLarge = anilistDetail.coverUrl,
+                                    ),
+                                    averageScore = anilistDetail.score,
+                                    episodes = anilistDetail.episodes,
+                                    seasonYear = anilistDetail.seasonYear,
+                                ),
+                            )
+                        }
+                    } else {
+                        // Extension-only content — no AniList data. Create a minimal entry.
+                        val extDetail = contentRepository.getExtensionDetail(mainId)
+                        animeList.add(
+                            AniListAnime(
+                                id = 0, // No AniList ID.
+                                title = com.confused.anikuta.core.anilist.model.AnimeTitle(
+                                    romaji = content.title,
+                                    english = content.title,
+                                ),
+                                coverImage = com.confused.anikuta.core.anilist.model.CoverImage(
+                                    large = extDetail?.thumbnailUrl,
+                                    extraLarge = extDetail?.thumbnailUrl,
+                                ),
+                            ),
+                        )
                     }
                 }
 
@@ -141,51 +190,12 @@ class LibraryViewModel(
         }
     }
 
-    /**
-     * Add an anime to the library.
-     */
-    fun addToLibrary(anilistId: Int) {
-        Logger.i(TAG) { "Adding to library: $anilistId" }
-        val idsStr = preferenceStore.getString(KEY_LIBRARY_IDS, "")
-        val ids = if (idsStr.isBlank()) emptyList()
-                  else idsStr.split(",").mapNotNull { it.trim().toIntOrNull() }
-        if (anilistId !in ids) {
-            val newIds = (ids + anilistId).joinToString(",")
-            preferenceStore.putString(KEY_LIBRARY_IDS, newIds)
-            Logger.i(TAG) { "Added. Library now has ${ids.size + 1} items" }
-            loadLibrary()
-        }
-    }
-
-    /**
-     * Remove an anime from the library.
-     */
-    fun removeFromLibrary(anilistId: Int) {
-        Logger.i(TAG) { "Removing from library: $anilistId" }
-        val idsStr = preferenceStore.getString(KEY_LIBRARY_IDS, "")
-        val ids = idsStr.split(",").mapNotNull { it.trim().toIntOrNull() }
-        val newIds = ids.filter { it != anilistId }.joinToString(",")
-        preferenceStore.putString(KEY_LIBRARY_IDS, newIds)
-        Logger.i(TAG) { "Removed. Library now has ${ids.size - 1} items" }
-        loadLibrary()
-    }
-
-    /**
-     * Check if an anime is in the library.
-     */
-    fun isInLibrary(anilistId: Int): Boolean {
-        val idsStr = preferenceStore.getString(KEY_LIBRARY_IDS, "")
-        val ids = idsStr.split(",").mapNotNull { it.trim().toIntOrNull() }
-        return anilistId in ids
-    }
-
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
         applyFilters()
     }
 
     // ── Sort setters ──
-
     fun setSortType(sort: LibrarySortType) {
         _sortType.value = sort
         preferenceStore.putString(KEY_SORT_TYPE, sort.name)
@@ -198,9 +208,6 @@ class LibraryViewModel(
         applyFilters()
     }
 
-    /**
-     * Combined setter used by the CustomizeSheet's sort callbacks.
-     */
     fun setSort(sort: LibrarySortType, ascending: Boolean) {
         _sortType.value = sort
         _sortAscending.value = ascending
@@ -210,7 +217,6 @@ class LibraryViewModel(
     }
 
     // ── Display & badge setters ──
-
     fun setDisplayMode(mode: LibraryDisplayMode) {
         _displayMode.value = mode
         preferenceStore.putString(KEY_DISPLAY_MODE, mode.name)
@@ -257,7 +263,6 @@ class LibraryViewModel(
     }
 
     // ── Persistence ──
-
     private fun loadPreferences() {
         _sortType.value = preferenceStore
             .getString(KEY_SORT_TYPE, LibrarySortType.TITLE.name)
@@ -292,13 +297,11 @@ class LibraryViewModel(
 
         var filtered = current.anime
 
-        // Apply search
         val query = _searchQuery.value
         if (query.isNotBlank()) {
             filtered = filtered.filter { it.displayName.contains(query, ignoreCase = true) }
         }
 
-        // Apply sort (respect ascending/descending)
         filtered = when (_sortType.value) {
             LibrarySortType.TITLE -> if (_sortAscending.value) {
                 filtered.sortedBy { it.displayName.lowercase() }
@@ -311,12 +314,11 @@ class LibraryViewModel(
                 filtered.sortedByDescending { it.averageScore ?: 0 }
             }
             LibrarySortType.DATE_ADDED -> if (_sortAscending.value) {
-                filtered.asReversed() // oldest first
+                filtered.asReversed()
             } else {
-                filtered // keep insertion order (newest first)
+                filtered
             }
             LibrarySortType.LAST_WATCHED -> filtered
-            // ponytail: no watch history yet — keep order. Phase 5 wiring.
         }
 
         _state.value = LibraryState.Success(filtered)
