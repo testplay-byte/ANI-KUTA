@@ -1,5 +1,7 @@
 package com.confused.anikuta.core.player
 
+import com.confused.anikuta.core.player.subtitles.SubtitleEngine
+import okhttp3.OkHttpClient
 import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.module
 
@@ -14,4 +16,5 @@ import org.koin.dsl.module
  */
 val playerModule = module {
     singleOf(::PlaybackStateStore)
+    single { SubtitleEngine(get(), get<OkHttpClient>()) }
 }

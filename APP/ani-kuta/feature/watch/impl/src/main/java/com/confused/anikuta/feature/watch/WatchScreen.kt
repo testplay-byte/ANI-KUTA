@@ -145,6 +145,7 @@ fun WatchScreen(
     val extensionManager = koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
     val videoResolver = koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
     val watchProgressStore = koinInject<WatchProgressStore>()
+    val subtitleEngine = koinInject<com.confused.anikuta.core.player.subtitles.SubtitleEngine>()
     val scope = rememberCoroutineScope()
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
@@ -431,7 +432,7 @@ fun WatchScreen(
         { view ->
             if (!mpvInitialized) {
                 mpvInitialized = true
-                val obs = PlayerObserver(stateHolder)
+                val obs = PlayerObserver(stateHolder, subtitleEngine)
                 obs.mpvView = view  // Wire so observer can call loadTracks() on FILE_LOADED
                 observer = obs      // Store reference so switch handlers can set pending tracks
 
@@ -544,7 +545,9 @@ fun WatchScreen(
                 runCatching { MPVLib.command(arrayOf("stop")) }
                 runCatching { view.destroy() }
             }
-            Logger.i(TAG) { "MPV destroyed + observers removed" }
+            // Clean up downloaded subtitle temp files.
+            runCatching { subtitleEngine.cleanupAll() }
+            Logger.i(TAG) { "MPV destroyed + observers removed + subtitles cleaned" }
         }
     }
 

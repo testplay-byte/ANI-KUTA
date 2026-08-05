@@ -1,6 +1,8 @@
 package com.confused.anikuta.core.player
 
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.player.subtitles.SubtitleDownloadRequest
+import com.confused.anikuta.core.player.subtitles.SubtitleEngine
 import `is`.xyz.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +30,7 @@ import kotlinx.coroutines.launch
  */
 class PlayerObserver(
     private val stateHolder: PlayerStateHolder,
+    private val subtitleEngine: SubtitleEngine? = null,
 ) {
 
     companion object {
@@ -300,27 +303,48 @@ class PlayerObserver(
 
         scope.launch {
             try {
-                // Set headers for the track downloads (subtitles often need
-                // the same Referer/User-Agent as the video).
-                if (trackHeaders.isNotBlank()) {
-                    runCatching {
-                        MPVLib.setOptionString("http-header-fields", trackHeaders)
+                // ── SUBTITLES: download to temp files, then sub-add with local path ──
+                // CRITICAL: MPV's sub-add with URLs doesn't support custom headers
+                // and may fail for localhost proxy URLs or CDNs requiring Referer.
+                // The SubtitleEngine downloads each subtitle to a temp file using
+                // OkHttp (with proper headers), then we pass the LOCAL file path
+                // to sub-add — which always works.
+                if (subs.isNotEmpty() && subtitleEngine != null) {
+                    Logger.i(TAG) { "Downloading ${subs.size} subtitle files via SubtitleEngine..." }
+                    val requests = subs.map { (url, lang) ->
+                        SubtitleDownloadRequest(url = url, lang = lang, headers = trackHeaders)
                     }
-                    Logger.i(TAG) { "Set http-header-fields for ${subs.size} external sub downloads + ${audios.size} audio" }
-                } else {
-                    Logger.w(TAG) { "trackHeaders is blank — external subs may fail to download (403)" }
+                    val downloaded = subtitleEngine.downloadSubtitles(requests)
+                    Logger.i(TAG) { "Downloaded ${downloaded.size}/${subs.size} subtitle files" }
+
+                    for (sub in downloaded) {
+                        Logger.i(TAG) { "Sending sub-add (local file): ${sub.localPath.take(80)} lang=${sub.lang}" }
+                        runCatching {
+                            MPVLib.command(arrayOf("sub-add", sub.localPath, "auto", "", sub.lang))
+                        }.onSuccess {
+                            Logger.i(TAG) { "sub-add sent OK: ${sub.lang}" }
+                        }.onFailure {
+                            Logger.w(TAG) { "sub-add FAILED for ${sub.lang}: ${it.message}" }
+                        }
+                    }
+                } else if (subs.isNotEmpty()) {
+                    // Fallback: no SubtitleEngine — send sub-add with URLs directly.
+                    Logger.w(TAG) { "No SubtitleEngine — falling back to direct sub-add with URLs" }
+                    for ((url, lang) in subs) {
+                        Logger.i(TAG) { "Sending sub-add (URL fallback): url=${url.take(80)}... lang=$lang" }
+                        runCatching {
+                            MPVLib.command(arrayOf("sub-add", url, "auto", "", lang))
+                        }.onSuccess {
+                            Logger.i(TAG) { "sub-add sent OK: ${url.take(60)}..." }
+                        }.onFailure {
+                            Logger.w(TAG) { "sub-add FAILED for ${url.take(60)}: ${it.message}" }
+                        }
+                    }
                 }
 
-                for ((url, lang) in subs) {
-                    Logger.i(TAG) { "Sending sub-add: url=${url.take(80)}... lang=$lang" }
-                    runCatching {
-                        MPVLib.command(arrayOf("sub-add", url, "auto", "", lang))
-                    }.onSuccess {
-                        Logger.i(TAG) { "sub-add sent OK: ${url.take(60)}..." }
-                    }.onFailure {
-                        Logger.w(TAG) { "sub-add FAILED for ${url.take(60)}: ${it.message}" }
-                    }
-                }
+                // ── AUDIO: send audio-add with URLs (audio tracks don't have the
+                // same header issues as subtitles — they're usually muxed or
+                // direct URLs) ──
                 for ((url, lang) in audios) {
                     Logger.i(TAG) { "Sending audio-add: url=${url.take(80)}... lang=$lang" }
                     runCatching {
@@ -333,7 +357,6 @@ class PlayerObserver(
                 }
 
                 // Wait for MPV to register the tracks before reading the list.
-                // 500ms — external subs need time to download (HTTPS) + register.
                 delay(500L)
                 Logger.i(TAG) { "External tracks sent — loading track list from MPV" }
                 loadTracksFromMpv()

@@ -20,6 +20,10 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:watch-progress"))
     implementation(project(":core:source-api"))
+    implementation(project(":core:network"))
+
+    // OkHttp — for subtitle engine (downloading external subtitle files to temp)
+    implementation(libs.okhttp)
 
     // Compose (for controls)
     implementation(platform(libs.androidx.compose.bom))
