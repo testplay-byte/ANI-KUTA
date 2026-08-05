@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.anilist.provider.toUnifiedAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.core.videoresolver.ResolvedVideo
@@ -53,6 +54,7 @@ class DetailsViewModel(
     private val preferenceStore: PreferenceStore,
     private val videoResolver: VideoResolver,
     private val episodeMetadataFetcher: com.confused.anikuta.core.metadata.EpisodeMetadataFetcher,
+    private val extensionProvider: com.confused.anikuta.data.extension.provider.ExtensionDetailsProvider,
 ) : ViewModel() {
 
     companion object {
@@ -95,14 +97,16 @@ class DetailsViewModel(
 
     private var currentAnimeId: Int = 0
 
-    fun loadDetails(animeId: Int) {
+    // ── Load from AniList (existing flow) ──
+
+    fun loadFromAniList(animeId: Int) {
         currentAnimeId = animeId
         _state.value = DetailsState.Loading
         viewModelScope.launch {
             try {
                 val anime = anilistApi.fetchAnimeDetails(animeId)
-                Logger.i(TAG) { "Loaded details for $animeId" }
-                _state.value = DetailsState.Success(anime)
+                Logger.i(TAG) { "Loaded AniList details for $animeId" }
+                _state.value = DetailsState.Success(anime.toUnifiedAnime())
 
                 // Check for a persisted source link.
                 loadLinkedSource(animeId)
@@ -112,6 +116,48 @@ class DetailsViewModel(
             }
         }
     }
+
+    // ── Load from Extension (new flow) ──
+
+    fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?) {
+        currentAnimeId = 0 // No AniList ID yet
+        _state.value = DetailsState.Loading
+        viewModelScope.launch {
+            try {
+                // Use the ExtensionDetailsProvider to fetch full details.
+                val provider = extensionProvider
+                val unifiedAnime = provider?.fetchFromExtension(sourceId, animeUrl, title, thumbnailUrl)
+
+                if (unifiedAnime != null) {
+                    Logger.i(TAG) { "Loaded extension details: $title from source $sourceId" }
+                    _state.value = DetailsState.Success(unifiedAnime)
+
+                    // Fetch episodes from the extension source directly.
+                    fetchEpisodesFromSource(sourceId, animeUrl, title)
+                } else {
+                    _state.value = DetailsState.Error("Failed to load extension details")
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Extension details failed: ${e.message}" }
+                _state.value = DetailsState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
+    // ── Fetch episodes from a specific source (used by extension flow) ──
+
+    private fun fetchEpisodesFromSource(sourceId: Long, animeUrl: String, animeTitle: String) {
+        val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
+        if (source == null) {
+            Logger.w(TAG) { "Source not found for sourceId=$sourceId" }
+            _episodeState.value = EpisodeState.Error("Source not available")
+            return
+        }
+        fetchEpisodes(source, animeUrl, animeTitle)
+    }
+
+    // Legacy method (kept for compatibility — delegates to loadFromAniList)
+    fun loadDetails(animeId: Int) = loadFromAniList(animeId)
 
     // ── Source linking ──
 
@@ -319,7 +365,7 @@ class DetailsViewModel(
 
 sealed interface DetailsState {
     data object Loading : DetailsState
-    data class Success(val anime: AniListAnime) : DetailsState
+    data class Success(val anime: com.confused.anikuta.core.common.model.UnifiedAnime) : DetailsState
     data class Error(val message: String) : DetailsState
 }
 

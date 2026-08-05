@@ -81,7 +81,7 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun SearchScreen(
     onNavigateToDetails: (Int) -> Unit,
-    onNavigateToExtensionAnime: (Long, String) -> Unit = { _, _ -> },
+    onNavigateToExtensionAnime: (Long, String, String, String?) -> Unit = { _, _, _, _ -> },
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -217,7 +217,7 @@ fun SearchScreen(
                         results = results,
                         gridState = gridState,
                         onResultTap = { anime ->
-                            onNavigateToExtensionAnime(anime.sourceId, anime.url)
+                            onNavigateToExtensionAnime(anime.sourceId, anime.url, anime.title, anime.thumbnailUrl)
                         },
                     )
                 }

@@ -86,15 +86,24 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun DetailsScreen(
-    animeId: Int,
+    detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
     onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
 
-    LaunchedEffect(animeId) {
-        viewModel.loadDetails(animeId)
+    // Dispatch to the correct load method based on the key type.
+    LaunchedEffect(detailsKey) {
+        when (detailsKey) {
+            is AnimeDetailsKey.AniList -> viewModel.loadFromAniList(detailsKey.animeId)
+            is AnimeDetailsKey.Extension -> viewModel.loadFromExtension(
+                sourceId = detailsKey.sourceId,
+                animeUrl = detailsKey.animeUrl,
+                title = detailsKey.title,
+                thumbnailUrl = detailsKey.thumbnailUrl,
+            )
+        }
     }
 
     val state by viewModel.state.collectAsState()
@@ -150,7 +159,7 @@ fun DetailsScreen(
                         }
 
                         // ── Genres ──
-                        anime.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
+                        anime.genres.takeIf { it.isNotEmpty() }?.let { genres ->
                             item { GenresRow(genres) }
                         }
 

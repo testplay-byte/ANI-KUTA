@@ -84,7 +84,7 @@ fun BrowseScreen(
                     is BrowseState.Loading -> LoadingScreen()
                     is BrowseState.Error -> ErrorScreen(s.message, viewModel::loadTrending)
                     is BrowseState.Success -> AnimeGrid(s.anime, gridState) { anime ->
-                        onNavigate(AnimeDetailsKey(anime.id))
+                        onNavigate(AnimeDetailsKey.AniList(anime.id))
                     }
                 }
 

@@ -165,22 +165,37 @@ fun AppRoot() {
             is AnimeBrowseKey -> BrowseScreen(
                 onNavigate = { navKey -> backstack.add(navKey) }
             )
-            is AnimeDetailsKey -> DetailsScreen(
-                animeId = currentKey.animeId,
-                onBack = pop,
-                onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
-                    backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
-                },
-            )
+            is AnimeDetailsKey -> {
+                // Handle both AniList and Extension variants of the sealed key.
+                when (currentKey) {
+                    is AnimeDetailsKey.AniList -> DetailsScreen(
+                        detailsKey = currentKey,
+                        onBack = pop,
+                        onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
+                        },
+                    )
+                    is AnimeDetailsKey.Extension -> DetailsScreen(
+                        detailsKey = currentKey,
+                        onBack = pop,
+                        onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
+                        },
+                    )
+                }
+            }
             is AnimeLibraryKeyImpl -> LibraryScreen(
                 onNavigateToDetails = { animeId ->
-                    backstack.add(AnimeDetailsKey(animeId))
+                    backstack.add(AnimeDetailsKey.AniList(animeId))
                 }
             )
             is AnimeSearchKey -> SearchScreen(
                 onNavigateToDetails = { animeId ->
-                    backstack.add(AnimeDetailsKey(animeId))
-                }
+                    backstack.add(AnimeDetailsKey.AniList(animeId))
+                },
+                onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
+                    backstack.add(AnimeDetailsKey.Extension(sourceId, animeUrl, title, thumbnailUrl))
+                },
             )
             is MoreKey -> MoreScreen(
                 onOpenSettings = { backstack.add(SettingsKey) },
