@@ -1,8 +1,10 @@
 package com.confused.anikuta.core.anilist.api
 
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.anilist.model.AniListStreamingEpisode
 import com.confused.anikuta.core.anilist.model.DetailsResponse
 import com.confused.anikuta.core.anilist.model.SearchResponse
+import com.confused.anikuta.core.anilist.model.StreamingEpisodesResponse
 import com.confused.anikuta.core.anilist.model.TrendingResponse
 import com.confused.anikuta.core.common.DispatcherProvider
 import com.confused.anikuta.core.common.Logger
