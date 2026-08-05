@@ -1,11 +1,10 @@
 /*
- * Phase C — Content Identity System (planning data).
+ * Phase C — Content Identity System (planning data v4).
  *
- * Source: Phase C planning brief — two-ID architecture, 9-table schema,
- * ER diagram, 6 confirmed decisions (Q-001..Q-006), 5 implementation phases.
+ * Source: Phase C plan v4 — two-ID system (stable Main ID + changing Content ID),
+ * 8 tables (4 lookup + 1 main + 3 detail), deferred watch progress/library/history.
  *
  * Hardcoded for the static dashboard demo — no API calls.
- * Kept separate from the page component so the page stays readable.
  */
 
 /* ---------------------------------------------------------------------------
@@ -15,11 +14,11 @@
 export const PHASE_C_HERO = {
   title: "Phase C — Content Identity System",
   subtitle:
-    "A unified, future-proof identity layer for cross-source anime tracking",
-  status: "PLANNING",
-  statusColor: "var(--c-warning)",
+    "A stable Main ID + a structured Content ID — future-proof cross-source identity",
+  status: "FINAL PLAN",
+  statusColor: "var(--c-success)",
   summary:
-    "Phase C introduces a two-ID system — a stable Main ID (UUID) plus a structured Content ID — so that anime records survive source switches, multiple metadata providers (AniList, TMDB, Kitsu, MAL) and multiple extension systems (Aniyomi, CloudStream, Sora, MangaYomi) can coexist, and watch progress / library / history can all hang off a single stable key.",
+    "Phase C introduces a two-ID system stored in ONE main content table. The Main ID (UUID) never changes — it's the primary key for all future data stores. The Content ID (structured string) changes when sources switch — it enables overlapping detection. Source-specific metadata lives in separate detail tables (anilist_details, extension_details, other_source_details) linked by mainId. This session focuses ONLY on the identity system; watch progress, library, history, and tracking are deferred.",
 } as const;
 
 /* ---------------------------------------------------------------------------
@@ -48,8 +47,8 @@ export const TWO_ID_SYSTEM: TwoIdCard[] = [
     bullets: [
       "Assigned once when the content record is created.",
       "NEVER changes — survives every source switch, migration, and rename.",
-      "Primary key for ALL data stores (library, watch progress, history).",
-      "Used as the FK target every other table points to.",
+      "Primary key for ALL data stores (library, watch progress, history — when built).",
+      "Stored as `mainId` column in the `content` table.",
     ],
     notShownInUi: true,
   },
@@ -58,25 +57,25 @@ export const TWO_ID_SYSTEM: TwoIdCard[] = [
     title: "Content ID",
     tagline: "Changing · structured · deterministic",
     color: "var(--c-secondary)",
-    format: "Structured keyword string",
+    format: "Structured keyword string (6 sections)",
     formatMono:
-      "anilist:aniyomi:https://…:com.aniyomi.anikoto:https://anikoto.cc/anime/frieren",
+      "anilist:aniyomi:1:com.aniyomi.anikoto:69023:https://anikoto.cc/anime/frieren",
     bullets: [
-      "Deterministically generated from source info (data source + system + repo + extension + URL).",
+      "Deterministically generated from 6 source fields (data source + system + repo + extension + source ID + URL).",
       "Changes when sources switch — by design.",
       "Used for quick identification + overlapping / duplicate detection.",
-      "A duplicate Content ID means two records reference the same external content.",
+      "Stored as `contentId` column in the `content` table (same row as mainId).",
     ],
     notShownInUi: true,
   },
 ];
 
 /* ---------------------------------------------------------------------------
- * 2. Content ID format + examples
+ * 2. Content ID format + examples (v2 — 6 sections with sourceId)
  * ------------------------------------------------------------------------- */
 
 export const CONTENT_ID_FORMAT =
-  "{dataSource}:{system}:{repoUrl|none}:{extensionPkg|none}:{animeUrl|none}";
+  "{dataSource}:{system}:{repoId|none}:{extensionPkg|none}:{sourceId|none}:{animeUrl|none}";
 
 export interface ContentIdSegment {
   index: number;
@@ -105,10 +104,11 @@ export const CONTENT_ID_SEGMENTS: ContentIdSegment[] = [
   },
   {
     index: 3,
-    key: "repoUrl",
-    placeholder: "repoUrl|none",
-    description: "Extension repository URL, or `none` if installed without a repo.",
-    example: "https://ani-kuta-repo.github.io",
+    key: "repoId",
+    placeholder: "repoId|none",
+    description:
+      "Extension repository DB ID (integer). Using the ID instead of the full URL keeps the Content ID short and avoids colon conflicts.",
+    example: "1",
   },
   {
     index: 4,
@@ -119,6 +119,14 @@ export const CONTENT_ID_SEGMENTS: ContentIdSegment[] = [
   },
   {
     index: 5,
+    key: "sourceId",
+    placeholder: "sourceId|none",
+    description:
+      "Internal source ID within the extension (e.g. 69023), or `none` if no extension.",
+    example: "69023",
+  },
+  {
+    index: 6,
     key: "animeUrl",
     placeholder: "animeUrl|none",
     description: "Content's URL on the source, or `none` for metadata-only records.",
@@ -138,26 +146,28 @@ export const CONTENT_ID_EXAMPLES: ContentIdExample[] = [
     parts: [
       "anilist",
       "aniyomi",
-      "https://ani-kuta-repo.github.io",
+      "1",
       "com.aniyomi.anikoto",
+      "69023",
       "https://anikoto.cc/anime/frieren",
     ],
-    note: "Full chain — AniList metadata + Aniyomi extension from ANI-KUTA repo + AniKoto source URL.",
+    note: "Full chain — AniList metadata + Aniyomi extension (repo #1) + AniKoto source (ID 69023) + anime URL.",
   },
   {
-    id: "no-repo",
+    id: "tmdb",
     parts: [
       "tmdb",
       "aniyomi",
-      "none",
+      "1",
       "com.aniyomi.anikoto",
+      "69023",
       "https://anikoto.cc/anime/frieren",
     ],
-    note: "TMDB metadata + Aniyomi extension installed without a tracked repo URL.",
+    note: "TMDB metadata + same extension/source. Only the data source changed (anilist → tmdb).",
   },
   {
     id: "metadata-only",
-    parts: ["anilist", "none", "none", "none", "none"],
+    parts: ["anilist", "none", "none", "none", "none", "none"],
     note: "Metadata-only record — AniList entry with no extension system attached yet.",
   },
   {
@@ -165,8 +175,9 @@ export const CONTENT_ID_EXAMPLES: ContentIdExample[] = [
     parts: [
       "none",
       "aniyomi",
-      "https://repo.example.com",
+      "2",
       "com.example.ext",
+      "69024",
       "https://source.com/anime/123",
     ],
     note: "Extension-only record — no metadata source linked, content lives purely on an extension.",
@@ -174,10 +185,10 @@ export const CONTENT_ID_EXAMPLES: ContentIdExample[] = [
 ];
 
 /* ---------------------------------------------------------------------------
- * 3. Database schema — tables, groups, columns, demo rows
+ * 3. Database schema — 8 tables (4 lookup + 1 main + 3 detail)
  * ------------------------------------------------------------------------- */
 
-export type PhaseCGroup = "sources" | "content" | "tracking";
+export type PhaseCGroup = "lookup" | "main" | "detail";
 
 export interface PhaseCGroupMeta {
   name: PhaseCGroup;
@@ -188,22 +199,22 @@ export interface PhaseCGroupMeta {
 
 export const PHASE_C_GROUPS: PhaseCGroupMeta[] = [
   {
-    name: "sources",
-    label: "Sources & Extensions",
-    purpose: "Who provides metadata, and which extension served the content",
+    name: "lookup",
+    label: "Lookup Tables",
+    purpose: "Normalized source/system/repo/extension data — seeded once, rarely change",
     color: "#0EA5E9",
   },
   {
-    name: "content",
-    label: "Content Core",
-    purpose: "The central content record — the two-ID system lives here",
+    name: "main",
+    label: "Main Content Table",
+    purpose: "The central record — Main ID + Content ID + core display info",
     color: "#6366F1",
   },
   {
-    name: "tracking",
-    label: "User Tracking",
-    purpose: "Library, watch progress, and history — all keyed on mainId",
-    color: "#F59E0B",
+    name: "detail",
+    label: "Detail Tables",
+    purpose: "Source-specific metadata linked by mainId (one row per source per content)",
+    color: "#8B5CF6",
   },
 ];
 
@@ -222,7 +233,7 @@ export const PHASE_C_GROUP_LABEL: Record<PhaseCGroup, string> =
 export interface PhaseCColumn {
   name: string;
   type: string;
-  constraints: string; // e.g. "PK AUTOINCREMENT", "NOT NULL UNIQUE", "FK → systems(id)"
+  constraints: string;
   description: string;
 }
 
@@ -234,17 +245,16 @@ export interface PhaseCTable {
   isNew?: boolean;
   compositePK?: string[];
   columns: PhaseCColumn[];
-  /** Demo rows — each row is an array of strings, one per column (in order). */
   demoRows: string[][];
 }
 
 export const PHASE_C_TABLES: PhaseCTable[] = [
-  // ---- Sources & Extensions ----
+  // ============ LOOKUP TABLES (4) ============
   {
     name: "data_sources",
-    group: "sources",
+    group: "lookup",
     description:
-      "Metadata / tracking sources — AniList, TMDB, Kitsu, MAL. Populated once at first launch.",
+      "Metadata / tracking sources — AniList, TMDB, Kitsu, MAL. Seeded once at first launch.",
     columns: [
       { name: "id", type: "INTEGER", constraints: "PK AUTOINCREMENT", description: "" },
       {
@@ -281,7 +291,7 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
   },
   {
     name: "systems",
-    group: "sources",
+    group: "lookup",
     description:
       "Extension systems — Aniyomi, CloudStream, Sora, MangaYomi. One row per supported system.",
     columns: [
@@ -319,9 +329,9 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
   },
   {
     name: "extension_repos",
-    group: "sources",
+    group: "lookup",
     description:
-      "Extension repository URLs. A system can have multiple repos (official + community).",
+      "Extension repository URLs. The URL points to the index.min.json file. A system can have multiple repos.",
     columns: [
       { name: "id", type: "INTEGER", constraints: "PK AUTOINCREMENT", description: "" },
       {
@@ -334,13 +344,13 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
         name: "url",
         type: "TEXT",
         constraints: "NOT NULL",
-        description: "`https://ani-kuta-repo.github.io`",
+        description: "full URL to index.min.json",
       },
       {
         name: "displayName",
         type: "TEXT",
         constraints: "",
-        description: "`ANI-KUTA Extensions`",
+        description: "human-readable name",
       },
       {
         name: "createdAt",
@@ -350,17 +360,29 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
       },
     ],
     demoRows: [
-      ["1", "1", "https://ani-kuta-repo.github.io", "ANI-KUTA Extensions", "—"],
-      ["2", "1", "https://aniyomi.org/repo", "Aniyomi Official", "—"],
+      [
+        "1",
+        "1",
+        "https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json",
+        "Yuzono Anime Repo",
+        "—",
+      ],
+      [
+        "2",
+        "1",
+        "https://raw.githubusercontent.com/aniyomiorg/aniyomi-extensions/repo/index.min.json",
+        "Aniyomi Official",
+        "—",
+      ],
     ],
   },
   {
     name: "extensions",
-    group: "sources",
+    group: "lookup",
     description:
-      "Installed extensions. `repoId` is null when an extension was sideloaded without a repo.",
+      "Installed extensions. `repoId` is null when an extension was sideloaded without a repo. `sourceId` is the internal ID within the extension.",
     columns: [
-      { name: "id", type: "INTEGER", constraints: "PK AUTOINCREMENT", description: "" },
+      { name: "id", type: "INTEGER", constraints: "PK AUTOINCREMENT", description: "our DB ID" },
       {
         name: "systemId",
         type: "INTEGER",
@@ -389,7 +411,7 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
         name: "sourceId",
         type: "INTEGER",
         constraints: "NOT NULL",
-        description: "internal source ID",
+        description: "internal source ID (e.g. 69023)",
       },
       {
         name: "versionName",
@@ -416,20 +438,20 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
     ],
   },
 
-  // ---- Content Core ----
+  // ============ MAIN TABLE (1) ============
   {
     name: "content",
-    group: "content",
+    group: "main",
     isMain: true,
     description:
-      "The central content record. Holds both IDs — `mainId` (stable UUID, PK) and `contentId` (structured, changes). Every tracking table FKs to `mainId`.",
+      "The central content record. Holds BOTH IDs — `mainId` (stable UUID, PK) and `contentId` (structured, changes). Also holds core display info (title, type, format, description) + source links. Detail tables FK to `mainId`.",
     columns: [
       { name: "mainId", type: "TEXT", constraints: "PK", description: "stable UUID" },
       {
         name: "contentId",
         type: "TEXT",
         constraints: "NOT NULL",
-        description: "structured string (changes)",
+        description: "structured string (regenerated on source change)",
       },
       { name: "title", type: "TEXT", constraints: "NOT NULL", description: "anime name" },
       {
@@ -442,19 +464,25 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
         name: "contentFormat",
         type: "TEXT",
         constraints: "NOT NULL DEFAULT `video`",
-        description: "`video`/`image`/`text`",
+        description: "`video`/`image`/`text`/`audio`",
+      },
+      {
+        name: "description",
+        type: "TEXT",
+        constraints: "",
+        description: "brief fallback (when no detail linked)",
       },
       {
         name: "dataSourceId",
         type: "INTEGER",
         constraints: "FK → data_sources(id)",
-        description: "which metadata source",
+        description: "which metadata source (null if none)",
       },
       {
         name: "systemId",
         type: "INTEGER",
         constraints: "FK → systems(id)",
-        description: "which extension system",
+        description: "which extension system (null if none)",
       },
       {
         name: "extensionRepoId",
@@ -469,6 +497,12 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
         description: "null if no extension",
       },
       {
+        name: "sourceId",
+        type: "INTEGER",
+        constraints: "",
+        description: "internal source ID (from extension, null if none)",
+      },
+      {
         name: "animeUrl",
         type: "TEXT",
         constraints: "",
@@ -478,7 +512,7 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
         name: "displaySource",
         type: "TEXT",
         constraints: "NOT NULL DEFAULT `extension`",
-        description: "`anilist`/`extension`",
+        description: "`anilist`/`extension`/`tmdb`/`kitsu` (which detail to show)",
       },
       {
         name: "createdAt",
@@ -496,14 +530,16 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
     demoRows: [
       [
         "a1b2c3d4-…",
-        "anilist:aniyomi:https://ani-kuta-repo.github.io:com.aniyomi.anikoto:https://anikoto.cc/anime/frieren",
+        "anilist:aniyomi:1:com.aniyomi.anikoto:69023:https://anikoto.cc/anime/frieren",
         "Frieren: Beyond Journey's End",
         "anime",
         "video",
+        "—",
         "1",
         "1",
         "1",
         "1",
+        "69023",
         "https://anikoto.cc/anime/frieren",
         "anilist",
         "—",
@@ -511,14 +547,16 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
       ],
       [
         "c3d4e5f6-…",
-        "none:aniyomi:https://ani-kuta-repo.github.io:com.aniyomi.anikoto:https://anikoto.cc/anime/obscure",
+        "none:aniyomi:1:com.aniyomi.anikoto:69023:https://anikoto.cc/anime/obscure",
         "Obscure Anime",
         "anime",
         "video",
+        "—",
         "null",
         "1",
         "1",
         "1",
+        "69023",
         "https://anikoto.cc/anime/obscure",
         "extension",
         "—",
@@ -530,7 +568,9 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
         "Solo Leveling",
         "anime",
         "video",
+        "—",
         "1",
+        "null",
         "null",
         "null",
         "null",
@@ -541,11 +581,196 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
       ],
     ],
   },
+
+  // ============ DETAIL TABLES (3) ============
   {
-    name: "content_source_link",
-    group: "content",
+    name: "anilist_details",
+    group: "detail",
+    isNew: true,
     description:
-      "Tracks every source linked to a content record — multiple AniList IDs, TMDB IDs, or extension URLs can all point at one `mainId`.",
+      "AniList-specific metadata for a content. One row per content (if linked to AniList). Stores score, episodes, season, genres, synopsis, cover/banner URLs.",
+    columns: [
+      {
+        name: "mainId",
+        type: "TEXT",
+        constraints: "PK FK → content(mainId) ON DELETE CASCADE",
+        description: "",
+      },
+      {
+        name: "anilistId",
+        type: "INTEGER",
+        constraints: "NOT NULL",
+        description: "AniList anime ID (e.g. 154587)",
+      },
+      {
+        name: "idMal",
+        type: "INTEGER",
+        constraints: "",
+        description: "MAL ID (from AniList)",
+      },
+      { name: "score", type: "INTEGER", constraints: "", description: "0-100" },
+      { name: "episodes", type: "INTEGER", constraints: "", description: "episode count" },
+      {
+        name: "season",
+        type: "TEXT",
+        constraints: "",
+        description: "`WINTER`/`SPRING`/`SUMMER`/`FALL`",
+      },
+      { name: "seasonYear", type: "INTEGER", constraints: "", description: "2023" },
+      {
+        name: "status",
+        type: "TEXT",
+        constraints: "",
+        description: "`RELEASING`/`FINISHED`/`CANCELLED`",
+      },
+      {
+        name: "genres",
+        type: "TEXT",
+        constraints: "",
+        description: "comma-separated: `Adventure, Drama, Fantasy`",
+      },
+      { name: "synopsis", type: "TEXT", constraints: "", description: "full description" },
+      { name: "coverUrl", type: "TEXT", constraints: "", description: "cover image URL" },
+      { name: "bannerUrl", type: "TEXT", constraints: "", description: "banner image URL" },
+      {
+        name: "updatedAt",
+        type: "INTEGER",
+        constraints: "NOT NULL",
+        description: "epoch millis (last AniList fetch)",
+      },
+    ],
+    demoRows: [
+      [
+        "a1b2c3d4-…",
+        "154587",
+        "52991",
+        "82",
+        "28",
+        "FALL",
+        "2023",
+        "FINISHED",
+        "Adventure, Drama, Fantasy",
+        "Frieren and her party…",
+        "https://…/frieren-cover.jpg",
+        "https://…/frieren-banner.jpg",
+        "—",
+      ],
+      [
+        "e5f6a7b8-…",
+        "154587",
+        "52991",
+        "82",
+        "28",
+        "FALL",
+        "2023",
+        "FINISHED",
+        "Adventure, Drama, Fantasy",
+        "Solo Leveling…",
+        "https://…/sololeveling-cover.jpg",
+        "https://…/sololeveling-banner.jpg",
+        "—",
+      ],
+    ],
+  },
+  {
+    name: "extension_details",
+    group: "detail",
+    isNew: true,
+    description:
+      "Extension-specific metadata for a content. One row per content (if linked to an extension source). Stores the extension's own description, genres, status, author, artist, thumbnail.",
+    columns: [
+      {
+        name: "mainId",
+        type: "TEXT",
+        constraints: "PK FK → content(mainId) ON DELETE CASCADE",
+        description: "",
+      },
+      {
+        name: "extensionId",
+        type: "INTEGER",
+        constraints: "NOT NULL FK → extensions(id)",
+        description: "which extension provided this",
+      },
+      {
+        name: "sourceId",
+        type: "INTEGER",
+        constraints: "NOT NULL",
+        description: "internal source ID",
+      },
+      {
+        name: "animeUrl",
+        type: "TEXT",
+        constraints: "NOT NULL",
+        description: "content's URL on this extension",
+      },
+      {
+        name: "description",
+        type: "TEXT",
+        constraints: "",
+        description: "extension-provided description",
+      },
+      {
+        name: "genres",
+        type: "TEXT",
+        constraints: "",
+        description: "comma-separated",
+      },
+      {
+        name: "status",
+        type: "TEXT",
+        constraints: "",
+        description: "extension status code (1=RELEASING, 2=FINISHED)",
+      },
+      { name: "author", type: "TEXT", constraints: "", description: "" },
+      { name: "artist", type: "TEXT", constraints: "", description: "" },
+      {
+        name: "thumbnailUrl",
+        type: "TEXT",
+        constraints: "",
+        description: "extension-provided thumbnail",
+      },
+      {
+        name: "updatedAt",
+        type: "INTEGER",
+        constraints: "NOT NULL",
+        description: "epoch millis (last extension fetch)",
+      },
+    ],
+    demoRows: [
+      [
+        "a1b2c3d4-…",
+        "1",
+        "69023",
+        "https://anikoto.cc/anime/frieren",
+        "Frieren's journey…",
+        "Adventure, Fantasy",
+        "2",
+        "Yamada Kanehito",
+        "Tsukasa Abe",
+        "https://anikoto.cc/img/frieren.jpg",
+        "—",
+      ],
+      [
+        "c3d4e5f6-…",
+        "1",
+        "69023",
+        "https://anikoto.cc/anime/obscure",
+        "An obscure anime…",
+        "Drama",
+        "2",
+        "null",
+        "null",
+        "https://anikoto.cc/img/obscure.jpg",
+        "—",
+      ],
+    ],
+  },
+  {
+    name: "other_source_details",
+    group: "detail",
+    isNew: true,
+    description:
+      "Generic key-value table for future data sources (TMDB, Kitsu, MAL, custom). Allows storing source-specific fields without adding a new table per source.",
     columns: [
       { name: "id", type: "INTEGER", constraints: "PK AUTOINCREMENT", description: "" },
       {
@@ -558,61 +783,25 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
         name: "sourceType",
         type: "TEXT",
         constraints: "NOT NULL",
-        description: "`anilist`/`tmdb`/`extension`",
+        description: "`tmdb`/`kitsu`/`mal`/`custom`",
       },
       {
-        name: "sourceRef",
+        name: "sourceRefId",
         type: "TEXT",
         constraints: "NOT NULL",
-        description: "anilistId or animeUrl",
+        description: "ID on that source (e.g. TMDB ID `12345`)",
       },
       {
-        name: "linkedAt",
-        type: "INTEGER",
-        constraints: "NOT NULL",
-        description: "epoch millis",
-      },
-    ],
-    demoRows: [
-      ["1", "a1b2c3d4-…", "anilist", "154987", "—"],
-      ["2", "a1b2c3d4-…", "extension", "https://anikoto.cc/anime/frieren", "—"],
-      ["3", "c3d4e5f6-…", "extension", "https://anikoto.cc/anime/obscure", "—"],
-    ],
-  },
-
-  // ---- User Tracking ----
-  {
-    name: "watch_progress",
-    group: "tracking",
-    isNew: true,
-    description:
-      "Per-episode watch progress. Composite PK on (mainId, episodeNumber) — one row per episode per content. Keyed entirely on `mainId`, so progress survives any source switch.",
-    compositePK: ["mainId", "episodeNumber"],
-    columns: [
-      {
-        name: "mainId",
+        name: "key",
         type: "TEXT",
-        constraints: "NOT NULL FK → content(mainId) ON DELETE CASCADE",
-        description: "",
-      },
-      { name: "episodeNumber", type: "REAL", constraints: "NOT NULL", description: "" },
-      {
-        name: "position",
-        type: "REAL",
         constraints: "NOT NULL",
-        description: "seconds",
+        description: "field name (e.g. `score`, `synopsis`)",
       },
       {
-        name: "duration",
-        type: "REAL",
-        constraints: "NOT NULL",
-        description: "seconds",
-      },
-      {
-        name: "completed",
-        type: "INTEGER",
-        constraints: "NOT NULL DEFAULT 0",
-        description: "",
+        name: "value",
+        type: "TEXT",
+        constraints: "",
+        description: "field value (serialized)",
       },
       {
         name: "updatedAt",
@@ -622,127 +811,62 @@ export const PHASE_C_TABLES: PhaseCTable[] = [
       },
     ],
     demoRows: [
-      ["a1b2c3d4-…", "1", "480.5", "1440", "0", "—"],
-      ["a1b2c3d4-…", "2", "1440", "1440", "1", "—"],
-    ],
-  },
-  {
-    name: "library",
-    group: "tracking",
-    isNew: true,
-    description:
-      "Library entries. `mainId` is both PK and FK — one row per library item. Adding to library = insert; removing = delete (cascades cleanly).",
-    columns: [
-      {
-        name: "mainId",
-        type: "TEXT",
-        constraints: "PK FK → content(mainId) ON DELETE CASCADE",
-        description: "",
-      },
-      {
-        name: "addedAt",
-        type: "INTEGER",
-        constraints: "NOT NULL",
-        description: "epoch millis",
-      },
-    ],
-    demoRows: [
-      ["a1b2c3d4-…", "—"],
-      ["e5f6a7b8-…", "—"],
-    ],
-  },
-  {
-    name: "watch_history",
-    group: "tracking",
-    isNew: true,
-    description:
-      "Watch history — append-only log of episodes watched. One row per watch event (an episode can appear multiple times). Keyed on `mainId`.",
-    columns: [
-      { name: "id", type: "INTEGER", constraints: "PK AUTOINCREMENT", description: "" },
-      {
-        name: "mainId",
-        type: "TEXT",
-        constraints: "NOT NULL FK → content(mainId) ON DELETE CASCADE",
-        description: "",
-      },
-      {
-        name: "episodeNumber",
-        type: "REAL",
-        constraints: "NOT NULL",
-        description: "",
-      },
-      {
-        name: "watchedAt",
-        type: "INTEGER",
-        constraints: "NOT NULL",
-        description: "epoch millis",
-      },
-    ],
-    demoRows: [
-      ["1", "a1b2c3d4-…", "1", "—"],
-      ["2", "a1b2c3d4-…", "2", "—"],
+      ["1", "a1b2c3d4-…", "tmdb", "12345", "score", "8.2", "—"],
+      ["2", "a1b2c3d4-…", "tmdb", "12345", "synopsis", "TMDB's synopsis…", "—"],
+      ["3", "a1b2c3d4-…", "tmdb", "12345", "genres", "Adventure,Drama,Fantasy", "—"],
     ],
   },
 ];
 
-export const PHASE_C_SUMMARY = {
-  totalTables: PHASE_C_TABLES.length,
-  totalColumns: PHASE_C_TABLES.reduce((sum, t) => sum + t.columns.length, 0),
-  newTables: PHASE_C_TABLES.filter((t) => t.isNew).length,
-  totalGroups: PHASE_C_GROUPS.length,
-} as const;
-
 /* ---------------------------------------------------------------------------
- * 4. ER diagram — nodes + edges
+ * 4. ER diagram nodes + edges
  * ------------------------------------------------------------------------- */
 
-export interface PhaseCERNode {
+export interface ERNode {
   id: string;
   label: string;
   group: PhaseCGroup;
-  col: number; // 1..12
-  row: number; // 1..6
+  isMain?: boolean;
 }
 
-export interface PhaseCEREdge {
+export interface EREdge {
   from: string;
   to: string;
-  cardinality: "1-N" | "1-1";
   label: string;
 }
 
-/**
- * Grid layout (12 cols × 6 rows):
- *   Left column (col 2):  data_sources, systems, extension_repos, extensions
- *   Center (col 6):       content (the hub)
- *   Right column (col 10): content_source_link, watch_progress, library, watch_history
- */
-export const PHASE_C_ER_NODES: PhaseCERNode[] = [
-  { id: "data_sources", label: "data_sources", group: "sources", col: 2, row: 1 },
-  { id: "systems", label: "systems", group: "sources", col: 2, row: 2 },
-  { id: "extension_repos", label: "extension_repos", group: "sources", col: 2, row: 4 },
-  { id: "extensions", label: "extensions", group: "sources", col: 2, row: 5 },
-  { id: "content", label: "content", group: "content", col: 6, row: 3 },
-  { id: "content_source_link", label: "content_source_link", group: "content", col: 10, row: 1 },
-  { id: "watch_progress", label: "watch_progress", group: "tracking", col: 10, row: 2 },
-  { id: "library", label: "library", group: "tracking", col: 10, row: 3 },
-  { id: "watch_history", label: "watch_history", group: "tracking", col: 10, row: 4 },
+export const ER_NODES: ERNode[] = [
+  // Lookup
+  { id: "data_sources", label: "data_sources", group: "lookup" },
+  { id: "systems", label: "systems", group: "lookup" },
+  { id: "extension_repos", label: "extension_repos", group: "lookup" },
+  { id: "extensions", label: "extensions", group: "lookup" },
+  // Main
+  { id: "content", label: "content", group: "main", isMain: true },
+  // Detail
+  { id: "anilist_details", label: "anilist_details", group: "detail" },
+  { id: "extension_details", label: "extension_details", group: "detail" },
+  { id: "other_source_details", label: "other_source_details", group: "detail" },
 ];
 
-export const PHASE_C_ER_EDGES: PhaseCEREdge[] = [
-  { from: "data_sources", to: "content", cardinality: "1-N", label: "1 ─── N" },
-  { from: "systems", to: "content", cardinality: "1-N", label: "1 ─── N" },
-  { from: "extension_repos", to: "extensions", cardinality: "1-N", label: "1 ─── N" },
-  { from: "systems", to: "extensions", cardinality: "1-N", label: "1 ─── N" },
-  { from: "extensions", to: "content", cardinality: "1-N", label: "1 ─── N" },
-  { from: "content", to: "content_source_link", cardinality: "1-N", label: "1 ─── N" },
-  { from: "content", to: "watch_progress", cardinality: "1-N", label: "1 ─── N" },
-  { from: "content", to: "library", cardinality: "1-1", label: "1 ─── 1" },
-  { from: "content", to: "watch_history", cardinality: "1-N", label: "1 ─── N" },
+export const ER_EDGES: EREdge[] = [
+  // Lookup → content
+  { from: "data_sources", to: "content", label: "dataSourceId" },
+  { from: "systems", to: "content", label: "systemId" },
+  { from: "extension_repos", to: "content", label: "extensionRepoId" },
+  { from: "extensions", to: "content", label: "extensionId" },
+  // Lookup internal
+  { from: "systems", to: "extension_repos", label: "systemId" },
+  { from: "systems", to: "extensions", label: "systemId" },
+  { from: "extension_repos", to: "extensions", label: "repoId" },
+  // content → detail
+  { from: "content", to: "anilist_details", label: "mainId" },
+  { from: "content", to: "extension_details", label: "mainId" },
+  { from: "content", to: "other_source_details", label: "mainId" },
 ];
 
 /* ---------------------------------------------------------------------------
- * 5. Confirmed decisions (Q-001 .. Q-006)
+ * 5. Confirmed decisions (Q-001..Q-010)
  * ------------------------------------------------------------------------- */
 
 export interface PhaseCDecision {
@@ -756,88 +880,113 @@ export const PHASE_C_DECISIONS: PhaseCDecision[] = [
     id: "Q-001",
     question: "Stable vs changing contentId",
     answer:
-      "Both: stable Main ID (UUID) + changing Content ID (structured string).",
+      "Both — stable Main ID (UUID) + changing Content ID (structured string), in the SAME `content` table.",
   },
   {
     id: "Q-002",
     question: "contentId generation",
     answer:
-      "Main ID = UUID. Content ID = structured string (deterministic from sources).",
+      "Main ID = UUID. Content ID = structured string (deterministic from 6 source fields).",
   },
   {
     id: "Q-003",
-    question: "contentType",
+    question: "contentType + contentFormat",
     answer:
-      "anime for now. Future: manga, novel, movie, series. Also contentFormat: video/image/text.",
+      "contentType: anime (now), manga/novel/movie/series (future). contentFormat: video/image/text/audio.",
   },
   {
     id: "Q-004",
-    question: "Multiple extension sources?",
+    question: "Multiple extension sources per content?",
     answer: "No — one at a time. Switching = migrate (remove old, add new).",
   },
   {
     id: "Q-005",
-    question: "Default display source",
-    answer: "User decides (data-source selector lets them pick).",
+    question: "Default display source when auto-link matches",
+    answer: "User decides — the data-source selector lets them pick.",
   },
   {
     id: "Q-006",
     question: "contentId shown in UI?",
     answer: "No — internal only.",
   },
+  {
+    id: "Q-007",
+    question: "Session scope",
+    answer:
+      "This session: content ID system + main + detail + lookup tables ONLY. Watch progress/library/history/tracking deferred.",
+  },
+  {
+    id: "Q-008",
+    question: "Detail table approach",
+    answer:
+      "Separate tables per source type (anilist_details, extension_details, other_source_details) linked by mainId.",
+  },
+  {
+    id: "Q-009",
+    question: "Content ID sections",
+    answer: "6 sections: dataSource, system, repoId, extensionPkg, sourceId, animeUrl.",
+  },
+  {
+    id: "Q-010",
+    question: "Repo URL in Content ID",
+    answer:
+      "Use repo DB ID (integer) instead of full URL — URL is too long + contains colons.",
+  },
 ];
 
 /* ---------------------------------------------------------------------------
- * 6. Implementation phases (C.1 .. C.5)
+ * 6. Implementation phases (C.1..C.4 this session)
  * ------------------------------------------------------------------------- */
 
 export interface PhaseCMilestone {
   id: string;
   title: string;
   description: string;
-  status: "planning" | "todo" | "doing" | "done";
-  deliverable: string;
+  status: "planned" | "in-progress" | "done";
 }
 
 export const PHASE_C_MILESTONES: PhaseCMilestone[] = [
   {
     id: "C.1",
-    title: "Database schema + content module",
+    title: "Database schema",
     description:
-      "Create all 9 tables, FKs, and the content repository module. Implement Main ID (UUID) + Content ID (structured string) generation. CRUD for content records.",
-    status: "planning",
-    deliverable: "ContentRepository + schema migrations",
+      "Add SQLDelight .sq files for all 8 tables (4 lookup + 1 main + 3 detail). Seed data_sources + systems on first launch.",
+    status: "planned",
   },
   {
     id: "C.2",
-    title: "Integrate with DetailsViewModel",
+    title: "Content module (:core:content)",
     description:
-      "Wire the content module into the details screen. DetailsViewModel reads from `content` by mainId, resolves the active source, and renders metadata + extension data.",
-    status: "planning",
-    deliverable: "DetailsViewModel → ContentRepository integration",
+      "Create ContentIdGenerator + ContentRepository + ContentResolver. Register in Koin.",
+    status: "planned",
   },
   {
     id: "C.3",
-    title: "Watch progress (uses mainId)",
+    title: "Integrate with DetailsViewModel",
     description:
-      "Persist per-episode position/duration/completed against `mainId`. Progress survives source switches because it never references the extension or URL directly.",
-    status: "planning",
-    deliverable: "WatchProgressRepository + player integration",
+      "Add mainId + contentId to UnifiedAnime. Wire ContentResolver into load/link/unlink/switch operations.",
+    status: "planned",
   },
   {
     id: "C.4",
-    title: "Library (uses mainId)",
+    title: "Console logging",
     description:
-      "Library is now a thin table keyed on `mainId`. Add/remove is a single insert/delete. Re-sorting, filtering, and grouping all run off the content record.",
-    status: "planning",
-    deliverable: "LibraryRepository + library UI refresh",
+      "Log Content ID generation, resolution, and source link/unlink operations for debugging.",
+    status: "planned",
   },
-  {
-    id: "C.5",
-    title: "History (uses mainId)",
-    description:
-      "Append-only watch history keyed on `mainId`. The history list joins back to `content` for titles and thumbnails — one query, no source-aware joins.",
-    status: "planning",
-    deliverable: "HistoryRepository + history screen",
-  },
+];
+
+/* ---------------------------------------------------------------------------
+ * 7. Deferred to later sessions
+ * ------------------------------------------------------------------------- */
+
+export const PHASE_C_DEFERRED: string[] = [
+  "watch_progress — table keyed on mainId + episodeNumber",
+  "library — table keyed on mainId",
+  "watch_history — table keyed on mainId",
+  "Internal tracking system — activity events, user behavior",
+  "Overlapping detection — detect duplicate Content IDs + offer merge",
+  "Backup/restore — export/import the content table",
+  "Multi-system support — CloudStream, Sora, MangaYomi extensions",
+  "Multi-data-source — TMDB, Kitsu, MAL providers (via other_source_details)",
 ];

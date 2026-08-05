@@ -897,3 +897,14 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User: "When I clicked the extension, nothing changed at all. Then I went back and reopened the page and I saw that the results were being shown from Any list." + "What it should be is that when the user clicks the three-dot toggle at the very top..." + "it will be available for any list entries too."
 - **Status:** ✅ Implemented (Phase B fix, session web-f53f0459).
 - **Date:** Phase B fix (session web-f53f0459).
+
+### D-135 — Phase C plan v4 (final): content identity system scope + detail tables
+- **What:** Finalized the Phase C plan with:
+  - Content ID format v2: 6 sections (added `sourceId`). Format: `{dataSource}:{system}:{repoId}:{extensionPkg}:{sourceId}:{animeUrl}`. Uses repo DB ID instead of full URL (URL is too long + contains colons).
+  - Session scope: ONLY content identity system (main table + detail tables + lookup tables). Watch progress/library/history/tracking DEFERRED.
+  - Detail table approach: `anilist_details`, `extension_details`, `other_source_details` — each linked by mainId. Source-specific metadata lives in separate tables, not in the main content table.
+  - Real repo URL format: `https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json` (ends with index.min.json).
+  - 10 confirmed decisions (Q-001 through Q-010).
+- **Why:** User reviewed plan v3 and gave detailed feedback: (a) Content ID missing extension ID + source ID, (b) repo URL format clarified (ends with index.min.json), (c) one table per row on web page, (d) split session scope — focus on content ID system only, defer watch progress/library/history/tracking, (e) use separate detail tables per source type.
+- **Status:** ✅ Plan finalized. Implementation pending (next session).
+- **Date:** Phase C planning (session web-f53f0459).

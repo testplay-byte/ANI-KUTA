@@ -246,3 +246,28 @@ User tested the Phase B fixes and reported:
 - User reviews Phase C plan v2 + answers open questions.
 - After confirmation, use full-stack-dev agent to convert plan into a web page.
 - Then implement Phase C (C.1 → C.5).
+
+## Session web-f53f0459 (continued) — Phase C plan v4 (final)
+
+### User feedback on plan v3
+User reviewed the Phase C plan v3 + dashboard page and gave detailed feedback:
+- ✅ Two-ID system (Main ID + Content ID) is good.
+- ❌ Content ID missing extension ID + source ID — needs 6 sections, not 5.
+- 📋 Repo URL format: ends with `index.min.json` (e.g. `https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json`).
+- ❌ Web page: tables should be one-per-row, not two-per-row.
+- 📋 Session scope: focus ONLY on content ID system (main + detail + lookup tables). Defer watch progress/library/history/tracking.
+- 📋 Use separate detail tables per source type (anilist_details, extension_details, other_source_details).
+
+### Plan v4 created (D-135)
+- Content ID format v2: 6 sections with `sourceId` added. Uses repo DB ID (integer) instead of full URL.
+- 8 tables: 4 lookup (data_sources, systems, extension_repos, extensions) + 1 main (content) + 3 detail (anilist_details, extension_details, other_source_details).
+- Removed deferred tables (watch_progress, library, watch_history, content_source_link) from this session's scope.
+- 10 confirmed decisions (Q-001 through Q-010).
+- Dashboard web page updated: one table per row, new Content ID format, new detail tables, removed deferred tables, added "Deferred" section.
+
+### CI status
+- Awaiting push + CI build.
+
+### What's next
+- User reviews plan v4 + dashboard page.
+- If approved, implement Phase C (C.1 database schema → C.2 content module → C.3 DetailsViewModel integration → C.4 console logging).
