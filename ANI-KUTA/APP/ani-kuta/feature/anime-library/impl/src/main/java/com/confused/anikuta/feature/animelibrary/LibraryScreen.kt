@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.animelibrary
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,11 +12,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -71,6 +72,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,11 +88,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -141,6 +144,7 @@ import org.koin.compose.viewmodel.koinViewModel
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
  * All text uses fontFamily = RobotoFamily; titles/labels use FontWeight.ExtraBold.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     onNavigateToDetails: (LibraryEntry) -> Unit,
@@ -212,11 +216,21 @@ fun LibraryScreen(
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
 
-    // D.5: Pull-to-refresh state.
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var pullDistance by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
-    var isPulling by remember { mutableStateOf(false) }
-    val pullThreshold = 200f
+    // Pull-to-refresh state — official Material 3 PullToRefreshBox.
+    // Cooperates with the inner LazyVerticalGrid / LazyColumn via its own
+    // nestedScrollConnection; pull only activates at the top, so there's no
+    // spinner on normal upward scroll and no fling jank.
+    val ptrState = rememberPullToRefreshState()
+    val view = LocalView.current
+    // Fire a haptic exactly once when the pull first crosses the refresh
+    // threshold (distanceFraction >= 1f). LaunchedEffect re-runs only on the
+    // false → true transition, so it never buzzes continuously.
+    val thresholdCrossed = ptrState.distanceFraction >= 1f
+    LaunchedEffect(thresholdCrossed) {
+        if (thresholdCrossed) {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+    }
 
     val isList = displayMode == LibraryDisplayMode.LIST
     val collapsed = if (!isList) {
@@ -435,42 +449,18 @@ fun LibraryScreen(
             }
 
             // ── Content ──
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    // D.5: Pull-to-refresh — detect drag down at the top.
-                    detectVerticalDragGestures(
-                        onDragStart = {
-                            val atTop = if (isList) {
-                                listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-                            } else {
-                                gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0
-                            }
-                            if (atTop && !isSelectionMode) {
-                                pullDistance = 0f
-                                isPulling = true
-                            }
-                        },
-                        onDragEnd = {
-                            if (isPulling && pullDistance >= pullThreshold) {
-                                // Vibrate + trigger refresh.
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                                    val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
-                                    vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
-                                }
-                                viewModel.refreshLibrary()
-                            }
-                            isPulling = false
-                            pullDistance = 0f
-                        },
-                        onVerticalDrag = { _, dragAmount ->
-                            if (isPulling && dragAmount > 0) {
-                                pullDistance = (pullDistance + dragAmount).coerceIn(0f, pullThreshold * 1.5f)
-                            }
-                        },
-                    )
-                },
-            ) {
+            // Pull-to-refresh uses the official Material 3 PullToRefreshBox, which
+            // cooperates with the inner LazyVerticalGrid / LazyColumn scroll via its
+            // own nestedScrollConnection. The pull gesture ONLY activates when the
+            // list is at the top AND the user keeps dragging down — no spinner on
+            // normal upward scroll, no fling jank.
+            //
+            // In selection mode, PTR is DISABLED (plain Box) so long-press selection
+            // gestures don't conflict with a pull. Scroll state (gridState / listState)
+            // is hoisted above the conditional, so scroll position is preserved when
+            // entering / leaving selection mode.
+            @Composable
+            fun BoxScope.libraryContent() {
                 when (val s = state) {
                     is LibraryState.Loading -> Box(
                         modifier = Modifier.fillMaxSize(),
@@ -531,39 +521,6 @@ fun LibraryScreen(
                     }
                 }
 
-                // D.5: Pull-to-refresh indicator.
-                if (isPulling && pullDistance > 0) {
-                    val pullProgress = (pullDistance / pullThreshold).coerceIn(0f, 1f)
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = (pullDistance * 0.5f).dp)
-                            .size(36.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        androidx.compose.material3.CircularProgressIndicator(
-                            progress = { pullProgress },
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(36.dp),
-                        )
-                    }
-                }
-                // D.5: Background refresh indicator.
-                if (isRefreshing && !isPulling) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 8.dp),
-                    ) {
-                        androidx.compose.material3.CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-
                 // ── Scroll blur overlay (fades in when content scrolls under header) ──
                 ScrollBlurOverlay(
                     scrollOffset = {
@@ -578,6 +535,23 @@ fun LibraryScreen(
                     backgroundColor = MaterialTheme.colorScheme.background,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
+            }
+
+            if (isSelectionMode) {
+                // Selection mode: plain Box, no pull-to-refresh (long-press is the
+                // primary gesture here; a pull could conflict with selection).
+                Box(modifier = Modifier.fillMaxSize()) {
+                    libraryContent()
+                }
+            } else {
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshLibrary() },
+                    state = ptrState,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    libraryContent()
+                }
             }
         }
 
