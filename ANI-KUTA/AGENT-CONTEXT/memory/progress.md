@@ -428,3 +428,25 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 - User device testing of D-141.
 - Answer Phase D open questions (Q-001 through Q-005).
 - Begin Phase D implementation.
+
+## Session web-f53f0459 (continued) — D-142, D-143: UI fixes + bottom nav replacement
+
+### D-142: Extension cover images + multi-select UI
+- Fixed extension-only cover images: `resolveContentForExtension` now accepts UnifiedAnime + stores `extension_detail` (with `thumbnailUrl`) in DB.
+- Category count format: changed to rounded brackets "Default (3)".
+- Multi-select top buttons: styled with icons (DoneAll/Clear/SyncAlt).
+- Multi-select bottom bar: replaced nav bar with opaque surface + icons (Close/Category/Delete).
+- Phase D plan v2: removed backup/restore, metadata never expires, 6hr homepage only, vibration, solid caching, two source types.
+
+### D-143: Bottom nav bar replacement + library total count
+- Added `selectionModeContent` parameter to `AnikutaBottomNavBar`.
+- Created `LibrarySelectionMode` + `LocalLibrarySelectionMode` CompositionLocal.
+- LibraryScreen syncs selection state → AppRoot reads it → passes SelectionActionBar to nav bar.
+- SelectionActionBar replaces the nav pills INSIDE the floating pill (not overlay).
+- Library header: totalEntries shows TOTAL across ALL categories.
+
+### CI status
+- CI #210 GREEN.
+
+### What's next
+- Start Phase D implementation (D.1-D.5).

@@ -991,3 +991,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User reported: extension-only cover images not showing, library heading wrong, category count format wrong, delete dialog formatting, library performance (re-fetching on tab switch), no multi-select, refresh button doesn't work.
 - **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #204 green. Phase D plan written.
 - **Date:** Phase C (session web-f53f0459).
+
+### D-142 — Extension cover images + multi-select UI + Phase D plan v2
+- **What:** Fixed extension-only cover images (root cause: extension_detail not stored on content creation), changed category count to rounded brackets, styled multi-select buttons with icons, made selection bottom bar replace the nav bar, updated Phase D plan v2 (removed backup/restore, metadata never expires, 6hr homepage only, vibration, solid caching, two source types).
+- **Status:** ✅ Implemented. CI #206 green.
+- **Date:** Phase C (session web-f53f0459).
+
+### D-143 — Bottom nav bar replacement + library total count
+- **What:** 
+  1. Bottom nav bar replacement: Added `selectionModeContent` parameter to `AnikutaBottomNavBar`. Created `LibrarySelectionMode` class + `LocalLibrarySelectionMode` CompositionLocal. LibraryScreen syncs selection state via `LaunchedEffect`. AppRoot reads it and passes `SelectionActionBar` (Cancel/Category/Delete with icons) to the nav bar — replacing the nav pills INSIDE the floating pill, not overlaying.
+  2. Library header total count: `totalEntries` now shows the TOTAL across ALL categories (fetches `getLibraryMainIds()` separately), not just the selected category.
+- **Status:** ✅ Implemented. CI #210 green.
+- **Date:** Phase C (session web-f53f0459).
