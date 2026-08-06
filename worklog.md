@@ -112,3 +112,46 @@ Stage Summary:
   5. D-141 multi-select: long-press a card/row → enterSelectionMode; header swaps to "X selected"; quick options row (Select All / Clear / Invert) replaces the tabs; a SelectionBottomBar (Cancel / Category / Delete) fades in at Alignment.BottomCenter (padding 90dp to clear the nav pill); tapping entries toggles selection instead of navigating; selected cards get a 2dp primary border + a checkmark badge in the top-right corner (list rows get a tinted bg + a smaller check badge on the thumbnail). MultiSelectCategoryPicker reuses the CategoryPickerSheet AlertDialog style with per-category checkboxes (tapping checked → removeSelectedFromCategory, unchecked → addSelectedToCategory, initial state from getCategoriesForSelected via remember). DeleteSelectedDialog shows "Delete X entries from library?" with Cancel + Delete.
   6. No UI change for reloadFromCache — LaunchedEffect on resume still calls loadLibrary() (fresh data), tab switches go through selectCategory (reloadFromCache, no network). Added a comment in the LaunchedEffect explaining the split.
 - Known limitation: the parent MainActivity still renders the floating AnikutaBottomNavBar on top of LibraryScreen content; SelectionBottomBar is positioned with padding(bottom = 90.dp) so it sits ABOVE the nav pill's reserved area and stays fully visible/usable, but the nav pill is still rendered behind it. Fully hiding the nav pill would require a MainActivity change (out of scope for this task).
+
+---
+Task ID: DASHBOARD-PHASE-D
+Agent: full-stack-developer
+Task: Replace Phase C planning page with Phase D planning page on the ANI-KUTA dashboard webpage
+
+Work Log:
+- Read the Phase D plan at `/home/z/my-project/ANI-KUTA/APP/ani-kuta/DOCUMENTATION/planning/data-management/PHASE-D-PLAN.md` to understand the content (Problem Statement, Goals, Database tables, Refresh strategy, Confirmed decisions, Implementation phases, Future considerations).
+- Reviewed the existing Phase C files (`app/phase-c/page.tsx` + `lib/phaseC.ts`) to understand the structure to mirror: hero section, multiple card-based content sections, filter pills, one-table-per-row TableCard, ER diagram (SVG), confirmed-decisions table, implementation phases grid, deferred list, footer nav links.
+- Updated `lib/data.ts`: changed the "Phase C" NAV_ITEMS entry to "Phase D" with `href: "/phase-d/"` and the new desc "Data Management & Caching — local-first storage, smart refresh, image caching".
+- Deleted the old `app/phase-c/` directory and `lib/phaseC.ts` file; created empty `app/phase-d/` directory.
+- Created `lib/phaseD.ts` with the full Phase D data set:
+  * `PHASE_D_HERO` — title "Phase D — Data Management & Caching", status "PLANNING" (amber), subtitle + summary.
+  * `PROBLEM_STATEMENT` (4 cards): Slow Loading, Unnecessary Data Usage, No Offline Support, Data Lost on Restart — each with icon, impact line, full description.
+  * `GOALS` (6 cards): Local-first Data Storage, Smart Refresh, Image Caching, Solid Caching, Performance, Two Source Types — each with number badge, tagline, description, 4-6 bullet points.
+  * `PHASE_D_TABLES` (3 tables) + `PHASE_D_GROUPS` (2 groups: Metadata Caches + Browse Cache):
+    - `anime_metadata_cache` (group=metadata, isNew, 13 cols, no expires_at — never expires).
+    - `episode_metadata_cache` (group=metadata, isNew, compositePK=["main_id","episode_number"], 7 cols).
+    - `browse_cache` (group=browse, isNew, 4 cols, has expires_at — 6hr, homepage only).
+  * `ER_NODES` (4 nodes: content existing + 3 new cache tables) + `ER_EDGES` (2 FK edges content → metadata caches; browse_cache is standalone).
+  * `REFRESH_STRATEGY` (3 cards): Browse Page (homepage, pull-to-refresh + 6hr auto-update), Details Page (multi-stage with vibration), Library Page (loads from cache, pull-to-refresh).
+  * `PHASE_D_DECISIONS` (Q-001..Q-005) + `PHASE_D_ADDITIONAL_DECISIONS` (5 extra decisions).
+  * `PHASE_D_MILESTONES` (D.1..D.5, all status="planned").
+  * `PHASE_D_FUTURE` (5 future considerations NOT in Phase D).
+- Created `app/phase-d/page.tsx` reusing the same structure as the Phase C page:
+  * Section 1 — Problem Statement (2-col grid of icon cards).
+  * Section 2 — Goals (3-col grid of numbered cards).
+  * Section 3 — Database Schema: filter pills (All / Metadata Caches / Browse Cache) + one-table-per-row TableCard list (with New + Composite PK badges) + ER diagram (SVG) embedded as a sub-section.
+  * Section 4 — Refresh Strategy (3-col grid of icon cards with trigger lists + note callouts).
+  * Section 5 — Confirmed Decisions (table) + Additional Confirmed Decisions card.
+  * Section 6 — Implementation Phases (3-col grid of D.1-D.5 cards).
+  * Section 7 — Future Considerations (NOT in Phase D) — 2-col grid of items.
+  * Footer nav links to /planning/ and /database/.
+- Ran `bun run build` from the webpage directory — build succeeded with no TypeScript errors. Output shows `○ /phase-d` route generated as static content alongside the other 10 routes.
+
+Stage Summary:
+- The dashboard sidebar now links to `/phase-d/` ("Phase D" — Data Management & Caching) instead of the old `/phase-c/` ("Phase C" — Content Identity System).
+- The old `app/phase-c/page.tsx` and `lib/phaseC.ts` files are fully removed; no lingering references in the dashboard codebase (verified with ripgrep — the only remaining "Phase C" mentions are intentional: a legend label "Existing table (Phase C)" in the Phase D ER diagram and a description string "stable mainId from Phase C" in `lib/phaseD.ts`, both of which correctly indicate Phase D builds on Phase C's content table).
+- The new page covers all 7 sections specified in the task: Problem Statement (4 cards), Goals (6 cards), Database tables (3 tables, one per row, with filter pills), Refresh strategy (3 cards), Confirmed decisions (Q-001..Q-005 + 5 additional), Implementation phases (D.1..D.5), Future considerations (5 items NOT in Phase D).
+- The ER diagram visualizes the content table (existing, Phase C) feeding the two new metadata caches via main_id FK, with browse_cache as a standalone node (no FK, keyed by section_key).
+- Build verification: `bun run build` exits 0, 12 static pages generated successfully, route `/phase-d` present in the build output.
+
+---

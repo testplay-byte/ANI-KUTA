@@ -43,7 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Progress", href: "/progress/", icon: "progress", desc: "Phase 0–3 done · Phase 4 (feature screens) in progress" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
-  { label: "Phase C", href: "/phase-c/", icon: "planning", desc: "Content Identity System — two-ID architecture, database schema, implementation plan" },
+  { label: "Phase D", href: "/phase-d/", icon: "planning", desc: "Data Management & Caching — local-first storage, smart refresh, image caching" },
 ];
 
 /* ---------------------------------------------------------------------------
