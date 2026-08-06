@@ -354,11 +354,11 @@ class LibraryViewModel(
                                     mainId = mainId,
                                     title = content.title,
                                     coverUrl = extDetail?.thumbnailUrl,
-                                sourceId = content.extensionId ?: extDetail?.sourceId,
-                                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
-                            ),
-                        )
-                    }
+                                    sourceId = content.extensionId ?: extDetail?.sourceId,
+                                    animeUrl = content.animeUrl ?: extDetail?.animeUrl,
+                                ),
+                            )
+                        }
                 }
 
                 if (entries.isEmpty()) {
