@@ -77,6 +77,12 @@ fun AnikutaBottomNavBar(
     currentRoute: String,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * D-143: When non-null, replaces the nav pills with this content.
+     * Used for library multi-select mode — shows Cancel/Category/Delete
+     * instead of the normal nav items.
+     */
+    selectionModeContent: (@Composable () -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
@@ -89,21 +95,27 @@ fun AnikutaBottomNavBar(
             shape = BottomNavPillShape,
             shadowElevation = 8.dp,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(58.dp)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                items.forEach { item ->
-                    val isActive = item.route == currentRoute
-                    NavPill(
-                        item = item,
-                        isActive = isActive,
-                        onClick = { onSelect(item.route) },
-                        modifier = if (isActive) Modifier else Modifier.weight(1f),
-                    )
+            if (selectionModeContent != null) {
+                // Selection mode — replace the nav pills with the custom content.
+                selectionModeContent()
+            } else {
+                // Normal mode — show the nav pills.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(58.dp)
+                        .padding(horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    items.forEach { item ->
+                        val isActive = item.route == currentRoute
+                        NavPill(
+                            item = item,
+                            isActive = isActive,
+                            onClick = { onSelect(item.route) },
+                            modifier = if (isActive) Modifier else Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         }

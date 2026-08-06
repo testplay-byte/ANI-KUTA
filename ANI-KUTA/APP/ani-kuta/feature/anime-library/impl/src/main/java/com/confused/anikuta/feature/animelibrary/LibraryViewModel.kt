@@ -170,8 +170,11 @@ class LibraryViewModel(
 
                 // Deduplicate mainIds (a content can be in multiple categories).
                 val uniqueMainIds = mainIds.distinct()
-                _totalEntries.value = uniqueMainIds.size
-                Logger.i(TAG) { "Library: ${uniqueMainIds.size} items (category=${_selectedCategoryId.value ?: "all"})" }
+                // D-143: totalEntries should show the TOTAL across ALL categories,
+                // not just the selected category. Fetch the full count separately.
+                val allMainIds = contentRepository.getLibraryMainIds()
+                _totalEntries.value = allMainIds.distinct().size
+                Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${_selectedCategoryId.value ?: "all"})" }
 
                 if (uniqueMainIds.isEmpty()) {
                     _state.value = LibraryState.Empty
@@ -271,7 +274,9 @@ class LibraryViewModel(
                     contentRepository.getLibraryMainIds()
                 }
                 val uniqueMainIds = mainIds.distinct()
-                _totalEntries.value = uniqueMainIds.size
+                // D-143: totalEntries = total across ALL categories.
+                val allMainIds = contentRepository.getLibraryMainIds()
+                _totalEntries.value = allMainIds.distinct().size
 
                 if (uniqueMainIds.isEmpty()) {
                     _state.value = LibraryState.Empty

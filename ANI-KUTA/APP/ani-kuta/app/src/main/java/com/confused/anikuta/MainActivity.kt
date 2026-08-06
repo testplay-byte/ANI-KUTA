@@ -7,16 +7,24 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +54,8 @@ import com.confused.anikuta.feature.animedetails.DetailsScreen
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
 import com.confused.anikuta.feature.animelibrary.LibraryEntry
 import com.confused.anikuta.feature.animelibrary.LibraryScreen
+import com.confused.anikuta.feature.animelibrary.LibrarySelectionMode
+import com.confused.anikuta.feature.animelibrary.LocalLibrarySelectionMode
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
 import com.confused.anikuta.feature.animesearch.SearchScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
@@ -145,6 +156,9 @@ fun AppRoot() {
     }
     var currentTab by remember { mutableStateOf("browse") }
 
+    // D-143: Library selection mode state — shared between LibraryScreen + AppRoot.
+    val librarySelectionMode = remember { LibrarySelectionMode() }
+
     val backstack = remember {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
     }
@@ -155,16 +169,16 @@ fun AppRoot() {
     }
 
     // BackHandler: handle device back gesture properly
-    // If backstack has more than 1 item, pop. Otherwise, let the system handle (exit).
     BackHandler(enabled = backstack.size > 1) {
         pop()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalLibrarySelectionMode provides librarySelectionMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
         when (currentKey) {
             is AnimeBrowseKey -> BrowseScreen(
                 onNavigate = { navKey -> backstack.add(navKey) }
@@ -260,6 +274,21 @@ fun AppRoot() {
         // Bottom navigation — ONLY show on root tab screens (not sub-screens)
         val showBottomNav = currentKey::class in rootTabKeys
         if (showBottomNav) {
+            // D-143: If library is in selection mode, replace the nav pills
+            // with the selection action bar (Cancel / Category / Delete).
+            val selectionContent: (@Composable () -> Unit)? = if (
+                librarySelectionMode.isSelectionMode && currentKey is AnimeLibraryKeyImpl
+            ) {
+                {
+                    SelectionActionBar(
+                        selectedCount = librarySelectionMode.selectedCount,
+                        onCancel = { librarySelectionMode.onCancel?.invoke() },
+                        onCategory = { librarySelectionMode.onCategory?.invoke() },
+                        onDelete = { librarySelectionMode.onDelete?.invoke() },
+                    )
+                }
+            } else null
+
             AnikutaBottomNavBar(
                 items = navItems,
                 currentRoute = currentTab,
@@ -274,8 +303,100 @@ fun AppRoot() {
                     }
                 },
                 modifier = Modifier.align(Alignment.BottomCenter),
+                selectionModeContent = selectionContent,
             )
         }
+        } // end CompositionLocalProvider Box
+    } // end CompositionLocalProvider
+}
+
+/**
+ * D-143: Selection action bar — replaces the nav pills when in library selection mode.
+ * Shows Cancel (left) / Category (center) / Delete (right) with icons.
+ */
+@Composable
+private fun SelectionActionBar(
+    selectedCount: Int,
+    onCancel: () -> Unit,
+    onCategory: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        // Cancel — left
+        SelectionButton(
+            icon = androidx.compose.material.icons.Icons.Filled.Close,
+            label = "Cancel",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            onClick = onCancel,
+            modifier = Modifier.weight(1f),
+        )
+        // Category — center
+        SelectionButton(
+            icon = androidx.compose.material.icons.Icons.Filled.Category,
+            label = "Category",
+            color = MaterialTheme.colorScheme.primary,
+            onClick = onCategory,
+            modifier = Modifier.weight(1f),
+        )
+        // Delete — right
+        SelectionButton(
+            icon = androidx.compose.material.icons.Icons.Filled.Delete,
+            label = "Delete",
+            color = MaterialTheme.colorScheme.error,
+            onClick = onDelete,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun SelectionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    color: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = androidx.compose.animation.core.tween(150),
+        label = "selectionBtnScale",
+    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(vertical = 4.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = color,
+            modifier = Modifier.size(22.dp),
+        )
+        androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(2.dp))
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = color,
+            maxLines = 1,
+        )
     }
 }
 

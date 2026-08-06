@@ -186,6 +186,22 @@ fun LibraryScreen(
     val showMultiSelectCategorySheet by viewModel.showMultiSelectCategorySheet.collectAsState()
     val showDeleteConfirmation by viewModel.showDeleteConfirmation.collectAsState()
 
+    // D-143: Sync selection mode to the shared LibrarySelectionMode so AppRoot
+    // can replace the bottom nav bar with the selection action bar.
+    val librarySelectionMode = LocalLibrarySelectionMode.current
+    androidx.compose.runtime.LaunchedEffect(isSelectionMode, selectedMainIds.size) {
+        if (isSelectionMode) {
+            librarySelectionMode.enter(
+                count = selectedMainIds.size,
+                cancel = { viewModel.exitSelectionMode() },
+                category = { viewModel.showMultiSelectCategorySheet() },
+                delete = { viewModel.showDeleteConfirmation() },
+            )
+        } else {
+            librarySelectionMode.exit()
+        }
+    }
+
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
 
@@ -543,25 +559,8 @@ fun LibraryScreen(
             )
         }
 
-        // ── D-141: Bottom action bar (selection mode) ──
-        // Replaces the bottom nav pill visually. Cancel (left) / Category
-        // (center) / Delete (right, error). Positioned above the system nav
-        // bar's reserved area so it doesn't overlap with the floating nav pill
-        // (which is rendered by MainActivity on top of LibraryScreen content).
-        AnimatedVisibility(
-            visible = isSelectionMode,
-            enter = fadeIn(tween(Motion.DurationStandard, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(Motion.DurationShort, easing = FastOutSlowInEasing)),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            SelectionBottomBar(
-                onCancel = { viewModel.exitSelectionMode() },
-                onCategory = { viewModel.showMultiSelectCategorySheet() },
-                onDelete = { viewModel.showDeleteConfirmation() },
-                // D-142: No bottom padding — the bar sits at the very bottom,
-                // covering the bottom nav bar with an opaque surface.
-            )
-        }
+        // D-143: The selection bottom bar is now handled by AppRoot — it
+        // replaces the nav bar's content directly. No SelectionBottomBar here.
 
         // ── D-141: Multi-select category picker ──
         // AlertDialog with a checkbox per category — same style as the
