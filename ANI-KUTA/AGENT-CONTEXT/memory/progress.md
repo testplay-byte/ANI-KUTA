@@ -291,3 +291,36 @@ User reviewed the Phase C plan v3 + dashboard page and gave detailed feedback:
 - User device testing of the library system.
 - If issues, fix them.
 - Then continue with watch progress, history, tracking (deferred).
+
+## Session web-f53f0459 (continued) — Cross-source dedup + library categories
+
+### User testing feedback (Phase C round 1)
+User tested Phase C and reported:
+- ✅ Library save works (bookmark button saves, remembers across restarts).
+- ✅ Library page shows saved anime.
+- ❌ **Duplicate library entries**: Saved anime from AniList, then opened same anime from extension → 2 separate library entries (should be 1 — same content).
+- ❌ Extension anime not showing as saved after auto-link (the mainId was different).
+- ❌ Extension library entry gives 404 error when opened (anilistId=0 for extension-only content).
+- ❌ Data-source selector + unlink not working smoothly after linkSource.
+
+### Fixes implemented (D-137, D-138)
+
+**D-137: Cross-source content deduplication**
+- Root cause: `resolveContentForExtension` didn't check auto-link cache → always created new content record. `mergeAniListIntoUnified` didn't persist the link in the database.
+- Fix: `resolveContentForExtension` now checks `autoLinkPreferences.getCachedAniListId()` first. If cached + content exists → links to existing mainId. `mergeAniListIntoUnified` now calls `contentResolver.linkAniList()` to persist. `unlinkAniList` calls `contentResolver.unlinkAniList()`.
+
+**D-138: Library categories system**
+- CategoryPickerSheet (long-press bookmark) — shows categories with checkboxes + create new category.
+- ContentRepository: full category CRUD.
+- DetailsViewModel: category state + methods.
+- LibraryViewModel: category filtering + management.
+- library.sq: renameCategory + getCategoriesForContent queries.
+
+### CI status
+- CI #197 GREEN. APK built successfully.
+
+### What's next (pending)
+- Library page category tabs UI (showing categories as tabs at the top) — ViewModel logic is ready, LibraryScreen UI needs updating.
+- Long-press category tab → delete/rename dialog.
+- Extension library entry 404 error (navigation issue — library passes anilistId=0 for extension-only content).
+- Document the data structures in DOCUMENTATION/database/.

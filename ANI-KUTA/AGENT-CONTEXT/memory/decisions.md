@@ -924,3 +924,29 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Subagent review**: All 18 files reviewed for compile errors — clean. No issues found.
 - **Status:** ✅ Implemented (Phase C, session web-f53f0459).
 - **Date:** Phase C (session web-f53f0459).
+
+### D-137 — Cross-source content deduplication
+- **What:** Fixed the duplicate library entries issue. When the user saved an anime from AniList, then opened the same anime from an extension, a SEPARATE content record was created — resulting in 2 library entries for the same anime.
+- **Root cause:** `resolveContentForExtension()` didn't check the auto-link cache. It always created a new content record, even if the same anime was already saved from AniList. Additionally, `mergeAniListIntoUnified()` didn't persist the AniList link in the database — the ViewModel state was updated but the `anilist_detail` row was never created.
+- **Fix:**
+  1. `resolveContentForExtension()` now checks `autoLinkPreferences.getCachedAniListId()` first. If a cached anilistId exists AND a content record already exists for that anilistId → calls `contentResolver.linkExtensionToExisting()` to link the extension entry to the EXISTING mainId (no new content record).
+  2. New `ContentResolver.linkExtensionToExisting()` method — updates the existing content record's extension fields + regenerates the contentId.
+  3. `mergeAniListIntoUnified()` now calls `contentResolver.linkAniList()` to persist the link in the database (creates `anilist_detail` row + updates `dataSourceId`).
+  4. `unlinkAniList()` now calls `contentResolver.unlinkAniList()` to persist the unlink.
+- **Why:** User: "when I went to the library page, this time I apparently saw two entries. One was from the Anilist and the other one was from the extension side. This was apparently not supposed to happen."
+- **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #197 green.
+- **Date:** Phase C (session web-f53f0459).
+
+### D-138 — Library categories system
+- **What:** Implemented the library category system:
+  1. **CategoryPickerSheet** — bottom sheet shown when the user long-presses the bookmark button on the details page. Lists all categories with checkboxes. User can toggle categories + create new ones.
+  2. **Bookmark button** — now uses `combinedClickable` (onClick = toggle save, onLongClick = open category sheet).
+  3. **ContentRepository** — added category CRUD: `getAllCategories`, `createCategory`, `deleteCategory`, `renameCategory`, `addToCategory`, `removeFromCategory`, `isInCategory`, `getCategoriesForContent`, `getMainIdsByCategory`, `countItemsInCategory`.
+  4. **DetailsViewModel** — added category state flows + methods: `openCategorySheet`, `toggleCategory`, `createCategoryAndAdd`.
+  5. **LibraryViewModel** — added category filtering (`selectCategory`), category management (`showCategoryManagement`, `deleteCategory`, `renameCategory`, `createCategory`). `loadLibrary()` now loads ALL categories + filters by selected category.
+  6. **library.sq** — added `renameCategory` + `getCategoriesForContent` queries.
+- **Default category** — permanent (is_permanent=1), cannot be deleted or renamed. User-created categories can be deleted/renamed.
+- **Why:** User: "on the details page when he long presses on the save button, then a popup will show. In that popup he will see the list of all the categories and he can click on any of the categories and the anime will be added to those categories."
+- **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #197 green.
+- **Date:** Phase C (session web-f53f0459).
+- **Note:** Library page category tabs UI (showing categories as tabs at the top) + long-press category tab for delete/rename — the ViewModel logic is ready, but the LibraryScreen UI update for tabs is pending. Will be done in the next iteration.
