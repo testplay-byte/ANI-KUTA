@@ -430,10 +430,15 @@ class LibraryViewModel(
     fun refreshLibrary() {
         viewModelScope.launch {
             _isRefreshing.value = true
-            clearCache()
-            loadLibraryImpl()
-            _isRefreshing.value = false
-            Logger.i(TAG) { "Library refresh complete" }
+            try {
+                clearCache()
+                loadLibraryImpl()
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "Library refresh failed: ${e.message}" }
+            } finally {
+                _isRefreshing.value = false
+                Logger.i(TAG) { "Library refresh complete" }
+            }
         }
     }
 

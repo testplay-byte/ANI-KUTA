@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.animelibrary
 
-import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -92,7 +91,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -101,6 +100,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.content.LibraryCategory
+import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SearchField
@@ -221,14 +221,16 @@ fun LibraryScreen(
     // nestedScrollConnection; pull only activates at the top, so there's no
     // spinner on normal upward scroll and no fling jank.
     val ptrState = rememberPullToRefreshState()
-    val view = LocalView.current
+    val context = LocalContext.current
     // Fire a haptic exactly once when the pull first crosses the refresh
     // threshold (distanceFraction >= 1f). LaunchedEffect re-runs only on the
     // false → true transition, so it never buzzes continuously.
+    // Uses HapticHelper (Vibrator service) for reliability across devices +
+    // battery-saver modes.
     val thresholdCrossed = ptrState.distanceFraction >= 1f
     LaunchedEffect(thresholdCrossed) {
         if (thresholdCrossed) {
-            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            HapticHelper.stageCross(context)
         }
     }
 

@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.animebrowse
 
-import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -39,12 +38,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
@@ -67,7 +67,7 @@ import org.koin.compose.viewmodel.koinViewModel
  * dragging down. No spinner on normal upward scroll, no fling jank.
  *
  * Haptic feedback fires once when the pull crosses the refresh threshold
- * (distanceFraction >= 1f) via [HapticFeedbackConstants.LONG_PRESS] — no
+ * (distanceFraction >= 1f) via [HapticHelper.stageCross] — no
  * [android.os.Vibrator] / VIBRATE-permission-dependent code path.
  *
  * CORE_RULES §22: smooth animations. §23: reactive state.
@@ -85,15 +85,17 @@ fun BrowseScreen(
         gridState.firstVisibleItemScrollOffset > 20
 
     val ptrState = rememberPullToRefreshState()
-    val view = LocalView.current
+    val context = LocalContext.current
 
     // Fire a haptic exactly once when the pull first crosses the refresh
     // threshold (distanceFraction >= 1f). The LaunchedEffect re-runs only on
     // the false → true transition, so it never buzzes continuously.
+    // Uses HapticHelper (Vibrator service) for reliability across devices +
+    // battery-saver modes (performHapticFeedback can be silenced by OEMs).
     val thresholdCrossed = ptrState.distanceFraction >= 1f
     LaunchedEffect(thresholdCrossed) {
         if (thresholdCrossed) {
-            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            HapticHelper.stageCross(context)
         }
     }
 

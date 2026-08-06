@@ -1,7 +1,6 @@
 package com.confused.anikuta.feature.animedetails
 
 import androidx.activity.compose.BackHandler
-import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -47,10 +46,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,7 +65,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,10 +73,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -178,15 +176,26 @@ fun DetailsScreen(
                 // the top AND the user keeps dragging down. No spinner on normal
                 // upward scroll, no fling jank (unlike the buggy pointerInput /
                 // detectVerticalDragGestures approach that was reverted).
+                //
+                // ARCHITECTURE (fixed from PTR-5 — eliminates the stale-read race):
+                //  - pullPx: a synchronous mutableFloatStateOf — the SOURCE OF TRUTH
+                //    during a drag. Written and read synchronously in onPreScroll, so
+                //    stage detection + haptics are always computed from the CURRENT
+                //    pull distance (no stale Animatable.value reads from a pending
+                //    coroutine snapTo).
+                //  - snapAnim: an Animatable<Float> used ONLY for the spring snap-back
+                //    animation in onPreFling. During the snap-back, it drives pullPx
+                //    via a snapTo-per-frame pattern so the indicator visual tracks the
+                //    spring. When no animation is running, pullPx is the live value.
                 val density = LocalDensity.current
-                val view = LocalView.current
-                val scope = rememberCoroutineScope()
+                val context = LocalContext.current
                 val thresholdPx1 = with(density) { 120.dp.toPx() } // stage 1: episodes
                 val thresholdPx2 = with(density) { 240.dp.toPx() } // stage 2: metadata
                 val thresholdPx3 = with(density) { 360.dp.toPx() } // stage 3: all
 
-                val pullDistance = remember { Animatable(0f) }
+                var pullPx by remember { mutableFloatStateOf(0f) }
                 val currentStage = remember { mutableIntStateOf(0) }
+                var isAnimatingSnapBack by remember { mutableStateOf(false) }
 
                 fun stageFor(d: Float): Int = when {
                     d >= thresholdPx3 -> 3
@@ -196,7 +205,7 @@ fun DetailsScreen(
                 }
 
                 val nestedScrollConnection = remember(
-                    view, scope, thresholdPx1, thresholdPx2, thresholdPx3, isRefreshing,
+                    context, thresholdPx1, thresholdPx2, thresholdPx3, isRefreshing,
                 ) {
                     // prevStage is captured by reference — persists for the lifetime
                     // of this connection instance. Used to fire the haptic exactly
@@ -204,8 +213,9 @@ fun DetailsScreen(
                     var prevStage = 0
                     object : NestedScrollConnection {
                         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                            // (1) Disable pull while a refresh is in flight.
-                            if (isRefreshing) return Offset.Zero
+                            // (1) Disable pull while a refresh is in flight or while
+                            //     the snap-back spring is animating.
+                            if (isRefreshing || isAnimatingSnapBack) return Offset.Zero
                             val delta = available.y
                             if (delta == 0f) return Offset.Zero
                             // (2) Only consume when the LazyColumn is at the very top.
@@ -214,30 +224,31 @@ fun DetailsScreen(
                             if (!atTop) return Offset.Zero
                             // (3) If dragging up with no pull distance, let the
                             //     LazyColumn handle it (normal scroll).
-                            if (delta < 0f && pullDistance.value <= 0f) return Offset.Zero
+                            if (delta < 0f && pullPx <= 0f) return Offset.Zero
 
                             // (4) Apply damping past stage 1 for the iOS/M3
                             //     "resistance" feel.
-                            val current = pullDistance.value
+                            val current = pullPx
                             val damping = if (current > thresholdPx1 && delta > 0f) 0.5f else 1.0f
-                            val newTarget = (current + delta * damping).coerceAtLeast(0f)
+                            val newPx = (current + delta * damping).coerceAtLeast(0f)
 
-                            // (5) Stage detection + haptic — done SYNCHRONOUSLY
-                            //     (outside the launch) so prevStage can't be read
-                            //     stale by a concurrent snapTo coroutine. This is
-                            //     the safer form recommended in PTR-DETAILS-PLAN
-                            //     risk #3.
-                            val newStage = stageFor(newTarget)
+                            // (5) Stage detection + haptic — SYNCHRONOUS, using the
+                            //     live pullPx (not a stale Animatable.value). The
+                            //     haptic fires exactly once per stage-UP crossing.
+                            val newStage = stageFor(newPx)
                             if (newStage > prevStage) {
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                HapticHelper.stageCross(context)
                             }
                             if (newStage != prevStage) {
                                 prevStage = newStage
                                 currentStage.intValue = newStage
                             }
 
-                            scope.launch { pullDistance.snapTo(newTarget) }
-                            // (6) Consume the entire delta so the LazyColumn
+                            // (6) Write the new pull distance synchronously — the
+                            //     indicator (which reads pullPx via the composable)
+                            //     will recompose immediately.
+                            pullPx = newPx
+                            // (7) Consume the entire delta so the LazyColumn
                             //     doesn't try to scroll past the top.
                             return Offset(0f, available.y)
                         }
@@ -249,33 +260,40 @@ fun DetailsScreen(
                         ): Offset = Offset.Zero
 
                         override suspend fun onPreFling(available: Velocity): Velocity {
-                            val stage = stageFor(pullDistance.value)
-                            // (7) Dispatch the action for the CURRENT stage at release.
+                            val stage = stageFor(pullPx)
+                            // (8) Dispatch the action for the CURRENT stage at release.
                             when (stage) {
                                 1 -> {
                                     viewModel.refreshEpisodesList()
-                                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                    HapticHelper.releaseConfirm(context)
                                 }
                                 2 -> {
                                     viewModel.refreshMetadata()
-                                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                    HapticHelper.releaseConfirm(context)
                                 }
                                 3 -> {
                                     viewModel.refreshAll()
-                                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                    HapticHelper.releaseConfirm(context)
                                 }
                                 // 0 → no action, no haptic
                             }
-                            // (8) Spring snap-back to 0. Animatable's mutatorMutex
-                            //     cancels any in-progress snapTo from a stray
-                            //     onPreScroll that fired during this fling.
-                            pullDistance.animateTo(
+                            // (9) Spring snap-back to 0. We animate pullPx directly
+                            //     frame-by-frame so the indicator visual tracks the
+                            //     spring smoothly. isAnimatingSnapBack prevents
+                            //     onPreScroll from interfering during the spring.
+                            isAnimatingSnapBack = true
+                            val anim = Animatable(pullPx)
+                            anim.animateTo(
                                 targetValue = 0f,
                                 animationSpec = spring(
                                     dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessLow,
+                                    stiffness = Spring.StiffnessMediumLow,
                                 ),
-                            )
+                            ) {
+                                pullPx = value
+                            }
+                            pullPx = 0f
+                            isAnimatingSnapBack = false
                             currentStage.intValue = 0
                             prevStage = 0
                             return Velocity.Zero
@@ -420,12 +438,12 @@ fun DetailsScreen(
                     }
 
                     // ── 3-stage pull-to-refresh indicator ──
-                    // Visible only while actively pulling (pullDistance > 0) AND
+                    // Visible only while actively pulling (pullPx > 0) AND
                     // not currently refreshing (avoids overlap with the D-146 pill
                     // above, which takes over after a stage-3 release).
-                    if (pullDistance.value > 0f && !isRefreshing) {
+                    if (pullPx > 0f && !isRefreshing) {
                         ThreeStagePullIndicator(
-                            pullDistancePx = pullDistance.value,
+                            pullDistancePx = pullPx,
                             stage = currentStage.intValue,
                             thresholdPx1 = thresholdPx1,
                             thresholdPx3 = thresholdPx3,
@@ -1634,7 +1652,7 @@ private fun ErrorState(message: String) {
  * Box overlay aligned TopCenter.
  *
  * Haptic feedback is handled in the NestedScrollConnection (not here) — fires
- * exactly once per stage-UP crossing via HapticFeedbackConstants.LONG_PRESS.
+ * exactly once per stage-UP crossing via HapticHelper.stageCross().
  */
 @Composable
 private fun ThreeStagePullIndicator(
