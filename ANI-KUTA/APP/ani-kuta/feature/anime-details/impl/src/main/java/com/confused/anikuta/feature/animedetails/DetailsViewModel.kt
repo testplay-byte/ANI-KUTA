@@ -181,30 +181,35 @@ class DetailsViewModel(
             return
         }
         // Both exist — merge by priority.
-        val (primary, secondary) = if (priority == com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST) {
+        // D-139: STRICT switching — the primary source's values are used AS-IS.
+        // No fallback to secondary. When the user picks "Extension", they see ONLY
+        // extension data (even if some fields are null). When they pick "AniList",
+        // they see ONLY AniList data. This is the expected behavior — the user
+        // explicitly chose which source to display.
+        val (primary, _) = if (priority == com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST) {
             al to ext
         } else {
             ext to al
         }
         val merged = primary.copy(
-            // Identity fields — always from whichever base has them.
+            // Identity fields — always from whichever base has them (NOT subject to priority).
             anilistId = al.anilistId ?: ext.anilistId,
             sourceId = ext.sourceId ?: al.sourceId,
             sourceName = ext.sourceName ?: al.sourceName,
             animeUrl = ext.animeUrl ?: al.animeUrl,
             entryMode = ext.entryMode, // Entry mode stays from extension (how the user opened it).
             dataSourcePriority = priority,
-            // Metadata fields — primary wins, secondary fills nulls.
-            description = primary.description ?: secondary.description,
-            genres = if (primary.genres.isNotEmpty()) primary.genres else secondary.genres,
-            status = primary.status ?: secondary.status,
-            episodes = primary.episodes ?: secondary.episodes,
-            averageScore = primary.averageScore ?: secondary.averageScore,
-            season = primary.season ?: secondary.season,
-            seasonYear = primary.seasonYear ?: secondary.seasonYear,
-            bannerUrl = primary.bannerUrl ?: secondary.bannerUrl,
-            idMal = primary.idMal ?: secondary.idMal,
-            coverUrl = primary.coverUrl ?: secondary.coverUrl,
+            // Metadata fields — STRICT: primary values ONLY, no fallback to secondary.
+            description = primary.description,
+            genres = primary.genres,
+            status = primary.status,
+            episodes = primary.episodes,
+            averageScore = primary.averageScore,
+            season = primary.season,
+            seasonYear = primary.seasonYear,
+            bannerUrl = primary.bannerUrl,
+            idMal = primary.idMal,
+            coverUrl = primary.coverUrl,
         )
         _state.value = DetailsState.Success(merged)
         Logger.d(TAG) { "remergeBases: priority=$priority, merged ${merged.displayName}" }
@@ -824,6 +829,45 @@ class DetailsViewModel(
         )
         _linkedSource.value = LinkedSource(source.id, source.name, sAnime.url)
 
+        // D-139: Cache the reverse mapping (sourceId, animeUrl) → anilistId.
+        // This ensures that when the user opens the SAME anime from the extension
+        // later, resolveContentForExtension finds the cached anilistId → finds
+        // the existing content record → uses the SAME mainId (no duplicate).
+        if (animeId > 0) {
+            autoLinkPreferences.cacheAniListId(source.id, sAnime.url, animeId)
+            Logger.i(TAG) { "Cached reverse mapping: (${source.id}, ${sAnime.url}) → anilistId=$animeId" }
+        }
+
+        // D-139: Persist the extension link in the content database.
+        // This updates the content record with the extension fields + regenerates
+        // the contentId. Also stores the extension_detail row.
+        val mainId = currentMainId
+        if (mainId != null) {
+            contentResolver.linkExtensionToExisting(
+                mainId = mainId,
+                extensionId = source.id,
+                sourceId = source.id,
+                animeUrl = sAnime.url,
+                title = sAnime.title,
+            )
+            // Also store the extension detail.
+            val extDetail = com.confused.anikuta.core.content.ExtensionDetail(
+                mainId = mainId,
+                extensionId = source.id,
+                sourceId = source.id,
+                animeUrl = sAnime.url,
+                description = sAnime.description,
+                genres = sAnime.genre,
+                status = sAnime.status.toString(),
+                author = sAnime.author,
+                artist = sAnime.artist,
+                thumbnailUrl = sAnime.thumbnail_url,
+                updatedAt = System.currentTimeMillis(),
+            )
+            contentRepository.upsertExtensionDetail(extDetail)
+            refreshContentId(mainId)
+        }
+
         // D-134: Create extensionBase from the picked SAnime (for AniList entries).
         // This makes the data-source selector available.
         if (extensionBase == null) {
@@ -833,6 +877,27 @@ class DetailsViewModel(
             val currentPriority = (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                 ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
             remergeBases(currentPriority)
+
+            // D-139: Fetch full extension details in the background.
+            // The SAnime from search is sparse (no description, score, etc.).
+            // Fetch the full details via getAnimeDetails to enrich extensionBase.
+            viewModelScope.launch {
+                try {
+                    val enriched = extensionProvider.fetchFromExtension(
+                        source.id, sAnime.url, sAnime.title, sAnime.thumbnail_url,
+                    )
+                    if (enriched != null) {
+                        extensionBase = enriched
+                        Logger.i(TAG) { "Extension base enriched with full details: ${enriched.displayName}" }
+                        remergeBases(
+                            (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                                ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                        )
+                    }
+                } catch (e: Exception) {
+                    Logger.w(TAG) { "Extension detail enrichment failed: ${e.message}" }
+                }
+            }
         }
 
         fetchEpisodes(source, sAnime.url, sAnime.title)

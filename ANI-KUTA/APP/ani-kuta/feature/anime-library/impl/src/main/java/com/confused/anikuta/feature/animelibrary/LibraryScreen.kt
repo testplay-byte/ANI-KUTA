@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -33,30 +34,37 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -74,6 +82,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,6 +90,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
@@ -127,11 +137,19 @@ fun LibraryScreen(
     val showContinueWatching by viewModel.showContinueWatching.collectAsState()
     val showTotalEntries by viewModel.showTotalEntries.collectAsState()
 
+    // D-138: category tabs state — list of categories, currently selected
+    // category (null = "All"), and the category to show delete/rename dialog for.
+    val categories by viewModel.categories.collectAsState()
+    val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
+    val categoryToManage by viewModel.categoryToManage.collectAsState()
+
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
 
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    // Local UI flag — "New category" (+) pill tap shows a create dialog.
+    var showCreateCategoryDialog by remember { mutableStateOf(false) }
 
     val isList = displayMode == LibraryDisplayMode.LIST
     val collapsed = if (!isList) {
@@ -182,6 +200,25 @@ fun LibraryScreen(
                         },
                     )
                 }
+            }
+
+            // ── Category tabs (D-138) ──
+            // Only show the row if there are 2+ categories. With only the
+            // permanent "Default" category the tabs add no value, so we hide
+            // them entirely (avoids "All + Default" being the only options).
+            if (categories.size >= 2) {
+                CategoryTabsRow(
+                    categories = categories,
+                    selectedCategoryId = selectedCategoryId,
+                    onSelectCategory = viewModel::selectCategory,
+                    onLongPressCategory = { category ->
+                        // Permanent categories ("Default") can't be managed.
+                        if (!category.isPermanent) {
+                            viewModel.showCategoryManagement(category)
+                        }
+                    },
+                    onAddCategory = { showCreateCategoryDialog = true },
+                )
             }
 
             // ── Content ──
@@ -280,7 +317,472 @@ fun LibraryScreen(
                 onDismiss = { showSettingsSheet = false },
             )
         }
+
+        // ── Category management dialog (long-press on a category tab) ──
+        // categoryToManage is set by ViewModel.showCategoryManagement. For
+        // permanent categories the long-press handler bails out early, so this
+        // dialog only ever appears for user-created (non-permanent) categories.
+        categoryToManage?.let { category ->
+            CategoryManagementDialog(
+                category = category,
+                itemCount = (state as? LibraryState.Success)?.anime?.size ?: 0,
+                onRename = { newName ->
+                    viewModel.renameCategory(category.id, newName)
+                },
+                onDelete = {
+                    viewModel.deleteCategory(category.id)
+                },
+                onDismiss = viewModel::dismissCategoryManagement,
+            )
+        }
+
+        // ── "New category" dialog (+ pill) ──
+        if (showCreateCategoryDialog) {
+            CreateCategoryDialog(
+                onCreate = { name ->
+                    viewModel.createCategory(name)
+                    showCreateCategoryDialog = false
+                },
+                onDismiss = { showCreateCategoryDialog = false },
+            )
+        }
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Category tabs row (D-138) — horizontal pills + "+" add button
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Horizontal scrollable row of category pills, shown above the library grid.
+ *
+ * Layout: [All] [Category1] [Category2] ... [+]
+ *
+ * - The first pill "All" calls [onSelectCategory] with null.
+ * - The selected pill has primary bg + onPrimary text; others use surfaceVariant.
+ * - Long-pressing a category pill (not "All") fires [onLongPressCategory] —
+ *   the caller decides whether to show the management dialog (permanent
+ *   categories are skipped there).
+ * - The trailing "+" pill opens the "new category" dialog via [onAddCategory].
+ *
+ * CORE_RULES §22: scale animation on press for tactile feedback.
+ */
+@Composable
+private fun CategoryTabsRow(
+    categories: List<LibraryCategory>,
+    selectedCategoryId: Long?,
+    onSelectCategory: (Long?) -> Unit,
+    onLongPressCategory: (LibraryCategory) -> Unit,
+    onAddCategory: () -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // ── "All" pill (null selection) ──
+        item(key = "all") {
+            CategoryPill(
+                label = "All",
+                isSelected = selectedCategoryId == null,
+                onClick = { onSelectCategory(null) },
+                onLongClick = null, // "All" cannot be managed.
+            )
+        }
+
+        // ── One pill per category ──
+        items(categories, key = { it.id }) { category ->
+            CategoryPill(
+                label = category.name,
+                isSelected = selectedCategoryId == category.id,
+                onClick = { onSelectCategory(category.id) },
+                onLongClick = { onLongPressCategory(category) },
+            )
+        }
+
+        // ── "+" add new category pill ──
+        item(key = "add") {
+            AddCategoryPill(onClick = onAddCategory)
+        }
+    }
+}
+
+/**
+ * A single category "pill" — rounded Surface with primary bg when selected.
+ *
+ * Long-press is only wired up when [onLongClick] is non-null (i.e. for real
+ * categories, not the "All" pill).
+ */
+@Composable
+private fun CategoryPill(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
+        label = "catPillScale",
+    )
+
+    Surface(
+        color = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        )
+    }
+}
+
+/**
+ * The trailing "+" pill — opens the new-category dialog.
+ */
+@Composable
+private fun AddCategoryPill(onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
+        label = "addCatPillScale",
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "New category",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = "New",
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Category management + create dialogs (D-138)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Long-press category tab → management dialog with rename/delete options.
+ *
+ * Has 3 internal modes:
+ *  - MENU: two rows (Rename / Delete) with icons.
+ *  - RENAME: OutlinedTextField pre-filled with current name + Save button.
+ *  - DELETE_CONFIRM: warning text + Delete confirmation button.
+ *
+ * Switching modes is local UI state; the dialog itself stays open until the
+ * caller dismisses it (via [onRename]/[onDelete]/[onDismiss]).
+ */
+@Composable
+private fun CategoryManagementDialog(
+    category: LibraryCategory,
+    itemCount: Int,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var mode by remember { mutableStateOf(ManageMode.MENU) }
+    var renameText by remember(mode) {
+        mutableStateOf(if (mode == ManageMode.RENAME) category.name else "")
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = when (mode) {
+                    ManageMode.MENU -> category.name
+                    ManageMode.RENAME -> "Rename category"
+                    ManageMode.DELETE_CONFIRM -> "Delete category?"
+                },
+                fontFamily = RobotoFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        text = {
+            when (mode) {
+                ManageMode.MENU -> Column(modifier = Modifier.fillMaxWidth()) {
+                    // ── Rename option ──
+                    ManagementOptionRow(
+                        icon = Icons.Filled.Edit,
+                        label = "Rename",
+                        onClick = { mode = ManageMode.RENAME },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    // ── Delete option ──
+                    ManagementOptionRow(
+                        icon = Icons.Filled.Delete,
+                        label = "Delete",
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = { mode = ManageMode.DELETE_CONFIRM },
+                    )
+                }
+
+                ManageMode.RENAME -> Column(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = renameText,
+                        onValueChange = { renameText = it },
+                        placeholder = {
+                            Text(
+                                "Category name",
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = TextStyle(
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                    )
+                }
+
+                ManageMode.DELETE_CONFIRM -> Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = buildString {
+                            append("Are you sure you want to delete \"${category.name}\"?")
+                            if (itemCount > 0) {
+                                append("\n\n$itemCount item")
+                                if (itemCount > 1) append("s")
+                                append(" in this category will be removed from it.")
+                            }
+                        },
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            when (mode) {
+                ManageMode.MENU -> TextButton(onClick = onDismiss) {
+                    Text(
+                        "Cancel",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                ManageMode.RENAME -> TextButton(
+                    onClick = {
+                        val trimmed = renameText.trim()
+                        if (trimmed.isNotEmpty() && trimmed != category.name) {
+                            onRename(trimmed)
+                        } else {
+                            onDismiss()
+                        }
+                    },
+                ) {
+                    Text(
+                        "Save",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                ManageMode.DELETE_CONFIRM -> TextButton(onClick = onDelete) {
+                    Text(
+                        "Delete",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        // dismissButton is always provided; it renders nothing in MENU mode
+        // (the confirmButton already shows "Cancel" there).
+        dismissButton = {
+            if (mode != ManageMode.MENU) {
+                TextButton(onClick = onDismiss) {
+                    Text(
+                        "Cancel",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+    )
+}
+
+/** Single option row inside the management MENU. */
+@Composable
+private fun ManagementOptionRow(
+    icon: ImageVector,
+    label: String,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = tint,
+            )
+        }
+    }
+}
+
+/** Internal mode for [CategoryManagementDialog]. */
+private enum class ManageMode { MENU, RENAME, DELETE_CONFIRM }
+
+/**
+ * "New category" dialog — single OutlinedTextField + Create button.
+ */
+@Composable
+private fun CreateCategoryDialog(
+    onCreate: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = "New category",
+                fontFamily = RobotoFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = {
+                    Text(
+                        "Category name",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                    )
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = TextStyle(
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val trimmed = name.trim()
+                    if (trimmed.isNotEmpty()) onCreate(trimmed)
+                },
+                enabled = name.trim().isNotEmpty(),
+            ) {
+                Text(
+                    "Create",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (name.trim().isNotEmpty())
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    "Cancel",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
 }
 
 // ── HeaderActionGroup: combined search + settings pill container ──

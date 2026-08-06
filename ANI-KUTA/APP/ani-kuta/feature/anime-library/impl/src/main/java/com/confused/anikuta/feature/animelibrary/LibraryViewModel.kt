@@ -192,7 +192,22 @@ class LibraryViewModel(
                 if (animeList.isEmpty()) {
                     _state.value = LibraryState.Empty
                 } else {
-                    _state.value = LibraryState.Success(animeList)
+                    // D-139: Deduplicate by anilistId — the same anime saved from
+                    // both AniList and extension could appear twice (same anilistId).
+                    // Keep only the first occurrence to prevent LazyGrid key collisions.
+                    val seen = mutableSetOf<Int>()
+                    val deduped = animeList.filter { anime ->
+                        val id = anime.id
+                        if (id > 0 && id in seen) {
+                            Logger.w(TAG) { "Duplicate library entry: anilistId=$id — skipping" }
+                            false
+                        } else {
+                            if (id > 0) seen.add(id)
+                            true
+                        }
+                    }
+                    Logger.i(TAG) { "Library after dedup: ${deduped.size} items (was ${animeList.size})" }
+                    _state.value = LibraryState.Success(deduped)
                     applyFilters()
                 }
             } catch (e: Exception) {
