@@ -1003,3 +1003,16 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
   2. Library header total count: `totalEntries` now shows the TOTAL across ALL categories (fetches `getLibraryMainIds()` separately), not just the selected category.
 - **Status:** ✅ Implemented. CI #210 green.
 - **Date:** Phase C (session web-f53f0459).
+
+### D-144 — Phase D.1: Local metadata cache implemented
+- **What:** Implemented the local metadata cache system (Phase D.1):
+  1. New module `:core:data-cache` with DataCacheRepository.
+  2. 3 new SQLDelight tables: `anime_metadata_cache`, `data_cache_episode` (renamed from `episode_metadata_cache` to avoid collision with existing `metadata.sq`), `browse_cache`.
+  3. DetailsViewModel.loadFromAniList() checks cache first → displays instantly → then fetches from network → updates cache.
+  4. LibraryViewModel.loadLibrary() checks cache first → no network on tab switch.
+  5. LibraryViewModel.reloadFromCache() uses cache exclusively.
+  6. Metadata never expires — user manually refreshes.
+  7. All data persists across restarts (SQLite via SQLDelight).
+- **CI fixes:** SQLDelight unique index on episode table, table name collision with metadata.sq, missing closing brace in reloadFromCache.
+- **Status:** ✅ Implemented. CI #216 green.
+- **Date:** Phase D (session web-f53f0459).

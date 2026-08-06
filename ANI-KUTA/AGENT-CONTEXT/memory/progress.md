@@ -450,3 +450,28 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 
 ### What's next
 - Start Phase D implementation (D.1-D.5).
+
+## Session web-f53f0459 (continued) — D-143 + Phase D.1
+
+### D-143: Bottom nav bar replacement + library total count
+- Added `selectionModeContent` parameter to AnikutaBottomNavBar.
+- Created LibrarySelectionMode + LocalLibrarySelectionMode CompositionLocal.
+- LibraryScreen syncs selection state → AppRoot reads it → passes SelectionActionBar.
+- SelectionActionBar replaces nav pills INSIDE the floating pill (Cancel/Category/Delete with icons).
+- Library header: totalEntries shows TOTAL across ALL categories.
+
+### Phase D.1: Local metadata cache
+- New module :core:data-cache with DataCacheRepository.
+- 3 new SQLDelight tables: anime_metadata_cache, data_cache_episode, browse_cache.
+- DetailsViewModel checks cache first → instant display → then fetches + caches.
+- LibraryViewModel checks cache first → no network on tab switch.
+- Metadata never expires. All data persists across restarts.
+
+### CI status
+- CI #216 GREEN.
+
+### What's next (Phase D.2-D.5)
+- D.2: Browse page cache + pull-to-refresh + 6-hour auto-update.
+- D.3: Details page multi-stage refresh (vibration + visual indicators).
+- D.4: Coil disk cache (500MB, persistent).
+- D.5: Library pull-to-refresh with vibration + lazy loading.
