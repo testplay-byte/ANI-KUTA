@@ -102,4 +102,8 @@ dependencies {
 
     // Serialization (for Injekt Json registration in AnikutaApp)
     implementation(libs.kotlinx.serialization.json)
+
+    // D.4: Coil image loading (for ImageLoaderFactory — 500MB disk cache)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 }
