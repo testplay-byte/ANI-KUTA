@@ -61,6 +61,14 @@ class LibraryViewModel(
     private val _categories = MutableStateFlow<List<LibraryCategory>>(emptyList())
     val categories: StateFlow<List<LibraryCategory>> = _categories.asStateFlow()
 
+    /** The currently selected category (null = all). */
+    private val _selectedCategoryId = MutableStateFlow<Long?>(null)
+    val selectedCategoryId: StateFlow<Long?> = _selectedCategoryId.asStateFlow()
+
+    /** Category management state — for rename/delete dialogs. */
+    private val _categoryToManage = MutableStateFlow<LibraryCategory?>(null)
+    val categoryToManage: StateFlow<LibraryCategory?> = _categoryToManage.asStateFlow()
+
     // ── Sort ──
     private val _sortType = MutableStateFlow(LibrarySortType.TITLE)
     val sortType: StateFlow<LibrarySortType> = _sortType
@@ -113,13 +121,17 @@ class LibraryViewModel(
         _state.value = LibraryState.Loading
         viewModelScope.launch {
             try {
-                // Load categories (Default only for now).
-                val cats = listOfNotNull(contentRepository.getDefaultCategory())
+                // Load ALL categories (for the category tabs).
+                val cats = contentRepository.getAllCategories()
                 _categories.value = cats
 
-                // Get all library mainIds.
-                val mainIds = contentRepository.getLibraryMainIds()
-                Logger.i(TAG) { "Library has ${mainIds.size} items" }
+                // Get library mainIds — filtered by selected category if set.
+                val mainIds = if (_selectedCategoryId.value != null) {
+                    contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
+                } else {
+                    contentRepository.getLibraryMainIds()
+                }
+                Logger.i(TAG) { "Library has ${mainIds.size} items (category=${_selectedCategoryId.value ?: "all"})" }
 
                 if (mainIds.isEmpty()) {
                     _state.value = LibraryState.Empty
@@ -193,6 +205,57 @@ class LibraryViewModel(
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
         applyFilters()
+    }
+
+    // ── Category management (D-138) ──
+
+    /**
+     * Select a category to filter by (null = all categories).
+     */
+    fun selectCategory(categoryId: Long?) {
+        _selectedCategoryId.value = categoryId
+        loadLibrary() // Reload with the category filter.
+    }
+
+    /**
+     * Show the category management dialog (long-press on a category tab).
+     */
+    fun showCategoryManagement(category: LibraryCategory) {
+        _categoryToManage.value = category
+    }
+
+    fun dismissCategoryManagement() {
+        _categoryToManage.value = null
+    }
+
+    /**
+     * Delete a category. Only non-permanent categories can be deleted.
+     */
+    fun deleteCategory(categoryId: Long) {
+        contentRepository.deleteCategory(categoryId)
+        _categoryToManage.value = null
+        // If the deleted category was selected, switch to "all".
+        if (_selectedCategoryId.value == categoryId) {
+            _selectedCategoryId.value = null
+        }
+        loadLibrary()
+    }
+
+    /**
+     * Rename a category. Only non-permanent categories can be renamed.
+     */
+    fun renameCategory(categoryId: Long, newName: String) {
+        contentRepository.renameCategory(categoryId, newName)
+        _categoryToManage.value = null
+        loadLibrary()
+    }
+
+    /**
+     * Create a new category.
+     */
+    fun createCategory(name: String) {
+        contentRepository.createCategory(name)
+        loadLibrary()
     }
 
     // ── Sort setters ──

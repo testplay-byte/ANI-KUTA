@@ -384,4 +384,115 @@ class ContentRepository(
     fun getDefaultCategoryCount(): Int {
         return libraryQueries.countDefaultCategoryItems().executeAsOne().toInt()
     }
+
+    // ── Category management (D-138) ────────────────────────────────────────
+
+    /**
+     * Get all library categories, ordered by display_order.
+     */
+    fun getAllCategories(): List<LibraryCategory> {
+        return libraryQueries.getAllCategories().executeAsList().map {
+            LibraryCategory(
+                id = it.id,
+                name = it.name,
+                displayOrder = it.display_order,
+                isPermanent = it.is_permanent == 1L,
+                createdAt = it.created_at,
+            )
+        }
+    }
+
+    /**
+     * Create a new user category. Returns the new category's ID.
+     * User-created categories are NOT permanent (can be deleted/renamed).
+     */
+    fun createCategory(name: String): Long {
+        val now = System.currentTimeMillis()
+        val order = getAllCategories().size
+        libraryQueries.insertCategory(
+            name = name,
+            displayOrder = order.toLong(),
+            isPermanent = 0,
+            createdAt = now,
+        )
+        val newCat = libraryQueries.getCategoryByName(name).executeAsOneOrNull()
+        Logger.i(TAG) { "Created category: '$name' (id=${newCat?.id})" }
+        return newCat?.id ?: -1L
+    }
+
+    /**
+     * Delete a category. Only non-permanent categories can be deleted.
+     * Library items in this category are also deleted (CASCADE).
+     */
+    fun deleteCategory(categoryId: Long) {
+        libraryQueries.deleteCategory(categoryId)
+        Logger.i(TAG) { "Deleted category: id=$categoryId" }
+    }
+
+    /**
+     * Rename a category. Only non-permanent categories can be renamed.
+     */
+    fun renameCategory(categoryId: Long, newName: String) {
+        libraryQueries.renameCategory(newName, categoryId)
+        Logger.i(TAG) { "Renamed category: id=$categoryId → '$newName'" }
+    }
+
+    /**
+     * Add a content to a specific category.
+     */
+    fun addToCategory(mainId: String, categoryId: Long) {
+        val now = System.currentTimeMillis()
+        val order = libraryQueries.countItemsInCategory(categoryId).executeAsOne()
+        libraryQueries.addToCategory(
+            mainId = mainId,
+            categoryId = categoryId,
+            displayOrder = order,
+            addedAt = now,
+        )
+        Logger.i(TAG) { "Added to category: mainId=$mainId, categoryId=$categoryId" }
+    }
+
+    /**
+     * Remove a content from a specific category.
+     */
+    fun removeFromCategory(mainId: String, categoryId: Long) {
+        libraryQueries.removeFromCategory(mainId, categoryId)
+        Logger.i(TAG) { "Removed from category: mainId=$mainId, categoryId=$categoryId" }
+    }
+
+    /**
+     * Check if a content is in a specific category.
+     */
+    fun isInCategory(mainId: String, categoryId: Long): Boolean {
+        return libraryQueries.isInCategory(mainId, categoryId).executeAsOne()
+    }
+
+    /**
+     * Get all categories a content is in (for the category picker popup).
+     */
+    fun getCategoriesForContent(mainId: String): List<LibraryCategory> {
+        return libraryQueries.getCategoriesForContent(mainId).executeAsList().map {
+            LibraryCategory(
+                id = it.id,
+                name = it.name,
+                displayOrder = it.display_order,
+                isPermanent = it.is_permanent == 1L,
+                createdAt = it.created_at,
+            )
+        }
+    }
+
+    /**
+     * Get the main_ids of items in a specific category.
+     */
+    fun getMainIdsByCategory(categoryId: Long): List<String> {
+        return libraryQueries.getMainIdsByCategory(categoryId).executeAsList()
+    }
+
+    /**
+     * Count items in a specific category.
+     */
+    fun countItemsInCategory(categoryId: Long): Int {
+        return libraryQueries.countItemsInCategory(categoryId).executeAsOne().toInt()
+    }
 }

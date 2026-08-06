@@ -52,9 +52,19 @@ VALUES (:name, :displayOrder, :isPermanent, :createdAt);
 deleteCategory:
 DELETE FROM library_category WHERE id = :id AND is_permanent = 0;
 
+renameCategory:
+UPDATE library_category SET name = :name WHERE id = :id AND is_permanent = 0;
+
 -- ============================================================================
 -- Queries: library_item
 -- ============================================================================
+
+-- Get all categories a content is in (for the category picker popup)
+getCategoriesForContent:
+SELECT lc.* FROM library_category lc
+JOIN library_item li ON lc.id = li.category_id
+WHERE li.main_id = :mainId
+ORDER BY lc.display_order ASC;
 
 -- Check if a content is in ANY library category
 isInLibrary:

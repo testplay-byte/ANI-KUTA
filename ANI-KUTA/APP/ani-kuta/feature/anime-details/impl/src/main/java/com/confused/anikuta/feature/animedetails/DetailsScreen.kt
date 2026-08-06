@@ -3,6 +3,7 @@ package com.confused.anikuta.feature.animedetails
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -125,6 +126,11 @@ fun DetailsScreen(
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
 
+    // Phase C: Category sheet state
+    val categories by viewModel.categories.collectAsState()
+    val contentCategories by viewModel.contentCategories.collectAsState()
+    val showCategorySheet by viewModel.showCategorySheet.collectAsState()
+
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
@@ -162,6 +168,7 @@ fun DetailsScreen(
                                 onBack = onBack,
                                 saved = isInLibrary,
                                 onToggleSave = { viewModel.toggleLibrary() },
+                                onLongPressSave = { viewModel.openCategorySheet() },
                                 onMore = { showMenu = true },
                                 showMenu = showMenu,
                                 onDismissMenu = { showMenu = false },
@@ -339,6 +346,17 @@ fun DetailsScreen(
             onDismiss = { viewModel.skipAniListLink() },
         )
     }
+
+    // ── Phase C: Category picker sheet (long-press bookmark) ──
+    if (showCategorySheet) {
+        CategoryPickerSheet(
+            categories = categories,
+            selectedCategoryIds = contentCategories,
+            onToggleCategory = { categoryId -> viewModel.toggleCategory(categoryId) },
+            onCreateCategory = { name -> viewModel.createCategoryAndAdd(name) },
+            onDismiss = { viewModel.dismissCategorySheet() },
+        )
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -424,6 +442,7 @@ private fun DetailBanner(
     onMore: () -> Unit,
     showMenu: Boolean,
     onDismissMenu: () -> Unit,
+    onLongPressSave: () -> Unit = {},
     // Phase B: AniList link state + callbacks
     isExtensionEntry: Boolean = false,
     isAniListLinked: Boolean = false,
@@ -491,11 +510,28 @@ private fun DetailBanner(
                 onClick = onBack,
             )
             Row {
-                ActionButton(
-                    icon = if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                    contentDescription = if (saved) "Remove from library" else "Add to library",
-                    onClick = onToggleSave,
-                )
+                // D-138: Bookmark button with long-press for category picker.
+                // Long-press opens the CategoryPickerSheet.
+                Surface(
+                    color = Color.Black.copy(alpha = 0.4f),
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .padding(4.dp)
+                        .size(40.dp)
+                        .combinedClickable(
+                            onClick = onToggleSave,
+                            onLongClick = onLongPressSave,
+                        ),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (saved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                            contentDescription = if (saved) "Remove from library" else "Add to library",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
                 // Three-dot menu — DropdownMenu is anchored here (next to the button).
                 Box {
                     ActionButton(

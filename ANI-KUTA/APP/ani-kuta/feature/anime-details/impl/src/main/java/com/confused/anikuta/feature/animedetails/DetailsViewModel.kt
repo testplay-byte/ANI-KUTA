@@ -339,6 +339,11 @@ class DetailsViewModel(
     /**
      * Resolve/create a content record for an extension entry + check library status.
      * Called from [loadFromExtension].
+     *
+     * D-137: Cross-source deduplication — before creating a new content record,
+     * check the auto-link cache for a cached anilistId. If found, check if a
+     * content record already exists for that anilistId (saved from AniList).
+     * If yes → return THAT mainId (same content, different entry point).
      */
     private suspend fun resolveContentForExtension(
         sourceId: Long,
@@ -346,13 +351,30 @@ class DetailsViewModel(
         title: String,
     ) {
         try {
-            // For extensions, we need the extension's DB ID. Look it up by sourceId.
-            // ponytail: We don't have the pkgName here easily, so we use a simplified
-            // approach — create the content record with sourceId as the lookup key.
-            // The full extension lookup (with pkgName + repoUrl) will be wired in
-            // when we integrate with ExtensionManager more deeply.
+            // D-137: Check auto-link cache first.
+            val cachedAniListId = autoLinkPreferences.getCachedAniListId(sourceId, animeUrl)
+            if (cachedAniListId > 0) {
+                // Check if a content record already exists for this anilistId.
+                val existingContent = contentRepository.getContentByAniListId(cachedAniListId)
+                if (existingContent != null) {
+                    Logger.i(TAG) { "Cross-source match: extension ($sourceId, $animeUrl) → existing mainId=${existingContent.mainId} (via cached anilistId=$cachedAniListId)" }
+                    // Link this extension entry to the existing content record.
+                    contentResolver.linkExtensionToExisting(
+                        mainId = existingContent.mainId,
+                        extensionId = sourceId,
+                        sourceId = sourceId,
+                        animeUrl = animeUrl,
+                        title = title,
+                    )
+                    currentMainId = existingContent.mainId
+                    refreshContentAndLibraryStatus(existingContent.mainId)
+                    return
+                }
+            }
+
+            // No cross-source match — create a new content record.
             val mainId = contentResolver.resolveOrCreateForExtension(
-                extensionId = sourceId, // Simplified — use sourceId as extensionId for now.
+                extensionId = sourceId,
                 sourceId = sourceId,
                 animeUrl = animeUrl,
                 title = title,
@@ -381,8 +403,19 @@ class DetailsViewModel(
     }
 
     /**
+     * Refresh just the contentId (after a link/unlink operation).
+     */
+    private fun refreshContentId(mainId: String) {
+        val content = contentRepository.getContentByMainId(mainId)
+        if (content != null) {
+            _contentId.value = content.contentId
+            Logger.i(TAG) { "Content ID refreshed: ${content.contentId}" }
+        }
+    }
+
+    /**
      * Toggle the current anime's library status.
-     * If in library → remove. If not → add to Default category.
+     * If in library → remove from ALL categories. If not → add to Default category.
      */
     fun toggleLibrary() {
         val mainId = currentMainId ?: run {
@@ -397,6 +430,73 @@ class DetailsViewModel(
             contentRepository.addToDefaultCategory(mainId)
             _isInLibrary.value = true
             Logger.i(TAG) { "Added to library (Default): mainId=$mainId" }
+        }
+    }
+
+    // ── Category management (D-138) ──
+
+    /** All library categories (for the category picker popup). */
+    private val _categories = MutableStateFlow<List<com.confused.anikuta.core.content.LibraryCategory>>(emptyList())
+    val categories: StateFlow<List<com.confused.anikuta.core.content.LibraryCategory>> = _categories.asStateFlow()
+
+    /** Categories the current anime is in (for the category picker popup checkboxes). */
+    private val _contentCategories = MutableStateFlow<Set<Long>>(emptySet())
+    val contentCategories: StateFlow<Set<Long>> = _contentCategories.asStateFlow()
+
+    /** Whether the category picker sheet is shown. */
+    private val _showCategorySheet = MutableStateFlow(false)
+    val showCategorySheet: StateFlow<Boolean> = _showCategorySheet.asStateFlow()
+
+    /**
+     * Load all categories + the current content's categories.
+     * Called when the user long-presses the save button.
+     */
+    fun openCategorySheet() {
+        val mainId = currentMainId ?: run {
+            Logger.w(TAG) { "openCategorySheet: no currentMainId" }
+            return
+        }
+        _categories.value = contentRepository.getAllCategories()
+        _contentCategories.value = contentRepository.getCategoriesForContent(mainId).map { it.id }.toSet()
+        _showCategorySheet.value = true
+        Logger.i(TAG) { "Opened category sheet: ${_categories.value.size} categories, content in ${_contentCategories.value.size}" }
+    }
+
+    fun dismissCategorySheet() {
+        _showCategorySheet.value = false
+    }
+
+    /**
+     * Toggle a category for the current content.
+     * If in category → remove. If not → add.
+     */
+    fun toggleCategory(categoryId: Long) {
+        val mainId = currentMainId ?: return
+        val current = _contentCategories.value.toMutableSet()
+        if (categoryId in current) {
+            contentRepository.removeFromCategory(mainId, categoryId)
+            current.remove(categoryId)
+        } else {
+            contentRepository.addToCategory(mainId, categoryId)
+            current.add(categoryId)
+        }
+        _contentCategories.value = current
+        // Update isInLibrary — if content is in ANY category, it's "in library".
+        _isInLibrary.value = current.isNotEmpty()
+    }
+
+    /**
+     * Create a new category + add the current content to it.
+     */
+    fun createCategoryAndAdd(name: String) {
+        val mainId = currentMainId ?: return
+        val newId = contentRepository.createCategory(name)
+        if (newId > 0) {
+            contentRepository.addToCategory(mainId, newId)
+            _categories.value = contentRepository.getAllCategories()
+            _contentCategories.value = _contentCategories.value + newId
+            _isInLibrary.value = true
+            Logger.i(TAG) { "Created category '$name' + added content" }
         }
     }
 
@@ -480,6 +580,32 @@ class DetailsViewModel(
             }
             currentAnimeId = anilistId // So episode metadata fetch can use it.
             remergeBases(priority)
+
+            // D-137: Persist the AniList link in the content database.
+            // This ensures the anilist_detail row is created + the content record's
+            // dataSourceId is set. When the same anime is opened from another source
+            // later, the content resolver can find this mainId via the anilistId.
+            val mainId = currentMainId
+            if (mainId != null) {
+                val detail = com.confused.anikuta.core.content.AniListDetail(
+                    mainId = mainId,
+                    anilistId = anilistId,
+                    idMal = anilistData.idMal,
+                    score = anilistData.averageScore,
+                    episodes = anilistData.episodes,
+                    season = anilistData.season,
+                    seasonYear = anilistData.seasonYear,
+                    status = anilistData.status,
+                    genres = anilistData.genres?.joinToString(", "),
+                    synopsis = anilistData.description,
+                    coverUrl = anilistData.coverUrl,
+                    bannerUrl = anilistData.bannerUrl,
+                    updatedAt = System.currentTimeMillis(),
+                )
+                contentResolver.linkAniList(mainId, anilistId, detail)
+                // Refresh the contentId (it changed after linking).
+                refreshContentId(mainId)
+            }
 
             // Now that we have an anilistId, kick off episode metadata fetch.
             val malId = anilistData.idMal
@@ -608,6 +734,13 @@ class DetailsViewModel(
 
         Logger.i(TAG) { "Unlinking AniList entry: sourceId=$sourceId, url=$animeUrl, anilistId=$anilistId" }
         autoLinkService.clearCachedLink(sourceId, animeUrl)
+
+        // D-137: Persist the unlink in the content database.
+        val mainId = currentMainId
+        if (mainId != null) {
+            contentResolver.unlinkAniList(mainId)
+            refreshContentId(mainId)
+        }
 
         // D-134: Clear the AniList base + re-merge (shows extension data only).
         anilistBase = null

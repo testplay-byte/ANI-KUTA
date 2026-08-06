@@ -209,6 +209,53 @@ class ContentResolver(
     }
 
     /**
+     * Link an extension entry to an EXISTING content record (D-137).
+     *
+     * Used when the user opens an extension anime that was previously linked
+     * to an AniList entry (via auto-link cache). Instead of creating a new
+     * content record, we update the existing one with the extension info.
+     *
+     * The mainId stays the same — this is the KEY to cross-source deduplication.
+     *
+     * @param mainId The existing content's mainId.
+     * @param extensionId The extension's DB ID.
+     * @param sourceId The internal source ID within the extension.
+     * @param animeUrl The content's URL on the extension.
+     * @param title The anime title (updates the content record if different).
+     */
+    fun linkExtensionToExisting(
+        mainId: String,
+        extensionId: Long,
+        sourceId: Long,
+        animeUrl: String,
+        title: String,
+    ) {
+        Logger.i(TAG) { "Linking extension to existing content: mainId=$mainId, extensionId=$extensionId" }
+        val existing = repo.getContentByMainId(mainId) ?: return
+        val system = repo.getSystemByName("aniyomi")
+
+        // Regenerate contentId with the extension info.
+        val newContentId = ContentIdGenerator.generate(
+            dataSource = if (existing.dataSourceId != null) "anilist" else null,
+            system = "aniyomi",
+            repoUrl = null,
+            extensionPkg = null,
+            sourceId = sourceId,
+            animeUrl = animeUrl,
+        )
+        repo.updateContentSources(
+            mainId = mainId,
+            dataSourceId = existing.dataSourceId,
+            systemId = existing.systemId ?: system?.id,
+            extensionRepoId = existing.extensionRepoId,
+            extensionId = extensionId,
+            sourceId = sourceId,
+            animeUrl = animeUrl,
+            contentId = newContentId,
+        )
+    }
+
+    /**
      * Unlink an AniList ID from a content (when the user unlinks).
      * Deletes the anilist_detail + clears the dataSourceId + regenerates contentId.
      * The mainId stays the same.
