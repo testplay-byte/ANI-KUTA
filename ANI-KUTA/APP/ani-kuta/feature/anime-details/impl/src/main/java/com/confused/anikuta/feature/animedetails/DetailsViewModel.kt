@@ -266,7 +266,7 @@ class DetailsViewModel(
 
         if (anime.anilistId != null) {
             // AniList entry — re-fetch from AniList.
-            val anilistId = anime.anilistId
+            val anilistId = anime.anilistId!!
             viewModelScope.launch {
                 try {
                     val fresh = anilistApi.fetchAnimeDetails(anilistId)
@@ -282,8 +282,8 @@ class DetailsViewModel(
             }
         } else if (anime.sourceId != null && anime.animeUrl != null) {
             // Extension entry — re-fetch from the extension.
-            val sourceId = anime.sourceId
-            val animeUrl = anime.animeUrl
+            val sourceId = anime.sourceId!!
+            val animeUrl = anime.animeUrl!!
             viewModelScope.launch {
                 try {
                     val enriched = extensionProvider.fetchFromExtension(
