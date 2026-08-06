@@ -511,3 +511,26 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 - D.3: Details page multi-stage refresh ✅ (CI #220)
 - D.4: Coil disk cache 500MB ✅ (CI #220)
 - D.5: Library pull-to-refresh ✅ (CI #220)
+
+## Session web-f53f0459 (continued) — D-146, D-147: Episode caching + offline fixes
+
+### D-146: Multi-select category picker + cache-first details + offline + refresh feedback
+- Multi-select category picker: no longer auto-closes. Multiple selections + Done button.
+- Cache-first details: loadFromAniList skips network if cache exists.
+- Offline mode: shows cached data instead of error when network fails.
+- Refresh feedback: "Refreshing..." overlay with spinner.
+
+### D-147: Episode caching + offline extension fallback
+- Episode list caching: fetchEpisodes checks data_cache_episode first → instant from cache.
+- After network fetch → caches episodes + enriched metadata locally.
+- Offline extension: tryCachedExtensionData() loads from DB when network fails.
+- Extension-only anime shows full details + episodes offline (if previously opened).
+
+### CI status
+- CI #224 GREEN.
+
+### Still pending (will fix in next iteration)
+- Browse pull-to-refresh (pointerInput gesture detection issue).
+- Library 3-stage pull-to-refresh.
+- Search page AniList caching (12-hour refresh).
+- Library selection mode UI (fade unselected covers).

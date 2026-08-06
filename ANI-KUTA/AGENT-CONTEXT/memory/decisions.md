@@ -1026,3 +1026,19 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **CI fixes:** Added Coil deps to :app, fixed Coil 3 API (setSafe takes Factory lambda, directory takes okio.Path).
 - **Status:** ✅ Implemented. CI #220 green.
 - **Date:** Phase D (session web-f53f0459).
+
+### D-146 — Multi-select category picker + cache-first details + offline mode + refresh feedback
+- **What:** Fixed 4 issues from user testing:
+  1. Multi-select category picker auto-closes → now allows multiple selections + Done button.
+  2. Details page re-fetches from network on reopen → now skips network if cache exists.
+  3. Offline mode shows error → now shows cached data when network fails.
+  4. Refresh button no visual feedback → added "Refreshing..." overlay with spinner.
+- **Status:** ✅ Implemented. CI #223 green.
+- **Date:** Phase D (session web-f53f0459).
+
+### D-147 — Episode caching + offline extension fallback
+- **What:** 
+  1. Episode list caching: `fetchEpisodes()` now checks `data_cache_episode` table first → instant display from cache → no network on reopen. After network fetch → caches episodes locally. After episode metadata fetch → updates cache with enriched metadata.
+  2. Offline extension fallback: `loadFromExtension()` catches network failures → calls `tryCachedExtensionData()` → loads from content DB (extension_detail, anime_metadata_cache, data_cache_episode). Extension-only anime now shows full details + episodes when offline.
+- **Status:** ✅ Implemented. CI #224 green.
+- **Date:** Phase D (session web-f53f0459).
