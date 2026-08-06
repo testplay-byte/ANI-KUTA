@@ -336,7 +336,8 @@ class DetailsViewModel(
                     remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
 
                     // Phase C: Resolve/create content record + check library status.
-                    resolveContentForExtension(sourceId, animeUrl, title)
+                    // D-142: Pass the unifiedAnime so the extension detail (with coverUrl) is stored.
+                    resolveContentForExtension(sourceId, animeUrl, title, unifiedAnime)
 
                     // Fetch episodes from the extension source directly.
                     fetchEpisodesFromSource(sourceId, animeUrl, title)
@@ -403,6 +404,7 @@ class DetailsViewModel(
         sourceId: Long,
         animeUrl: String,
         title: String,
+        unifiedAnime: UnifiedAnime? = null,
     ) {
         try {
             // D-137: Check auto-link cache first.
@@ -420,6 +422,24 @@ class DetailsViewModel(
                         animeUrl = animeUrl,
                         title = title,
                     )
+                    // D-142: Store the extension detail (with coverUrl) for library display.
+                    if (unifiedAnime != null) {
+                        contentRepository.upsertExtensionDetail(
+                            com.confused.anikuta.core.content.ExtensionDetail(
+                                mainId = existingContent.mainId,
+                                extensionId = sourceId,
+                                sourceId = sourceId,
+                                animeUrl = animeUrl,
+                                description = unifiedAnime.description,
+                                genres = unifiedAnime.genres.joinToString(", "),
+                                status = unifiedAnime.status,
+                                author = unifiedAnime.author,
+                                artist = unifiedAnime.artist,
+                                thumbnailUrl = unifiedAnime.coverUrl,
+                                updatedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
                     currentMainId = existingContent.mainId
                     refreshContentAndLibraryStatus(existingContent.mainId)
                     return
@@ -437,6 +457,28 @@ class DetailsViewModel(
                 extensionPkg = null,
             )
             currentMainId = mainId
+
+            // D-142: Store the extension detail (with coverUrl) for library display.
+            // Without this, the library can't show cover images for extension-only entries.
+            if (unifiedAnime != null) {
+                contentRepository.upsertExtensionDetail(
+                    com.confused.anikuta.core.content.ExtensionDetail(
+                        mainId = mainId,
+                        extensionId = sourceId,
+                        sourceId = sourceId,
+                        animeUrl = animeUrl,
+                        description = unifiedAnime.description,
+                        genres = unifiedAnime.genres.joinToString(", "),
+                        status = unifiedAnime.status,
+                        author = unifiedAnime.author,
+                        artist = unifiedAnime.artist,
+                        thumbnailUrl = unifiedAnime.coverUrl,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                Logger.i(TAG) { "Extension detail stored with coverUrl=${unifiedAnime.coverUrl?.take(60)}" }
+            }
+
             refreshContentAndLibraryStatus(mainId)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "resolveContentForExtension failed: ${e.message}" }

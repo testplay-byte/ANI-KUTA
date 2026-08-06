@@ -47,8 +47,11 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
@@ -239,41 +242,92 @@ fun LibraryScreen(
                 },
             )
 
-            // ── Quick options row (D-141 — selection mode only) ──
-            // Select All / Clear / Invert as text buttons. Replaces the
-            // category tabs row when in selection mode.
+            // ── Quick options row (D-142 — selection mode only) ──
+            // Select All / Clear / Invert as styled buttons with icons.
             AnimatedVisibility(visible = isSelectionMode) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    TextButton(onClick = { viewModel.selectAll() }) {
-                        Text(
-                            "Select All",
-                            fontFamily = RobotoFamily,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                    // Select All
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.clickable { viewModel.selectAll() },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.DoneAll,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Select All",
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
                     }
-                    TextButton(onClick = { viewModel.clearSelection() }) {
-                        Text(
-                            "Clear",
-                            fontFamily = RobotoFamily,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                    // Clear
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.clickable { viewModel.clearSelection() },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Clear",
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                    TextButton(onClick = { viewModel.invertSelection() }) {
-                        Text(
-                            "Invert",
-                            fontFamily = RobotoFamily,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                    // Invert
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.clickable { viewModel.invertSelection() },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.SyncAlt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Invert",
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -504,7 +558,8 @@ fun LibraryScreen(
                 onCancel = { viewModel.exitSelectionMode() },
                 onCategory = { viewModel.showMultiSelectCategorySheet() },
                 onDelete = { viewModel.showDeleteConfirmation() },
-                modifier = Modifier.padding(bottom = 90.dp),
+                // D-142: No bottom padding — the bar sits at the very bottom,
+                // covering the bottom nav bar with an opaque surface.
             )
         }
 
@@ -600,8 +655,8 @@ private fun CategoryTabsRow(
         // ── One tab per (already-filtered) category ──
         items(categories, key = { it.id }) { category ->
             val count = categoryCounts[category.id] ?: 0
-            // D-141: count on the LEFT in square brackets — "[3] Default".
-            val label = if (showCounts) "[$count] ${category.name}" else category.name
+            // D-142: count on the RIGHT in rounded brackets — "Default (3)".
+            val label = if (showCounts) "${category.name} ($count)" else category.name
             CategoryTab(
                 label = label,
                 isSelected = selectedCategoryId == category.id,
@@ -2100,41 +2155,75 @@ private fun SelectionBottomBar(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // D-142: Replaces the bottom nav bar with an opaque surface that covers it.
+    // Uses navigationBarsPadding to respect the system nav bar.
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 8.dp,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 24.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onCancel) {
+            // Cancel — left
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onCancel() },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Cancel",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
                 Text(
                     "Cancel",
                     fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onCategory) {
+            // Category — center
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onCategory() },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Category,
+                    contentDescription = "Category",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
                 Text(
                     "Category",
                     fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            TextButton(onClick = onDelete) {
+            // Delete — right
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onDelete() },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(24.dp),
+                )
                 Text(
                     "Delete",
                     fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.error,
                 )
