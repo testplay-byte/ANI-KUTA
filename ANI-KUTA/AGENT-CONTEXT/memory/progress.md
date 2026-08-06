@@ -475,3 +475,39 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 - D.3: Details page multi-stage refresh (vibration + visual indicators).
 - D.4: Coil disk cache (500MB, persistent).
 - D.5: Library pull-to-refresh with vibration + lazy loading.
+
+## Session web-f53f0459 (continued) — Phase D.2-D.5 COMPLETE
+
+### D.2: Browse page cache + pull-to-refresh + 6-hour auto-update
+- BrowseViewModel reads from browse_cache first → instant display.
+- If cache expired (6h) → fetches from network in background → updates cache.
+- Pull-to-refresh with vibration (drag down at top).
+- Background refresh indicator (subtle spinner when auto-updating).
+
+### D.3: Details page multi-stage refresh
+- refreshEpisodesList() — only refreshes episodes from extension source.
+- refreshMetadata() — only refreshes metadata + updates anime_metadata_cache.
+- refreshAll() — full refresh (both).
+- Three-dot menu "Refresh" calls refreshAll().
+- RefreshStage enum + RefreshState sealed interface for future scroll-based triggers.
+
+### D.4: Coil disk cache (500MB, persistent)
+- ImageLoaderFactory with 500MB disk cache + 25% memory cache.
+- Registered as Coil singleton via SingletonImageLoader.setSafe.
+- All AsyncImage composables use the persistent disk cache.
+- Images survive app restarts.
+
+### D.5: Library pull-to-refresh with vibration
+- refreshLibrary() clears cache + re-fetches from network.
+- Pull-to-refresh with vibration (drag down at top).
+- Visual indicators: pull progress spinner + background refresh spinner.
+
+### CI status
+- CI #220 GREEN. Phase D complete.
+
+### Phase D summary
+- D.1: Local metadata cache ✅ (CI #216)
+- D.2: Browse page cache + pull-to-refresh ✅ (CI #220)
+- D.3: Details page multi-stage refresh ✅ (CI #220)
+- D.4: Coil disk cache 500MB ✅ (CI #220)
+- D.5: Library pull-to-refresh ✅ (CI #220)

@@ -1016,3 +1016,13 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **CI fixes:** SQLDelight unique index on episode table, table name collision with metadata.sq, missing closing brace in reloadFromCache.
 - **Status:** ✅ Implemented. CI #216 green.
 - **Date:** Phase D (session web-f53f0459).
+
+### D-145 — Phase D.2-D.5 complete: browse cache, multi-stage refresh, image cache, library pull-to-refresh
+- **What:** Implemented all remaining Phase D items:
+  1. **D.2: Browse page cache + pull-to-refresh** — BrowseViewModel reads from browse_cache first → instant display. If expired (6h) → background fetch. Pull-to-refresh with vibration + visual indicator.
+  2. **D.3: Details page multi-stage refresh** — refreshEpisodesList() (episodes only), refreshMetadata() (metadata only + cache update), refreshAll() (both). Three-dot menu "Refresh" calls refreshAll(). RefreshStage enum + RefreshState sealed interface for future scroll-based triggers.
+  3. **D.4: Coil disk cache** — ImageLoaderFactory with 500MB persistent disk cache + 25% memory cache. Registered as Coil singleton. Images survive restarts.
+  4. **D.5: Library pull-to-refresh** — refreshLibrary() clears cache + re-fetches. Pull-to-refresh with vibration + visual indicators.
+- **CI fixes:** Added Coil deps to :app, fixed Coil 3 API (setSafe takes Factory lambda, directory takes okio.Path).
+- **Status:** ✅ Implemented. CI #220 green.
+- **Date:** Phase D (session web-f53f0459).
