@@ -1,12 +1,11 @@
 package com.confused.anikuta.feature.animebrowse
 
-import android.os.Build
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -25,23 +24,22 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,15 +54,25 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Browse screen — the home tab (Phase D.2).
+ * Browse screen — the home tab.
  *
- * D.2: Cache-first — reads from browse_cache → displays instantly.
- * Pull-to-refresh: drag down at the top → vibration → release → refreshes.
- * 6-hour auto-update: checked on load (homepage only).
+ * Cache-first: reads from browse_cache → displays instantly, then background-
+ * fetches if the 6-hour TTL expired. Pull-to-refresh forces a network fetch
+ * regardless of cache state.
  *
- * CORE_RULES §22: smooth animations.
- * CORE_RULES §23: reactive state.
+ * Pull-to-refresh uses the official Material 3 [PullToRefreshBox], which
+ * installs its own [androidx.compose.ui.input.nestedscroll.NestedScrollConnection].
+ * This cooperates with the inner [LazyVerticalGrid]'s scroll: the pull gesture
+ * ONLY activates when the grid has reached the top AND the user continues
+ * dragging down. No spinner on normal upward scroll, no fling jank.
+ *
+ * Haptic feedback fires once when the pull crosses the refresh threshold
+ * (distanceFraction >= 1f) via [HapticFeedbackConstants.LONG_PRESS] — no
+ * [android.os.Vibrator] / VIBRATE-permission-dependent code path.
+ *
+ * CORE_RULES §22: smooth animations. §23: reactive state.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseScreen(
     onNavigate: (NavKey) -> Unit,
@@ -76,55 +84,28 @@ fun BrowseScreen(
     val collapsed = gridState.firstVisibleItemIndex > 0 ||
         gridState.firstVisibleItemScrollOffset > 20
 
-    // D.2: Pull-to-refresh state.
-    val context = LocalContext.current
-    var pullDistance by remember { mutableFloatStateOf(0f) }
-    var isPulling by remember { mutableStateOf(false) }
-    val pullThreshold = 200f // pixels to trigger refresh
+    val ptrState = rememberPullToRefreshState()
+    val view = LocalView.current
 
-    // Smooth animation for the pull indicator.
-    val pullProgress by animateFloatAsState(
-        targetValue = (pullDistance / pullThreshold).coerceIn(0f, 1f),
-        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
-        label = "pullProgress",
-    )
+    // Fire a haptic exactly once when the pull first crosses the refresh
+    // threshold (distanceFraction >= 1f). The LaunchedEffect re-runs only on
+    // the false → true transition, so it never buzzes continuously.
+    val thresholdCrossed = ptrState.distanceFraction >= 1f
+    LaunchedEffect(thresholdCrossed) {
+        if (thresholdCrossed) {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(title = "Browse", collapsed = collapsed)
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragStart = {
-                                // Only allow pull-to-refresh when at the top of the grid.
-                                if (gridState.firstVisibleItemIndex == 0 &&
-                                    gridState.firstVisibleItemScrollOffset == 0
-                                ) {
-                                    isPulling = true
-                                }
-                            },
-                            onDragEnd = {
-                                if (isPulling && pullDistance >= pullThreshold) {
-                                    // Vibrate + trigger refresh.
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                        val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
-                                        vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
-                                    }
-                                    viewModel.refresh()
-                                }
-                                isPulling = false
-                                pullDistance = 0f
-                            },
-                            onVerticalDrag = { _, dragAmount ->
-                                if (isPulling && dragAmount > 0) {
-                                    pullDistance = (pullDistance + dragAmount).coerceIn(0f, pullThreshold * 1.5f)
-                                }
-                            },
-                        )
-                    },
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { viewModel.refresh() },
+                state = ptrState,
+                modifier = Modifier.fillMaxSize(),
             ) {
                 when (val s = state) {
                     is BrowseState.Loading -> LoadingScreen()
@@ -134,39 +115,8 @@ fun BrowseScreen(
                     }
                 }
 
-                // D.2: Pull-to-refresh indicator.
-                if (isPulling && pullDistance > 0) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = (pullDistance * 0.5f).dp)
-                            .size(36.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            progress = { pullProgress },
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(36.dp),
-                        )
-                    }
-                }
-
-                // D.2: Background refresh indicator (subtle, when auto-updating).
-                if (isRefreshing && !isPulling) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 8.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-
+                // Scroll-blur overlay stays as a child of the box content — drawn
+                // UNDER the M3 indicator (which PullToRefreshBox paints on top).
                 ScrollBlurOverlay(
                     scrollOffset = {
                         if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
