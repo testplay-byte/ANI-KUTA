@@ -295,15 +295,15 @@ class ContentRepository(
     // ── Lookup: extension_repo ─────────────────────────────────────────────
 
     fun getExtensionRepoByUrl(url: String): ExtensionRepo? {
-        return contentQueries.getExtensionRepoByUrl(url).executeAsOneOrNull()?.let {
+        return contentQueries.getContentExtRepoByUrl(url).executeAsOneOrNull()?.let {
             ExtensionRepo(it.id, it.system_id, it.url, it.display_name)
         }
     }
 
     fun insertExtensionRepo(systemId: Long, url: String, displayName: String?): Long {
         val now = System.currentTimeMillis()
-        contentQueries.insertExtensionRepo(systemId, url, displayName, now)
-        return contentQueries.getExtensionRepoByUrl(url).executeAsOneOrNull()?.id
+        contentQueries.insertContentExtRepo(systemId, url, displayName, now)
+        return contentQueries.getContentExtRepoByUrl(url).executeAsOneOrNull()?.id
             ?: throw IllegalStateException("Failed to insert extension_repo: $url")
     }
 
@@ -319,12 +319,12 @@ class ContentRepository(
         isNsfw: Boolean,
     ): Long {
         // Try to find existing
-        val existing = contentQueries.getExtensionByPkgAndSource(pkgName, sourceId).executeAsOneOrNull()
+        val existing = contentQueries.getContentExtByPkgAndSource(pkgName, sourceId).executeAsOneOrNull()
         if (existing != null) return existing.id
 
         // Insert new
         val now = System.currentTimeMillis()
-        contentQueries.insertExtension(
+        contentQueries.insertContentExt(
             systemId = systemId,
             repoId = repoId,
             pkgName = pkgName,
@@ -334,7 +334,7 @@ class ContentRepository(
             isNsfw = if (isNsfw) 1 else 0,
             createdAt = now,
         )
-        return contentQueries.getExtensionByPkgAndSource(pkgName, sourceId).executeAsOneOrNull()?.id
+        return contentQueries.getContentExtByPkgAndSource(pkgName, sourceId).executeAsOneOrNull()?.id
             ?: throw IllegalStateException("Failed to insert extension: $pkgName/$sourceId")
     }
 

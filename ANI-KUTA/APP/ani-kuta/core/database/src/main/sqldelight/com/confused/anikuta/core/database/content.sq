@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS system (
 -- ── Lookup: extension_repos ───────────────────────────────────────────────
 -- Extension repository URLs per system.
 -- The URL points to the index.min.json file.
-CREATE TABLE IF NOT EXISTS extension_repo (
+CREATE TABLE IF NOT EXISTS content_ext_repo (
     id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     system_id INTEGER NOT NULL,
     url TEXT NOT NULL,
@@ -36,11 +36,11 @@ CREATE TABLE IF NOT EXISTS extension_repo (
     FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_extension_repo_system ON extension_repo(system_id);
+CREATE INDEX IF NOT EXISTS idx_content_ext_repo_system ON content_ext_repo(system_id);
 
 -- ── Lookup: extensions ────────────────────────────────────────────────────
 -- Installed extensions. repo_id is null when sideloaded without a repo.
-CREATE TABLE IF NOT EXISTS extension (
+CREATE TABLE IF NOT EXISTS content_ext (
     id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     system_id INTEGER NOT NULL,
     repo_id INTEGER,
@@ -51,11 +51,11 @@ CREATE TABLE IF NOT EXISTS extension (
     is_nsfw INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE CASCADE,
-    FOREIGN KEY (repo_id) REFERENCES extension_repo(id) ON DELETE SET NULL
+    FOREIGN KEY (repo_id) REFERENCES content_ext_repo(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_extension_system ON extension(system_id);
-CREATE INDEX IF NOT EXISTS idx_extension_pkg ON extension(pkg_name);
+CREATE INDEX IF NOT EXISTS idx_content_ext_system ON content_ext(system_id);
+CREATE INDEX IF NOT EXISTS idx_content_ext_pkg ON content_ext(pkg_name);
 
 -- ── Main: content ─────────────────────────────────────────────────────────
 -- The central content record. One row per anime.
@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS content (
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (data_source_id) REFERENCES data_source(id) ON DELETE SET NULL,
     FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE SET NULL,
-    FOREIGN KEY (extension_repo_id) REFERENCES extension_repo(id) ON DELETE SET NULL,
-    FOREIGN KEY (extension_id) REFERENCES extension(id) ON DELETE SET NULL
+    FOREIGN KEY (extension_repo_id) REFERENCES content_ext_repo(id) ON DELETE SET NULL,
+    FOREIGN KEY (extension_id) REFERENCES content_ext(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_content_content_id ON content(content_id);
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS extension_detail (
     thumbnail_url TEXT,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE,
-    FOREIGN KEY (extension_id) REFERENCES extension(id) ON DELETE CASCADE
+    FOREIGN KEY (extension_id) REFERENCES content_ext(id) ON DELETE CASCADE
 );
 
 -- ── Detail: other_source_details ──────────────────────────────────────────
@@ -166,26 +166,26 @@ INSERT OR IGNORE INTO system(name, display_name, package_prefix, created_at)
 VALUES (:name, :displayName, :packagePrefix, :createdAt);
 
 -- ============================================================================
--- Queries: extension_repo
+-- Queries: content_ext_repo
 -- ============================================================================
-getExtensionRepoByUrl:
-SELECT * FROM extension_repo WHERE url = :url;
+getContentExtRepoByUrl:
+SELECT * FROM content_ext_repo WHERE url = :url;
 
-getExtensionReposBySystem:
-SELECT * FROM extension_repo WHERE system_id = :systemId ORDER BY created_at DESC;
+getContentExtReposBySystem:
+SELECT * FROM content_ext_repo WHERE system_id = :systemId ORDER BY created_at DESC;
 
-insertExtensionRepo:
-INSERT OR IGNORE INTO extension_repo(system_id, url, display_name, created_at)
+insertContentExtRepo:
+INSERT OR IGNORE INTO content_ext_repo(system_id, url, display_name, created_at)
 VALUES (:systemId, :url, :displayName, :createdAt);
 
 -- ============================================================================
--- Queries: extension
+-- Queries: content_ext (installed extensions)
 -- ============================================================================
-getExtensionByPkgAndSource:
-SELECT * FROM extension WHERE pkg_name = :pkgName AND source_id = :sourceId;
+getContentExtByPkgAndSource:
+SELECT * FROM content_ext WHERE pkg_name = :pkgName AND source_id = :sourceId;
 
-insertExtension:
-INSERT OR REPLACE INTO extension(
+insertContentExt:
+INSERT OR REPLACE INTO content_ext(
     system_id, repo_id, pkg_name, name, source_id, version_name, is_nsfw, created_at
 ) VALUES (:systemId, :repoId, :pkgName, :name, :sourceId, :versionName, :isNsfw, :createdAt);
 
