@@ -324,3 +324,31 @@ User tested Phase C and reported:
 - Long-press category tab → delete/rename dialog.
 - Extension library entry 404 error (navigation issue — library passes anilistId=0 for extension-only content).
 - Document the data structures in DOCUMENTATION/database/.
+
+## Session web-f53f0459 (continued) — D-139: Cross-source dedup root cause + library crash + category tabs
+
+### User testing feedback (Phase C round 2)
+- ❌ Cross-source dedup still not working — extension anime not showing as saved after auto-link.
+- ❌ Library crash: `IllegalArgumentException: Key "194829" was already used` — duplicate anilistId keys in LazyVerticalGrid.
+- 📋 Category picker should be a popup, not a bottom sheet.
+- ❌ Data source selector: cover switches but nothing else changes.
+- ❌ Unlink AniList: extension-only state doesn't load info.
+- 📋 Library page category tabs UI not implemented.
+
+### Root cause analysis
+The cross-source dedup failure was because `linkSource()` (called when linking a source from the AniList side) didn't cache the reverse mapping. When the same anime was later opened from the extension, `resolveContentForExtension` couldn't find the existing content record → created a new one with a different mainId → bookmark didn't show as saved → library had duplicate entries.
+
+### Fixes implemented (D-139)
+1. **linkSource()** — now caches reverse mapping + persists extension link in DB + fetches full extension details.
+2. **Library dedup** — deduplicates by anilistId to prevent LazyGrid crash.
+3. **CategoryPickerSheet** — changed to AlertDialog popup.
+4. **remergeBases()** — STRICT switching (primary values only, no fallback).
+5. **Library category tabs** — CategoryTabsRow + long-press delete/rename + create new category.
+
+### CI status
+- CI #199 GREEN.
+
+### What's next
+- User device testing.
+- Extension library entry 404 error (navigation issue — still pending).
+- Document data structures in DOCUMENTATION/database/.

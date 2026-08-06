@@ -950,3 +950,14 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #197 green.
 - **Date:** Phase C (session web-f53f0459).
 - **Note:** Library page category tabs UI (showing categories as tabs at the top) + long-press category tab for delete/rename — the ViewModel logic is ready, but the LibraryScreen UI update for tabs is pending. Will be done in the next iteration.
+
+### D-139 — Cross-source dedup root cause fix + library crash + category tabs + STRICT switching
+- **What:** Fixed multiple issues from user testing:
+  1. **Cross-source dedup root cause**: `linkSource()` now caches the reverse mapping (sourceId, animeUrl) → anilistId via `autoLinkPreferences.cacheAniListId()`. When the same anime is opened from the extension later, `resolveContentForExtension` finds the cached anilistId → finds the existing content record → uses the SAME mainId. Also persists the extension link in the content database + fetches full extension details in the background.
+  2. **Library crash fix**: `LibraryViewModel.loadLibrary()` now deduplicates by anilistId — if the same anime appears twice (from AniList + extension), only the first is kept. Prevents `Key "194829" was already used` LazyGrid crash.
+  3. **CategoryPickerSheet → popup**: Changed from ModalBottomSheet to AlertDialog (centered popup) per user preference.
+  4. **Data source selector STRICT switching**: `remergeBases()` changed from fallback (`primary.X ?: secondary.X`) to STRICT (`primary.X` only). When the user picks "Extension", they see ONLY extension data. When they pick "AniList", they see ONLY AniList data. No mixing. Fixes "the cover switched but nothing else changed."
+  5. **Library page category tabs UI**: CategoryTabsRow at the top (horizontal scrollable pills). Shows when 2+ categories. Tapping filters by category. Long-press non-permanent pill → delete/rename dialog. "+" pill → create new category.
+- **Why:** User tested D-137/D-138 and reported: (1) extension anime not showing as saved after auto-link, (2) library crash with duplicate keys, (3) category picker should be a popup not bottom sheet, (4) data source selector only switches cover, (5) library page needs category tabs.
+- **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #199 green.
+- **Date:** Phase C (session web-f53f0459).
