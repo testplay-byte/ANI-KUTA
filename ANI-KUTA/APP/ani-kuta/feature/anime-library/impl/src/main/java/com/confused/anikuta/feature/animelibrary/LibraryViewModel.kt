@@ -515,6 +515,11 @@ class LibraryViewModel(
 
     /** Show the category picker popup (from multi-select bottom bar). */
     fun showMultiSelectCategorySheet() {
+        // D-146: Initialize the membership set before showing the sheet.
+        _multiSelectCategoryMembership.value = getCategoriesForSelected()
+            .filter { it.value }
+            .map { it.key }
+            .toSet()
         _showMultiSelectCategorySheet.value = true
     }
 
@@ -524,29 +529,43 @@ class LibraryViewModel(
 
     /**
      * Add all selected entries to a category.
+     * D-146: Does NOT close the sheet — user can select multiple categories.
+     * The sheet is closed via dismissMultiSelectCategorySheet() (Done button).
      */
     fun addSelectedToCategory(categoryId: Long) {
         for (mainId in _selectedMainIds.value) {
             contentRepository.addToCategory(mainId, categoryId)
         }
         Logger.i(TAG) { "Added ${_selectedMainIds.value.size} entries to category $categoryId" }
-        _showMultiSelectCategorySheet.value = false
-        exitSelectionMode()
-        loadLibrary()
+        // Update the category membership state (for checkbox display).
+        _multiSelectCategoryMembership.value = _multiSelectCategoryMembership.value + categoryId
     }
 
     /**
      * Remove all selected entries from a category.
+     * D-146: Does NOT close the sheet — user can deselect multiple categories.
      */
     fun removeSelectedFromCategory(categoryId: Long) {
         for (mainId in _selectedMainIds.value) {
             contentRepository.removeFromCategory(mainId, categoryId)
         }
         Logger.i(TAG) { "Removed ${_selectedMainIds.value.size} entries from category $categoryId" }
+        _multiSelectCategoryMembership.value = _multiSelectCategoryMembership.value - categoryId
+    }
+
+    /**
+     * D-146: Called when the user taps "Done" in the multi-select category picker.
+     * Closes the sheet + exits selection mode + reloads the library.
+     */
+    fun doneMultiSelectCategorySheet() {
         _showMultiSelectCategorySheet.value = false
         exitSelectionMode()
         loadLibrary()
     }
+
+    /** Tracks which categories ALL selected entries are currently in (for checkbox display). */
+    private val _multiSelectCategoryMembership = MutableStateFlow<Set<Long>>(emptySet())
+    val multiSelectCategoryMembership: StateFlow<Set<Long>> = _multiSelectCategoryMembership.asStateFlow()
 
     /** Show the delete confirmation dialog (from multi-select bottom bar). */
     fun showDeleteConfirmation() {

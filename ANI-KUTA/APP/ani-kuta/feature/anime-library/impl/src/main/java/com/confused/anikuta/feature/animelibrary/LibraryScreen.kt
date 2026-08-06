@@ -647,8 +647,10 @@ fun LibraryScreen(
         // all selected entries to it. getCategoriesForSelected() returns the
         // initial checkbox state (true if ALL selected entries are in that cat).
         if (showMultiSelectCategorySheet) {
-            val selectedMap = remember(categories, selectedMainIds) {
-                viewModel.getCategoriesForSelected()
+            // D-146: Use the ViewModel's membership set (reactive — updates on toggle).
+            val membership by viewModel.multiSelectCategoryMembership.collectAsState()
+            val selectedMap = categories.associate { cat ->
+                cat.id to (cat.id in membership)
             }
             MultiSelectCategoryPicker(
                 categories = categories,
@@ -660,7 +662,7 @@ fun LibraryScreen(
                         viewModel.addSelectedToCategory(categoryId)
                     }
                 },
-                onDismiss = { viewModel.dismissMultiSelectCategorySheet() },
+                onDismiss = { viewModel.doneMultiSelectCategorySheet() },
             )
         }
 

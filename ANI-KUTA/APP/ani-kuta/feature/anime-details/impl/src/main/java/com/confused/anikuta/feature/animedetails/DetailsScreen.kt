@@ -126,6 +126,9 @@ fun DetailsScreen(
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
 
+    // D-146: Refresh visual feedback
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+
     // Phase C: Category sheet state
     val categories by viewModel.categories.collectAsState()
     val contentCategories by viewModel.contentCategories.collectAsState()
@@ -249,6 +252,41 @@ fun DetailsScreen(
                         backgroundColor = MaterialTheme.colorScheme.background,
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
+
+                    // D-146: Refresh overlay — shows a spinner when refreshing.
+                    if (isRefreshing) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 80.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "Refreshing...",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

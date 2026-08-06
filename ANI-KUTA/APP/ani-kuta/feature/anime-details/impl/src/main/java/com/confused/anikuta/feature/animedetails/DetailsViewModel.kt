@@ -266,19 +266,25 @@ class DetailsViewModel(
                     }
                 }
 
-                // Fetch fresh data from AniList (network) — always, to update the cache.
-                val anime = anilistApi.fetchAnimeDetails(animeId)
-                Logger.i(TAG) { "Loaded AniList details for $animeId" }
-                anilistBase = anime.toUnifiedAnime()
-                remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
+                // D-146: If we already displayed from cache, DON'T re-fetch from
+                // network every time. Only fetch if:
+                // 1. No cache existed (first time opening this anime).
+                // 2. The user manually refreshes (via three-dot menu or pull-to-refresh).
+                if (cachedMainId == null || cachedMeta == null) {
+                    try {
+                    // No cache — fetch from network.
+                    val anime = anilistApi.fetchAnimeDetails(animeId)
+                    Logger.i(TAG) { "Loaded AniList details for $animeId (network)" }
+                    anilistBase = anime.toUnifiedAnime()
+                    remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
 
-                // Phase C: Resolve/create content record + check library status.
-                resolveContentForAniList(animeId, anime.displayName, anime)
+                    // Phase C: Resolve/create content record + check library status.
+                    resolveContentForAniList(animeId, anime.displayName, anime)
 
-                // D.1: Cache the fetched metadata locally.
-                val mainIdForCache = currentMainId
-                if (mainIdForCache != null) {
-                    dataCacheRepository.upsertAnimeMetadata(
+                    // D.1: Cache the fetched metadata locally.
+                    val mainIdForCache = currentMainId
+                    if (mainIdForCache != null) {
+                        dataCacheRepository.upsertAnimeMetadata(
                         com.confused.anikuta.core.datacache.CachedAnimeMetadata(
                             mainId = mainIdForCache,
                             title = anime.displayName,
@@ -297,6 +303,17 @@ class DetailsViewModel(
                     )
                     Logger.i(TAG) { "Cached anime metadata for mainId=$mainIdForCache" }
                 }
+                    } catch (netErr: Exception) {
+                        // D-146: Network failed — if we have cached data, show it.
+                        // Don't show an error if the cache already displayed data.
+                        if (_state.value !is DetailsState.Success) {
+                            Logger.w(TAG) { "Network failed, no cache available: ${netErr.message}" }
+                            _state.value = DetailsState.Error(netErr.message ?: "Unknown error")
+                        } else {
+                            Logger.w(TAG) { "Network failed but cache is displayed: ${netErr.message}" }
+                        }
+                    }
+                } // end if (no cache — fetch from network)
 
                 // Check for a persisted source link (if not already loaded from cache).
                 if (cachedMainId == null) {
@@ -440,13 +457,23 @@ class DetailsViewModel(
      */
     fun refreshAll() {
         Logger.i(TAG) { "D.3 Stage 3: Full refresh" }
-        refreshMetadata()
-        refreshEpisodesList()
+        _isRefreshing.value = true
+        viewModelScope.launch {
+            refreshMetadata()
+            refreshEpisodesList()
+            kotlinx.coroutines.delay(500) // Brief delay so the spinner is visible
+            _isRefreshing.value = false
+            Logger.i(TAG) { "D.3 Stage 3: Refresh complete" }
+        }
     }
 
     /** Refresh state for the D.3 multi-stage refresh UI. */
     private val _refreshState = MutableStateFlow<RefreshState>(RefreshState.Idle)
     val refreshState: StateFlow<RefreshState> = _refreshState.asStateFlow()
+
+    /** D-146: Whether a refresh is in progress (for visual feedback). */
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     /** Called by the DetailsScreen when the user scrolls past a refresh threshold. */
     fun setRefreshStage(stage: RefreshStage) {
