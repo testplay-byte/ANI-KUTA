@@ -18,6 +18,7 @@ import com.confused.anikuta.core.metadata.metadataModule
 import com.confused.anikuta.core.player.playerModule
 import com.confused.anikuta.core.content.contentModule
 import com.confused.anikuta.core.content.ContentSeeder
+import com.confused.anikuta.core.datacache.dataCacheModule
 import com.confused.anikuta.core.smartmatcher.smartMatcherModule
 import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
@@ -97,6 +98,7 @@ class AnikutaApp : Application() {
                 watchProgressModule,
                 smartMatcherModule,
                 contentModule,
+                dataCacheModule,
                 appModule,
             )
         }

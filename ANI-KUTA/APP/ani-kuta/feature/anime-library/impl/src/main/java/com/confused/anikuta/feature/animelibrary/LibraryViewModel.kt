@@ -30,6 +30,7 @@ class LibraryViewModel(
     private val anilistApi: AniListApi,
     private val contentRepository: ContentRepository,
     private val preferenceStore: PreferenceStore,
+    private val dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
 ) : ViewModel() {
 
     companion object {
@@ -186,55 +187,79 @@ class LibraryViewModel(
                 for (mainId in uniqueMainIds) {
                     val content = contentRepository.getContentByMainId(mainId) ?: continue
 
-                    // Try AniList detail first (for rich display data).
+                    // D.1: Check the local data cache FIRST — no network needed.
+                    val cachedMeta = dataCacheRepository.getAnimeMetadata(mainId)
+                    if (cachedMeta != null) {
+                        // Use cached data — instant display.
+                        entries.add(
+                            LibraryEntry(
+                                mainId = mainId,
+                                anilistId = contentRepository.getAniListDetail(mainId)?.anilistId,
+                                sourceId = content.extensionId,
+                                animeUrl = content.animeUrl,
+                                title = cachedMeta.title,
+                                coverUrl = cachedMeta.coverUrl,
+                                averageScore = cachedMeta.score,
+                                episodes = cachedMeta.episodes,
+                                seasonYear = cachedMeta.seasonYear,
+                                status = cachedMeta.status,
+                            ),
+                        )
+                        continue
+                    }
+
+                    // Not cached — try AniList detail (for fetching + caching).
                     val anilistDetail = contentRepository.getAniListDetail(mainId)
                     if (anilistDetail != null) {
-                        // D-141: Use cache if available — don't re-fetch on every tab switch.
-                        val cached = anilistCache[anilistDetail.anilistId]
-                        if (cached != null) {
+                        // Fetch fresh AniList data (first time only — will be cached after this).
+                        try {
+                            val anime = anilistApi.fetchAnimeDetails(anilistDetail.anilistId)
+                            // D.1: Cache the fetched metadata locally.
+                            dataCacheRepository.upsertAnimeMetadata(
+                                com.confused.anikuta.core.datacache.CachedAnimeMetadata(
+                                    mainId = mainId,
+                                    title = anime.displayName,
+                                    description = anime.description,
+                                    coverUrl = anime.coverUrl,
+                                    bannerUrl = anime.bannerImage,
+                                    score = anime.averageScore,
+                                    episodes = anime.episodes,
+                                    season = anime.season,
+                                    seasonYear = anime.seasonYear,
+                                    status = anime.status,
+                                    genres = anime.genres?.joinToString(", "),
+                                    sourceType = "anilist",
+                                    fetchedAt = System.currentTimeMillis(),
+                                ),
+                            )
                             entries.add(
                                 LibraryEntry.fromAniList(
                                     mainId = mainId,
-                                    anime = cached,
+                                    anime = anime,
                                     sourceId = content.extensionId,
                                     animeUrl = content.animeUrl,
                                 ),
                             )
-                        } else {
-                            // Fetch fresh AniList data (first time only).
-                            try {
-                                val anime = anilistApi.fetchAnimeDetails(anilistDetail.anilistId)
-                                anilistCache[anilistDetail.anilistId] = anime
-                                entries.add(
-                                    LibraryEntry.fromAniList(
-                                        mainId = mainId,
-                                        anime = anime,
-                                        sourceId = content.extensionId,
-                                        animeUrl = content.animeUrl,
-                                    ),
-                                )
-                            } catch (e: Exception) {
-                                Logger.w(TAG) { "AniList fetch failed for ${anilistDetail.anilistId}: ${e.message}" }
-                                // Fall back to stored data.
-                                entries.add(
-                                    LibraryEntry(
-                                        mainId = mainId,
-                                        anilistId = anilistDetail.anilistId,
-                                        sourceId = content.extensionId,
-                                        animeUrl = content.animeUrl,
-                                        title = content.title,
-                                        coverUrl = anilistDetail.coverUrl,
-                                        averageScore = anilistDetail.score,
-                                        episodes = anilistDetail.episodes,
-                                        seasonYear = anilistDetail.seasonYear,
-                                        status = anilistDetail.status,
-                                    ),
-                                )
-                            }
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "AniList fetch failed for ${anilistDetail.anilistId}: ${e.message}" }
+                            // Fall back to stored data.
+                            entries.add(
+                                LibraryEntry(
+                                    mainId = mainId,
+                                    anilistId = anilistDetail.anilistId,
+                                    sourceId = content.extensionId,
+                                    animeUrl = content.animeUrl,
+                                    title = content.title,
+                                    coverUrl = anilistDetail.coverUrl,
+                                    averageScore = anilistDetail.score,
+                                    episodes = anilistDetail.episodes,
+                                    seasonYear = anilistDetail.seasonYear,
+                                    status = anilistDetail.status,
+                                ),
+                            )
                         }
                     } else {
                         // Extension-only content — use stored data.
-                        // D-140 fix: properly get the cover URL from extension_detail.
                         val extDetail = contentRepository.getExtensionDetail(mainId)
                         entries.add(
                             LibraryEntry.fromExtension(
@@ -286,20 +311,28 @@ class LibraryViewModel(
                 val entries = mutableListOf<LibraryEntry>()
                 for (mainId in uniqueMainIds) {
                     val content = contentRepository.getContentByMainId(mainId) ?: continue
-                    val anilistDetail = contentRepository.getAniListDetail(mainId)
-                    if (anilistDetail != null) {
-                        val cached = anilistCache[anilistDetail.anilistId]
-                        if (cached != null) {
-                            entries.add(
-                                LibraryEntry.fromAniList(
-                                    mainId = mainId,
-                                    anime = cached,
-                                    sourceId = content.extensionId,
-                                    animeUrl = content.animeUrl,
-                                ),
-                            )
-                        } else {
-                            // Use stored data if not cached.
+
+                    // D.1: Always use the data cache — no network on tab switch.
+                    val cachedMeta = dataCacheRepository.getAnimeMetadata(mainId)
+                    if (cachedMeta != null) {
+                        entries.add(
+                            LibraryEntry(
+                                mainId = mainId,
+                                anilistId = contentRepository.getAniListDetail(mainId)?.anilistId,
+                                sourceId = content.extensionId,
+                                animeUrl = content.animeUrl,
+                                title = cachedMeta.title,
+                                coverUrl = cachedMeta.coverUrl,
+                                averageScore = cachedMeta.score,
+                                episodes = cachedMeta.episodes,
+                                seasonYear = cachedMeta.seasonYear,
+                                status = cachedMeta.status,
+                            ),
+                        )
+                    } else {
+                        // Not cached — use stored data (anilist_detail or extension_detail).
+                        val anilistDetail = contentRepository.getAniListDetail(mainId)
+                        if (anilistDetail != null) {
                             entries.add(
                                 LibraryEntry(
                                     mainId = mainId,
@@ -314,14 +347,13 @@ class LibraryViewModel(
                                     status = anilistDetail.status,
                                 ),
                             )
-                        }
-                    } else {
-                        val extDetail = contentRepository.getExtensionDetail(mainId)
-                        entries.add(
-                            LibraryEntry.fromExtension(
-                                mainId = mainId,
-                                title = content.title,
-                                coverUrl = extDetail?.thumbnailUrl,
+                        } else {
+                            val extDetail = contentRepository.getExtensionDetail(mainId)
+                            entries.add(
+                                LibraryEntry.fromExtension(
+                                    mainId = mainId,
+                                    title = content.title,
+                                    coverUrl = extDetail?.thumbnailUrl,
                                 sourceId = content.extensionId ?: extDetail?.sourceId,
                                 animeUrl = content.animeUrl ?: extDetail?.animeUrl,
                             ),

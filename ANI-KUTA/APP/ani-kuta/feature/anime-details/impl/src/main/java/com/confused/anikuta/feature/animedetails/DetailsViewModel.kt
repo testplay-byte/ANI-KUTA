@@ -67,6 +67,7 @@ class DetailsViewModel(
     private val autoLinkPreferences: AutoLinkPreferences,
     private val contentResolver: com.confused.anikuta.core.content.ContentResolver,
     private val contentRepository: com.confused.anikuta.core.content.ContentRepository,
+    private val dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
 ) : ViewModel() {
 
     companion object {
@@ -238,16 +239,69 @@ class DetailsViewModel(
         anilistBase = null
         viewModelScope.launch {
             try {
+                // D.1: Check the local data cache first — if cached, display instantly.
+                val cachedMainId = contentRepository.getContentByAniListId(animeId)?.mainId
+                if (cachedMainId != null) {
+                    val cachedMeta = dataCacheRepository.getAnimeMetadata(cachedMainId)
+                    if (cachedMeta != null) {
+                        Logger.i(TAG) { "Loaded from cache: ${cachedMeta.title}" }
+                        anilistBase = com.confused.anikuta.core.common.model.UnifiedAnime(
+                            title = cachedMeta.title,
+                            coverUrl = cachedMeta.coverUrl,
+                            bannerUrl = cachedMeta.bannerUrl,
+                            description = cachedMeta.description,
+                            genres = cachedMeta.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                            status = cachedMeta.status,
+                            episodes = cachedMeta.episodes,
+                            averageScore = cachedMeta.score,
+                            season = cachedMeta.season,
+                            seasonYear = cachedMeta.seasonYear,
+                            anilistId = animeId,
+                            entryMode = com.confused.anikuta.core.common.model.EntryMode.ANILIST,
+                        )
+                        remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
+                        currentMainId = cachedMainId
+                        refreshContentAndLibraryStatus(cachedMainId)
+                        loadLinkedSource(animeId)
+                    }
+                }
+
+                // Fetch fresh data from AniList (network) — always, to update the cache.
                 val anime = anilistApi.fetchAnimeDetails(animeId)
                 Logger.i(TAG) { "Loaded AniList details for $animeId" }
-                anilistBase = anime.toUnifiedAnime() // D-134: store original AniList data.
+                anilistBase = anime.toUnifiedAnime()
                 remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
 
                 // Phase C: Resolve/create content record + check library status.
                 resolveContentForAniList(animeId, anime.displayName, anime)
 
-                // Check for a persisted source link.
-                loadLinkedSource(animeId)
+                // D.1: Cache the fetched metadata locally.
+                val mainIdForCache = currentMainId
+                if (mainIdForCache != null) {
+                    dataCacheRepository.upsertAnimeMetadata(
+                        com.confused.anikuta.core.datacache.CachedAnimeMetadata(
+                            mainId = mainIdForCache,
+                            title = anime.displayName,
+                            description = anime.description,
+                            coverUrl = anime.coverUrl,
+                            bannerUrl = anime.bannerImage,
+                            score = anime.averageScore,
+                            episodes = anime.episodes,
+                            season = anime.season,
+                            seasonYear = anime.seasonYear,
+                            status = anime.status,
+                            genres = anime.genres?.joinToString(", "),
+                            sourceType = "anilist",
+                            fetchedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                    Logger.i(TAG) { "Cached anime metadata for mainId=$mainIdForCache" }
+                }
+
+                // Check for a persisted source link (if not already loaded from cache).
+                if (cachedMainId == null) {
+                    loadLinkedSource(animeId)
+                }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Failed: ${e.message}" }
                 _state.value = DetailsState.Error(e.message ?: "Unknown error")

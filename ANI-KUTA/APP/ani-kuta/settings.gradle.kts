@@ -42,6 +42,7 @@ include(":core:tracker-api")
 include(":core:tracker-anilist")
 include(":core:smart-matcher")
 include(":core:content")
+include(":core:data-cache")
 
 // ── :data ──
 include(":data:extension")

@@ -1,0 +1,105 @@
+-- ============================================================================
+-- Data Cache (Phase D)
+-- Per PHASE-D-PLAN.md v2
+-- Metadata never expires — user manually refreshes.
+-- ============================================================================
+
+-- ── anime_metadata_cache ──────────────────────────────────────────────────
+-- Stores the full anime metadata for each content (mainId).
+-- Never expires — the user manually refreshes via the refresh button.
+CREATE TABLE IF NOT EXISTS anime_metadata_cache (
+    main_id TEXT NOT NULL PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    cover_url TEXT,
+    banner_url TEXT,
+    score INTEGER,
+    episodes INTEGER,
+    season TEXT,
+    season_year INTEGER,
+    status TEXT,
+    genres TEXT,
+    source_type TEXT NOT NULL DEFAULT 'anilist',
+    fetched_at INTEGER NOT NULL,
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+-- ── episode_metadata_cache ────────────────────────────────────────────────
+-- Stores episode-level metadata per content.
+CREATE TABLE IF NOT EXISTS episode_metadata_cache (
+    main_id TEXT NOT NULL,
+    episode_number REAL NOT NULL,
+    title TEXT,
+    description TEXT,
+    thumbnail_url TEXT,
+    air_date INTEGER,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (main_id, episode_number),
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_episode_cache_main ON episode_metadata_cache(main_id);
+
+-- ── browse_cache ──────────────────────────────────────────────────────────
+-- Stores browse page sections (trending, popular, etc.).
+-- Auto-expires after 6 hours (homepage only).
+CREATE TABLE IF NOT EXISTS browse_cache (
+    section_key TEXT NOT NULL PRIMARY KEY,
+    data_json TEXT NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
+-- ============================================================================
+-- Queries: anime_metadata_cache
+-- ============================================================================
+getAnimeMetadata:
+SELECT * FROM anime_metadata_cache WHERE main_id = :mainId;
+
+upsertAnimeMetadata:
+INSERT OR REPLACE INTO anime_metadata_cache(
+    main_id, title, description, cover_url, banner_url, score, episodes,
+    season, season_year, status, genres, source_type, fetched_at
+) VALUES (
+    :mainId, :title, :description, :coverUrl, :bannerUrl, :score, :episodes,
+    :season, :seasonYear, :status, :genres, :sourceType, :fetchedAt
+);
+
+deleteAnimeMetadata:
+DELETE FROM anime_metadata_cache WHERE main_id = :mainId;
+
+-- ============================================================================
+-- Queries: episode_metadata_cache
+-- ============================================================================
+getEpisodeMetadata:
+SELECT * FROM episode_metadata_cache WHERE main_id = :mainId
+ORDER BY episode_number ASC;
+
+getEpisodeMetadataByNumber:
+SELECT * FROM episode_metadata_cache WHERE main_id = :mainId AND episode_number = :episodeNumber;
+
+upsertEpisodeMetadata:
+INSERT OR REPLACE INTO episode_metadata_cache(
+    main_id, episode_number, title, description, thumbnail_url, air_date, fetched_at
+) VALUES (
+    :mainId, :episodeNumber, :title, :description, :thumbnailUrl, :airDate, :fetchedAt
+);
+
+deleteEpisodeMetadata:
+DELETE FROM episode_metadata_cache WHERE main_id = :mainId;
+
+-- ============================================================================
+-- Queries: browse_cache
+-- ============================================================================
+getBrowseCache:
+SELECT * FROM browse_cache WHERE section_key = :sectionKey;
+
+upsertBrowseCache:
+INSERT OR REPLACE INTO browse_cache(section_key, data_json, fetched_at, expires_at)
+VALUES (:sectionKey, :dataJson, :fetchedAt, :expiresAt);
+
+deleteBrowseCache:
+DELETE FROM browse_cache WHERE section_key = :sectionKey;
+
+getAllBrowseCache:
+SELECT * FROM browse_cache;

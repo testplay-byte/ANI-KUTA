@@ -53,6 +53,7 @@ dependencies {
     implementation(project(":core:tracker-anilist"))
     implementation(project(":core:smart-matcher"))
     implementation(project(":core:content"))
+    implementation(project(":core:data-cache"))
 
     // Data modules
     implementation(project(":data:extension"))

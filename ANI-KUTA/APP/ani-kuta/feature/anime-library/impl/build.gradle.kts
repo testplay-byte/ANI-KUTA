@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
     implementation(project(":core:content"))
+    implementation(project(":core:data-cache"))
     implementation(project(":core:navigation-api"))
     implementation(project(":core:database"))
     implementation(project(":core:preferences"))
