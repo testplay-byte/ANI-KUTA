@@ -791,7 +791,11 @@ class DetailsViewModel(
 
     /**
      * Load the persisted source link for this anime (if any).
-     * If found, fetch the episode list.
+     * If found, fetch the episode list + restore extensionBase.
+     *
+     * D-140: Also restores extensionBase from the content database so the
+     * data-source selector shows immediately on reopen (not just after
+     * the user re-links the source).
      */
     private fun loadLinkedSource(animeId: Int) {
         val linkStr = preferenceStore.getString(KEY_SOURCE_LINK_PREFIX + animeId, "")
@@ -808,6 +812,65 @@ class DetailsViewModel(
         }
 
         _linkedSource.value = LinkedSource(sourceId, source.name, animeUrl)
+
+        // D-140: Restore extensionBase from the content database.
+        // This makes the data-source selector available immediately on reopen.
+        val mainId = currentMainId
+        if (mainId != null && extensionBase == null) {
+            val extDetail = contentRepository.getExtensionDetail(mainId)
+            if (extDetail != null) {
+                extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
+                    title = extDetail.animeUrl.substringAfterLast("/").replace("-", " "),
+                    description = extDetail.description,
+                    genres = extDetail.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                    status = extDetail.status,
+                    author = extDetail.author,
+                    artist = extDetail.artist,
+                    coverUrl = extDetail.thumbnailUrl,
+                    sourceId = extDetail.sourceId,
+                    sourceName = source.name,
+                    animeUrl = extDetail.animeUrl,
+                    entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
+                )
+                Logger.i(TAG) { "Extension base restored from DB for reopen" }
+                remergeBases(
+                    (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                        ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                )
+            } else {
+                // No extension detail in DB — create a minimal extensionBase from the linked source.
+                val sAnime = eu.kanade.tachiyomi.animesource.model.SAnime.create().apply {
+                    url = animeUrl
+                    title = (_state.value as? DetailsState.Success)?.anime?.displayName ?: animeUrl
+                    initialized = false
+                }
+                extensionBase = sAnime.toUnifiedAnime(sourceId, source.name)
+                Logger.i(TAG) { "Extension base created from linked source (minimal)" }
+                remergeBases(
+                    (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                        ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                )
+
+                // D-139: Fetch full extension details in the background to enrich.
+                viewModelScope.launch {
+                    try {
+                        val enriched = extensionProvider.fetchFromExtension(
+                            sourceId, animeUrl, sAnime.title, null,
+                        )
+                        if (enriched != null) {
+                            extensionBase = enriched
+                            remergeBases(
+                                (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                                    ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Logger.w(TAG) { "Extension enrichment on reopen failed: ${e.message}" }
+                    }
+                }
+            }
+        }
+
         // Get the anime title from the current state (for the SAnime.title lateinit field).
         val animeTitle = (_state.value as? DetailsState.Success)?.anime?.displayName ?: animeUrl
         fetchEpisodes(source, animeUrl, animeTitle)

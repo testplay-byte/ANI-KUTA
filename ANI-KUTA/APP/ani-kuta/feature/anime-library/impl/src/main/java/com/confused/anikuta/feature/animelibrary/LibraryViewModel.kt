@@ -3,7 +3,6 @@ package com.confused.anikuta.feature.animelibrary
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
-import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.LibraryCategory
@@ -14,16 +13,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel for the Library screen (Phase C).
+ * ViewModel for the Library screen (Phase C, D-140).
  *
- * Uses the content ID system (Phase C) instead of the old PreferenceStore
- * comma-separated IDs. Library items are stored in the `library_item` table
- * linked to the `content` table via `mainId`.
+ * Uses [LibraryEntry] (with mainId as the key) instead of AniListAnime.
+ * This prevents the "Key 0 already used" crash when multiple extension-only
+ * entries exist (all had anilistId=0).
  *
- * ## Categories
- * For now, there is only ONE category: "Default" (permanent, cannot be deleted).
- * The Default category only shows when it has at least 1 item.
- * Future phases will add user-created categories.
+ * Also handles:
+ * - Category filtering (select a category tab).
+ * - Category management (create, delete with move-to-default, rename).
+ * - Live reload (called from LibraryScreen on resume).
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Feature:Library".
  * CORE_RULES §23: Reactive state (StateFlow).
@@ -37,7 +36,7 @@ class LibraryViewModel(
     companion object {
         private const val TAG = "Anikuta:Feature:Library"
 
-        // Customize-sheet preferences (kept from Phase 4).
+        // Customize-sheet preferences.
         private const val KEY_DISPLAY_MODE = "library_display_mode"
         private const val KEY_COLUMNS = "library_columns"
         private const val KEY_TITLE_LINES = "library_title_lines"
@@ -47,6 +46,7 @@ class LibraryViewModel(
         private const val KEY_SCORE_BADGE_POS = "library_score_badge_pos"
         private const val KEY_SHOW_CONTINUE_WATCHING = "library_show_continue_watching"
         private const val KEY_SHOW_TOTAL_ENTRIES = "library_show_total_entries"
+        private const val KEY_SHOW_CATEGORY_COUNTS = "library_show_category_counts"
         private const val KEY_SORT_TYPE = "library_sort_type"
         private const val KEY_SORT_ASCENDING = "library_sort_ascending"
     }
@@ -57,9 +57,13 @@ class LibraryViewModel(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery
 
-    /** The library categories. For now, only "Default" exists. */
+    /** All library categories. */
     private val _categories = MutableStateFlow<List<LibraryCategory>>(emptyList())
     val categories: StateFlow<List<LibraryCategory>> = _categories.asStateFlow()
+
+    /** Item counts per category (for showing counts on tabs). */
+    private val _categoryCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    val categoryCounts: StateFlow<Map<Long, Int>> = _categoryCounts.asStateFlow()
 
     /** The currently selected category (null = all). */
     private val _selectedCategoryId = MutableStateFlow<Long?>(null)
@@ -68,6 +72,10 @@ class LibraryViewModel(
     /** Category management state — for rename/delete dialogs. */
     private val _categoryToManage = MutableStateFlow<LibraryCategory?>(null)
     val categoryToManage: StateFlow<LibraryCategory?> = _categoryToManage.asStateFlow()
+
+    /** Total entries in the library (all categories combined, deduplicated). */
+    private val _totalEntries = MutableStateFlow(0)
+    val totalEntries: StateFlow<Int> = _totalEntries.asStateFlow()
 
     // ── Sort ──
     private val _sortType = MutableStateFlow(LibrarySortType.TITLE)
@@ -104,6 +112,10 @@ class LibraryViewModel(
     private val _showTotalEntries = MutableStateFlow(true)
     val showTotalEntries: StateFlow<Boolean> = _showTotalEntries
 
+    /** D-140: Show item count next to each category tab. */
+    private val _showCategoryCounts = MutableStateFlow(false)
+    val showCategoryCounts: StateFlow<Boolean> = _showCategoryCounts
+
     init {
         loadPreferences()
         loadLibrary()
@@ -111,19 +123,22 @@ class LibraryViewModel(
 
     /**
      * Load the library from the content ID system.
-     *
-     * 1. Get all library mainIds from [ContentRepository].
-     * 2. Fetch each content record to get the title + display info.
-     * 3. For content with anilistId, fetch fresh AniList data for the grid display.
-     * 4. For extension-only content, use the stored title + cover (if available).
+     * D-140: Uses LibraryEntry (mainId as key) instead of AniListAnime.
      */
     fun loadLibrary() {
         _state.value = LibraryState.Loading
         viewModelScope.launch {
             try {
-                // Load ALL categories (for the category tabs).
+                // Load ALL categories + counts.
                 val cats = contentRepository.getAllCategories()
                 _categories.value = cats
+
+                // Count items per category.
+                val counts = mutableMapOf<Long, Int>()
+                for (cat in cats) {
+                    counts[cat.id] = contentRepository.countItemsInCategory(cat.id)
+                }
+                _categoryCounts.value = counts
 
                 // Get library mainIds — filtered by selected category if set.
                 val mainIds = if (_selectedCategoryId.value != null) {
@@ -131,83 +146,73 @@ class LibraryViewModel(
                 } else {
                     contentRepository.getLibraryMainIds()
                 }
-                Logger.i(TAG) { "Library has ${mainIds.size} items (category=${_selectedCategoryId.value ?: "all"})" }
 
-                if (mainIds.isEmpty()) {
+                // Deduplicate mainIds (a content can be in multiple categories).
+                val uniqueMainIds = mainIds.distinct()
+                _totalEntries.value = uniqueMainIds.size
+                Logger.i(TAG) { "Library: ${uniqueMainIds.size} items (category=${_selectedCategoryId.value ?: "all"})" }
+
+                if (uniqueMainIds.isEmpty()) {
                     _state.value = LibraryState.Empty
                     return@launch
                 }
 
-                // Fetch content records + AniList data for display.
-                val animeList = mutableListOf<AniListAnime>()
-                for (mainId in mainIds) {
-                    val content = contentRepository.getContentByMainId(mainId)
-                    if (content == null) continue
+                // Build LibraryEntry for each content.
+                val entries = mutableListOf<LibraryEntry>()
+                for (mainId in uniqueMainIds) {
+                    val content = contentRepository.getContentByMainId(mainId) ?: continue
 
-                    // Try to get AniList detail for rich display.
+                    // Try AniList detail first (for rich display data).
                     val anilistDetail = contentRepository.getAniListDetail(mainId)
                     if (anilistDetail != null) {
+                        // Fetch fresh AniList data for the grid (cover, score, etc.).
                         try {
-                            // Fetch fresh AniList data for the grid (cover, score, etc.)
-                            animeList.add(anilistApi.fetchAnimeDetails(anilistDetail.anilistId))
+                            val anime = anilistApi.fetchAnimeDetails(anilistDetail.anilistId)
+                            entries.add(
+                                LibraryEntry.fromAniList(
+                                    mainId = mainId,
+                                    anime = anime,
+                                    sourceId = content.extensionId,
+                                    animeUrl = content.animeUrl,
+                                ),
+                            )
                         } catch (e: Exception) {
-                            Logger.w(TAG) { "Failed to fetch AniList ${anilistDetail.anilistId}: ${e.message}" }
-                            // Fall back to a minimal entry from stored data.
-                            animeList.add(
-                                AniListAnime(
-                                    id = anilistDetail.anilistId,
-                                    title = com.confused.anikuta.core.anilist.model.AnimeTitle(
-                                        romaji = content.title,
-                                        english = content.title,
-                                    ),
-                                    coverImage = com.confused.anikuta.core.anilist.model.CoverImage(
-                                        large = anilistDetail.coverUrl,
-                                        extraLarge = anilistDetail.coverUrl,
-                                    ),
+                            Logger.w(TAG) { "AniList fetch failed for ${anilistDetail.anilistId}: ${e.message}" }
+                            // Fall back to stored data.
+                            entries.add(
+                                LibraryEntry(
+                                    mainId = mainId,
+                                    anilistId = anilistDetail.anilistId,
+                                    sourceId = content.extensionId,
+                                    animeUrl = content.animeUrl,
+                                    title = content.title,
+                                    coverUrl = anilistDetail.coverUrl,
                                     averageScore = anilistDetail.score,
                                     episodes = anilistDetail.episodes,
                                     seasonYear = anilistDetail.seasonYear,
+                                    status = anilistDetail.status,
                                 ),
                             )
                         }
                     } else {
-                        // Extension-only content — no AniList data. Create a minimal entry.
+                        // Extension-only content — use stored data.
                         val extDetail = contentRepository.getExtensionDetail(mainId)
-                        animeList.add(
-                            AniListAnime(
-                                id = 0, // No AniList ID.
-                                title = com.confused.anikuta.core.anilist.model.AnimeTitle(
-                                    romaji = content.title,
-                                    english = content.title,
-                                ),
-                                coverImage = com.confused.anikuta.core.anilist.model.CoverImage(
-                                    large = extDetail?.thumbnailUrl,
-                                    extraLarge = extDetail?.thumbnailUrl,
-                                ),
+                        entries.add(
+                            LibraryEntry.fromExtension(
+                                mainId = mainId,
+                                title = content.title,
+                                coverUrl = extDetail?.thumbnailUrl ?: content.description?.let { null },
+                                sourceId = content.extensionId ?: extDetail?.sourceId,
+                                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
                             ),
                         )
                     }
                 }
 
-                if (animeList.isEmpty()) {
+                if (entries.isEmpty()) {
                     _state.value = LibraryState.Empty
                 } else {
-                    // D-139: Deduplicate by anilistId — the same anime saved from
-                    // both AniList and extension could appear twice (same anilistId).
-                    // Keep only the first occurrence to prevent LazyGrid key collisions.
-                    val seen = mutableSetOf<Int>()
-                    val deduped = animeList.filter { anime ->
-                        val id = anime.id
-                        if (id > 0 && id in seen) {
-                            Logger.w(TAG) { "Duplicate library entry: anilistId=$id — skipping" }
-                            false
-                        } else {
-                            if (id > 0) seen.add(id)
-                            true
-                        }
-                    }
-                    Logger.i(TAG) { "Library after dedup: ${deduped.size} items (was ${animeList.size})" }
-                    _state.value = LibraryState.Success(deduped)
+                    _state.value = LibraryState.Success(entries)
                     applyFilters()
                 }
             } catch (e: Exception) {
@@ -222,19 +227,13 @@ class LibraryViewModel(
         applyFilters()
     }
 
-    // ── Category management (D-138) ──
+    // ── Category management (D-138, D-140) ──
 
-    /**
-     * Select a category to filter by (null = all categories).
-     */
     fun selectCategory(categoryId: Long?) {
         _selectedCategoryId.value = categoryId
-        loadLibrary() // Reload with the category filter.
+        loadLibrary()
     }
 
-    /**
-     * Show the category management dialog (long-press on a category tab).
-     */
     fun showCategoryManagement(category: LibraryCategory) {
         _categoryToManage.value = category
     }
@@ -245,11 +244,11 @@ class LibraryViewModel(
 
     /**
      * Delete a category. Only non-permanent categories can be deleted.
+     * Items in the category are deleted too (CASCADE).
      */
     fun deleteCategory(categoryId: Long) {
         contentRepository.deleteCategory(categoryId)
         _categoryToManage.value = null
-        // If the deleted category was selected, switch to "all".
         if (_selectedCategoryId.value == categoryId) {
             _selectedCategoryId.value = null
         }
@@ -257,17 +256,33 @@ class LibraryViewModel(
     }
 
     /**
-     * Rename a category. Only non-permanent categories can be renamed.
+     * D-140: Delete a category + move its items to the Default category.
+     * The items are NOT removed from the library — just moved.
      */
+    fun deleteCategoryAndMoveToDefault(categoryId: Long) {
+        val defaultCat = contentRepository.getDefaultCategory()
+        if (defaultCat != null) {
+            // Move items to Default.
+            val mainIds = contentRepository.getMainIdsByCategory(categoryId)
+            for (mainId in mainIds) {
+                contentRepository.addToCategory(mainId, defaultCat.id)
+            }
+        }
+        // Delete the category (items in it are CASCADE deleted, but they're already moved).
+        contentRepository.deleteCategory(categoryId)
+        _categoryToManage.value = null
+        if (_selectedCategoryId.value == categoryId) {
+            _selectedCategoryId.value = null
+        }
+        loadLibrary()
+    }
+
     fun renameCategory(categoryId: Long, newName: String) {
         contentRepository.renameCategory(categoryId, newName)
         _categoryToManage.value = null
         loadLibrary()
     }
 
-    /**
-     * Create a new category.
-     */
     fun createCategory(name: String) {
         contentRepository.createCategory(name)
         loadLibrary()
@@ -340,6 +355,11 @@ class LibraryViewModel(
         preferenceStore.putBoolean(KEY_SHOW_TOTAL_ENTRIES, value)
     }
 
+    fun setShowCategoryCounts(value: Boolean) {
+        _showCategoryCounts.value = value
+        preferenceStore.putBoolean(KEY_SHOW_CATEGORY_COUNTS, value)
+    }
+
     // ── Persistence ──
     private fun loadPreferences() {
         _sortType.value = preferenceStore
@@ -367,24 +387,25 @@ class LibraryViewModel(
 
         _showContinueWatching.value = preferenceStore.getBoolean(KEY_SHOW_CONTINUE_WATCHING, true)
         _showTotalEntries.value = preferenceStore.getBoolean(KEY_SHOW_TOTAL_ENTRIES, true)
+        _showCategoryCounts.value = preferenceStore.getBoolean(KEY_SHOW_CATEGORY_COUNTS, false)
     }
 
     private fun applyFilters() {
         val current = _state.value
         if (current !is LibraryState.Success) return
 
-        var filtered = current.anime
+        var filtered = current.entries
 
         val query = _searchQuery.value
         if (query.isNotBlank()) {
-            filtered = filtered.filter { it.displayName.contains(query, ignoreCase = true) }
+            filtered = filtered.filter { it.title.contains(query, ignoreCase = true) }
         }
 
         filtered = when (_sortType.value) {
             LibrarySortType.TITLE -> if (_sortAscending.value) {
-                filtered.sortedBy { it.displayName.lowercase() }
+                filtered.sortedBy { it.title.lowercase() }
             } else {
-                filtered.sortedByDescending { it.displayName.lowercase() }
+                filtered.sortedByDescending { it.title.lowercase() }
             }
             LibrarySortType.SCORE -> if (_sortAscending.value) {
                 filtered.sortedBy { it.averageScore ?: 0 }
@@ -406,7 +427,7 @@ class LibraryViewModel(
 sealed interface LibraryState {
     data object Loading : LibraryState
     data object Empty : LibraryState
-    data class Success(val anime: List<AniListAnime>) : LibraryState
+    data class Success(val entries: List<LibraryEntry>) : LibraryState
     data class Error(val message: String) : LibraryState
 }
 

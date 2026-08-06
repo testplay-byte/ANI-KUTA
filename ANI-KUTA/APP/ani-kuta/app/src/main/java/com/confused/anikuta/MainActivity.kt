@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
@@ -42,6 +43,7 @@ import com.confused.anikuta.feature.animebrowse.BrowseScreen
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
+import com.confused.anikuta.feature.animelibrary.LibraryEntry
 import com.confused.anikuta.feature.animelibrary.LibraryScreen
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
 import com.confused.anikuta.feature.animesearch.SearchScreen
@@ -187,8 +189,25 @@ fun AppRoot() {
                 }
             }
             is AnimeLibraryKeyImpl -> LibraryScreen(
-                onNavigateToDetails = { animeId ->
-                    backstack.add(AnimeDetailsKey.AniList(animeId))
+                onNavigateToDetails = { entry ->
+                    // D-140: Navigate based on the entry type.
+                    // If it has an anilistId → open via AniList.
+                    // If it only has an extension source → open via Extension.
+                    if (entry.hasAniListId) {
+                        backstack.add(AnimeDetailsKey.AniList(entry.anilistId!!))
+                    } else if (entry.hasExtensionSource) {
+                        backstack.add(
+                            AnimeDetailsKey.Extension(
+                                entry.sourceId!!,
+                                entry.animeUrl!!,
+                                entry.title,
+                                entry.coverUrl,
+                            )
+                        )
+                    } else {
+                        // Fallback: no valid navigation target. Log + ignore.
+                        Logger.w("MainActivity") { "Library entry has no valid navigation target: ${entry.mainId}" }
+                    }
                 }
             )
             is AnimeSearchKey -> SearchScreen(

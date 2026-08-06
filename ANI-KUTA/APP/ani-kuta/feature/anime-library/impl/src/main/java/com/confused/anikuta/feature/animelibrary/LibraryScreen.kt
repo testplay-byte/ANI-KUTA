@@ -25,7 +25,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -41,7 +43,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
@@ -67,6 +68,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -89,9 +91,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.content.LibraryCategory
-import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SearchField
@@ -103,9 +103,9 @@ import org.koin.compose.viewmodel.koinViewModel
  * Library screen — the user's personal anime collection.
  *
  * Faithfully recreates the old project's Library UI:
- * 1. CollapsingHeader (pinned) — title "Library" + HeaderActionGroup
- *    (search + settings buttons in ONE combined pill container, surfaceVariant bg,
- *    rounded 50, 34dp icons).
+ * 1. LibraryHeader (pinned) — title "Library" + optional subtitle "{n} in
+ *    Library" + HeaderActionGroup (search + settings buttons in ONE combined
+ *    pill container, surfaceVariant bg, rounded 50, 34dp icons).
  * 2. Animated search bar (fade in/out when search toggled) using SearchField.
  * 3. Compact grid (3-column) with cover + gradient title overlay
  *    OR list view (horizontal rows).
@@ -113,6 +113,12 @@ import org.koin.compose.viewmodel.koinViewModel
  * 5. Empty state with proper icon.
  * 6. CustomizeSheet — the library settings bottom sheet (Sort + Display & Badges
  *    in 2 tabs, no drag handle, header "Library Settings").
+ * 7. Category tabs (D-140) — text-based with underline indicator; smart
+ *    visibility ("All" only with 2+ populated cats, "Default" hidden when
+ *    empty), no "+" button (categories come from the details page).
+ *
+ * D-140: uses [LibraryEntry] (mainId-keyed) instead of AniListAnime — fixes the
+ * "Key 0 already used" crash for extension-only entries + 404 nav for them.
  *
  * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing, scale on press).
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
@@ -120,9 +126,17 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun LibraryScreen(
-    onNavigateToDetails: (Int) -> Unit,
+    onNavigateToDetails: (LibraryEntry) -> Unit,
     viewModel: LibraryViewModel = koinViewModel(),
 ) {
+    // D-140: live reload on resume — when the user navigates back to the
+    // library (e.g. after bookmarking from the details page), the list should
+    // refresh. LaunchedEffect(Unit) runs once per composition entering the
+    // back stack entry (i.e. each time the screen becomes visible again).
+    LaunchedEffect(Unit) {
+        viewModel.loadLibrary()
+    }
+
     val state by viewModel.state.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val sortType by viewModel.sortType.collectAsState()
@@ -136,6 +150,11 @@ fun LibraryScreen(
     val scoreBadgePosition by viewModel.scoreBadgePosition.collectAsState()
     val showContinueWatching by viewModel.showContinueWatching.collectAsState()
     val showTotalEntries by viewModel.showTotalEntries.collectAsState()
+    // D-140: per-category item counts + show-counts toggle.
+    val categoryCounts by viewModel.categoryCounts.collectAsState()
+    val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
+    // D-140: total entries (for the header subtitle "{n} in Library").
+    val totalEntries by viewModel.totalEntries.collectAsState()
 
     // D-138: category tabs state — list of categories, currently selected
     // category (null = "All"), and the category to show delete/rename dialog for.
@@ -148,8 +167,6 @@ fun LibraryScreen(
 
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
-    // Local UI flag — "New category" (+) pill tap shows a create dialog.
-    var showCreateCategoryDialog by remember { mutableStateOf(false) }
 
     val isList = displayMode == LibraryDisplayMode.LIST
     val collapsed = if (!isList) {
@@ -161,8 +178,10 @@ fun LibraryScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             // ── Collapsing header (pinned) ──
-            CollapsingHeader(
+            // D-140: shows a subtitle "{n} in Library" when showTotalEntries is on.
+            LibraryHeader(
                 title = "Library",
+                subtitle = if (showTotalEntries) "$totalEntries in Library" else null,
                 collapsed = collapsed,
                 actions = {
                     HeaderActionGroup(
@@ -202,13 +221,30 @@ fun LibraryScreen(
                 }
             }
 
-            // ── Category tabs (D-138) ──
-            // Only show the row if there are 2+ categories. With only the
-            // permanent "Default" category the tabs add no value, so we hide
-            // them entirely (avoids "All + Default" being the only options).
-            if (categories.size >= 2) {
+            // ── Category tabs (D-138, D-140) ──
+            // Smart visibility rules:
+            //  - "All" tab only shows when 2+ categories have ≥1 item.
+            //  - "Default" (permanent) tab only shows when it has ≥1 item.
+            //  - Non-permanent categories always show (the user created them).
+            //  - No "+" button — categories are created from the details page
+            //    (long-press bookmark), not from the library page.
+            val categoriesWithItems = categories.count { (categoryCounts[it.id] ?: 0) > 0 }
+            val showAllTab = categoriesWithItems >= 2
+            val visibleCategories = categories.filter { cat ->
+                if (cat.isPermanent) {
+                    // Default — hide when empty.
+                    (categoryCounts[cat.id] ?: 0) > 0
+                } else {
+                    // User-created — always visible.
+                    true
+                }
+            }
+            if (visibleCategories.isNotEmpty()) {
                 CategoryTabsRow(
-                    categories = categories,
+                    categories = visibleCategories,
+                    categoryCounts = categoryCounts,
+                    showCounts = showCategoryCounts,
+                    showAllTab = showAllTab,
                     selectedCategoryId = selectedCategoryId,
                     onSelectCategory = viewModel::selectCategory,
                     onLongPressCategory = { category ->
@@ -217,7 +253,6 @@ fun LibraryScreen(
                             viewModel.showCategoryManagement(category)
                         }
                     },
-                    onAddCategory = { showCreateCategoryDialog = true },
                 )
             }
 
@@ -253,7 +288,7 @@ fun LibraryScreen(
                     }
 
                     is LibraryState.Success -> {
-                        if (s.anime.isEmpty()) {
+                        if (s.entries.isEmpty()) {
                             EmptyState(
                                 title = "No anime found",
                                 description = "Try a different search query.",
@@ -261,14 +296,14 @@ fun LibraryScreen(
                             )
                         } else if (!isList) {
                             LibraryGrid(
-                                anime = s.anime,
+                                entries = s.entries,
                                 gridState = gridState,
                                 columns = columns,
                                 titleLines = titleLines,
                                 onNavigateToDetails = onNavigateToDetails,
                             )
                         } else {
-                            LibraryList(s.anime, listState, onNavigateToDetails)
+                            LibraryList(s.entries, listState, onNavigateToDetails)
                         }
                     }
                 }
@@ -302,6 +337,7 @@ fun LibraryScreen(
                 scoreBadgePosition = scoreBadgePosition,
                 showContinueWatching = showContinueWatching,
                 showTotalEntries = showTotalEntries,
+                showCategoryCounts = showCategoryCounts,
                 sortType = sortType,
                 sortAscending = sortAscending,
                 onDisplayModeChange = viewModel::setDisplayMode,
@@ -312,6 +348,7 @@ fun LibraryScreen(
                 onScoreBadgePositionChange = viewModel::setScoreBadgePosition,
                 onShowContinueWatchingChange = viewModel::setShowContinueWatching,
                 onShowTotalEntriesChange = viewModel::setShowTotalEntries,
+                onShowCategoryCountsChange = viewModel::setShowCategoryCounts,
                 onTitleLinesChange = viewModel::setTitleLines,
                 onSortChange = viewModel::setSort,
                 onDismiss = { showSettingsSheet = false },
@@ -322,201 +359,162 @@ fun LibraryScreen(
         // categoryToManage is set by ViewModel.showCategoryManagement. For
         // permanent categories the long-press handler bails out early, so this
         // dialog only ever appears for user-created (non-permanent) categories.
+        // D-140: delete confirmation offers 3 options — Cancel, Delete (items
+        // removed), Move to Default (items moved to Default then category deleted).
         categoryToManage?.let { category ->
             CategoryManagementDialog(
                 category = category,
-                itemCount = (state as? LibraryState.Success)?.anime?.size ?: 0,
+                itemCount = (state as? LibraryState.Success)?.entries?.size ?: 0,
                 onRename = { newName ->
                     viewModel.renameCategory(category.id, newName)
                 },
                 onDelete = {
                     viewModel.deleteCategory(category.id)
                 },
-                onDismiss = viewModel::dismissCategoryManagement,
-            )
-        }
-
-        // ── "New category" dialog (+ pill) ──
-        if (showCreateCategoryDialog) {
-            CreateCategoryDialog(
-                onCreate = { name ->
-                    viewModel.createCategory(name)
-                    showCreateCategoryDialog = false
+                onDeleteMoveToDefault = {
+                    viewModel.deleteCategoryAndMoveToDefault(category.id)
                 },
-                onDismiss = { showCreateCategoryDialog = false },
+                onDismiss = viewModel::dismissCategoryManagement,
             )
         }
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Category tabs row (D-138) — horizontal pills + "+" add button
+//  Category tabs row (D-138, D-140) — text-based tabs with underline indicator
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Horizontal scrollable row of category pills, shown above the library grid.
+ * Horizontal scrollable row of category tabs, shown above the library grid.
  *
- * Layout: [All] [Category1] [Category2] ... [+]
+ * D-140: redesigned from bubbles/pills to a simple text-based tab style —
+ * matches the old project. Selected tab gets primary color + ExtraBold weight
+ * + a small underline indicator; unselected tabs use onSurfaceVariant + Medium.
  *
- * - The first pill "All" calls [onSelectCategory] with null.
- * - The selected pill has primary bg + onPrimary text; others use surfaceVariant.
- * - Long-pressing a category pill (not "All") fires [onLongPressCategory] —
- *   the caller decides whether to show the management dialog (permanent
- *   categories are skipped there).
- * - The trailing "+" pill opens the "new category" dialog via [onAddCategory].
+ * Layout: [All]? [Default]? [UserCat1] [UserCat2] ...
  *
- * CORE_RULES §22: scale animation on press for tactile feedback.
+ * - "All" tab only renders when [showAllTab] is true (caller decides — should
+ *   be true only when 2+ categories have items).
+ * - "All" calls [onSelectCategory] with null.
+ * - Long-pressing a non-"All" tab fires [onLongPressCategory] — the caller
+ *   decides whether to show the management dialog (permanent categories are
+ *   skipped there).
+ * - D-140: no trailing "+" pill — categories are created from the details
+ *   page (long-press bookmark), not from the library page.
+ * - D-140: optional item count next to the tab name when [showCounts] is true.
  */
 @Composable
 private fun CategoryTabsRow(
     categories: List<LibraryCategory>,
+    categoryCounts: Map<Long, Int>,
+    showCounts: Boolean,
+    showAllTab: Boolean,
     selectedCategoryId: Long?,
     onSelectCategory: (Long?) -> Unit,
     onLongPressCategory: (LibraryCategory) -> Unit,
-    onAddCategory: () -> Unit,
 ) {
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(vertical = 2.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        // ── "All" pill (null selection) ──
-        item(key = "all") {
-            CategoryPill(
-                label = "All",
-                isSelected = selectedCategoryId == null,
-                onClick = { onSelectCategory(null) },
-                onLongClick = null, // "All" cannot be managed.
-            )
+        // ── "All" tab (null selection) — only when 2+ categories have items ──
+        if (showAllTab) {
+            item(key = "all") {
+                CategoryTab(
+                    label = "All",
+                    isSelected = selectedCategoryId == null,
+                    onClick = { onSelectCategory(null) },
+                    onLongClick = null, // "All" cannot be managed.
+                )
+            }
         }
 
-        // ── One pill per category ──
+        // ── One tab per (already-filtered) category ──
         items(categories, key = { it.id }) { category ->
-            CategoryPill(
-                label = category.name,
+            val count = categoryCounts[category.id] ?: 0
+            val label = if (showCounts) "${category.name} ($count)" else category.name
+            CategoryTab(
+                label = label,
                 isSelected = selectedCategoryId == category.id,
                 onClick = { onSelectCategory(category.id) },
                 onLongClick = { onLongPressCategory(category) },
             )
         }
-
-        // ── "+" add new category pill ──
-        item(key = "add") {
-            AddCategoryPill(onClick = onAddCategory)
-        }
     }
 }
 
 /**
- * A single category "pill" — rounded Surface with primary bg when selected.
+ * A single text-based category tab with an underline indicator.
+ *
+ * - Selected: primary color, FontWeight.ExtraBold, 2dp primary underline.
+ * - Unselected: onSurfaceVariant, FontWeight.Medium, transparent underline.
  *
  * Long-press is only wired up when [onLongClick] is non-null (i.e. for real
- * categories, not the "All" pill).
+ * categories, not the "All" tab). No background — just text + underline,
+ * matching the old project's tab style.
  */
 @Composable
-private fun CategoryPill(
+private fun CategoryTab(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.94f else 1f,
-        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
-        label = "catPillScale",
-    )
-
-    Surface(
-        color = if (isSelected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(50),
+    Column(
         modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,
                 onLongClick = onLongClick,
-            ),
+            )
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = label,
             fontFamily = RobotoFamily,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+            color = if (isSelected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        // ── Underline indicator (animated alpha via the isSelected state) ──
+        Box(
+            modifier = Modifier
+                .width(20.dp)
+                .height(2.dp)
+                .background(
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else Color.Transparent,
+                    shape = CircleShape,
+                ),
         )
     }
 }
 
-/**
- * The trailing "+" pill — opens the new-category dialog.
- */
-@Composable
-private fun AddCategoryPill(onClick: () -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.94f else 1f,
-        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
-        label = "addCatPillScale",
-    )
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(50),
-        modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-            ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Add,
-                contentDescription = "New category",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(14.dp),
-            )
-            Text(
-                text = "New",
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
 // ════════════════════════════════════════════════════════════════════════════
-//  Category management + create dialogs (D-138)
+//  Category management dialog (D-138, D-140)
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
  * Long-press category tab → management dialog with rename/delete options.
  *
  * Has 3 internal modes:
- *  - MENU: two rows (Rename / Delete) with icons.
+ *  - MENU: two rows (Rename / Delete) with icons. Dismissed via "Cancel".
  *  - RENAME: OutlinedTextField pre-filled with current name + Save button.
- *  - DELETE_CONFIRM: warning text + Delete confirmation button.
+ *  - DELETE_CONFIRM: warning text + 3 buttons — Cancel / Delete (items removed)
+ *    / Move to Default (items moved to Default then category deleted).
  *
  * Switching modes is local UI state; the dialog itself stays open until the
- * caller dismisses it (via [onRename]/[onDelete]/[onDismiss]).
+ * caller dismisses it (via [onRename]/[onDelete]/[onDeleteMoveToDefault]/[onDismiss]).
  */
 @Composable
 private fun CategoryManagementDialog(
@@ -524,6 +522,7 @@ private fun CategoryManagementDialog(
     itemCount: Int,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
+    onDeleteMoveToDefault: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var mode by remember { mutableStateOf(ManageMode.MENU) }
@@ -595,7 +594,9 @@ private fun CategoryManagementDialog(
                             if (itemCount > 0) {
                                 append("\n\n$itemCount item")
                                 if (itemCount > 1) append("s")
-                                append(" in this category will be removed from it.")
+                                append(" in this category. Choose:")
+                                append("\n• Delete — items are removed from the library.")
+                                append("\n• Move to Default — items are moved to Default.")
                             }
                         },
                         fontFamily = RobotoFamily,
@@ -606,6 +607,9 @@ private fun CategoryManagementDialog(
                 }
             }
         },
+        // ── confirmButton: mode-dependent primary action ──
+        // DELETE_CONFIRM packs two buttons (Delete + Move to Default) into a Row
+        // so the user can choose between hard-delete and migrate-to-Default.
         confirmButton = {
             when (mode) {
                 ManageMode.MENU -> TextButton(onClick = onDismiss) {
@@ -637,14 +641,25 @@ private fun CategoryManagementDialog(
                     )
                 }
 
-                ManageMode.DELETE_CONFIRM -> TextButton(onClick = onDelete) {
-                    Text(
-                        "Delete",
-                        fontFamily = RobotoFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                ManageMode.DELETE_CONFIRM -> Row {
+                    TextButton(onClick = onDelete) {
+                        Text(
+                            "Delete",
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    TextButton(onClick = onDeleteMoveToDefault) {
+                        Text(
+                            "Move to Default",
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
         },
@@ -708,81 +723,90 @@ private fun ManagementOptionRow(
 /** Internal mode for [CategoryManagementDialog]. */
 private enum class ManageMode { MENU, RENAME, DELETE_CONFIRM }
 
+// ── LibraryHeader: collapsing header with optional subtitle ──
+
 /**
- * "New category" dialog — single OutlinedTextField + Create button.
+ * Library-specific collapsing header — same animated-collapse behavior as the
+ * shared [CollapsingHeader] component, but adds an optional [subtitle] line
+ * UNDER the title (e.g. "{n} in Library").
+ *
+ * D-140: the shared CollapsingHeader has no subtitle slot, and we can't modify
+ * the design-system module from here, so this local composable replicates the
+ * collapsing animation (32sp → 24sp, animated paddingTop/Bottom) and tacks on
+ * a 12sp Medium subtitle underneath when non-null.
+ *
+ * - Title: RobotoFamily, ExtraBold, onBackground, animated font size.
+ * - Subtitle: RobotoFamily, Medium, onSurfaceVariant, 12sp.
+ * - Actions slot sits to the right (SpaceBetween) — same as CollapsingHeader.
  */
 @Composable
-private fun CreateCategoryDialog(
-    onCreate: (String) -> Unit,
-    onDismiss: () -> Unit,
+private fun LibraryHeader(
+    title: String,
+    subtitle: String?,
+    collapsed: Boolean,
+    actions: @Composable RowScope.() -> Unit = {},
 ) {
-    var name by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Text(
-                text = "New category",
-                fontFamily = RobotoFamily,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-        },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                placeholder = {
-                    Text(
-                        "Category name",
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                    )
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = TextStyle(
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                ),
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val trimmed = name.trim()
-                    if (trimmed.isNotEmpty()) onCreate(trimmed)
-                },
-                enabled = name.trim().isNotEmpty(),
-            ) {
-                Text(
-                    "Create",
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (name.trim().isNotEmpty())
-                        MaterialTheme.colorScheme.primary
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(
-                    "Cancel",
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
+    val targetFontSize = if (collapsed) 24f else 32f
+    val fontSize by animateFloatAsState(
+        targetValue = targetFontSize,
+        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+        label = "libHeaderFontSize",
     )
+
+    val targetPaddingTop = if (collapsed) 2f else 8f
+    val paddingTop by animateFloatAsState(
+        targetValue = targetPaddingTop,
+        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+        label = "libHeaderPaddingTop",
+    )
+    val targetPaddingBottom = if (collapsed) 0f else 4f
+    val paddingBottom by animateFloatAsState(
+        targetValue = targetPaddingBottom,
+        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+        label = "libHeaderPaddingBottom",
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = paddingTop.dp,
+                    bottom = paddingBottom.dp,
+                )
+                .statusBarsPadding(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontFamily = RobotoFamily,
+                    fontSize = fontSize.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.02).sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+            actions()
+        }
+    }
 }
 
 // ── HeaderActionGroup: combined search + settings pill container ──
@@ -887,6 +911,7 @@ private fun CustomizeSheet(
     scoreBadgePosition: BadgePosition,
     showContinueWatching: Boolean,
     showTotalEntries: Boolean,
+    showCategoryCounts: Boolean,
     sortType: LibrarySortType,
     sortAscending: Boolean,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
@@ -897,6 +922,7 @@ private fun CustomizeSheet(
     onScoreBadgePositionChange: (BadgePosition) -> Unit,
     onShowContinueWatchingChange: (Boolean) -> Unit,
     onShowTotalEntriesChange: (Boolean) -> Unit,
+    onShowCategoryCountsChange: (Boolean) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
     onSortChange: (LibrarySortType, Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -1012,6 +1038,7 @@ private fun CustomizeSheet(
                         scoreBadgePosition = scoreBadgePosition,
                         showContinueWatching = showContinueWatching,
                         showTotalEntries = showTotalEntries,
+                        showCategoryCounts = showCategoryCounts,
                         onDisplayModeChange = onDisplayModeChange,
                         onColumnsChange = onColumnsChange,
                         onTitleLinesChange = onTitleLinesChange,
@@ -1021,6 +1048,7 @@ private fun CustomizeSheet(
                         onScoreBadgePositionChange = onScoreBadgePositionChange,
                         onShowContinueWatchingChange = onShowContinueWatchingChange,
                         onShowTotalEntriesChange = onShowTotalEntriesChange,
+                        onShowCategoryCountsChange = onShowCategoryCountsChange,
                     )
                 }
             }
@@ -1109,6 +1137,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     scoreBadgePosition: BadgePosition,
     showContinueWatching: Boolean,
     showTotalEntries: Boolean,
+    showCategoryCounts: Boolean,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
@@ -1118,6 +1147,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     onScoreBadgePositionChange: (BadgePosition) -> Unit,
     onShowContinueWatchingChange: (Boolean) -> Unit,
     onShowTotalEntriesChange: (Boolean) -> Unit,
+    onShowCategoryCountsChange: (Boolean) -> Unit,
 ) {
     // ── Display mode (4-grid of visual cards) ──
     item { OptionLabel("Display Mode") }
@@ -1308,6 +1338,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
             label = "Show total entries in header",
             checked = showTotalEntries,
             onChange = onShowTotalEntriesChange,
+        )
+    }
+    item {
+        SwitchRow(
+            label = "Show category counts on tabs",
+            checked = showCategoryCounts,
+            onChange = onShowCategoryCountsChange,
         )
     }
 }
@@ -1565,11 +1602,11 @@ private fun SwitchRow(
 
 @Composable
 private fun LibraryGrid(
-    anime: List<AniListAnime>,
+    entries: List<LibraryEntry>,
     gridState: LazyGridState,
     columns: Int,
     titleLines: Int,
-    onNavigateToDetails: (Int) -> Unit,
+    onNavigateToDetails: (LibraryEntry) -> Unit,
 ) {
     LazyVerticalGrid(
         state = gridState,
@@ -1583,7 +1620,7 @@ private fun LibraryGrid(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(anime, key = { it.id }) { item ->
+        items(entries, key = { it.mainId }) { item ->
             LibraryGridCard(item, titleLines, onNavigateToDetails)
         }
     }
@@ -1591,9 +1628,9 @@ private fun LibraryGrid(
 
 @Composable
 private fun LibraryGridCard(
-    anime: AniListAnime,
+    anime: LibraryEntry,
     titleLines: Int,
-    onClick: (Int) -> Unit,
+    onClick: (LibraryEntry) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1610,13 +1647,13 @@ private fun LibraryGridCard(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onClick(anime.id) },
+                onClick = { onClick(anime) },
             ),
     ) {
         // Cover image — 2:3 aspect ratio
         AsyncImage(
             model = anime.coverUrl,
-            contentDescription = anime.displayName,
+            contentDescription = anime.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
@@ -1646,7 +1683,7 @@ private fun LibraryGridCard(
                     ),
             )
             Text(
-                text = anime.displayName,
+                text = anime.title,
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -1663,9 +1700,9 @@ private fun LibraryGridCard(
 
 @Composable
 private fun LibraryList(
-    anime: List<AniListAnime>,
+    entries: List<LibraryEntry>,
     listState: LazyListState,
-    onNavigateToDetails: (Int) -> Unit,
+    onNavigateToDetails: (LibraryEntry) -> Unit,
 ) {
     LazyColumn(
         state = listState,
@@ -1677,14 +1714,14 @@ private fun LibraryList(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(anime, key = { it.id }) { item ->
+        items(entries, key = { it.mainId }) { item ->
             LibraryListRow(item, onNavigateToDetails)
         }
     }
 }
 
 @Composable
-private fun LibraryListRow(anime: AniListAnime, onClick: (Int) -> Unit) {
+private fun LibraryListRow(anime: LibraryEntry, onClick: (LibraryEntry) -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -1701,7 +1738,7 @@ private fun LibraryListRow(anime: AniListAnime, onClick: (Int) -> Unit) {
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onClick(anime.id) },
+                onClick = { onClick(anime) },
             )
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1710,7 +1747,7 @@ private fun LibraryListRow(anime: AniListAnime, onClick: (Int) -> Unit) {
         // Cover thumbnail
         AsyncImage(
             model = anime.coverUrl,
-            contentDescription = anime.displayName,
+            contentDescription = anime.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .width(56.dp)
@@ -1721,7 +1758,7 @@ private fun LibraryListRow(anime: AniListAnime, onClick: (Int) -> Unit) {
         // Info
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                anime.displayName,
+                anime.title,
                 fontFamily = RobotoFamily,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,

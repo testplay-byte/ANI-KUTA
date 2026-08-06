@@ -137,12 +137,10 @@ fun CategoryPickerSheet(
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f),
                                 )
-                                if (category.isPermanent) {
-                                    Text(
-                                        text = "🔒",
-                                        fontSize = 11.sp,
-                                    )
-                                }
+                                // D-140: Removed the lock icon — it looked ugly.
+                                // The Default category is still permanent (can't be
+                                // deleted/renamed from the library page), but we
+                                // don't need to show a lock icon here.
                             }
                         }
                     }
