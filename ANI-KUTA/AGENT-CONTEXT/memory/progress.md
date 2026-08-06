@@ -352,3 +352,37 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 - User device testing.
 - Extension library entry 404 error (navigation issue — still pending).
 - Document data structures in DOCUMENTATION/database/.
+
+## Session web-f53f0459 (continued) — D-140: Library crash + 404 + live reload + category tabs
+
+### User testing feedback (Phase C round 3)
+- ✅ Cross-source dedup working (bookmark shows as saved from either entry point).
+- ❌ Library crash: `Key "0" was already used` — multiple extension-only entries with anilistId=0.
+- ❌ 404 error when opening extension-only content from library.
+- ❌ Library not updating live (needs app restart).
+- ❌ Data source selector disappears on reopen (only Refresh/Share shown).
+- ❌ Category tabs UI bad (bubbles, lock icon, "+" button).
+- ❌ Long-press category tab not working.
+- 📋 Category tabs smart features (Default hides when empty, All hides when 1 cat).
+- 📋 Library header should show total entries.
+- 📋 Delete category with move-to-default option.
+
+### Fixes implemented (D-140)
+1. **LibraryEntry** data class — uses mainId (stable UUID) as key. Fixes crash + 404.
+2. **LibraryViewModel** rewritten — builds LibraryEntry from content records.
+3. **LibraryScreen** rewritten — uses mainId as key, LibraryEntry for navigation, live reload via LaunchedEffect.
+4. **MainActivity** — navigation checks hasAniListId → AniList, else → Extension.
+5. **loadLinkedSource** — restores extensionBase from DB on reopen.
+6. **Category tabs** — smart features, text+underline style, no "+" button.
+7. **Long-press** — Rename / Delete (with Move to Default option).
+8. **Library header** — total entries subtitle.
+9. **CategoryPickerSheet** — removed lock icon.
+10. **New setting** — showCategoryCounts.
+
+### CI status
+- CI #201 GREEN.
+
+### What's next
+- User device testing.
+- Extension library entry source link restoration (when opening from library, episodes should load from the linked source).
+- Document data structures in DOCUMENTATION/database/.

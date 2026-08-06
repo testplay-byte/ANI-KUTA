@@ -961,3 +961,18 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User tested D-137/D-138 and reported: (1) extension anime not showing as saved after auto-link, (2) library crash with duplicate keys, (3) category picker should be a popup not bottom sheet, (4) data source selector only switches cover, (5) library page needs category tabs.
 - **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #199 green.
 - **Date:** Phase C (session web-f53f0459).
+
+### D-140 — Library crash + 404 + live reload + category tabs + data source selector restore
+- **What:** Fixed multiple issues from user testing:
+  1. **Library crash (Key "0" already used)**: Created `LibraryEntry` data class with `mainId` (stable UUID) as the key. LibraryViewModel builds `LibraryEntry` from content records. LibraryScreen uses `it.mainId` as the LazyGrid key (was `it.id` = anilistId, which was 0 for extension-only entries).
+  2. **404 error**: LibraryScreen's `onNavigateToDetails` now takes `LibraryEntry`. MainActivity checks `entry.hasAniListId` → navigate via AniList. If not → navigate via Extension (sourceId + animeUrl + title + coverUrl).
+  3. **Library live reload**: Added `LaunchedEffect(Unit) { viewModel.loadLibrary() }` in LibraryScreen.
+  4. **Data source selector disappearing on reopen**: `loadLinkedSource()` now restores `extensionBase` from the content database (`extension_detail` table). If not found, creates a minimal one + fetches full details in the background.
+  5. **Category tabs smart features**: "All" only shows if 2+ categories have items. "Default" only shows if it has items. No "+" button. Text+underline style (not bubbles). Optional category counts via `showCategoryCounts` setting.
+  6. **Long-press category tab**: Rename / Delete (with 3 options: Cancel / Delete / Move to Default). Default category: long-press does nothing.
+  7. **Library header**: Shows total entries count ("15 in Library") as subtitle.
+  8. **CategoryPickerSheet**: Removed lock icon. New category auto-selected.
+  9. **New settings toggle**: "Show category counts on tabs" in CustomizeSheet.
+- **Why:** User reported: library crash with extension-only entries, 404 error, library not updating live, data source selector disappearing on reopen, category tabs UI bad (bubbles), missing smart features, missing delete-with-move-to-default.
+- **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #201 green.
+- **Date:** Phase C (session web-f53f0459).
