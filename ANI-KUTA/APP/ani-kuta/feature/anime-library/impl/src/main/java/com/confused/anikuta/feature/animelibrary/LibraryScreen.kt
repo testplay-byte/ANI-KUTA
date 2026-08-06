@@ -1972,9 +1972,17 @@ private fun LibraryGridCard(
         label = "cardScale",
     )
 
+    // Fade unselected cards to 40% opacity while selection mode is active, so the
+    // selected items visually pop and the rest recede. Animated for a smooth fade.
+    val cardAlpha by animateFloatAsState(
+        targetValue = if (isSelectionMode && !isSelected) 0.4f else 1f,
+        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+        label = "cardAlpha",
+    )
+
     Box(
         modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = cardAlpha }
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(
                 interactionSource = interactionSource,
@@ -2120,10 +2128,18 @@ private fun LibraryListRow(
         label = "rowScale",
     )
 
+    // Fade unselected rows to 40% opacity while selection mode is active (mirrors
+    // the grid card behaviour for visual consistency).
+    val rowAlpha by animateFloatAsState(
+        targetValue = if (isSelectionMode && !isSelected) 0.4f else 1f,
+        animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
+        label = "rowAlpha",
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = rowAlpha }
             .clip(RoundedCornerShape(12.dp))
             .then(
                 if (isSelected) Modifier.background(
