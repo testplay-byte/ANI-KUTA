@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS anime_metadata_cache (
 
 -- ── episode_metadata_cache ────────────────────────────────────────────────
 -- Stores episode-level metadata per content.
-CREATE TABLE IF NOT EXISTS episode_metadata_cache (
+CREATE TABLE IF NOT EXISTS data_cache_episode (
     main_id TEXT NOT NULL,
     episode_number REAL NOT NULL,
     title TEXT,
@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS episode_metadata_cache (
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_cache_pk ON episode_metadata_cache(main_id, episode_number);
-CREATE INDEX IF NOT EXISTS idx_episode_cache_main ON episode_metadata_cache(main_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_data_cache_episode_pk ON data_cache_episode(main_id, episode_number);
+CREATE INDEX IF NOT EXISTS idx_data_cache_episode_main ON data_cache_episode(main_id);
 
 -- ── browse_cache ──────────────────────────────────────────────────────────
 -- Stores browse page sections (trending, popular, etc.).
@@ -69,24 +69,24 @@ deleteAnimeMetadata:
 DELETE FROM anime_metadata_cache WHERE main_id = :mainId;
 
 -- ============================================================================
--- Queries: episode_metadata_cache
+-- Queries: data_cache_episode
 -- ============================================================================
 getEpisodeMetadata:
-SELECT * FROM episode_metadata_cache WHERE main_id = :mainId
+SELECT * FROM data_cache_episode WHERE main_id = :mainId
 ORDER BY episode_number ASC;
 
 getEpisodeMetadataByNumber:
-SELECT * FROM episode_metadata_cache WHERE main_id = :mainId AND episode_number = :episodeNumber;
+SELECT * FROM data_cache_episode WHERE main_id = :mainId AND episode_number = :episodeNumber;
 
 upsertEpisodeMetadata:
-INSERT OR REPLACE INTO episode_metadata_cache(
+INSERT OR REPLACE INTO data_cache_episode(
     main_id, episode_number, title, description, thumbnail_url, air_date, fetched_at
 ) VALUES (
     :mainId, :episodeNumber, :title, :description, :thumbnailUrl, :airDate, :fetchedAt
 );
 
 deleteEpisodeMetadata:
-DELETE FROM episode_metadata_cache WHERE main_id = :mainId;
+DELETE FROM data_cache_episode WHERE main_id = :mainId;
 
 -- ============================================================================
 -- Queries: browse_cache
