@@ -111,6 +111,15 @@ class AnikutaApp : Application() {
         } catch (e: Exception) {
             Logger.e("AnikutaApp", e) { "Failed to seed content defaults" }
         }
+
+        // D.4: Set the Coil ImageLoader as the singleton (AFTER Koin starts).
+        try {
+            val imageLoader = org.koin.core.context.GlobalContext.get().get<coil3.ImageLoader>()
+            coil3.SingletonImageLoader.setSafe(imageLoader)
+            Logger.i("AnikutaApp") { "Coil ImageLoader set as singleton (500MB disk cache)" }
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to set Coil ImageLoader" }
+        }
     }
 
     companion object {
@@ -118,6 +127,9 @@ class AnikutaApp : Application() {
         private val appModule = module {
             // Network
             single<OkHttpClient> { HttpClientFactory().create() }
+
+            // D.4: Coil ImageLoader with 500MB disk cache (persistent)
+            single { ImageLoaderFactory.create(get(), get()) }
 
             // Database
             single<SqlDriver> { DatabaseDriverFactory(get()).create() }

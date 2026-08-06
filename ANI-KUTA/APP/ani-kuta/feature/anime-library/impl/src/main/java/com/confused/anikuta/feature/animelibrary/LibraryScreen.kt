@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -84,6 +85,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -173,6 +175,8 @@ fun LibraryScreen(
     val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
+    // D.5: refresh state for pull-to-refresh.
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     // D-138: category tabs state — list of categories, currently selected
     // category (null = "All"), and the category to show delete/rename dialog for.
@@ -207,6 +211,12 @@ fun LibraryScreen(
 
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+
+    // D.5: Pull-to-refresh state.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var pullDistance by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var isPulling by remember { mutableStateOf(false) }
+    val pullThreshold = 200f
 
     val isList = displayMode == LibraryDisplayMode.LIST
     val collapsed = if (!isList) {
@@ -425,7 +435,42 @@ fun LibraryScreen(
             }
 
             // ── Content ──
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    // D.5: Pull-to-refresh — detect drag down at the top.
+                    detectVerticalDragGestures(
+                        onDragStart = {
+                            val atTop = if (isList) {
+                                listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                            } else {
+                                gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0
+                            }
+                            if (atTop && !isSelectionMode) {
+                                pullDistance = 0f
+                                isPulling = true
+                            }
+                        },
+                        onDragEnd = {
+                            if (isPulling && pullDistance >= pullThreshold) {
+                                // Vibrate + trigger refresh.
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                    val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                                    vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+                                }
+                                viewModel.refreshLibrary()
+                            }
+                            isPulling = false
+                            pullDistance = 0f
+                        },
+                        onVerticalDrag = { _, dragAmount ->
+                            if (isPulling && dragAmount > 0) {
+                                pullDistance = (pullDistance + dragAmount).coerceIn(0f, pullThreshold * 1.5f)
+                            }
+                        },
+                    )
+                },
+            ) {
                 when (val s = state) {
                     is LibraryState.Loading -> Box(
                         modifier = Modifier.fillMaxSize(),
@@ -483,6 +528,39 @@ fun LibraryScreen(
                                 onLongClickEntry = onEntryLongClick,
                             )
                         }
+                    }
+                }
+
+                // D.5: Pull-to-refresh indicator.
+                if (isPulling && pullDistance > 0) {
+                    val pullProgress = (pullDistance / pullThreshold).coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = (pullDistance * 0.5f).dp)
+                            .size(36.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            progress = { pullProgress },
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(36.dp),
+                        )
+                    }
+                }
+                // D.5: Background refresh indicator.
+                if (isRefreshing && !isPulling) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp),
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
                 }
 

@@ -174,7 +174,7 @@ fun DetailsScreen(
                                 onDismissMenu = { showMenu = false },
                                 onRefresh = {
                                     showMenu = false
-                                    viewModel.refresh()
+                                    viewModel.refreshAll()
                                 },
                                 // Phase B: AniList link state + callbacks
                                 isExtensionEntry = anime.isFromExtension,

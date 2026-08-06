@@ -399,6 +399,27 @@ class LibraryViewModel(
         reloadFromCache()
     }
 
+    /** D.5: Whether a pull-to-refresh is in progress. */
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    /**
+     * D.5: Force-refresh the library from the network.
+     * Clears the AniList cache + re-fetches all entries.
+     * Called by pull-to-refresh.
+     */
+    fun refreshLibrary() {
+        _isRefreshing.value = true
+        clearCache()
+        loadLibrary()
+        viewModelScope.launch {
+            // Wait a moment for loadLibrary to finish, then clear the refresh state.
+            kotlinx.coroutines.delay(500)
+            _isRefreshing.value = false
+            Logger.i(TAG) { "Library refresh complete" }
+        }
+    }
+
     fun showCategoryManagement(category: LibraryCategory) {
         _categoryToManage.value = category
     }

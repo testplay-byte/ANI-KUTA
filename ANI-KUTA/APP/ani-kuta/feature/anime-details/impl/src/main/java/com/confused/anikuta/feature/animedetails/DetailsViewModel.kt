@@ -310,16 +310,72 @@ class DetailsViewModel(
     }
 
     /**
-     * D-141: Refresh the current anime's data.
-     * Re-fetches from the original source (AniList or extension).
-     * Clears the AniList cache for this entry + re-fetches.
+     * D.3: Refresh stage 1 — refresh episodes list only (from extension source).
+     * Only fetches the episode list from the extension. Does NOT touch metadata.
+     * If new episodes are found, auto-fetch their metadata.
      */
-    fun refresh() {
+    fun refreshEpisodesList() {
         val anime = (_state.value as? DetailsState.Success)?.anime ?: return
-        Logger.i(TAG) { "Refreshing: ${anime.displayName}" }
+        val sourceId = anime.sourceId ?: run {
+            Logger.w(TAG) { "refreshEpisodesList: no sourceId" }
+            return
+        }
+        val animeUrl = anime.animeUrl ?: run {
+            Logger.w(TAG) { "refreshEpisodesList: no animeUrl" }
+            return
+        }
+        Logger.i(TAG) { "D.3 Stage 1: Refreshing episodes list for ${anime.displayName}" }
+        val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource ?: run {
+            Logger.w(TAG) { "refreshEpisodesList: source not found" }
+            return
+        }
+        val animeTitle = anime.displayName
+        viewModelScope.launch {
+            try {
+                val sAnime = eu.kanade.tachiyomi.animesource.model.SAnime.create().apply {
+                    url = animeUrl
+                    title = animeTitle
+                    initialized = false
+                }
+                val episodes = withContext(Dispatchers.IO) { source.getEpisodeList(sAnime) }
+                Logger.i(TAG) { "D.3 Stage 1: Fetched ${episodes.size} episodes" }
+                val sorted = episodes.sortedByDescending { it.episode_number }
+                _episodeState.value = if (episodes.isEmpty()) EpisodeState.Empty else EpisodeState.Loaded(sorted)
+
+                // If we have an anilistId, auto-fetch episode metadata for new episodes.
+                val anilistId = anime.anilistId
+                if (anilistId != null && anilistId > 0 && episodes.isNotEmpty()) {
+                    val malId = (_state.value as? DetailsState.Success)?.anime?.idMal
+                    viewModelScope.launch {
+                        try {
+                            val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
+                                anilistId = anilistId,
+                                malId = malId,
+                                episodeCount = episodes.size,
+                            )
+                            _episodeMetadata.value = metadata
+                            Logger.i(TAG) { "D.3 Stage 1: Auto-fetched episode metadata" }
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "D.3 Stage 1: Episode metadata fetch failed: ${e.message}" }
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                Logger.e(TAG, e) { "D.3 Stage 1: Episodes refresh failed: ${e.message}" }
+            }
+        }
+    }
+
+    /**
+     * D.3: Refresh stage 2 — refresh metadata only (from data source).
+     * Only fetches metadata (synopsis, score, etc.) from AniList/extension.
+     * Does NOT touch the episodes list.
+     */
+    fun refreshMetadata() {
+        val anime = (_state.value as? DetailsState.Success)?.anime ?: return
+        Logger.i(TAG) { "D.3 Stage 2: Refreshing metadata for ${anime.displayName}" }
 
         if (anime.anilistId != null) {
-            // AniList entry — re-fetch from AniList.
             val anilistId = anime.anilistId!!
             viewModelScope.launch {
                 try {
@@ -329,13 +385,33 @@ class DetailsViewModel(
                         (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                             ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                     )
-                    Logger.i(TAG) { "Refreshed AniList data for $anilistId" }
+                    // D.1: Update the cache.
+                    val mainId = currentMainId
+                    if (mainId != null) {
+                        dataCacheRepository.upsertAnimeMetadata(
+                            com.confused.anikuta.core.datacache.CachedAnimeMetadata(
+                                mainId = mainId,
+                                title = fresh.displayName,
+                                description = fresh.description,
+                                coverUrl = fresh.coverUrl,
+                                bannerUrl = fresh.bannerImage,
+                                score = fresh.averageScore,
+                                episodes = fresh.episodes,
+                                season = fresh.season,
+                                seasonYear = fresh.seasonYear,
+                                status = fresh.status,
+                                genres = fresh.genres?.joinToString(", "),
+                                sourceType = "anilist",
+                                fetchedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                    Logger.i(TAG) { "D.3 Stage 2: Refreshed AniList metadata" }
                 } catch (e: Exception) {
-                    Logger.e(TAG, e) { "Refresh failed: ${e.message}" }
+                    Logger.e(TAG, e) { "D.3 Stage 2: Metadata refresh failed: ${e.message}" }
                 }
             }
         } else if (anime.sourceId != null && anime.animeUrl != null) {
-            // Extension entry — re-fetch from the extension.
             val sourceId = anime.sourceId!!
             val animeUrl = anime.animeUrl!!
             viewModelScope.launch {
@@ -349,14 +425,62 @@ class DetailsViewModel(
                             (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                 ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
                         )
-                        Logger.i(TAG) { "Refreshed extension data for ${anime.displayName}" }
                     }
+                    Logger.i(TAG) { "D.3 Stage 2: Refreshed extension metadata" }
                 } catch (e: Exception) {
-                    Logger.e(TAG, e) { "Extension refresh failed: ${e.message}" }
+                    Logger.e(TAG, e) { "D.3 Stage 2: Extension metadata refresh failed: ${e.message}" }
                 }
             }
         }
     }
+
+    /**
+     * D.3: Refresh stage 3 — refresh ALL (episodes + metadata + cover images).
+     * This is the full refresh. Also called by the three-dot menu "Refresh" button.
+     */
+    fun refreshAll() {
+        Logger.i(TAG) { "D.3 Stage 3: Full refresh" }
+        refreshMetadata()
+        refreshEpisodesList()
+    }
+
+    /** Refresh state for the D.3 multi-stage refresh UI. */
+    private val _refreshState = MutableStateFlow<RefreshState>(RefreshState.Idle)
+    val refreshState: StateFlow<RefreshState> = _refreshState.asStateFlow()
+
+    /** Called by the DetailsScreen when the user scrolls past a refresh threshold. */
+    fun setRefreshStage(stage: RefreshStage) {
+        _refreshState.value = RefreshState.StageReached(stage)
+    }
+
+    /** Called when the user releases at a refresh threshold. */
+    fun executeRefresh(stage: RefreshStage) {
+        _refreshState.value = RefreshState.Refreshing(stage)
+        when (stage) {
+            RefreshStage.EPISODES -> {
+                refreshEpisodesList()
+                _refreshState.value = RefreshState.Idle
+            }
+            RefreshStage.METADATA -> {
+                refreshMetadata()
+                _refreshState.value = RefreshState.Idle
+            }
+            RefreshStage.ALL -> {
+                refreshAll()
+                _refreshState.value = RefreshState.Idle
+            }
+        }
+    }
+
+    fun clearRefreshState() {
+        _refreshState.value = RefreshState.Idle
+    }
+
+    /**
+     * D-141: Refresh the current anime's data.
+     * Delegates to [refreshAll] (stage 3 — full refresh).
+     */
+    fun refresh() = refreshAll()
 
     // ── Load from Extension (Phase A + Phase B auto-link) ──
 
@@ -1351,6 +1475,22 @@ sealed interface EpisodeState {
     data object Empty : EpisodeState
     data class Loaded(val episodes: List<SEpisode>) : EpisodeState
     data class Error(val message: String) : EpisodeState
+}
+
+// ── D.3: Multi-stage refresh types ──
+
+/** The three refresh stages (triggered by scroll position). */
+enum class RefreshStage(val label: String) {
+    EPISODES("Refresh episodes list"),
+    METADATA("Refresh metadata"),
+    ALL("Refresh all"),
+}
+
+/** State of the multi-stage refresh. */
+sealed interface RefreshState {
+    data object Idle : RefreshState
+    data class StageReached(val stage: RefreshStage) : RefreshState
+    data class Refreshing(val stage: RefreshStage) : RefreshState
 }
 
 /** Video resolution state (for the resolver sheet). */

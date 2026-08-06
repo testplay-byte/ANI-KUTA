@@ -1,7 +1,12 @@
 package com.confused.anikuta.feature.animebrowse
 
+import android.os.Build
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -12,27 +17,31 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,22 +56,14 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Browse screen — the home tab.
+ * Browse screen — the home tab (Phase D.2).
  *
- * Shows a grid of trending anime from AniList. Tapping a card navigates to Details.
+ * D.2: Cache-first — reads from browse_cache → displays instantly.
+ * Pull-to-refresh: drag down at the top → vibration → release → refreshes.
+ * 6-hour auto-update: checked on load (homepage only).
  *
- * Layout (matches Library pattern):
- * 1. CollapsingHeader "Browse" (pinned, shrinks on scroll).
- * 2. LazyVerticalGrid of trending anime cards.
- * 3. ScrollBlurOverlay at the header's bottom edge.
- *
- * CORE_RULES §22: smooth animations — cards scale on press, no ripple,
- *                 header collapses with 300ms FastOutSlowInEasing.
- * CORE_RULES §23: reactive state — UI updates when data loads.
- * DESIGN-LANGUAGE.md: lime accent, warm darks, 16dp rounded corners.
- *
- * Customizable: grid columns, padding, card aspect ratio are all parameters
- * that can be made user-configurable in the future (D-037).
+ * CORE_RULES §22: smooth animations.
+ * CORE_RULES §23: reactive state.
  */
 @Composable
 fun BrowseScreen(
@@ -70,16 +71,61 @@ fun BrowseScreen(
     viewModel: BrowseViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
     val gridState = rememberLazyGridState()
     val collapsed = gridState.firstVisibleItemIndex > 0 ||
         gridState.firstVisibleItemScrollOffset > 20
 
+    // D.2: Pull-to-refresh state.
+    val context = LocalContext.current
+    var pullDistance by remember { mutableFloatStateOf(0f) }
+    var isPulling by remember { mutableStateOf(false) }
+    val pullThreshold = 200f // pixels to trigger refresh
+
+    // Smooth animation for the pull indicator.
+    val pullProgress by animateFloatAsState(
+        targetValue = (pullDistance / pullThreshold).coerceIn(0f, 1f),
+        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
+        label = "pullProgress",
+    )
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ── Pinned collapsing header (user feedback: Browse needs a heading) ──
             CollapsingHeader(title = "Browse", collapsed = collapsed)
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragStart = {
+                                // Only allow pull-to-refresh when at the top of the grid.
+                                if (gridState.firstVisibleItemIndex == 0 &&
+                                    gridState.firstVisibleItemScrollOffset == 0
+                                ) {
+                                    isPulling = true
+                                }
+                            },
+                            onDragEnd = {
+                                if (isPulling && pullDistance >= pullThreshold) {
+                                    // Vibrate + trigger refresh.
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+                                        vibrator.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+                                    }
+                                    viewModel.refresh()
+                                }
+                                isPulling = false
+                                pullDistance = 0f
+                            },
+                            onVerticalDrag = { _, dragAmount ->
+                                if (isPulling && dragAmount > 0) {
+                                    pullDistance = (pullDistance + dragAmount).coerceIn(0f, pullThreshold * 1.5f)
+                                }
+                            },
+                        )
+                    },
+            ) {
                 when (val s = state) {
                     is BrowseState.Loading -> LoadingScreen()
                     is BrowseState.Error -> ErrorScreen(s.message, viewModel::loadTrending)
@@ -88,7 +134,39 @@ fun BrowseScreen(
                     }
                 }
 
-                // ── Scroll blur (fades in when content scrolls under header) ──
+                // D.2: Pull-to-refresh indicator.
+                if (isPulling && pullDistance > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = (pullDistance * 0.5f).dp)
+                            .size(36.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            progress = { pullProgress },
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(36.dp),
+                        )
+                    }
+                }
+
+                // D.2: Background refresh indicator (subtle, when auto-updating).
+                if (isRefreshing && !isPulling) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+
                 ScrollBlurOverlay(
                     scrollOffset = {
                         if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
@@ -112,10 +190,10 @@ private fun AnimeGrid(
         columns = GridCells.Fixed(2),
         state = gridState,
         contentPadding = PaddingValues(
-            start = 12.dp,   // Reduced from 16dp (user feedback: too much padding)
+            start = 12.dp,
             end = 12.dp,
             top = 12.dp,
-            bottom = 90.dp,   // Space for the floating bottom nav
+            bottom = 90.dp,
         ),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -129,7 +207,6 @@ private fun AnimeGrid(
 
 @Composable
 private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
-    // No ripple — clean press animation instead (user feedback)
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -144,11 +221,10 @@ private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
             .clip(RoundedCornerShape(16.dp))
             .clickable(
                 interactionSource = interactionSource,
-                indication = null, // No ripple
+                indication = null,
                 onClick = { onClick(anime) },
             ),
     ) {
-        // Cover image — 2:3 aspect ratio (standard anime poster)
         AsyncImage(
             model = anime.coverUrl,
             contentDescription = anime.displayName,
@@ -159,7 +235,6 @@ private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
                 .clip(RoundedCornerShape(16.dp)),
         )
 
-        // Title — use onBackground (NOT default black) so it's visible on dark theme
         Text(
             text = anime.displayName,
             style = MaterialTheme.typography.bodyMedium,
@@ -171,13 +246,12 @@ private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
             modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
         )
 
-        // Score — lime accent (DESIGN-LANGUAGE.md), properly formatted
         anime.averageScore?.let { score ->
             Text(
                 text = "★ ${score}",
                 style = MaterialTheme.typography.labelSmall,
                 fontFamily = RobotoFamily,
-                color = MaterialTheme.colorScheme.primary, // Lime accent
+                color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(start = 2.dp, top = 2.dp),
             )
