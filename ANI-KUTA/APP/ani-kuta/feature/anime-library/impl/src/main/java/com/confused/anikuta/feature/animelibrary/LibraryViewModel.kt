@@ -359,6 +359,7 @@ class LibraryViewModel(
                                 ),
                             )
                         }
+                    }
                 }
 
                 if (entries.isEmpty()) {
