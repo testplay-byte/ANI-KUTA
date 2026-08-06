@@ -241,8 +241,9 @@ class DetailsViewModel(
             try {
                 // D.1: Check the local data cache first — if cached, display instantly.
                 val cachedMainId = contentRepository.getContentByAniListId(animeId)?.mainId
+                var cachedMeta: com.confused.anikuta.core.datacache.CachedAnimeMetadata? = null
                 if (cachedMainId != null) {
-                    val cachedMeta = dataCacheRepository.getAnimeMetadata(cachedMainId)
+                    cachedMeta = dataCacheRepository.getAnimeMetadata(cachedMainId)
                     if (cachedMeta != null) {
                         Logger.i(TAG) { "Loaded from cache: ${cachedMeta.title}" }
                         anilistBase = com.confused.anikuta.core.common.model.UnifiedAnime(
