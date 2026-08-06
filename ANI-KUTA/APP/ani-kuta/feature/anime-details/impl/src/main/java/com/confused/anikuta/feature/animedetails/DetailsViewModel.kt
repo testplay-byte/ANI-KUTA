@@ -551,12 +551,114 @@ class DetailsViewModel(
                     // ── Phase B: Kick off auto-link (non-blocking) ──
                     performAutoLink(sourceId, animeUrl, unifiedAnime)
                 } else {
-                    _state.value = DetailsState.Error("Failed to load extension details")
+                    // D-147: Extension fetch returned null — try cached data.
+                    tryCachedExtensionData(sourceId, animeUrl, title, thumbnailUrl)
                 }
             } catch (e: Exception) {
-                Logger.e(TAG, e) { "Extension details failed: ${e.message}" }
-                _state.value = DetailsState.Error(e.message ?: "Unknown error")
+                // D-147: Network failed (offline) — try cached data.
+                Logger.w(TAG) { "Extension fetch failed (offline?): ${e.message}" }
+                tryCachedExtensionData(sourceId, animeUrl, title, thumbnailUrl)
             }
+        }
+    }
+
+    /**
+     * D-147: Fallback when the extension fetch fails (offline).
+     * Tries to load from the content database (extension_detail + anime_metadata_cache).
+     */
+    private suspend fun tryCachedExtensionData(
+        sourceId: Long,
+        animeUrl: String,
+        title: String,
+        thumbnailUrl: String?,
+    ) {
+        // Check if we have a content record for this extension entry.
+        val existingContent = contentRepository.getContentByExtension(sourceId, animeUrl)
+        if (existingContent != null) {
+            Logger.i(TAG) { "Found cached content for extension: ${existingContent.title}" }
+            currentMainId = existingContent.mainId
+
+            // Restore extension detail from DB.
+            val extDetail = contentRepository.getExtensionDetail(existingContent.mainId)
+            if (extDetail != null) {
+                extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
+                    title = existingContent.title,
+                    description = extDetail.description,
+                    genres = extDetail.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                    status = extDetail.status,
+                    author = extDetail.author,
+                    artist = extDetail.artist,
+                    coverUrl = extDetail.thumbnailUrl ?: thumbnailUrl,
+                    sourceId = extDetail.sourceId,
+                    sourceName = null,
+                    animeUrl = extDetail.animeUrl,
+                    entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
+                )
+            } else {
+                extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
+                    title = title,
+                    coverUrl = thumbnailUrl,
+                    sourceId = sourceId,
+                    animeUrl = animeUrl,
+                    entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
+                )
+            }
+            remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
+            refreshContentAndLibraryStatus(existingContent.mainId)
+
+            // Try to load cached episodes.
+            val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
+            if (source != null) {
+                _linkedSource.value = LinkedSource(sourceId, source.name, animeUrl)
+                fetchEpisodes(source, animeUrl, title)
+            } else {
+                // Source not available — try cached episodes directly.
+                val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(existingContent.mainId)
+                if (cachedEpisodes.isNotEmpty()) {
+                    val episodes = cachedEpisodes.map { meta ->
+                        SEpisode.create().apply {
+                            url = animeUrl
+                            episode_number = meta.episodeNumber
+                            name = meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
+                            date_upload = meta.airDate ?: 0L
+                        }
+                    }.sortedByDescending { it.episode_number }
+                    _episodeState.value = EpisodeState.Loaded(episodes)
+                    Logger.i(TAG) { "Loaded ${episodes.size} episodes from cache (offline)" }
+                } else {
+                    _episodeState.value = EpisodeState.Error("No cached episodes available offline")
+                }
+            }
+
+            // Check if we also have AniList data cached.
+            val anilistDetail = contentRepository.getAniListDetail(existingContent.mainId)
+            if (anilistDetail != null) {
+                val cachedMeta = dataCacheRepository.getAnimeMetadata(existingContent.mainId)
+                if (cachedMeta != null) {
+                    anilistBase = com.confused.anikuta.core.common.model.UnifiedAnime(
+                        title = cachedMeta.title,
+                        coverUrl = cachedMeta.coverUrl,
+                        bannerUrl = cachedMeta.bannerUrl,
+                        description = cachedMeta.description,
+                        genres = cachedMeta.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                        status = cachedMeta.status,
+                        episodes = cachedMeta.episodes,
+                        averageScore = cachedMeta.score,
+                        season = cachedMeta.season,
+                        seasonYear = cachedMeta.seasonYear,
+                        anilistId = anilistDetail.anilistId,
+                        entryMode = com.confused.anikuta.core.common.model.EntryMode.ANILIST,
+                    )
+                    remergeBases(
+                        (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                            ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                    )
+                }
+            }
+        } else {
+            // No cached data at all — show error.
+            Logger.w(TAG) { "No cached data for extension: $sourceId/$animeUrl" }
+            _state.value = DetailsState.Error("Failed to load extension details (offline)")
         }
     }
 
@@ -1287,22 +1389,52 @@ class DetailsViewModel(
     private fun fetchEpisodes(source: AnimeCatalogueSource, animeUrl: String, animeTitle: String) {
         _episodeState.value = EpisodeState.Loading
         viewModelScope.launch {
+            // D-147: Check the local cache first — if episodes are cached, display instantly.
+            val mainId = currentMainId
+            if (mainId != null) {
+                val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(mainId)
+                if (cachedEpisodes.isNotEmpty()) {
+                    Logger.i(TAG) { "Loaded ${cachedEpisodes.size} episodes from cache" }
+                    // Reconstruct SEpisode objects from cached metadata.
+                    val episodes = cachedEpisodes.map { meta ->
+                        SEpisode.create().apply {
+                            url = animeUrl // We don't cache the episode URL separately.
+                            episode_number = meta.episodeNumber
+                            name = meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
+                            date_upload = meta.airDate ?: 0L
+                        }
+                    }.sortedByDescending { it.episode_number }
+                    _episodeState.value = EpisodeState.Loaded(episodes)
+
+                    // Also restore episode metadata map.
+                    val metadataMap = cachedEpisodes.associate { meta ->
+                        meta.episodeNumber.toInt() to com.confused.anikuta.core.metadata.EpisodeMetadata(
+                            episodeKey = mainId + ":" + meta.episodeNumber.toInt(),
+                            number = meta.episodeNumber.toDouble(),
+                            title = meta.title,
+                            thumbnailUrl = meta.thumbnailUrl,
+                            description = meta.description,
+                            airDate = meta.airDate,
+                        )
+                    }
+                    _episodeMetadata.value = metadataMap
+                    Logger.i(TAG) { "Episode metadata restored from cache: ${metadataMap.size} entries" }
+
+                    // Don't re-fetch from network — cache is sufficient.
+                    // User can manually refresh via the three-dot menu.
+                    return@launch
+                }
+            }
+
+            // No cache — fetch from network.
             try {
                 Logger.i(TAG) { "Fetching episodes from ${source.name} for $animeUrl (title: $animeTitle)" }
-                // CRITICAL: SAnime.title is lateinit — MUST be set before passing to
-                // getEpisodeList. Extensions may read sAnime.title to construct API URLs.
                 val sAnime = SAnime.create().apply {
                     url = animeUrl
                     title = animeTitle
                     initialized = false
                 }
 
-                // CRITICAL: Call getEpisodeList (suspend), NOT fetchEpisodeList (Observable).
-                // Extensions like AniKotoS override getEpisodeList (the suspend version) to
-                // use a WebView-based fetch. If we call fetchEpisodeList().awaitSingle(), the
-                // DEFAULT AnimeHttpSource.fetchEpisodeList is used instead, which builds
-                // `baseUrl + anime.url` (missing "/" → UnknownHostException).
-                // The old project calls source.getEpisodeList(sAnime) directly.
                 val episodes = withContext(Dispatchers.IO) {
                     source.getEpisodeList(sAnime)
                 }
@@ -1310,14 +1442,29 @@ class DetailsViewModel(
                 _episodeState.value = if (episodes.isEmpty()) {
                     EpisodeState.Empty
                 } else {
-                    // Sort descending (newest first) per D-056.
                     val sorted = episodes.sortedByDescending { it.episode_number }
                     EpisodeState.Loaded(sorted)
                 }
 
+                // D-147: Cache the episode list locally.
+                if (mainId != null && episodes.isNotEmpty()) {
+                    val now = System.currentTimeMillis()
+                    val cachedList = episodes.map { ep ->
+                        com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                            mainId = mainId,
+                            episodeNumber = ep.episode_number,
+                            title = ep.name,
+                            description = ep.summary,
+                            thumbnailUrl = null, // Will be filled by episode metadata fetcher.
+                            airDate = if (ep.date_upload > 0) ep.date_upload else null,
+                            fetchedAt = now,
+                        )
+                    }
+                    dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
+                    Logger.i(TAG) { "Cached ${episodes.size} episodes locally" }
+                }
+
                 // Fetch episode metadata (titles, thumbnails, descriptions, dates).
-                // Uses Anikage.cc (primary), Jikan/MAL (secondary), AniList streaming (tertiary).
-                // Runs in parallel — doesn't block the episode list display.
                 val animeId = currentAnimeId
                 val malId = (_state.value as? DetailsState.Success)?.anime?.idMal
                 if (animeId > 0 && episodes.isNotEmpty()) {
@@ -1330,6 +1477,24 @@ class DetailsViewModel(
                             )
                             _episodeMetadata.value = metadata
                             Logger.i(TAG) { "Episode metadata loaded: ${metadata.size} entries" }
+
+                            // D-147: Update the cache with the fetched metadata.
+                            if (mainId != null) {
+                                val now = System.currentTimeMillis()
+                                val enrichedCache = metadata.entries.map { (epNum, meta) ->
+                                    com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                                        mainId = mainId,
+                                        episodeNumber = epNum.toFloat(),
+                                        title = meta.title,
+                                        description = meta.description,
+                                        thumbnailUrl = meta.thumbnailUrl,
+                                        airDate = meta.airDate,
+                                        fetchedAt = now,
+                                    )
+                                }
+                                dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
+                                Logger.i(TAG) { "Updated episode cache with enriched metadata" }
+                            }
                         } catch (e: Exception) {
                             Logger.w(TAG) { "Episode metadata fetch failed: ${e.message}" }
                         }
