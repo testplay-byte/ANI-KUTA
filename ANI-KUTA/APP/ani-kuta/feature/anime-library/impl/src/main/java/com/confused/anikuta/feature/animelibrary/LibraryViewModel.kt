@@ -3,6 +3,7 @@ package com.confused.anikuta.feature.animelibrary
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
+import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.LibraryCategory
@@ -13,16 +14,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel for the Library screen (Phase C, D-140).
+ * ViewModel for the Library screen (Phase C, D-140, D-141).
  *
  * Uses [LibraryEntry] (with mainId as the key) instead of AniListAnime.
- * This prevents the "Key 0 already used" crash when multiple extension-only
- * entries exist (all had anilistId=0).
  *
- * Also handles:
- * - Category filtering (select a category tab).
- * - Category management (create, delete with move-to-default, rename).
- * - Live reload (called from LibraryScreen on resume).
+ * D-141 improvements:
+ * - In-memory cache for AniList data (prevents re-fetching on every tab switch).
+ * - Multi-select mode state.
+ * - Category count for delete dialog (to decide if "Move to Default" shows).
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Feature:Library".
  * CORE_RULES §23: Reactive state (StateFlow).
@@ -61,7 +60,7 @@ class LibraryViewModel(
     private val _categories = MutableStateFlow<List<LibraryCategory>>(emptyList())
     val categories: StateFlow<List<LibraryCategory>> = _categories.asStateFlow()
 
-    /** Item counts per category (for showing counts on tabs). */
+    /** Item counts per category (for showing counts on tabs + delete dialog). */
     private val _categoryCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
     val categoryCounts: StateFlow<Map<Long, Int>> = _categoryCounts.asStateFlow()
 
@@ -76,6 +75,28 @@ class LibraryViewModel(
     /** Total entries in the library (all categories combined, deduplicated). */
     private val _totalEntries = MutableStateFlow(0)
     val totalEntries: StateFlow<Int> = _totalEntries.asStateFlow()
+
+    // ── D-141: Multi-select state ──
+
+    /** Whether multi-select mode is active. */
+    private val _isSelectionMode = MutableStateFlow(false)
+    val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
+
+    /** Set of selected mainIds in multi-select mode. */
+    private val _selectedMainIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedMainIds: StateFlow<Set<String>> = _selectedMainIds.asStateFlow()
+
+    /** Whether the category picker popup is shown (from multi-select bottom bar). */
+    private val _showMultiSelectCategorySheet = MutableStateFlow(false)
+    val showMultiSelectCategorySheet: StateFlow<Boolean> = _showMultiSelectCategorySheet.asStateFlow()
+
+    /** Whether the delete confirmation dialog is shown (from multi-select bottom bar). */
+    private val _showDeleteConfirmation = MutableStateFlow(false)
+    val showDeleteConfirmation: StateFlow<Boolean> = _showDeleteConfirmation.asStateFlow()
+
+    // ── D-141: In-memory cache for AniList data ──
+    /** Caches AniListAnime by anilistId to prevent re-fetching on every tab switch. */
+    private val anilistCache = mutableMapOf<Int, AniListAnime>()
 
     // ── Sort ──
     private val _sortType = MutableStateFlow(LibrarySortType.TITLE)
@@ -123,7 +144,7 @@ class LibraryViewModel(
 
     /**
      * Load the library from the content ID system.
-     * D-140: Uses LibraryEntry (mainId as key) instead of AniListAnime.
+     * D-141: Uses in-memory cache for AniList data to prevent re-fetching.
      */
     fun loadLibrary() {
         _state.value = LibraryState.Loading
@@ -165,43 +186,58 @@ class LibraryViewModel(
                     // Try AniList detail first (for rich display data).
                     val anilistDetail = contentRepository.getAniListDetail(mainId)
                     if (anilistDetail != null) {
-                        // Fetch fresh AniList data for the grid (cover, score, etc.).
-                        try {
-                            val anime = anilistApi.fetchAnimeDetails(anilistDetail.anilistId)
+                        // D-141: Use cache if available — don't re-fetch on every tab switch.
+                        val cached = anilistCache[anilistDetail.anilistId]
+                        if (cached != null) {
                             entries.add(
                                 LibraryEntry.fromAniList(
                                     mainId = mainId,
-                                    anime = anime,
+                                    anime = cached,
                                     sourceId = content.extensionId,
                                     animeUrl = content.animeUrl,
                                 ),
                             )
-                        } catch (e: Exception) {
-                            Logger.w(TAG) { "AniList fetch failed for ${anilistDetail.anilistId}: ${e.message}" }
-                            // Fall back to stored data.
-                            entries.add(
-                                LibraryEntry(
-                                    mainId = mainId,
-                                    anilistId = anilistDetail.anilistId,
-                                    sourceId = content.extensionId,
-                                    animeUrl = content.animeUrl,
-                                    title = content.title,
-                                    coverUrl = anilistDetail.coverUrl,
-                                    averageScore = anilistDetail.score,
-                                    episodes = anilistDetail.episodes,
-                                    seasonYear = anilistDetail.seasonYear,
-                                    status = anilistDetail.status,
-                                ),
-                            )
+                        } else {
+                            // Fetch fresh AniList data (first time only).
+                            try {
+                                val anime = anilistApi.fetchAnimeDetails(anilistDetail.anilistId)
+                                anilistCache[anilistDetail.anilistId] = anime
+                                entries.add(
+                                    LibraryEntry.fromAniList(
+                                        mainId = mainId,
+                                        anime = anime,
+                                        sourceId = content.extensionId,
+                                        animeUrl = content.animeUrl,
+                                    ),
+                                )
+                            } catch (e: Exception) {
+                                Logger.w(TAG) { "AniList fetch failed for ${anilistDetail.anilistId}: ${e.message}" }
+                                // Fall back to stored data.
+                                entries.add(
+                                    LibraryEntry(
+                                        mainId = mainId,
+                                        anilistId = anilistDetail.anilistId,
+                                        sourceId = content.extensionId,
+                                        animeUrl = content.animeUrl,
+                                        title = content.title,
+                                        coverUrl = anilistDetail.coverUrl,
+                                        averageScore = anilistDetail.score,
+                                        episodes = anilistDetail.episodes,
+                                        seasonYear = anilistDetail.seasonYear,
+                                        status = anilistDetail.status,
+                                    ),
+                                )
+                            }
                         }
                     } else {
                         // Extension-only content — use stored data.
+                        // D-140 fix: properly get the cover URL from extension_detail.
                         val extDetail = contentRepository.getExtensionDetail(mainId)
                         entries.add(
                             LibraryEntry.fromExtension(
                                 mainId = mainId,
                                 title = content.title,
-                                coverUrl = extDetail?.thumbnailUrl ?: content.description?.let { null },
+                                coverUrl = extDetail?.thumbnailUrl,
                                 sourceId = content.extensionId ?: extDetail?.sourceId,
                                 animeUrl = content.animeUrl ?: extDetail?.animeUrl,
                             ),
@@ -222,6 +258,93 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Reload library but use cached data only (no network fetch).
+     * Used when switching tabs — just re-filters from the content DB.
+     */
+    fun reloadFromCache() {
+        viewModelScope.launch {
+            try {
+                val mainIds = if (_selectedCategoryId.value != null) {
+                    contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
+                } else {
+                    contentRepository.getLibraryMainIds()
+                }
+                val uniqueMainIds = mainIds.distinct()
+                _totalEntries.value = uniqueMainIds.size
+
+                if (uniqueMainIds.isEmpty()) {
+                    _state.value = LibraryState.Empty
+                    return@launch
+                }
+
+                val entries = mutableListOf<LibraryEntry>()
+                for (mainId in uniqueMainIds) {
+                    val content = contentRepository.getContentByMainId(mainId) ?: continue
+                    val anilistDetail = contentRepository.getAniListDetail(mainId)
+                    if (anilistDetail != null) {
+                        val cached = anilistCache[anilistDetail.anilistId]
+                        if (cached != null) {
+                            entries.add(
+                                LibraryEntry.fromAniList(
+                                    mainId = mainId,
+                                    anime = cached,
+                                    sourceId = content.extensionId,
+                                    animeUrl = content.animeUrl,
+                                ),
+                            )
+                        } else {
+                            // Use stored data if not cached.
+                            entries.add(
+                                LibraryEntry(
+                                    mainId = mainId,
+                                    anilistId = anilistDetail.anilistId,
+                                    sourceId = content.extensionId,
+                                    animeUrl = content.animeUrl,
+                                    title = content.title,
+                                    coverUrl = anilistDetail.coverUrl,
+                                    averageScore = anilistDetail.score,
+                                    episodes = anilistDetail.episodes,
+                                    seasonYear = anilistDetail.seasonYear,
+                                    status = anilistDetail.status,
+                                ),
+                            )
+                        }
+                    } else {
+                        val extDetail = contentRepository.getExtensionDetail(mainId)
+                        entries.add(
+                            LibraryEntry.fromExtension(
+                                mainId = mainId,
+                                title = content.title,
+                                coverUrl = extDetail?.thumbnailUrl,
+                                sourceId = content.extensionId ?: extDetail?.sourceId,
+                                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
+                            ),
+                        )
+                    }
+                }
+
+                if (entries.isEmpty()) {
+                    _state.value = LibraryState.Empty
+                } else {
+                    _state.value = LibraryState.Success(entries)
+                    applyFilters()
+                }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "reloadFromCache failed: ${e.message}" }
+            }
+        }
+    }
+
+    /**
+     * Clear the AniList cache. Called when the user pulls to refresh or
+     * when the app needs fresh data.
+     */
+    fun clearCache() {
+        anilistCache.clear()
+        Logger.i(TAG) { "AniList cache cleared" }
+    }
+
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
         applyFilters()
@@ -229,9 +352,13 @@ class LibraryViewModel(
 
     // ── Category management (D-138, D-140) ──
 
+    /**
+     * Select a category. D-141: Uses reloadFromCache instead of loadLibrary
+     * to avoid re-fetching AniList data on every tab switch.
+     */
     fun selectCategory(categoryId: Long?) {
         _selectedCategoryId.value = categoryId
-        loadLibrary()
+        reloadFromCache()
     }
 
     fun showCategoryManagement(category: LibraryCategory) {
@@ -242,10 +369,6 @@ class LibraryViewModel(
         _categoryToManage.value = null
     }
 
-    /**
-     * Delete a category. Only non-permanent categories can be deleted.
-     * Items in the category are deleted too (CASCADE).
-     */
     fun deleteCategory(categoryId: Long) {
         contentRepository.deleteCategory(categoryId)
         _categoryToManage.value = null
@@ -255,20 +378,14 @@ class LibraryViewModel(
         loadLibrary()
     }
 
-    /**
-     * D-140: Delete a category + move its items to the Default category.
-     * The items are NOT removed from the library — just moved.
-     */
     fun deleteCategoryAndMoveToDefault(categoryId: Long) {
         val defaultCat = contentRepository.getDefaultCategory()
         if (defaultCat != null) {
-            // Move items to Default.
             val mainIds = contentRepository.getMainIdsByCategory(categoryId)
             for (mainId in mainIds) {
                 contentRepository.addToCategory(mainId, defaultCat.id)
             }
         }
-        // Delete the category (items in it are CASCADE deleted, but they're already moved).
         contentRepository.deleteCategory(categoryId)
         _categoryToManage.value = null
         if (_selectedCategoryId.value == categoryId) {
@@ -286,6 +403,124 @@ class LibraryViewModel(
     fun createCategory(name: String) {
         contentRepository.createCategory(name)
         loadLibrary()
+    }
+
+    // ── D-141: Multi-select ──
+
+    /** Enter selection mode + select the given mainId. */
+    fun enterSelectionMode(mainId: String) {
+        _isSelectionMode.value = true
+        _selectedMainIds.value = setOf(mainId)
+        Logger.i(TAG) { "Selection mode: started with $mainId" }
+    }
+
+    /** Toggle a selection in multi-select mode. */
+    fun toggleSelection(mainId: String) {
+        val current = _selectedMainIds.value.toMutableSet()
+        if (mainId in current) {
+            current.remove(mainId)
+        } else {
+            current.add(mainId)
+        }
+        _selectedMainIds.value = current
+        // If nothing is selected, exit selection mode.
+        if (current.isEmpty()) {
+            exitSelectionMode()
+        }
+    }
+
+    /** Select all visible entries. */
+    fun selectAll() {
+        val current = (_state.value as? LibraryState.Success)?.entries ?: return
+        _selectedMainIds.value = current.map { it.mainId }.toSet()
+    }
+
+    /** Clear selection but stay in selection mode. */
+    fun clearSelection() {
+        _selectedMainIds.value = emptySet()
+    }
+
+    /** Invert selection. */
+    fun invertSelection() {
+        val current = (_state.value as? LibraryState.Success)?.entries ?: return
+        val all = current.map { it.mainId }.toSet()
+        val selected = _selectedMainIds.value
+        _selectedMainIds.value = all - selected
+    }
+
+    /** Exit selection mode. */
+    fun exitSelectionMode() {
+        _isSelectionMode.value = false
+        _selectedMainIds.value = emptySet()
+    }
+
+    /** Show the category picker popup (from multi-select bottom bar). */
+    fun showMultiSelectCategorySheet() {
+        _showMultiSelectCategorySheet.value = true
+    }
+
+    fun dismissMultiSelectCategorySheet() {
+        _showMultiSelectCategorySheet.value = false
+    }
+
+    /**
+     * Add all selected entries to a category.
+     */
+    fun addSelectedToCategory(categoryId: Long) {
+        for (mainId in _selectedMainIds.value) {
+            contentRepository.addToCategory(mainId, categoryId)
+        }
+        Logger.i(TAG) { "Added ${_selectedMainIds.value.size} entries to category $categoryId" }
+        _showMultiSelectCategorySheet.value = false
+        exitSelectionMode()
+        loadLibrary()
+    }
+
+    /**
+     * Remove all selected entries from a category.
+     */
+    fun removeSelectedFromCategory(categoryId: Long) {
+        for (mainId in _selectedMainIds.value) {
+            contentRepository.removeFromCategory(mainId, categoryId)
+        }
+        Logger.i(TAG) { "Removed ${_selectedMainIds.value.size} entries from category $categoryId" }
+        _showMultiSelectCategorySheet.value = false
+        exitSelectionMode()
+        loadLibrary()
+    }
+
+    /** Show the delete confirmation dialog (from multi-select bottom bar). */
+    fun showDeleteConfirmation() {
+        _showDeleteConfirmation.value = true
+    }
+
+    fun dismissDeleteConfirmation() {
+        _showDeleteConfirmation.value = false
+    }
+
+    /**
+     * Delete all selected entries from the library.
+     */
+    fun deleteSelected() {
+        for (mainId in _selectedMainIds.value) {
+            contentRepository.removeFromLibrary(mainId)
+        }
+        Logger.i(TAG) { "Deleted ${_selectedMainIds.value.size} entries from library" }
+        _showDeleteConfirmation.value = false
+        exitSelectionMode()
+        loadLibrary()
+    }
+
+    /** Get categories that ALL selected entries are in (for the category picker). */
+    fun getCategoriesForSelected(): Map<Long, Boolean> {
+        val cats = _categories.value
+        val selected = _selectedMainIds.value
+        if (selected.isEmpty()) return emptyMap()
+        return cats.associate { cat ->
+            // True if ALL selected entries are in this category.
+            val allIn = selected.all { contentRepository.isInCategory(it, cat.id) }
+            cat.id to allIn
+        }
     }
 
     // ── Sort setters ──

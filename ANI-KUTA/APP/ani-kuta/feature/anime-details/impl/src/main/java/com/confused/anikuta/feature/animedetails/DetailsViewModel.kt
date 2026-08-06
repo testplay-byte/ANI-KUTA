@@ -255,6 +255,55 @@ class DetailsViewModel(
         }
     }
 
+    /**
+     * D-141: Refresh the current anime's data.
+     * Re-fetches from the original source (AniList or extension).
+     * Clears the AniList cache for this entry + re-fetches.
+     */
+    fun refresh() {
+        val anime = (_state.value as? DetailsState.Success)?.anime ?: return
+        Logger.i(TAG) { "Refreshing: ${anime.displayName}" }
+
+        if (anime.anilistId != null) {
+            // AniList entry — re-fetch from AniList.
+            val anilistId = anime.anilistId
+            viewModelScope.launch {
+                try {
+                    val fresh = anilistApi.fetchAnimeDetails(anilistId)
+                    anilistBase = fresh.toUnifiedAnime()
+                    remergeBases(
+                        (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                            ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                    )
+                    Logger.i(TAG) { "Refreshed AniList data for $anilistId" }
+                } catch (e: Exception) {
+                    Logger.e(TAG, e) { "Refresh failed: ${e.message}" }
+                }
+            }
+        } else if (anime.sourceId != null && anime.animeUrl != null) {
+            // Extension entry — re-fetch from the extension.
+            val sourceId = anime.sourceId
+            val animeUrl = anime.animeUrl
+            viewModelScope.launch {
+                try {
+                    val enriched = extensionProvider.fetchFromExtension(
+                        sourceId, animeUrl, anime.displayName, anime.coverUrl,
+                    )
+                    if (enriched != null) {
+                        extensionBase = enriched
+                        remergeBases(
+                            (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                                ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                        )
+                        Logger.i(TAG) { "Refreshed extension data for ${anime.displayName}" }
+                    }
+                } catch (e: Exception) {
+                    Logger.e(TAG, e) { "Extension refresh failed: ${e.message}" }
+                }
+            }
+        }
+    }
+
     // ── Load from Extension (Phase A + Phase B auto-link) ──
 
     fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?) {

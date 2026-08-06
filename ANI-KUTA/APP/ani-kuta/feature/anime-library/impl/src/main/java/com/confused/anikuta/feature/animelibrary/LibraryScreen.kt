@@ -8,6 +8,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -103,22 +104,33 @@ import org.koin.compose.viewmodel.koinViewModel
  * Library screen — the user's personal anime collection.
  *
  * Faithfully recreates the old project's Library UI:
- * 1. LibraryHeader (pinned) — title "Library" + optional subtitle "{n} in
- *    Library" + HeaderActionGroup (search + settings buttons in ONE combined
- *    pill container, surfaceVariant bg, rounded 50, 34dp icons).
- * 2. Animated search bar (fade in/out when search toggled) using SearchField.
- * 3. Compact grid (3-column) with cover + gradient title overlay
+ * 1. LibraryHeader (pinned) — MAIN title is "X in Library" when showTotalEntries
+ *    is on (no separate "Library" title); "Library" otherwise. In selection mode
+ *    (D-141) the title becomes "X selected". HeaderActionGroup (search + settings
+ *    buttons in ONE combined pill container, surfaceVariant bg, rounded 50, 34dp
+ *    icons) sits to the right.
+ * 2. Quick options row (D-141, selection mode only) — Select All / Clear / Invert
+ *    text buttons. Replaces the category tabs row.
+ * 3. Animated search bar (fade in/out when search toggled) using SearchField.
+ * 4. Category tabs (D-140, non-selection mode only) — text-based with underline
+ *    indicator; smart visibility ("All" only with 2+ populated cats, "Default"
+ *    hidden when empty), no "+" button. Count format "[3] Default" (left, square
+ *    brackets) when showCategoryCounts is on. A thin 1dp divider sits below them.
+ * 5. Compact grid (3-column) with cover + gradient title overlay
  *    OR list view (horizontal rows).
- * 4. ScrollBlurOverlay at the header's bottom edge.
- * 5. Empty state with proper icon.
- * 6. CustomizeSheet — the library settings bottom sheet (Sort + Display & Badges
+ * 6. ScrollBlurOverlay at the header's bottom edge.
+ * 7. Empty state with proper icon.
+ * 8. CustomizeSheet — the library settings bottom sheet (Sort + Display & Badges
  *    in 2 tabs, no drag handle, header "Library Settings").
- * 7. Category tabs (D-140) — text-based with underline indicator; smart
- *    visibility ("All" only with 2+ populated cats, "Default" hidden when
- *    empty), no "+" button (categories come from the details page).
+ * 9. D-141 multi-select — long-press an entry to enter selection mode; the bottom
+ *    nav pill is replaced by a SelectionBottomBar (Cancel / Category / Delete);
+ *    a MultiSelectCategoryPicker AlertDialog and a DeleteSelectedDialog are
+ *    shown on demand. Selected cards get a primary border + checkmark badge.
  *
  * D-140: uses [LibraryEntry] (mainId-keyed) instead of AniListAnime — fixes the
  * "Key 0 already used" crash for extension-only entries + 404 nav for them.
+ * D-141: tab switches go through ViewModel.selectCategory (reloadFromCache — no
+ * network); LaunchedEffect on resume still calls loadLibrary() for fresh data.
  *
  * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing, scale on press).
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
@@ -133,6 +145,9 @@ fun LibraryScreen(
     // library (e.g. after bookmarking from the details page), the list should
     // refresh. LaunchedEffect(Unit) runs once per composition entering the
     // back stack entry (i.e. each time the screen becomes visible again).
+    // D-141: still calls loadLibrary() (NOT reloadFromCache) on resume so the
+    // user gets fresh AniList data; tab switches go through selectCategory
+    // which uses reloadFromCache internally (no network).
     LaunchedEffect(Unit) {
         viewModel.loadLibrary()
     }
@@ -153,7 +168,7 @@ fun LibraryScreen(
     // D-140: per-category item counts + show-counts toggle.
     val categoryCounts by viewModel.categoryCounts.collectAsState()
     val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
-    // D-140: total entries (for the header subtitle "{n} in Library").
+    // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
 
     // D-138: category tabs state — list of categories, currently selected
@@ -161,6 +176,12 @@ fun LibraryScreen(
     val categories by viewModel.categories.collectAsState()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
     val categoryToManage by viewModel.categoryToManage.collectAsState()
+
+    // D-141: Multi-select state.
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    val selectedMainIds by viewModel.selectedMainIds.collectAsState()
+    val showMultiSelectCategorySheet by viewModel.showMultiSelectCategorySheet.collectAsState()
+    val showDeleteConfirmation by viewModel.showDeleteConfirmation.collectAsState()
 
     val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
@@ -175,13 +196,40 @@ fun LibraryScreen(
         listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20
     }
 
+    // D-141: click + long-click handlers — depend on selection mode.
+    //  - In selection mode: tap toggles selection; long-press does nothing
+    //    (we're already in selection mode).
+    //  - Outside selection mode: tap navigates to details; long-press enters
+    //    selection mode with that entry pre-selected.
+    val onEntryClick: (LibraryEntry) -> Unit = { entry ->
+        if (isSelectionMode) {
+            viewModel.toggleSelection(entry.mainId)
+        } else {
+            onNavigateToDetails(entry)
+        }
+    }
+    val onEntryLongClick: (LibraryEntry) -> Unit = { entry ->
+        if (!isSelectionMode) {
+            viewModel.enterSelectionMode(entry.mainId)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             // ── Collapsing header (pinned) ──
-            // D-140: shows a subtitle "{n} in Library" when showTotalEntries is on.
+            // D-141: the MAIN heading changes based on mode:
+            //  - Selection mode → "X selected"
+            //  - showTotalEntries on → "X in Library" (the count IS the title,
+            //    no separate "Library" title above it).
+            //  - showTotalEntries off → "Library".
+            val headerTitle = when {
+                isSelectionMode -> "${selectedMainIds.size} selected"
+                showTotalEntries -> "$totalEntries in Library"
+                else -> "Library"
+            }
             LibraryHeader(
-                title = "Library",
-                subtitle = if (showTotalEntries) "$totalEntries in Library" else null,
+                title = headerTitle,
+                subtitle = null,
                 collapsed = collapsed,
                 actions = {
                     HeaderActionGroup(
@@ -190,6 +238,45 @@ fun LibraryScreen(
                     )
                 },
             )
+
+            // ── Quick options row (D-141 — selection mode only) ──
+            // Select All / Clear / Invert as text buttons. Replaces the
+            // category tabs row when in selection mode.
+            AnimatedVisibility(visible = isSelectionMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    TextButton(onClick = { viewModel.selectAll() }) {
+                        Text(
+                            "Select All",
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    TextButton(onClick = { viewModel.clearSelection() }) {
+                        Text(
+                            "Clear",
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    TextButton(onClick = { viewModel.invertSelection() }) {
+                        Text(
+                            "Invert",
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
 
             // ── Search bar (animated — fades in/out) ──
             AnimatedVisibility(
@@ -221,13 +308,17 @@ fun LibraryScreen(
                 }
             }
 
-            // ── Category tabs (D-138, D-140) ──
+            // ── Category tabs (D-138, D-140) — hidden in selection mode ──
             // Smart visibility rules:
             //  - "All" tab only shows when 2+ categories have ≥1 item.
             //  - "Default" (permanent) tab only shows when it has ≥1 item.
             //  - Non-permanent categories always show (the user created them).
             //  - No "+" button — categories are created from the details page
             //    (long-press bookmark), not from the library page.
+            //  - D-141: hidden entirely in selection mode (the quick options row
+            //    above takes its place).
+            //  - D-141: thin 1dp divider below the tabs separates them from the
+            //    grid content.
             val categoriesWithItems = categories.count { (categoryCounts[it.id] ?: 0) > 0 }
             val showAllTab = categoriesWithItems >= 2
             val visibleCategories = categories.filter { cat ->
@@ -239,21 +330,28 @@ fun LibraryScreen(
                     true
                 }
             }
-            if (visibleCategories.isNotEmpty()) {
-                CategoryTabsRow(
-                    categories = visibleCategories,
-                    categoryCounts = categoryCounts,
-                    showCounts = showCategoryCounts,
-                    showAllTab = showAllTab,
-                    selectedCategoryId = selectedCategoryId,
-                    onSelectCategory = viewModel::selectCategory,
-                    onLongPressCategory = { category ->
-                        // Permanent categories ("Default") can't be managed.
-                        if (!category.isPermanent) {
-                            viewModel.showCategoryManagement(category)
-                        }
-                    },
-                )
+            if (visibleCategories.isNotEmpty() && !isSelectionMode) {
+                Column {
+                    CategoryTabsRow(
+                        categories = visibleCategories,
+                        categoryCounts = categoryCounts,
+                        showCounts = showCategoryCounts,
+                        showAllTab = showAllTab,
+                        selectedCategoryId = selectedCategoryId,
+                        onSelectCategory = viewModel::selectCategory,
+                        onLongPressCategory = { category ->
+                            // Permanent categories ("Default") can't be managed.
+                            if (!category.isPermanent) {
+                                viewModel.showCategoryManagement(category)
+                            }
+                        },
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                    )
+                }
             }
 
             // ── Content ──
@@ -300,10 +398,20 @@ fun LibraryScreen(
                                 gridState = gridState,
                                 columns = columns,
                                 titleLines = titleLines,
-                                onNavigateToDetails = onNavigateToDetails,
+                                isSelectionMode = isSelectionMode,
+                                selectedMainIds = selectedMainIds,
+                                onClickEntry = onEntryClick,
+                                onLongClickEntry = onEntryLongClick,
                             )
                         } else {
-                            LibraryList(s.entries, listState, onNavigateToDetails)
+                            LibraryList(
+                                entries = s.entries,
+                                listState = listState,
+                                isSelectionMode = isSelectionMode,
+                                selectedMainIds = selectedMainIds,
+                                onClickEntry = onEntryClick,
+                                onLongClickEntry = onEntryLongClick,
+                            )
                         }
                     }
                 }
@@ -361,10 +469,13 @@ fun LibraryScreen(
         // dialog only ever appears for user-created (non-permanent) categories.
         // D-140: delete confirmation offers 3 options — Cancel, Delete (items
         // removed), Move to Default (items moved to Default then category deleted).
+        // D-141: itemCount now comes from categoryCounts (not entries.size) so
+        // it reflects the TRUE count in the category even if the current view
+        // is filtered by search or another category is selected.
         categoryToManage?.let { category ->
             CategoryManagementDialog(
                 category = category,
-                itemCount = (state as? LibraryState.Success)?.entries?.size ?: 0,
+                itemCount = categoryCounts[category.id] ?: 0,
                 onRename = { newName ->
                     viewModel.renameCategory(category.id, newName)
                 },
@@ -375,6 +486,60 @@ fun LibraryScreen(
                     viewModel.deleteCategoryAndMoveToDefault(category.id)
                 },
                 onDismiss = viewModel::dismissCategoryManagement,
+            )
+        }
+
+        // ── D-141: Bottom action bar (selection mode) ──
+        // Replaces the bottom nav pill visually. Cancel (left) / Category
+        // (center) / Delete (right, error). Positioned above the system nav
+        // bar's reserved area so it doesn't overlap with the floating nav pill
+        // (which is rendered by MainActivity on top of LibraryScreen content).
+        AnimatedVisibility(
+            visible = isSelectionMode,
+            enter = fadeIn(tween(Motion.DurationStandard, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(Motion.DurationShort, easing = FastOutSlowInEasing)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            SelectionBottomBar(
+                onCancel = { viewModel.exitSelectionMode() },
+                onCategory = { viewModel.showMultiSelectCategorySheet() },
+                onDelete = { viewModel.showDeleteConfirmation() },
+                modifier = Modifier.padding(bottom = 90.dp),
+            )
+        }
+
+        // ── D-141: Multi-select category picker ──
+        // AlertDialog with a checkbox per category — same style as the
+        // CategoryPickerSheet on the details page. Tapping a checked category
+        // removes all selected entries from it; tapping an unchecked one adds
+        // all selected entries to it. getCategoriesForSelected() returns the
+        // initial checkbox state (true if ALL selected entries are in that cat).
+        if (showMultiSelectCategorySheet) {
+            val selectedMap = remember(categories, selectedMainIds) {
+                viewModel.getCategoriesForSelected()
+            }
+            MultiSelectCategoryPicker(
+                categories = categories,
+                selectedMap = selectedMap,
+                onToggle = { categoryId, isChecked ->
+                    if (isChecked) {
+                        viewModel.removeSelectedFromCategory(categoryId)
+                    } else {
+                        viewModel.addSelectedToCategory(categoryId)
+                    }
+                },
+                onDismiss = { viewModel.dismissMultiSelectCategorySheet() },
+            )
+        }
+
+        // ── D-141: Delete confirmation ──
+        // "Delete X entries from library?" with Cancel (dismissButton) + Delete
+        // (confirmButton, error color).
+        if (showDeleteConfirmation) {
+            DeleteSelectedDialog(
+                count = selectedMainIds.size,
+                onConfirm = { viewModel.deleteSelected() },
+                onDismiss = { viewModel.dismissDeleteConfirmation() },
             )
         }
     }
@@ -435,7 +600,8 @@ private fun CategoryTabsRow(
         // ── One tab per (already-filtered) category ──
         items(categories, key = { it.id }) { category ->
             val count = categoryCounts[category.id] ?: 0
-            val label = if (showCounts) "${category.name} ($count)" else category.name
+            // D-141: count on the LEFT in square brackets — "[3] Default".
+            val label = if (showCounts) "[$count] ${category.name}" else category.name
             CategoryTab(
                 label = label,
                 isSelected = selectedCategoryId == category.id,
@@ -594,9 +760,8 @@ private fun CategoryManagementDialog(
                             if (itemCount > 0) {
                                 append("\n\n$itemCount item")
                                 if (itemCount > 1) append("s")
-                                append(" in this category. Choose:")
-                                append("\n• Delete — items are removed from the library.")
-                                append("\n• Move to Default — items are moved to Default.")
+                                append(" in this category will be removed from it.")
+                                append(" Use \"Move to Default\" below to keep them.")
                             }
                         },
                         fontFamily = RobotoFamily,
@@ -604,12 +769,42 @@ private fun CategoryManagementDialog(
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // D-141: Move to Default button — full-width, below the
+                    // warning text. Only shown if the category has items.
+                    if (itemCount > 0) {
+                        Spacer(Modifier.height(12.dp))
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(onClick = onDeleteMoveToDefault),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 10.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "Move to Default",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         },
         // ── confirmButton: mode-dependent primary action ──
-        // DELETE_CONFIRM packs two buttons (Delete + Move to Default) into a Row
-        // so the user can choose between hard-delete and migrate-to-Default.
+        // D-141: DELETE_CONFIRM now shows just "Delete" here (Cancel is the
+        // dismissButton on the left); "Move to Default" moved into the text
+        // content as a full-width button below the warning (only when the
+        // category has items).
         confirmButton = {
             when (mode) {
                 ManageMode.MENU -> TextButton(onClick = onDismiss) {
@@ -641,25 +836,14 @@ private fun CategoryManagementDialog(
                     )
                 }
 
-                ManageMode.DELETE_CONFIRM -> Row {
-                    TextButton(onClick = onDelete) {
-                        Text(
-                            "Delete",
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    TextButton(onClick = onDeleteMoveToDefault) {
-                        Text(
-                            "Move to Default",
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                ManageMode.DELETE_CONFIRM -> TextButton(onClick = onDelete) {
+                    Text(
+                        "Delete",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         },
@@ -1606,8 +1790,12 @@ private fun LibraryGrid(
     gridState: LazyGridState,
     columns: Int,
     titleLines: Int,
-    onNavigateToDetails: (LibraryEntry) -> Unit,
+    isSelectionMode: Boolean,
+    selectedMainIds: Set<String>,
+    onClickEntry: (LibraryEntry) -> Unit,
+    onLongClickEntry: (LibraryEntry) -> Unit,
 ) {
+    // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(columns.coerceIn(2, 5)),
@@ -1615,13 +1803,20 @@ private fun LibraryGrid(
             start = 12.dp,
             end = 12.dp,
             top = 4.dp,
-            bottom = 90.dp,
+            bottom = if (isSelectionMode) 160.dp else 90.dp,
         ),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(entries, key = { it.mainId }) { item ->
-            LibraryGridCard(item, titleLines, onNavigateToDetails)
+            LibraryGridCard(
+                anime = item,
+                titleLines = titleLines,
+                isSelectionMode = isSelectionMode,
+                isSelected = item.mainId in selectedMainIds,
+                onClick = onClickEntry,
+                onLongClick = onLongClickEntry,
+            )
         }
     }
 }
@@ -1630,7 +1825,10 @@ private fun LibraryGrid(
 private fun LibraryGridCard(
     anime: LibraryEntry,
     titleLines: Int,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
     onClick: (LibraryEntry) -> Unit,
+    onLongClick: (LibraryEntry) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1644,10 +1842,11 @@ private fun LibraryGridCard(
         modifier = Modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(12.dp))
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = { onClick(anime) },
+                onLongClick = { onLongClick(anime) },
             ),
     ) {
         // Cover image — 2:3 aspect ratio
@@ -1693,6 +1892,47 @@ private fun LibraryGridCard(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
             )
         }
+
+        // ── D-141: Selection border overlay (drawn on top of content) ──
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .border(
+                        width = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(12.dp),
+                    ),
+            )
+        }
+
+        // ── D-141: Selection checkbox badge (top-right, in selection mode) ──
+        // Filled primary circle with a check icon when selected; semi-transparent
+        // surface circle (empty) when not selected — so the user can see that
+        // tapping will select.
+        if (isSelectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1702,26 +1942,42 @@ private fun LibraryGridCard(
 private fun LibraryList(
     entries: List<LibraryEntry>,
     listState: LazyListState,
-    onNavigateToDetails: (LibraryEntry) -> Unit,
+    isSelectionMode: Boolean,
+    selectedMainIds: Set<String>,
+    onClickEntry: (LibraryEntry) -> Unit,
+    onLongClickEntry: (LibraryEntry) -> Unit,
 ) {
+    // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
             top = 4.dp,
-            bottom = 90.dp,
+            bottom = if (isSelectionMode) 160.dp else 90.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(entries, key = { it.mainId }) { item ->
-            LibraryListRow(item, onNavigateToDetails)
+            LibraryListRow(
+                anime = item,
+                isSelectionMode = isSelectionMode,
+                isSelected = item.mainId in selectedMainIds,
+                onClick = onClickEntry,
+                onLongClick = onLongClickEntry,
+            )
         }
     }
 }
 
 @Composable
-private fun LibraryListRow(anime: LibraryEntry, onClick: (LibraryEntry) -> Unit) {
+private fun LibraryListRow(
+    anime: LibraryEntry,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onClick: (LibraryEntry) -> Unit,
+    onLongClick: (LibraryEntry) -> Unit,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -1735,25 +1991,56 @@ private fun LibraryListRow(anime: LibraryEntry, onClick: (LibraryEntry) -> Unit)
             .fillMaxWidth()
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(12.dp))
-            .clickable(
+            .then(
+                if (isSelected) Modifier.background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                ) else Modifier
+            )
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = { onClick(anime) },
+                onLongClick = { onLongClick(anime) },
             )
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Cover thumbnail
-        AsyncImage(
-            model = anime.coverUrl,
-            contentDescription = anime.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .width(56.dp)
-                .height(80.dp)
-                .clip(RoundedCornerShape(8.dp)),
-        )
+        // Cover thumbnail (with optional D-141 selection badge in the corner)
+        Box {
+            AsyncImage(
+                model = anime.coverUrl,
+                contentDescription = anime.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .width(56.dp)
+                    .height(80.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+            if (isSelectionMode) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Selected",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+            }
+        }
 
         // Info
         Column(modifier = Modifier.weight(1f)) {
@@ -1787,4 +2074,238 @@ private fun LibraryListRow(anime: LibraryEntry, onClick: (LibraryEntry) -> Unit)
             }
         }
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-141: Multi-select — bottom action bar + category picker + delete dialog
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Bottom action bar shown in selection mode — replaces the bottom nav pill.
+ *
+ * Three text buttons in a SpaceBetween Row:
+ *  - Cancel (left, onSurfaceVariant) — exits selection mode.
+ *  - Category (center, primary) — opens the multi-select category picker.
+ *  - Delete (right, error) — opens the delete confirmation dialog.
+ *
+ * NOTE: the parent MainActivity still renders the floating nav pill on top of
+ * LibraryScreen content; this bar is positioned with `padding(bottom = 90.dp)`
+ * (passed by the caller) so it sits ABOVE the nav pill's reserved area and
+ * stays fully visible/usable.
+ */
+@Composable
+private fun SelectionBottomBar(
+    onCancel: () -> Unit,
+    onCategory: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 8.dp,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = onCancel) {
+                Text(
+                    "Cancel",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onCategory) {
+                Text(
+                    "Category",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            TextButton(onClick = onDelete) {
+                Text(
+                    "Delete",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Multi-select category picker — AlertDialog with a checkbox per category.
+ *
+ * Mirrors the CategoryPickerSheet style from the details page (surface bg,
+ * 20dp rounded, LazyColumn of checkbox rows). Tapping a checked category
+ * removes ALL selected entries from it; tapping an unchecked one adds ALL
+ * selected entries to it.
+ *
+ * No "New category" button here (unlike CategoryPickerSheet) — the user can
+ * create categories from the details page; creating one here wouldn't auto-add
+ * the selected items anyway.
+ *
+ * @param selectedMap categoryId → true if ALL selected entries are in that
+ *  category (checkbox checked), false otherwise.
+ */
+@Composable
+private fun MultiSelectCategoryPicker(
+    categories: List<LibraryCategory>,
+    selectedMap: Map<Long, Boolean>,
+    onToggle: (categoryId: Long, isChecked: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = "Categories",
+                fontFamily = RobotoFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp),
+                ) {
+                    items(categories, key = { it.id }) { category ->
+                        val isChecked = selectedMap[category.id] ?: false
+                        Surface(
+                            color = if (isChecked)
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggle(category.id, isChecked) },
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // Checkbox indicator
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(
+                                            if (isChecked) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.surfaceVariant,
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (isChecked) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = category.name,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    "Done",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+    )
+}
+
+/**
+ * Delete confirmation dialog for multi-select — "Delete X entries from
+ * library?" with Cancel (dismissButton) + Delete (confirmButton, error).
+ */
+@Composable
+private fun DeleteSelectedDialog(
+    count: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = "Delete from library?",
+                fontFamily = RobotoFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        text = {
+            Text(
+                text = "Delete $count ${if (count == 1) "entry" else "entries"} from library?",
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    "Delete",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    "Cancel",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
 }

@@ -172,6 +172,10 @@ fun DetailsScreen(
                                 onMore = { showMenu = true },
                                 showMenu = showMenu,
                                 onDismissMenu = { showMenu = false },
+                                onRefresh = {
+                                    showMenu = false
+                                    viewModel.refresh()
+                                },
                                 // Phase B: AniList link state + callbacks
                                 isExtensionEntry = anime.isFromExtension,
                                 isAniListLinked = anime.anilistId != null,
@@ -442,6 +446,7 @@ private fun DetailBanner(
     onMore: () -> Unit,
     showMenu: Boolean,
     onDismissMenu: () -> Unit,
+    onRefresh: () -> Unit = {},
     onLongPressSave: () -> Unit = {},
     // Phase B: AniList link state + callbacks
     isExtensionEntry: Boolean = false,
@@ -557,7 +562,7 @@ private fun DetailBanner(
                         }
                         DropdownMenuItem(
                             text = { Text("Refresh", fontFamily = RobotoFamily) },
-                            onClick = onDismissMenu,
+                            onClick = onRefresh,
                         )
                         DropdownMenuItem(
                             text = { Text("Share", fontFamily = RobotoFamily) },
