@@ -112,7 +112,7 @@ data class ExtensionInfo(
 data class LibraryCategory(
     val id: Long,
     val name: String,
-    val displayOrder: Int,
+    val displayOrder: Long,
     val isPermanent: Boolean,
     val createdAt: Long,
 )
@@ -124,6 +124,6 @@ data class LibraryItem(
     val id: Long,
     val mainId: String,
     val categoryId: Long,
-    val displayOrder: Int,
+    val displayOrder: Long,
     val addedAt: Long,
 )

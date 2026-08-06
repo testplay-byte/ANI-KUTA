@@ -362,11 +362,11 @@ class ContentRepository(
             return
         }
         val now = System.currentTimeMillis()
-        val order = libraryQueries.countDefaultCategoryItems().executeAsOne().toInt()
+        val order = libraryQueries.countDefaultCategoryItems().executeAsOne()
         libraryQueries.addToDefaultCategory(
             mainId = mainId,
             categoryId = defaultCat.id,
-            displayOrder = order.toLong(),
+            displayOrder = order,
             addedAt = now,
         )
         Logger.i(TAG) { "Added to library (Default): mainId=$mainId" }
