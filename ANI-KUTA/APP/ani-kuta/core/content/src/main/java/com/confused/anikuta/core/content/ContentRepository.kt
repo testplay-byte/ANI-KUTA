@@ -353,7 +353,7 @@ class ContentRepository(
     }
 
     fun isInLibrary(mainId: String): Boolean {
-        return libraryQueries.isInLibrary(mainId).executeAsOne() == 1L
+        return libraryQueries.isInLibrary(mainId).executeAsOne()
     }
 
     fun addToDefaultCategory(mainId: String) {
