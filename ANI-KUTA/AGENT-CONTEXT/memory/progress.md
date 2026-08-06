@@ -386,3 +386,45 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 - User device testing.
 - Extension library entry source link restoration (when opening from library, episodes should load from the linked source).
 - Document data structures in DOCUMENTATION/database/.
+
+## Session web-f53f0459 (continued) — D-141: Library UI fixes + multi-select + Phase D plan
+
+### User testing feedback (Phase C round 4)
+- ✅ Cross-source dedup working.
+- ✅ Library crash fixed.
+- ✅ 404 error fixed.
+- ✅ Library live reload working.
+- ✅ Data source selector on reopen working.
+- ✅ Category tabs smart features working.
+- ❌ Extension-only cover images not showing in library.
+- ❌ Library heading should be "X in Library" (not separate heading + subtitle).
+- ❌ Category count format should be "[3] Default" (not "Default (3)").
+- ❌ Delete dialog formatting (Move to Default should only show if category has entries).
+- ❌ No white spacer line below category tabs.
+- ❌ Library performance (re-fetches from AniList on every tab switch).
+- 📋 Multi-select mode for library entries.
+- ❌ Refresh button in details page doesn't work.
+
+### Fixes implemented (D-141)
+1. Extension-only cover images — fixed coverUrl assignment.
+2. Library heading — "X in Library" as main title.
+3. Category count — "[3] Default" format.
+4. Delete dialog — Move to Default only if entries exist.
+5. White spacer line below tabs.
+6. In-memory cache — anilistCache prevents re-fetching on tab switch.
+7. Multi-select mode — long-press → selection mode with bottom bar.
+8. Refresh button — DetailsViewModel.refresh() wired to menu item.
+
+### Phase D plan written
+- `DOCUMENTATION/planning/data-management/PHASE-D-PLAN.md`
+- Covers: local metadata cache, browse page cache + refresh, details page multi-stage refresh, image caching, backup/restore, library performance.
+- 6 implementation phases (D.1-D.6).
+- 5 open questions for the user.
+
+### CI status
+- CI #204 GREEN.
+
+### What's next
+- User device testing of D-141.
+- Answer Phase D open questions (Q-001 through Q-005).
+- Begin Phase D implementation.

@@ -976,3 +976,18 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User reported: library crash with extension-only entries, 404 error, library not updating live, data source selector disappearing on reopen, category tabs UI bad (bubbles), missing smart features, missing delete-with-move-to-default.
 - **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #201 green.
 - **Date:** Phase C (session web-f53f0459).
+
+### D-141 — Library UI fixes + multi-select + refresh + cover images + Phase D plan
+- **What:** Fixed multiple library UI issues + added multi-select mode + fixed refresh button + wrote Phase D plan:
+  1. **Extension-only cover images fix**: Fixed `coverUrl` assignment in LibraryViewModel (was `extDetail?.thumbnailUrl ?: content.description?.let { null }` which always returned null).
+  2. **Library heading**: Changed from "Library" + subtitle to "X in Library" as the main heading (when showTotalEntries is on).
+  3. **Category count format**: Changed from "Default (3)" to "[3] Default" — count on LEFT, square brackets.
+  4. **Delete dialog**: "Move to Default" only shows if category has entries. "Delete" on right, "Cancel" on left, "Move to Default" centered.
+  5. **White spacer line** below category tabs.
+  6. **In-memory cache**: Added `anilistCache` to prevent re-fetching AniList data on every tab switch. `selectCategory` uses `reloadFromCache()` instead of `loadLibrary()`.
+  7. **Multi-select mode**: Long-press a library entry → selection mode. Header shows "X selected". Quick options (Select All / Clear / Invert). Bottom bar: Cancel / Category / Delete. Category picker popup with checkboxes. Delete confirmation dialog.
+  8. **Refresh button**: DetailsViewModel.refresh() — re-fetches from AniList or extension. Wired to the three-dot menu "Refresh" item (was a no-op).
+  9. **Phase D plan**: Written to `DOCUMENTATION/planning/data-management/PHASE-D-PLAN.md`. Covers: local metadata cache, browse page cache + refresh, details page multi-stage refresh, image caching, backup/restore, library performance.
+- **Why:** User reported: extension-only cover images not showing, library heading wrong, category count format wrong, delete dialog formatting, library performance (re-fetching on tab switch), no multi-select, refresh button doesn't work.
+- **Status:** ✅ Implemented (Phase C, session web-f53f0459). CI #204 green. Phase D plan written.
+- **Date:** Phase C (session web-f53f0459).
