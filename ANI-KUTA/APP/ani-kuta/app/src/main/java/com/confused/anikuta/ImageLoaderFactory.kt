@@ -2,12 +2,15 @@ package com.confused.anikuta
 
 import android.content.Context
 import coil3.ImageLoader
+import coil3.PlatformContext
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.confused.anikuta.core.common.Logger
 import okhttp3.OkHttpClient
+import okio.Path
+import okio.Path.Companion.toPath
 
 /**
  * D.4: Creates a Coil ImageLoader with a persistent 500MB disk cache.
@@ -24,18 +27,20 @@ object ImageLoaderFactory {
 
     fun create(context: Context, okHttpClient: OkHttpClient): ImageLoader {
         Logger.i(TAG) { "Creating ImageLoader with 500MB disk cache" }
-        return ImageLoader.Builder(context)
+        return ImageLoader.Builder(context as PlatformContext)
             .components {
                 add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.25) // 25% of app memory
+                    .maxSizePercent(context, 0.25)
                     .build()
             }
             .diskCache {
+                val cacheDir = context.cacheDir.resolve("image_cache")
+                if (!cacheDir.exists()) cacheDir.mkdirs()
                 DiskCache.Builder()
-                    .directory(context.cacheDir.resolve("image_cache"))
+                    .directory(cacheDir.absolutePath.toPath())
                     .maxSizeBytes(DISK_CACHE_MAX_SIZE)
                     .build()
             }
