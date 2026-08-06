@@ -8,7 +8,7 @@
 -- Stores the full anime metadata for each content (mainId).
 -- Never expires — the user manually refreshes via the refresh button.
 CREATE TABLE IF NOT EXISTS anime_metadata_cache (
-    main_id TEXT NOT NULL PRIMARY KEY,
+    main_id TEXT NOT NULL PRIMARY KEY UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
     cover_url TEXT,
@@ -34,10 +34,10 @@ CREATE TABLE IF NOT EXISTS episode_metadata_cache (
     thumbnail_url TEXT,
     air_date INTEGER,
     fetched_at INTEGER NOT NULL,
-    PRIMARY KEY (main_id, episode_number),
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_cache_pk ON episode_metadata_cache(main_id, episode_number);
 CREATE INDEX IF NOT EXISTS idx_episode_cache_main ON episode_metadata_cache(main_id);
 
 -- ── browse_cache ──────────────────────────────────────────────────────────
