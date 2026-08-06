@@ -146,143 +146,159 @@ class LibraryViewModel(
     /**
      * Load the library from the content ID system.
      * D-141: Uses in-memory cache for AniList data to prevent re-fetching.
+     *
+     * Delegates to [loadLibraryImpl] (which does the actual suspend work) so that
+     * [refreshLibrary] can await the same body and toggle [_isRefreshing] for the
+     * EXACT duration of the load — no hardcoded delays.
      */
     fun loadLibrary() {
         _state.value = LibraryState.Loading
         viewModelScope.launch {
-            try {
-                // Load ALL categories + counts.
-                val cats = contentRepository.getAllCategories()
-                _categories.value = cats
+            loadLibraryImpl()
+        }
+    }
 
-                // Count items per category.
-                val counts = mutableMapOf<Long, Int>()
-                for (cat in cats) {
-                    counts[cat.id] = contentRepository.countItemsInCategory(cat.id)
+    /**
+     * The suspend body of [loadLibrary]. Loads categories + counts, builds the
+     * [LibraryEntry] list (cache-first, AniList-fetch-on-miss, extension-fallback),
+     * and pushes the resulting [LibraryState] to [_state].
+     *
+     * Does NOT touch [_isRefreshing] — that's the caller's responsibility
+     * (see [refreshLibrary]).
+     */
+    private suspend fun loadLibraryImpl() {
+        try {
+            // Load ALL categories + counts.
+            val cats = contentRepository.getAllCategories()
+            _categories.value = cats
+
+            // Count items per category.
+            val counts = mutableMapOf<Long, Int>()
+            for (cat in cats) {
+                counts[cat.id] = contentRepository.countItemsInCategory(cat.id)
+            }
+            _categoryCounts.value = counts
+
+            // Get library mainIds — filtered by selected category if set.
+            val mainIds = if (_selectedCategoryId.value != null) {
+                contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
+            } else {
+                contentRepository.getLibraryMainIds()
+            }
+
+            // Deduplicate mainIds (a content can be in multiple categories).
+            val uniqueMainIds = mainIds.distinct()
+            // D-143: totalEntries should show the TOTAL across ALL categories,
+            // not just the selected category. Fetch the full count separately.
+            val allMainIds = contentRepository.getLibraryMainIds()
+            _totalEntries.value = allMainIds.distinct().size
+            Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${_selectedCategoryId.value ?: "all"})" }
+
+            if (uniqueMainIds.isEmpty()) {
+                _state.value = LibraryState.Empty
+                return
+            }
+
+            // Build LibraryEntry for each content.
+            val entries = mutableListOf<LibraryEntry>()
+            for (mainId in uniqueMainIds) {
+                val content = contentRepository.getContentByMainId(mainId) ?: continue
+
+                // D.1: Check the local data cache FIRST — no network needed.
+                val cachedMeta = dataCacheRepository.getAnimeMetadata(mainId)
+                if (cachedMeta != null) {
+                    // Use cached data — instant display.
+                    entries.add(
+                        LibraryEntry(
+                            mainId = mainId,
+                            anilistId = contentRepository.getAniListDetail(mainId)?.anilistId,
+                            sourceId = content.extensionId,
+                            animeUrl = content.animeUrl,
+                            title = cachedMeta.title,
+                            coverUrl = cachedMeta.coverUrl,
+                            averageScore = cachedMeta.score,
+                            episodes = cachedMeta.episodes,
+                            seasonYear = cachedMeta.seasonYear,
+                            status = cachedMeta.status,
+                        ),
+                    )
+                    continue
                 }
-                _categoryCounts.value = counts
 
-                // Get library mainIds — filtered by selected category if set.
-                val mainIds = if (_selectedCategoryId.value != null) {
-                    contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
-                } else {
-                    contentRepository.getLibraryMainIds()
-                }
-
-                // Deduplicate mainIds (a content can be in multiple categories).
-                val uniqueMainIds = mainIds.distinct()
-                // D-143: totalEntries should show the TOTAL across ALL categories,
-                // not just the selected category. Fetch the full count separately.
-                val allMainIds = contentRepository.getLibraryMainIds()
-                _totalEntries.value = allMainIds.distinct().size
-                Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${_selectedCategoryId.value ?: "all"})" }
-
-                if (uniqueMainIds.isEmpty()) {
-                    _state.value = LibraryState.Empty
-                    return@launch
-                }
-
-                // Build LibraryEntry for each content.
-                val entries = mutableListOf<LibraryEntry>()
-                for (mainId in uniqueMainIds) {
-                    val content = contentRepository.getContentByMainId(mainId) ?: continue
-
-                    // D.1: Check the local data cache FIRST — no network needed.
-                    val cachedMeta = dataCacheRepository.getAnimeMetadata(mainId)
-                    if (cachedMeta != null) {
-                        // Use cached data — instant display.
+                // Not cached — try AniList detail (for fetching + caching).
+                val anilistDetail = contentRepository.getAniListDetail(mainId)
+                if (anilistDetail != null) {
+                    // Fetch fresh AniList data (first time only — will be cached after this).
+                    try {
+                        val anime = anilistApi.fetchAnimeDetails(anilistDetail.anilistId)
+                        // D.1: Cache the fetched metadata locally.
+                        dataCacheRepository.upsertAnimeMetadata(
+                            com.confused.anikuta.core.datacache.CachedAnimeMetadata(
+                                mainId = mainId,
+                                title = anime.displayName,
+                                description = anime.description,
+                                coverUrl = anime.coverUrl,
+                                bannerUrl = anime.bannerImage,
+                                score = anime.averageScore,
+                                episodes = anime.episodes,
+                                season = anime.season,
+                                seasonYear = anime.seasonYear,
+                                status = anime.status,
+                                genres = anime.genres?.joinToString(", "),
+                                sourceType = "anilist",
+                                fetchedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                        entries.add(
+                            LibraryEntry.fromAniList(
+                                mainId = mainId,
+                                anime = anime,
+                                sourceId = content.extensionId,
+                                animeUrl = content.animeUrl,
+                            ),
+                        )
+                    } catch (e: Exception) {
+                        Logger.w(TAG) { "AniList fetch failed for ${anilistDetail.anilistId}: ${e.message}" }
+                        // Fall back to stored data.
                         entries.add(
                             LibraryEntry(
                                 mainId = mainId,
-                                anilistId = contentRepository.getAniListDetail(mainId)?.anilistId,
+                                anilistId = anilistDetail.anilistId,
                                 sourceId = content.extensionId,
                                 animeUrl = content.animeUrl,
-                                title = cachedMeta.title,
-                                coverUrl = cachedMeta.coverUrl,
-                                averageScore = cachedMeta.score,
-                                episodes = cachedMeta.episodes,
-                                seasonYear = cachedMeta.seasonYear,
-                                status = cachedMeta.status,
-                            ),
-                        )
-                        continue
-                    }
-
-                    // Not cached — try AniList detail (for fetching + caching).
-                    val anilistDetail = contentRepository.getAniListDetail(mainId)
-                    if (anilistDetail != null) {
-                        // Fetch fresh AniList data (first time only — will be cached after this).
-                        try {
-                            val anime = anilistApi.fetchAnimeDetails(anilistDetail.anilistId)
-                            // D.1: Cache the fetched metadata locally.
-                            dataCacheRepository.upsertAnimeMetadata(
-                                com.confused.anikuta.core.datacache.CachedAnimeMetadata(
-                                    mainId = mainId,
-                                    title = anime.displayName,
-                                    description = anime.description,
-                                    coverUrl = anime.coverUrl,
-                                    bannerUrl = anime.bannerImage,
-                                    score = anime.averageScore,
-                                    episodes = anime.episodes,
-                                    season = anime.season,
-                                    seasonYear = anime.seasonYear,
-                                    status = anime.status,
-                                    genres = anime.genres?.joinToString(", "),
-                                    sourceType = "anilist",
-                                    fetchedAt = System.currentTimeMillis(),
-                                ),
-                            )
-                            entries.add(
-                                LibraryEntry.fromAniList(
-                                    mainId = mainId,
-                                    anime = anime,
-                                    sourceId = content.extensionId,
-                                    animeUrl = content.animeUrl,
-                                ),
-                            )
-                        } catch (e: Exception) {
-                            Logger.w(TAG) { "AniList fetch failed for ${anilistDetail.anilistId}: ${e.message}" }
-                            // Fall back to stored data.
-                            entries.add(
-                                LibraryEntry(
-                                    mainId = mainId,
-                                    anilistId = anilistDetail.anilistId,
-                                    sourceId = content.extensionId,
-                                    animeUrl = content.animeUrl,
-                                    title = content.title,
-                                    coverUrl = anilistDetail.coverUrl,
-                                    averageScore = anilistDetail.score,
-                                    episodes = anilistDetail.episodes,
-                                    seasonYear = anilistDetail.seasonYear,
-                                    status = anilistDetail.status,
-                                ),
-                            )
-                        }
-                    } else {
-                        // Extension-only content — use stored data.
-                        val extDetail = contentRepository.getExtensionDetail(mainId)
-                        entries.add(
-                            LibraryEntry.fromExtension(
-                                mainId = mainId,
                                 title = content.title,
-                                coverUrl = extDetail?.thumbnailUrl,
-                                sourceId = content.extensionId ?: extDetail?.sourceId,
-                                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
+                                coverUrl = anilistDetail.coverUrl,
+                                averageScore = anilistDetail.score,
+                                episodes = anilistDetail.episodes,
+                                seasonYear = anilistDetail.seasonYear,
+                                status = anilistDetail.status,
                             ),
                         )
                     }
-                }
-
-                if (entries.isEmpty()) {
-                    _state.value = LibraryState.Empty
                 } else {
-                    _state.value = LibraryState.Success(entries)
-                    applyFilters()
+                    // Extension-only content — use stored data.
+                    val extDetail = contentRepository.getExtensionDetail(mainId)
+                    entries.add(
+                        LibraryEntry.fromExtension(
+                            mainId = mainId,
+                            title = content.title,
+                            coverUrl = extDetail?.thumbnailUrl,
+                            sourceId = content.extensionId ?: extDetail?.sourceId,
+                            animeUrl = content.animeUrl ?: extDetail?.animeUrl,
+                        ),
+                    )
                 }
-            } catch (e: Exception) {
-                Logger.e(TAG, e) { "Failed to load library: ${e.message}" }
-                _state.value = LibraryState.Error(e.message ?: "Unknown error")
             }
+
+            if (entries.isEmpty()) {
+                _state.value = LibraryState.Empty
+            } else {
+                _state.value = LibraryState.Success(entries)
+                applyFilters()
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Failed to load library: ${e.message}" }
+            _state.value = LibraryState.Error(e.message ?: "Unknown error")
         }
     }
 
@@ -404,17 +420,18 @@ class LibraryViewModel(
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     /**
-     * D.5: Force-refresh the library from the network.
-     * Clears the AniList cache + re-fetches all entries.
-     * Called by pull-to-refresh.
+     * Pull-to-refresh entry point. Clears the in-memory AniList cache, then
+     * re-runs [loadLibraryImpl] (the actual suspend load) inside a single
+     * coroutine so [_isRefreshing] tracks the TRUE duration of the refresh.
+     *
+     * The M3 PullToRefreshBox indicator spins for exactly as long as the load
+     * takes — no hardcoded 500ms delay, no early dismiss, no lingering spinner.
      */
     fun refreshLibrary() {
-        _isRefreshing.value = true
-        clearCache()
-        loadLibrary()
         viewModelScope.launch {
-            // Wait a moment for loadLibrary to finish, then clear the refresh state.
-            kotlinx.coroutines.delay(500)
+            _isRefreshing.value = true
+            clearCache()
+            loadLibraryImpl()
             _isRefreshing.value = false
             Logger.i(TAG) { "Library refresh complete" }
         }
