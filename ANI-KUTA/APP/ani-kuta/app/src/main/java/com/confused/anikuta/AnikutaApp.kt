@@ -128,6 +128,8 @@ class AnikutaApp : Application() {
         private val appModule = module {
             // Network
             single<OkHttpClient> { HttpClientFactory().create() }
+            // D.0.4: Download HTTP client — long timeouts, separate connection pool.
+            single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { HttpClientFactory().createDownloadClient() }
 
             // D.4: Coil ImageLoader with 500MB disk cache (persistent)
             single { ImageLoaderFactory.create(get(), get()) }

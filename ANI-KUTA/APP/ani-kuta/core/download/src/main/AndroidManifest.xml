@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  :core:download AndroidManifest (D.0.11 — REVIEW-5 M23/M63)
+  
+  ACCESS_NETWORK_STATE: required by ConnectivityManager.registerNetworkCallback
+  (used by the auto-pause-on-metered + auto-resume-on-network-change QoL features).
+  Without this, registerNetworkCallback SecurityException-crashes on first init.
+  
+  The DownloadService is declared here (not in :app) so the :core:download module
+  is self-contained. The foregroundServiceType=dataSync is required on Android 14+.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application>
+        <service
+            android:name="com.confused.anikuta.core.download.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+
+</manifest>

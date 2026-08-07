@@ -1,40 +1,200 @@
--- Download queue table
--- Per APP/ani-kuta/DOCUMENTATION/database/downloads.md
+-- ──────────────────────────────────────────────────────────────────────────
+-- Download queue table (v2 — re-keyed by mainId + episodeKey)
+-- Per AGENT-CONTEXT/download-research/11-db-schema.md §3.2
+-- ──────────────────────────────────────────────────────────────────────────
+--
+-- REVIEW-5 M1+M2: this is the canonical v1 schema (edited directly — no .sqm
+-- migration file). Existing dev installs must wipe app data once.
+--
+-- The `state` column holds one of 7 constants (REVIEW-5 M8):
+--   QUEUED | DOWNLOADING | RETRYING | PAUSED | COMPLETED | ERROR | CANCELLED
 
 CREATE TABLE IF NOT EXISTS download_queue (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+
+    -- ── Content identity (re-keyed per D.0) ──
+    main_id TEXT NOT NULL,
     episode_key TEXT NOT NULL,
-    state TEXT NOT NULL,
+
+    -- ── Episode metadata (denormalized for queue display without a JOIN) ──
+    content_id TEXT NOT NULL,
+    content_title TEXT NOT NULL,
+    episode_number REAL NOT NULL,
+    episode_name TEXT NOT NULL,
+    cover_url TEXT,
+    cover_color TEXT,
+
+    -- ── Video resolution context (for re-resolve on proxy-churn) ──
+    source_id INTEGER,
+    video_server TEXT,
+    video_quality TEXT,
+    video_audio TEXT,
+    video_url TEXT NOT NULL,
+    video_headers TEXT,          -- JSON: Map<String, String>
+    video_uri TEXT,              -- content:// URI after publish (null while downloading)
+
+    -- ── Subtitle / audio tracks (JSON arrays for the player) ──
+    subtitle_tracks TEXT,        -- JSON: List<SubtitleTrack>
+    audio_tracks TEXT,           -- JSON: List<AudioTrack>
+    subtitle_uris TEXT,          -- JSON: List<String> (content:// URIs after publish)
+
+    -- ── Progress tracking (REVIEW-5 M31/M34/M38 — persisted across pause/resume) ──
+    state TEXT NOT NULL DEFAULT 'QUEUED',
     progress INTEGER NOT NULL DEFAULT 0,
-    error_message TEXT,
+    downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+    total_bytes INTEGER NOT NULL DEFAULT 0,
+    prev_total_bytes INTEGER NOT NULL DEFAULT 0,
+    prev_estimate_bytes INTEGER NOT NULL DEFAULT 0,
+    recent_ratios_json TEXT,     -- JSON: ArrayDeque<Float> (moving-average window)
+
+    -- ── Retry tracking (REVIEW-5 M9/M11 — RETRYING state metadata) ──
+    retry_attempt INTEGER NOT NULL DEFAULT 0,
+    retry_max_attempts INTEGER NOT NULL DEFAULT 3,
+    last_error TEXT,
+
+    -- ── Resolve context (for proxy-churn re-resolve — REVIEW-5 M64) ──
+    resolve_context TEXT,        -- JSON: ResolveContext (7 fields)
+
+    -- ── Timestamps ──
     queued_at INTEGER NOT NULL,
     started_at INTEGER,
-    completed_at INTEGER
+    completed_at INTEGER,
+    updated_at INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_download_state ON download_queue(state);
+-- Unique constraint: one queue entry per (mainId, episodeKey).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_download_queue_main_episode
+    ON download_queue(main_id, episode_key);
+
+-- Fast lookup by state (for tryStartNext + UI filtering).
+CREATE INDEX IF NOT EXISTS idx_download_queue_state
+    ON download_queue(state);
+
+-- Fast lookup by mainId (for "is this content downloaded?" checks).
+CREATE INDEX IF NOT EXISTS idx_download_queue_main
+    ON download_queue(main_id);
+
+-- ── Queries ────────────────────────────────────────────────────────────────
 
 insertDownloadQueue:
-INSERT INTO download_queue(episode_key, state, queued_at)
-VALUES (?, 'QUEUED', ?);
+INSERT INTO download_queue(
+    main_id, episode_key, content_id, content_title, episode_number, episode_name,
+    cover_url, cover_color, source_id, video_server, video_quality, video_audio,
+    video_url, video_headers, video_uri, subtitle_tracks, audio_tracks, subtitle_uris,
+    state, progress, downloaded_bytes, total_bytes,
+    retry_max_attempts, resolve_context, queued_at, updated_at
+) VALUES (
+    :main_id, :episode_key, :content_id, :content_title, :episode_number, :episode_name,
+    :cover_url, :cover_color, :source_id, :video_server, :video_quality, :video_audio,
+    :video_url, :video_headers, :video_uri, :subtitle_tracks, :audio_tracks, :subtitle_uris,
+    'QUEUED', 0, 0, 0,
+    :retry_max_attempts, :resolve_context, :queued_at, :queued_at
+);
 
 updateDownloadState:
 UPDATE download_queue
-SET state = ?, progress = ?, error_message = ?, started_at = ?, completed_at = ?
-WHERE id = ?;
+SET state = :state, progress = :progress, last_error = :error_message,
+    started_at = :started_at, completed_at = :completed_at, updated_at = :updated_at
+WHERE id = :id;
+
+updateDownloadProgress:
+UPDATE download_queue
+SET progress = :progress, downloaded_bytes = :downloaded_bytes,
+    total_bytes = :total_bytes, prev_total_bytes = :prev_total_bytes,
+    prev_estimate_bytes = :prev_estimate_bytes, recent_ratios_json = :recent_ratios_json,
+    updated_at = :updated_at
+WHERE id = :id;
+
+updateDownloadVideoUri:
+UPDATE download_queue
+SET video_uri = :video_uri, subtitle_uris = :subtitle_uris, updated_at = :updated_at
+WHERE id = :id;
+
+-- REVIEW-5 M9+M11: set RETRYING state with retry metadata.
+setRetryingStatus:
+UPDATE download_queue
+SET state = 'RETRYING', retry_attempt = :attempt, last_error = :error_message,
+    updated_at = :updated_at
+WHERE id = :id;
+
+-- REVIEW-5 M11: set ERROR state.
+setErrorStatus:
+UPDATE download_queue
+SET state = 'ERROR', last_error = :error_message, updated_at = :updated_at
+WHERE id = :id;
+
+-- REVIEW-5 M7: update contentId when the user switches sources (keeps the
+-- queue entry linked to the current content identity).
+updateDownloadContentId:
+UPDATE download_queue
+SET content_id = :content_id, updated_at = :updated_at
+WHERE main_id = :main_id;
 
 getDownloadQueue:
 SELECT * FROM download_queue
-WHERE state IN ('QUEUED', 'DOWNLOADING', 'PAUSED')
+WHERE state IN ('QUEUED', 'DOWNLOADING', 'RETRYING', 'PAUSED')
 ORDER BY queued_at ASC;
 
 getDownloadQueueByState:
 SELECT * FROM download_queue
-WHERE state = ?
+WHERE state = :state
 ORDER BY queued_at ASC;
 
-deleteDownloadQueue:
-DELETE FROM download_queue WHERE id = ?;
+getDownloadQueueByMainId:
+SELECT * FROM download_queue
+WHERE main_id = :main_id
+ORDER BY episode_number ASC;
 
-deleteDownloadQueueByEpisode:
-DELETE FROM download_queue WHERE episode_key = ?;
+getDownloadTaskById:
+SELECT * FROM download_queue WHERE id = :id;
+
+getDownloadTaskByMainAndEpisode:
+SELECT * FROM download_queue
+WHERE main_id = :main_id AND episode_key = :episode_key;
+
+-- REVIEW-5 M6: resets BOTH DOWNLOADING and RETRYING to QUEUED on startup
+-- (fixes the old project's bug where a crash mid-download left a stale
+-- DOWNLOADING state forever).
+resetDownloadingToQueued:
+UPDATE download_queue
+SET state = 'QUEUED', started_at = NULL, updated_at = :updated_at
+WHERE state IN ('DOWNLOADING', 'RETRYING');
+
+-- REVIEW-5 M3: uses MAX(...) for bare columns (not DISTINCT + GROUP BY —
+-- the old query was non-deterministic if title changed mid-download).
+getDownloadedMainIds:
+SELECT main_id, MAX(content_title) AS content_title, MAX(cover_url) AS cover_url,
+       MAX(cover_color) AS cover_color, COUNT(*) AS episode_count
+FROM downloaded_episode
+GROUP BY main_id
+ORDER BY MAX(content_title) ASC;
+
+getQueuedEpisodeKeys:
+SELECT episode_key FROM download_queue
+WHERE state IN ('QUEUED', 'DOWNLOADING', 'RETRYING', 'PAUSED');
+
+getActiveCount:
+SELECT COUNT(*) FROM download_queue
+WHERE state IN ('DOWNLOADING', 'RETRYING');
+
+getQueuedCount:
+SELECT COUNT(*) FROM download_queue WHERE state = 'QUEUED';
+
+deleteDownloadQueue:
+DELETE FROM download_queue WHERE id = :id;
+
+deleteDownloadQueueByMainAndEpisode:
+DELETE FROM download_queue WHERE main_id = :main_id AND episode_key = :episode_key;
+
+deleteDownloadQueueByMainId:
+DELETE FROM download_queue WHERE main_id = :main_id;
+
+-- Removes terminal-state (CANCELLED) entries — called periodically to keep
+-- the queue table lean.
+purgeCancelled:
+DELETE FROM download_queue WHERE state = 'CANCELLED';
+
+-- Removes terminal-state (COMPLETED) entries — called after the auto-clear
+-- delay (10s by default).
+purgeCompleted:
+DELETE FROM download_queue WHERE state = 'COMPLETED';
