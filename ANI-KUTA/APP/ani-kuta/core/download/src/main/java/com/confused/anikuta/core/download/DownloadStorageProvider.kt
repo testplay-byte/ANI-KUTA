@@ -140,8 +140,13 @@ class DownloadStorageProvider(
         copyFile(tempFile, videoTarget.uri)
 
         // 5. Write subtitle files alongside the video.
-        for (subFile in subtitleFiles) {
-            val subName = subFile.name
+        // D.FIX: Name subtitles per-episode + per-track-index so they don't
+        // overwrite each other when multiple episodes are downloaded.
+        // Format: .subtitle_E{00001}_{index}.{ext} (hidden file).
+        for ((subIndex, subFile) in subtitleFiles.withIndex()) {
+            val ext = subFile.extension.ifBlank { "vtt" }
+            val epNum = String.format("%05d", episode.episodeNumber.toInt())
+            val subName = ".subtitle_E${epNum}_$subIndex.$ext"
             index[subName]?.delete()
             val subTarget = contentDir.createFile("application/octet-stream", subName)
             if (subTarget != null) {

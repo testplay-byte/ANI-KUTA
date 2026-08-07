@@ -1623,8 +1623,8 @@ private fun EpisodeRow(
                         onCancel = onCancel,
                         onRetry = onRetry,
                         onDelete = onDelete,
-                    )
                         onPlayDownloaded = onPlayDownloaded,
+                    )
                 }
             } else {
                 // No synopsis — move download button up to the date/audio pills row.

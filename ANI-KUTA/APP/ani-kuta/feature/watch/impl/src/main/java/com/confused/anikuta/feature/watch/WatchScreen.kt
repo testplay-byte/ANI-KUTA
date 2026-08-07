@@ -560,6 +560,54 @@ fun WatchScreen(
     var showSubtitleSettingsSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
 
+    // D.FIX: On-demand resolve for the QualitySheet when playing offline.
+    // When the user opens the QualitySheet + resolvedServers is empty (offline
+    // playback), resolve the episode on-demand so the user can switch to a
+    // live server/quality.
+    var isResolvingOnDemand by remember { mutableStateOf(false) }
+    val downloadManager = org.koin.compose.koinInject<com.confused.anikuta.core.download.DownloadManager>()
+    val videoResolver = org.koin.compose.koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
+    val extensionManager = org.koin.compose.koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+
+    LaunchedEffect(showQualitySheet) {
+        if (showQualitySheet && resolvedServers.isEmpty() && !isResolvingOnDemand) {
+            // QualitySheet opened but no servers available — resolve on-demand.
+            isResolvingOnDemand = true
+            Logger.i(TAG) { "QualitySheet opened with no servers — resolving on-demand" }
+            val sourceId = watchKey.sourceId
+            val source = extensionManager.getSource(sourceId) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+            if (source != null) {
+                // Build a minimal SEpisode from the watch key.
+                val episode = eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                    url = watchKey.episodeUrl
+                    episode_number = watchKey.episodeNumber
+                    name = watchKey.episodeTitle
+                }
+                try {
+                    videoResolver.resolve(source, episode).collect { state ->
+                        when (state) {
+                            is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
+                                val servers = videoResolver.buildServers(state.rawEntries, source.name)
+                                if (servers.isNotEmpty()) {
+                                    val key = com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry.put(servers)
+                                    stateHolder.setResolvedVideosKey(key)
+                                    Logger.i(TAG) { "On-demand resolve: got ${servers.size} servers" }
+                                }
+                            }
+                            is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
+                                Logger.w(TAG) { "On-demand resolve failed: ${state.message}" }
+                            }
+                            else -> {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    Logger.e(TAG, e) { "On-demand resolve exception" }
+                }
+            }
+            isResolvingOnDemand = false
+        }
+    }
+
     // ── Retry handler — re-load the current video URL ──
     val onRetry: () -> Unit = {
         Logger.i(TAG) { "=== RETRY: Re-loading video ===" }
