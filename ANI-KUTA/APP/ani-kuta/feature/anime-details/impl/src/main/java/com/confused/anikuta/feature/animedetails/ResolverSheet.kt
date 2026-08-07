@@ -79,6 +79,7 @@ import com.confused.anikuta.core.videoresolver.ResolverServer
 fun ResolverSheet(
     resolverState: ResolverState,
     episodeNumber: Float = 0f,
+    downloadMode: Boolean = false,
     onPickVideo: (ResolvedVideo) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -108,7 +109,11 @@ fun ResolverSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}",
+                    text = if (downloadMode) {
+                        "Download EP ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
+                    } else {
+                        "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
+                    },
                     fontFamily = RobotoFamily,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.ExtraBold,

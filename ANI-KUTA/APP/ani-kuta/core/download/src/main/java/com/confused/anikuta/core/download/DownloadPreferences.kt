@@ -49,9 +49,9 @@ class DownloadPreferences(private val store: PreferenceStore) {
 
     // ── Preferred qualities (drag-reorderable list) ──────────────────────────
 
-    /** Ordered list of preferred qualities (e.g. ["1080p", "720p", "480p"]). */
+    /** Ordered list of preferred qualities (e.g. ["1080p", "720p", "480p", "360p"]). */
     val preferredQualities = store.preference(
-        "pref_dl_qualities", listOf("1080p", "720p", "480p"), StringListSerializer,
+        "pref_dl_qualities", listOf("1080p", "720p", "480p", "360p"), StringListSerializer,
     )
 
     /** Fallback strategy when the preferred quality is unavailable. */
@@ -61,9 +61,9 @@ class DownloadPreferences(private val store: PreferenceStore) {
 
     // ── Preferred audio (drag-reorderable list) ──────────────────────────────
 
-    /** Ordered list of preferred audio versions (e.g. ["SUB", "DUB"]). */
+    /** Ordered list of preferred audio versions (e.g. ["SUB", "DUB", "HSUB"]). */
     val preferredAudio = store.preference(
-        "pref_dl_audio", listOf("SUB", "DUB"), StringListSerializer,
+        "pref_dl_audio", listOf("SUB", "DUB", "HSUB"), StringListSerializer,
     )
 
     /** Fallback strategy when the preferred audio is unavailable. */

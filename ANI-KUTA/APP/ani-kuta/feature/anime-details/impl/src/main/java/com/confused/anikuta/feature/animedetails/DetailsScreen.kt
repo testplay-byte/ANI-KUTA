@@ -105,6 +105,7 @@ fun DetailsScreen(
     onBack: () -> Unit,
     onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
+    onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolverVideo, String, String) -> Unit = { _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -151,6 +152,7 @@ fun DetailsScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
+    var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
 
     Box(
@@ -382,12 +384,20 @@ fun DetailsScreen(
                                 onUnlinkSource = { viewModel.unlinkSource() },
                                 onEpisodeClick = { episode ->
                                     currentEpisode = episode
+                                    resolverDownloadMode = false
                                     viewModel.resolveEpisode(episode)
                                     showResolverSheet = true
                                 },
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->
-                                    onDownloadEpisode(episode)
+                                    // D.FIX: Show the resolver sheet in download mode —
+                                    // the user picks which video to download (same UI as
+                                    // play, but the heading says "Download EP" and picking
+                                    // a video enqueues a download instead of navigating to watch).
+                                    currentEpisode = episode
+                                    resolverDownloadMode = true
+                                    viewModel.resolveEpisode(episode)
+                                    showResolverSheet = true
                                 },
                                 onPauseEpisodeDownload = { episode ->
                                     viewModel.pauseEpisodeDownload(episode)
@@ -505,11 +515,24 @@ fun DetailsScreen(
         ResolverSheet(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
+            downloadMode = resolverDownloadMode,
             onPickVideo = { video ->
                 val anime = (state as? DetailsState.Success)?.anime
                 val linked = linkedSource
                 val ep = currentEpisode
                 if (anime != null && linked != null && ep != null) {
+                    if (resolverDownloadMode) {
+                        // D.FIX: Download mode — enqueue the selected video for download.
+                        onDownloadSpecificVideo(
+                            ep,
+                            video,
+                            linked.sourceName,
+                            linked.sourceId.toString(),
+                        )
+                        showResolverSheet = false
+                        viewModel.clearResolver()
+                        return@ResolverSheet
+                    }
                     // CRITICAL: Log the URL at pick time so we can trace where it
                     // might become empty between here and the WatchScreen.
                     Logger.i("Anikuta:Feature:Details") {

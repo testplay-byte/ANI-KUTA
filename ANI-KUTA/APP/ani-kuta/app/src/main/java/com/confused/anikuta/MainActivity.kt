@@ -221,6 +221,17 @@ fun AppRoot() {
                                 contentRepository = contentRepository,
                             )
                         },
+                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr ->
+                            handleDownloadSpecificVideo(
+                                detailsKey = currentKey,
+                                episode = episode,
+                                video = video,
+                                serverName = serverName,
+                                sourceIdStr = sourceIdStr,
+                                orchestrator = orchestrator,
+                                contentRepository = contentRepository,
+                            )
+                        },
                     )
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
@@ -232,6 +243,17 @@ fun AppRoot() {
                             handleDownloadEpisode(
                                 detailsKey = currentKey,
                                 episode = episode,
+                                orchestrator = orchestrator,
+                                contentRepository = contentRepository,
+                            )
+                        },
+                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr ->
+                            handleDownloadSpecificVideo(
+                                detailsKey = currentKey,
+                                episode = episode,
+                                video = video,
+                                serverName = serverName,
+                                sourceIdStr = sourceIdStr,
                                 orchestrator = orchestrator,
                                 contentRepository = contentRepository,
                             )
@@ -487,6 +509,123 @@ private fun handleDownloadEpisode(
         } catch (e: Exception) {
             com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
                 "handleDownloadEpisode — exception"
+            }
+        }
+    }
+}
+
+/**
+ * Handles downloading a SPECIFIC video that the user picked from the resolver sheet.
+ *
+ * D.FIX: When the user clicks the download button on an episode, the resolver sheet
+ * appears (same as play). The user picks a video → this function is called → it
+ * builds a DownloadContentInfo + DownloadEpisodeInfo + calls orchestrator.enqueueSpecific.
+ *
+ * @param episode The SEpisode to download.
+ * @param video The ResolverVideo the user picked from the resolver sheet.
+ * @param serverName The server name (from the linked source).
+ * @param sourceIdStr The source ID as a string.
+ */
+private fun handleDownloadSpecificVideo(
+    detailsKey: AnimeDetailsKey,
+    episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
+    video: com.confused.anikuta.core.videoresolver.ResolverVideo,
+    serverName: String,
+    sourceIdStr: String,
+    orchestrator: DownloadOrchestrator,
+    contentRepository: com.confused.anikuta.core.content.ContentRepository,
+) {
+    val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
+    scope.launch {
+        try {
+            val mainId: String? = when (detailsKey) {
+                is AnimeDetailsKey.AniList ->
+                    contentRepository.getContentByAniListId(detailsKey.animeId)?.mainId
+                is AnimeDetailsKey.Extension ->
+                    contentRepository.getContentByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
+            }
+            if (mainId == null) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleDownloadSpecificVideo — no mainId"
+                }
+                return@launch
+            }
+
+            val content = contentRepository.getContentByMainId(mainId) ?: run {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleDownloadSpecificVideo — no content for mainId=$mainId"
+                }
+                return@launch
+            }
+            val anilistDetail = contentRepository.getAniListDetail(mainId)
+            val extDetail = contentRepository.getExtensionDetail(mainId)
+            val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+            val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
+                mainId = content.mainId,
+                contentId = content.contentId,
+                title = content.title,
+                coverUrl = coverUrl,
+                coverColor = null,
+                contentFormat = content.contentFormat,
+                contentType = content.contentType,
+            )
+            val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
+                episodeKey = episode.url,
+                episodeNumber = episode.episode_number,
+                name = episode.name,
+            )
+
+            val sourceId = sourceIdStr.toLongOrNull()
+            val source = sourceId?.let {
+                org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+                    .getSource(it) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+            }
+
+            if (source == null) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleDownloadSpecificVideo — no source for sourceId=$sourceId"
+                }
+                return@launch
+            }
+
+            val result = orchestrator.enqueueSpecific(
+                source = source,
+                episode = episode,
+                content = contentInfo,
+                episodeInfo = episodeInfo,
+                video = video,
+                serverName = serverName,
+                audioLabel = "", // The resolver sheet doesn't carry the audio label — the orchestrator can derive it.
+            )
+
+            when (result) {
+                is EnqueueResult.Success -> {
+                    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                        "Specific video download enqueued: taskId=${result.taskId}"
+                    }
+                }
+                is EnqueueResult.ShowPicker -> {
+                    com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                        "handleDownloadSpecificVideo — ShowPicker (shouldn't happen for manual pick)"
+                    }
+                }
+                is EnqueueResult.NoSources -> {
+                    com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                        "handleDownloadSpecificVideo — no sources"
+                    }
+                }
+                is EnqueueResult.Error -> {
+                    com.confused.anikuta.core.common.Logger.e("MainActivity") {
+                        "handleDownloadSpecificVideo failed: ${result.message}"
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
+                "handleDownloadSpecificVideo — exception"
             }
         }
     }
