@@ -460,6 +460,16 @@ private fun handleDownloadEpisode(
                 coverColor = null,
                 contentFormat = content.contentFormat,
                 contentType = content.contentType,
+                // D.FIX: Populate FK columns from ContentRecord for data.json.
+                description = content.description,
+                dataSourceId = content.dataSourceId,
+                systemId = content.systemId,
+                extensionRepoId = content.extensionRepoId,
+                extensionId = content.extensionId,
+                sourceId = content.sourceId,
+                animeUrl = content.animeUrl,
+                displaySource = content.displaySource,
+                anilistId = anilistDetail?.anilistId,
             )
             val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
                 episodeKey = episode.url,
@@ -573,6 +583,16 @@ private fun handleDownloadSpecificVideo(
                 coverColor = null,
                 contentFormat = content.contentFormat,
                 contentType = content.contentType,
+                // D.FIX: Populate FK columns from ContentRecord for data.json.
+                description = content.description,
+                dataSourceId = content.dataSourceId,
+                systemId = content.systemId,
+                extensionRepoId = content.extensionRepoId,
+                extensionId = content.extensionId,
+                sourceId = content.sourceId,
+                animeUrl = content.animeUrl,
+                displaySource = content.displaySource,
+                anilistId = anilistDetail?.anilistId,
             )
             val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
                 episodeKey = episode.url,
@@ -580,7 +600,7 @@ private fun handleDownloadSpecificVideo(
                 name = episode.name,
             )
 
-            val sourceId = sourceIdStr.toLongOrNull()
+            val sourceId = content.sourceId
             val source = sourceId?.let {
                 org.koin.core.context.GlobalContext.get()
                     .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()

@@ -122,7 +122,7 @@ class DownloadStorageProvider(
         // 2. Write cover.jpg (best-effort — if coverUrl is set + no cover exists).
         //    HttpDownloader pre-downloads the cover to TempDownloadCache; if present,
         //    we copy from there. Otherwise we fetch from coverUrl on-demand.
-        if (index["cover.jpg"] == null) {
+        if (index[".cover.jpg"] == null) {
             writeCoverImage(content.coverUrl, contentDir, content.mainId)
         }
 
@@ -168,7 +168,7 @@ class DownloadStorageProvider(
 
     /** Same as [readDataJson] but accepts a pre-built index (REVIEW-5 M55). */
     private fun readDataJsonIndexed(index: Map<String, DocumentFile>): ContentDataJson? {
-        val dataJsonFile = index["data.json"] ?: return null
+        val dataJsonFile = index[".data.json"] ?: return null
         return try {
             context.contentResolver.openInputStream(dataJsonFile.uri)?.use { input ->
                 val text = input.bufferedReader().readText()
@@ -201,14 +201,32 @@ class DownloadStorageProvider(
             title = content.title,
             contentType = content.contentType,
             contentFormat = content.contentFormat,
+            description = content.description,
+            dataSourceId = content.dataSourceId,
+            systemId = content.systemId,
+            extensionRepoId = content.extensionRepoId,
+            extensionId = content.extensionId,
+            sourceId = content.sourceId,
+            animeUrl = content.animeUrl,
+            displaySource = content.displaySource,
             coverUrl = content.coverUrl,
+            anilistId = content.anilistId,
             createdAt = now,
             updatedAt = now,
         )).copy(
             title = content.title,
             contentType = content.contentType,
             contentFormat = content.contentFormat,
+            description = content.description,
+            dataSourceId = content.dataSourceId,
+            systemId = content.systemId,
+            extensionRepoId = content.extensionRepoId,
+            extensionId = content.extensionId,
+            sourceId = content.sourceId,
+            animeUrl = content.animeUrl,
+            displaySource = content.displaySource,
             coverUrl = content.coverUrl,
+            anilistId = content.anilistId,
             updatedAt = now,
         )
         val jsonText = ContentDataJson.stringify(updated)
@@ -217,8 +235,8 @@ class DownloadStorageProvider(
         val tempFile = File.createTempFile("data", ".json", context.cacheDir)
         try {
             tempFile.writeText(jsonText)
-            val target = index["data.json"]
-                ?: folder.createFile("application/json", "data.json")
+            val target = index[".data.json"]
+                ?: folder.createFile("application/json", ".data.json")
                 ?: throw DownloadException("Failed to create data.json in ${folder.name}")
             copyFile(tempFile, target.uri)
         } finally {
@@ -240,7 +258,7 @@ class DownloadStorageProvider(
                         DownloadLogger.w { "Cover fetch failed (${response.code}) for $mainId" }
                         return@withContext
                     }
-                    val target = folder.createFile("image/jpeg", "cover.jpg") ?: return@withContext
+                    val target = folder.createFile("image/jpeg", ".cover.jpg") ?: return@withContext
                     context.contentResolver.openOutputStream(target.uri)?.use { out ->
                         response.body?.byteStream()?.use { it.copyTo(out) }
                     }

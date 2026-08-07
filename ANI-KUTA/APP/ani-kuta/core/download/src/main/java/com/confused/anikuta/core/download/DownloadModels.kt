@@ -34,6 +34,16 @@ data class DownloadContentInfo(
     val coverColor: Int? = null,
     val contentFormat: String = "video",
     val contentType: String = "anime",
+    // D.FIX: FK columns from ContentRecord — needed for data.json reinstall recognition.
+    val description: String? = null,
+    val dataSourceId: Long? = null,
+    val systemId: Long? = null,
+    val extensionRepoId: Long? = null,
+    val extensionId: Long? = null,
+    val sourceId: Long? = null,
+    val animeUrl: String? = null,
+    val displaySource: String = "extension",
+    val anilistId: Int? = null,
 )
 
 /**

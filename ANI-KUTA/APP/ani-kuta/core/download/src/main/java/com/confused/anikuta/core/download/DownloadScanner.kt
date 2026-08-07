@@ -168,7 +168,7 @@ class DownloadScanner(
 
     /** Same as [DownloadStorageProvider.readDataJson] but accepts a pre-built index. */
     private fun readDataJsonIndexed(index: Map<String, DocumentFile>): ContentDataJson? {
-        val dataJsonFile = index["data.json"] ?: return null
+        val dataJsonFile = index[".data.json"] ?: return null
         return try {
             context.contentResolver.openInputStream(dataJsonFile.uri)?.use { input ->
                 val text = input.bufferedReader().readText()

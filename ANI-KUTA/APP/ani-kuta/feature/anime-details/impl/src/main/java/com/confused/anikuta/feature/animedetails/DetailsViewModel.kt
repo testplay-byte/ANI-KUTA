@@ -145,9 +145,15 @@ class DetailsViewModel(
     val downloadStates: StateFlow<Map<String, EpisodeDownloadState>> =
         downloadManager.episodeDownloadStates
             .map { coreMap ->
-                coreMap.mapValues { (_, coreState) ->
+                // D.FIX: Also check the downloaded_episode DB table for episodes that
+                // were completed + auto-cleared (no longer in the active queue).
+                // The queue auto-clears COMPLETED tasks after 10s — without this check,
+                // those episodes would show as NotDownloaded instead of Downloaded.
+                val result = mutableMapOf<String, EpisodeDownloadState>()
+                // 1. Map all active queue tasks.
+                coreMap.forEach { (key, coreState) ->
                     val (status, progress) = coreState
-                    when (status) {
+                    result[key] = when (status) {
                         com.confused.anikuta.core.download.DownloadStatus.QUEUED ->
                             EpisodeDownloadState.Queued
                         com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
@@ -164,6 +170,21 @@ class DetailsViewModel(
                             EpisodeDownloadState.NotDownloaded
                     }
                 }
+                // 2. For episodes NOT in the queue, check if they're downloaded.
+                //    This covers completed+auto-cleared episodes.
+                val mainId = currentMainId ?: return@map result
+                val episodeState = _episodeState.value
+                if (episodeState is EpisodeState.Loaded) {
+                    for (episode in episodeState.episodes) {
+                        val key = "$mainId|${episode.url}"
+                        if (key !in result) {
+                            if (downloadManager.isEpisodeDownloaded(mainId, episode.url)) {
+                                result[key] = EpisodeDownloadState.Downloaded
+                            }
+                        }
+                    }
+                }
+                result
             }
             .stateIn(
                 viewModelScope,
