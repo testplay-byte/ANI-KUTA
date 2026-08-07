@@ -131,7 +131,7 @@ object AutoDownloadEngine {
                 GlobalFallback.ASK -> Selection.NoCandidates // caller shows picker
                 GlobalFallback.BEST_EFFORT -> {
                     // Fall back to the best-ranked candidate from the full list.
-                    val best = ranked.minWithOrNull(compareBy { it.rankTuple(dimensionPriority) })
+                    val best = ranked.minWithOrNull(candidateComparator(dimensionPriority))
                         ?: return Selection.NoCandidates
                     Selection.Selected(best.candidate, isPerfectMatch = false)
                 }
@@ -139,7 +139,7 @@ object AutoDownloadEngine {
         }
 
         // Step 4: pick (sort by rank tuple, return first)
-        val best = fallbackFiltered.minWithOrNull(compareBy { it.rankTuple(dimensionPriority) })
+        val best = fallbackFiltered.minWithOrNull(candidateComparator(dimensionPriority))
             ?: return Selection.NoCandidates
 
         // Step 5: globalFallback — check if the best candidate is a perfect match.
@@ -193,6 +193,21 @@ object AutoDownloadEngine {
                     PreferenceDimension.SERVER -> serverRank
                 }
             }
+        }
+    }
+
+    /** Creates a Comparator that compares candidates by their dimension priority. */
+    private fun candidateComparator(priority: List<PreferenceDimension>): Comparator<CandidateRanked> {
+        return Comparator { a, b ->
+            for (dim in priority) {
+                val (aRank, bRank) = when (dim) {
+                    PreferenceDimension.AUDIO -> a.audioRank to b.audioRank
+                    PreferenceDimension.QUALITY -> a.qualityRank to b.qualityRank
+                    PreferenceDimension.SERVER -> a.serverRank to b.serverRank
+                }
+                if (aRank != bRank) return@Comparator aRank.compareTo(bRank)
+            }
+            0
         }
     }
 
