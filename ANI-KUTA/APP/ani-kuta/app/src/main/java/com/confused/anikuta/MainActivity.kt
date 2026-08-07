@@ -619,12 +619,8 @@ private fun handleDownloadSpecificVideo(
                     com.confused.anikuta.core.common.Logger.i("MainActivity") {
                         "Specific video download enqueued: taskId=${result.taskId}"
                     }
-                    // D.FIX: Visual feedback — show a toast.
-                    android.widget.Toast.makeText(
-                        org.koin.core.context.GlobalContext.get().get(),
-                        "Download started",
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
+                    // D.FIX: Visual feedback — show a toast on the MAIN thread.
+                    showDownloadToast("Download started")
                 }
                 is EnqueueResult.ShowPicker -> {
                     com.confused.anikuta.core.common.Logger.w("MainActivity") {
@@ -635,35 +631,39 @@ private fun handleDownloadSpecificVideo(
                     com.confused.anikuta.core.common.Logger.w("MainActivity") {
                         "handleDownloadSpecificVideo — no sources"
                     }
-                    android.widget.Toast.makeText(
-                        org.koin.core.context.GlobalContext.get().get(),
-                        "No extension source linked",
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
+                    showDownloadToast("No extension source linked")
                 }
                 is EnqueueResult.Error -> {
                     com.confused.anikuta.core.common.Logger.e("MainActivity") {
                         "handleDownloadSpecificVideo failed: ${result.message}"
                     }
-                    android.widget.Toast.makeText(
-                        org.koin.core.context.GlobalContext.get().get(),
-                        "Download failed: ${result.message}",
-                        android.widget.Toast.LENGTH_LONG,
-                    ).show()
+                    showDownloadToast("Download failed: ${result.message}")
                 }
             }
         } catch (e: Exception) {
             com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
                 "handleDownloadSpecificVideo — exception"
             }
-            android.widget.Toast.makeText(
-                org.koin.core.context.GlobalContext.get().get(),
-                "Download failed: ${e.message}",
-                android.widget.Toast.LENGTH_LONG,
-            ).show()
+            showDownloadToast("Download failed: ${e.message}")
         }
     }
 }
+
+/**
+ * Shows a toast on the main thread (safe to call from Dispatchers.IO).
+ * D.FIX: Toast.makeText requires Looper.prepare() on the calling thread —
+ * this helper posts to the main looper to avoid the NullPointerException.
+ */
+private fun showDownloadToast(message: String) {
+    android.os.Handler(android.os.Looper.getMainLooper()).post {
+        android.widget.Toast.makeText(
+            org.koin.core.context.GlobalContext.get().get(),
+            message,
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+}
+
 @Composable
 private fun SelectionActionBar(
     selectedCount: Int,
