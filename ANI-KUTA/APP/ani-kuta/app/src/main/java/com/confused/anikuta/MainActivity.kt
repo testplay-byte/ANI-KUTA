@@ -174,6 +174,11 @@ fun AppRoot() {
     val orchestrator = koinInject<DownloadOrchestrator>()
     val contentRepository = koinInject<com.confused.anikuta.core.content.ContentRepository>()
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+    val downloadPreferences = koinInject<com.confused.anikuta.core.download.DownloadPreferences>()
+
+    // D.CRASH-FIX: First-run setup dialog — prompts for POST_NOTIFICATIONS permission
+    // + download folder selection on every launch until both are granted.
+    FirstRunSetupDialog(preferences = downloadPreferences)
 
     val backstack = remember {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
