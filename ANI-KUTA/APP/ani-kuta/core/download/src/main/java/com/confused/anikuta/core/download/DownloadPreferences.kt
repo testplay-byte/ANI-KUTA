@@ -21,6 +21,30 @@ import com.confused.anikuta.core.preferences.preference
  */
 class DownloadPreferences(private val store: PreferenceStore) {
 
+    init {
+        // D.FIX: Migrate old defaults — if the user has the old preferredQualities
+        // (without 360p) or old preferredAudio (without HSUB), add the new options.
+        migrateDefaults()
+    }
+
+    /**
+     * D.FIX: Ensures 360p is in preferredQualities + HSUB is in preferredAudio
+     * for existing installs that have the old defaults saved.
+     */
+    private fun migrateDefaults() {
+        // Qualities — add 360p if missing.
+        val currentQualities = store.getStringList("pref_dl_qualities", listOf("1080p", "720p", "480p", "360p"))
+        if (!currentQualities.contains("360p")) {
+            store.putStringList("pref_dl_qualities", currentQualities + "360p")
+        }
+
+        // Audio — add HSUB if missing.
+        val currentAudio = store.getStringList("pref_dl_audio", listOf("SUB", "DUB", "HSUB"))
+        if (!currentAudio.contains("HSUB")) {
+            store.putStringList("pref_dl_audio", currentAudio + "HSUB")
+        }
+    }
+
     // ── Concurrency ──────────────────────────────────────────────────────────
 
     /** Number of concurrent downloads (1..5, default 1). */

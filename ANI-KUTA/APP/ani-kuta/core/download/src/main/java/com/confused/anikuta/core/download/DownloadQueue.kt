@@ -111,8 +111,10 @@ class DownloadQueue(
      *  - ERROR → calls [resume] (re-queues the errored task).
      */
     suspend fun enqueue(request: DownloadRequest): Long = mutex.withLock {
+        DownloadLogger.i { "enqueue — mainId=${request.content.mainId}, episodeKey=${request.episode.episodeKey}, videoUrl=${request.videoUrl.take(80)}" }
         val existing = store.getTaskByMainAndEpisode(request.content.mainId, request.episode.episodeKey)
         if (existing != null) {
+            DownloadLogger.i { "enqueue — existing task found: id=${existing.id}, status=${existing.status}" }
             if (existing.status == DownloadStatus.ERROR) {
                 // Re-queue an errored task — release the lock first to avoid deadlock.
                 val id = existing.id
@@ -121,13 +123,18 @@ class DownloadQueue(
             return@withLock existing.id
         }
         val id = store.insertTask(request)
+        DownloadLogger.i { "enqueue — inserted task id=$id" }
         val task = store.getTaskByMainAndEpisode(request.content.mainId, request.episode.episodeKey)
         if (task != null) {
             _tasks.value = _tasks.value + task
+            DownloadLogger.i { "enqueue — task added to _tasks, size=${_tasks.value.size}" }
+        } else {
+            DownloadLogger.w { "enqueue — task NOT found after insert!" }
         }
         id
     }.also {
         // Outside the lock — tryStartNext re-acquires the mutex itself.
+        DownloadLogger.i { "enqueue — calling tryStartNext" }
         tryStartNext()
     }
 
@@ -311,7 +318,7 @@ class DownloadQueue(
         scope.launch {
             mutex.withLock {
                 if (!connectivityCheck()) {
-                    DownloadLogger.d { "Skipping start — connectivity check failed (Wi-Fi-only?)" }
+                    DownloadLogger.d { "tryStartNext — connectivity check failed (Wi-Fi-only?), skipping" }
                     return@withLock
                 }
                 val queuedTasks = _tasks.value.filter { it.status == DownloadStatus.QUEUED }
@@ -320,9 +327,14 @@ class DownloadQueue(
                 }
                 val slotsAvailable = (currentLimit - activeCount).coerceAtLeast(0)
                 val toStart = queuedTasks.take(slotsAvailable)
+                DownloadLogger.i { "tryStartNext — queued=${queuedTasks.size}, active=$activeCount, limit=$currentLimit, slots=$slotsAvailable, toStart=${toStart.size}" }
 
                 for (task in toStart) {
-                    if (jobs.containsKey(task.id)) continue
+                    if (jobs.containsKey(task.id)) {
+                        DownloadLogger.d { "tryStartNext — skipping task ${task.id} (already has a job)" }
+                        continue
+                    }
+                    DownloadLogger.i { "tryStartNext — launching download for task ${task.id}" }
                     launchDownload(task)
                 }
             }
@@ -337,12 +349,17 @@ class DownloadQueue(
      * REVIEW-5 M31/M34/M36/M38 fixes are all wired in here (see the inline comments).
      */
     private fun launchDownload(task: DownloadTask) {
+        DownloadLogger.i { "launchDownload — START task ${task.id}, videoUrl=${task.videoUrl.take(80)}" }
         val job = scope.launch {
             try {
                 permits.withPermit {
+                    DownloadLogger.i { "launchDownload — permit acquired for task ${task.id}" }
                     mutex.withLock {
                         val current = _tasks.value.firstOrNull { it.id == task.id }
-                        if (current?.status != DownloadStatus.QUEUED) return@withLock
+                        if (current?.status != DownloadStatus.QUEUED) {
+                            DownloadLogger.w { "launchDownload — task ${task.id} status is ${current?.status}, not QUEUED — aborting" }
+                            return@withLock
+                        }
                         mutateTaskLocked(task.id) {
                             it.copy(
                                 status = DownloadStatus.DOWNLOADING,
@@ -357,6 +374,7 @@ class DownloadQueue(
                             completedAt = null,
                             errorMessage = null,
                         )
+                        DownloadLogger.i { "launchDownload — task ${task.id} set to DOWNLOADING" }
                     }
 
                     // ── REVIEW-5 M31 + M38: per-task tracker state. ──
@@ -392,7 +410,9 @@ class DownloadQueue(
                         }
                     }
 
+                    DownloadLogger.i { "launchDownload — calling downloader.download for task ${task.id}" }
                     val completed = downloader.download(task) { downloaded, total ->
+                        DownloadLogger.d { "launchDownload — progress: task=${task.id}, downloaded=$downloaded, total=$total" }
                         // REVIEW-5 M31: maintain the moving-average window in place.
                         val currentRatio = if (total > 0) (downloaded.toFloat() / total) else 0f
                         recentRatios.addLast(currentRatio)
@@ -427,6 +447,7 @@ class DownloadQueue(
 
                     progressChannel.close()
                     dbWriter.join()
+                    DownloadLogger.i { "launchDownload — downloader.download COMPLETED for task ${task.id}, videoUri=${completed.videoUri}" }
 
                     mutex.withLock {
                         // REVIEW-5 M36: use DynamicProgressTracker.complete() to flip 99→100.
@@ -453,11 +474,13 @@ class DownloadQueue(
             } catch (e: CancellationException) {
                 // REVIEW-5 M37: pause preserves resume metadata. The status was already
                 // set to PAUSED by pauseInternal before cancel() returned — nothing to do.
-                DownloadLogger.d { "Job cancelled: id=${task.id}" }
+                DownloadLogger.d { "launchDownload — Job cancelled: id=${task.id}" }
             } catch (e: DownloadException) {
+                DownloadLogger.e(e) { "launchDownload — DownloadException for task ${task.id}: ${e.message}" }
                 setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
                 _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
             } catch (e: Exception) {
+                DownloadLogger.e(e) { "launchDownload — Exception for task ${task.id}: ${e.message}" }
                 setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
                 _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
             } finally {

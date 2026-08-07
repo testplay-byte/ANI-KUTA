@@ -535,6 +535,9 @@ private fun handleDownloadSpecificVideo(
     orchestrator: DownloadOrchestrator,
     contentRepository: com.confused.anikuta.core.content.ContentRepository,
 ) {
+    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+        "handleDownloadSpecificVideo — START: episode=${episode.url}, videoUrl=${video.url}, serverName=$serverName, sourceIdStr=$sourceIdStr"
+    }
     val scope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
     )
@@ -607,6 +610,9 @@ private fun handleDownloadSpecificVideo(
                 serverName = serverName,
                 audioLabel = "",
             )
+            com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                "handleDownloadSpecificVideo — enqueueSpecific result: $result"
+            }
 
             when (result) {
                 is EnqueueResult.Success -> {
