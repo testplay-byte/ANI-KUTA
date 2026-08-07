@@ -24,6 +24,14 @@ sealed interface EpisodeDownloadState {
     /** Actively downloading. Shows a progress bar + pause/cancel. */
     data class Downloading(val progress: Int) : EpisodeDownloadState
 
+    /**
+     * REVIEW-5 M13 (R4-M8): auto-retry in-progress. The engine caught a retryable error
+     * (`RetryPolicy.forException` returned a non-zero maxAttempts) + is in the backoff delay
+     * before the next attempt. Shows the same spinner as `Queued` + a `"Retrying (2/3)…"` pill.
+     * Cancel is allowed (cancels the retry delay + transitions to PAUSED).
+     */
+    data class Retrying(val attempt: Int, val maxAttempts: Int, val lastError: String) : EpisodeDownloadState
+
     /** User-paused. Shows a resume + cancel. */
     data object Paused : EpisodeDownloadState
 
@@ -61,6 +69,11 @@ fun episodeState(episode: SEpisode, contentId: String): EpisodeDownloadState {
     return when (task.status) {
         DownloadStatus.QUEUED -> EpisodeDownloadState.Queued
         DownloadStatus.DOWNLOADING -> EpisodeDownloadState.Downloading(task.progress)
+        DownloadStatus.RETRYING -> EpisodeDownloadState.Retrying(  // REVIEW-5 M13
+            attempt = task.retryAttempt,
+            maxAttempts = task.retryMaxAttempts,
+            lastError = task.lastError ?: "Unknown error",
+        )
         DownloadStatus.PAUSED -> EpisodeDownloadState.Paused
         DownloadStatus.ERROR -> EpisodeDownloadState.Error(task.errorMessage)
         DownloadStatus.COMPLETED -> EpisodeDownloadState.Downloaded

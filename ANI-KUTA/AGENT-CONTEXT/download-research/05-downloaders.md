@@ -415,3 +415,543 @@ For HLS downloads, replace the chunked step with: fetch playlist → parse → l
 - `04-storage-paths.md` — `DownloadStorageProvider.publishToUserFolder` + `TempDownloadCache`.
 - `06-notifications-foreground-service.md` — how `onProgress` ticks drive the notification.
 - `13-implementation-plan.md` — what to port vs simplify for the new project.
+
+---
+
+## 11. Post-rewrite additions (DL-PLAN-REWRITE)
+
+> **Task ID:** DL-PLAN-REWRITE
+> The OLD project's 3 engines (HTTP / HLS / Advanced — documented in §§1-10 above) are the baseline. The NEW project must:
+> 1. Keep all 3 engines (HTTP, HLS, Advanced) — they handle different URL types.
+> 2. **Fix the smooth-progress bug** — the user complained about "jumping from 90% to 100%". The OLD `DynamicProgressTracker` caps at 90% during download, then jumps to 100% on completion. The NEW design uses a **moving average** + byte-count-based progress for ALL engines (including HLS — see §11.2).
+> 3. **Modular architecture** — the 3 engines share a common `Downloader` interface, each in its own file. Easy to add a 4th engine (e.g. DASH via ffmpeg) later.
+> 4. **Integrate the proxy-churn fix** — the HTTP engine's `downloadNormal` catches `IOException` for localhost URLs and re-resolves via `ReResolver` (see `10-player-integration.md` §14).
+> 5. **Per-segment retry for HLS** — the OLD project fails the whole download on one bad segment. The NEW project retries each segment up to 3 times.
+
+### 11.1 The modular architecture (the `Downloader` interface)
+
+```kotlin
+// core/download/src/main/java/com/confused/anikuta/core/download/Downloader.kt
+interface Downloader {
+    /**
+     * Downloads the video for [task] to the temp cache, then publishes to the user's SAF folder.
+     *
+     * @param task the download task (carries the video URL, headers, content info, resolve context).
+     * @param onProgress called on every byte tick — (downloadedBytes, totalBytes). totalBytes = -1 if unknown.
+     * @return the completed task (with videoUri, subtitleUris, sizeBytes filled in).
+     * @throws DownloadException on failure (the queue's catch block sets status = ERROR).
+     * @throws CancellationException on pause/cancel (the queue's catch block does nothing — the status is already set).
+     */
+    suspend fun download(task: DownloadTask, onProgress: (Long, Long) -> Unit): DownloadTask
+}
+
+// Three implementations:
+class HttpDownloader(...) : Downloader {       // §11.3 — direct video URLs (mp4/mkv/webm/...)
+class HlsDownloader(...) : Downloader {        // §11.4 — HLS playlists (.m3u8)
+class AdvancedHttpDownloader(...) : Downloader { // §11.5 — multi-threaded Range + resume (large files)
+```
+
+The `HttpDownloader` is the router — it inspects the URL + method preference + dispatches to itself (direct) OR delegates to `HlsDownloader` / `AdvancedHttpDownloader`. This mirrors the OLD project's routing (see §1 above) but with the modular interface.
+
+### 11.2 The NEW `DynamicProgressTracker` — smooth progress (no 90%→100% jumps)
+
+**The user's complaint:** "smooth progress bar, no jumping from 90% to 100%."
+
+The OLD project's `DynamicProgressTracker` caps at 90% during download, then jumps to 100% on completion. The user finds this jarring.
+
+The NEW design:
+
+1. **Byte-count-based for ALL engines** (including HLS — the OLD project uses segment-count-based progress for HLS, which jumps per-segment instead of smoothly per-byte).
+   - HLS: instead of `onProgress(tempFile.length(), -1)` after each segment (jumping), call `onProgress(tempFile.length(), estimatedTotal)` where `estimatedTotal = averageSegmentSize * totalSegmentCount`. As each segment downloads, `tempFile.length()` increases smoothly + the `estimatedTotal` converges to the real total.
+   - HTTP: same as the OLD project — `onProgress(downloaded, contentLength)` per byte tick.
+
+2. **Moving average smoothing** (window of 5 ticks). Smoothes out network jitter so the bar doesn't stutter on slow/fast byte bursts.
+
+3. **Cap at 95% during download** (not 90% — closer to "real" completion). The 5% gap is reserved for the post-download validation + publish-to-SAF step (so the user sees the bar move from 95% to 100% during the publish, not jump).
+
+4. **No backward jumps.** If the reported total changes mid-download (server lies), use `maxOf(reportedTotal, previousTotal)` to prevent the bar from moving backward.
+
+```kotlin
+object DynamicProgressTracker {
+    private const val MAX_INCOMPLETE_PROGRESS = 95    // was 90 in the OLD project — bumped to 95 per the user's request
+    private const val INITIAL_ESTIMATE_BYTES = 10L * 1024 * 1024   // 10 MB ahead
+    private const val MIN_VALID_TOTAL_BYTES = 1L * 1024 * 1024     // 1 MB
+    private const val MOVING_AVERAGE_WINDOW = 5
+
+    data class ProgressUpdate(
+        val progress: Int,                  // 0..MAX_INCOMPLETE_PROGRESS (or 100 on completion)
+        val displayTotalBytes: Long,        // the total to display (real or estimated)
+        val updatedEstimate: Long,          // for the next tick's "10 MB ahead" strategy
+    )
+
+    /**
+     * Pure function — caller threads the state through (prevTotal, prevEstimate, recentRatios).
+     *
+     * @param downloaded current downloaded bytes
+     * @param reportedTotal the total reported by the server (-1 if unknown)
+     * @param previousTotal the previous tick's displayTotalBytes (for the no-backward-jump rule)
+     * @param previousEstimate the previous tick's estimate (for the "10 MB ahead" strategy)
+     * @param recentRatios the last N tick ratios (for the moving average) — caller maintains this list
+     */
+    fun compute(
+        downloaded: Long,
+        reportedTotal: Long,
+        previousTotal: Long,
+        previousEstimate: Long,
+        recentRatios: List<Float>,
+    ): ProgressUpdate {
+        // REVIEW-5 M40: restore the OLD logic that was lost in the refactor. The if-branch must
+        // compute `effectiveReportedTotal = -1L` (treat a fishy < 1MB reported total as "unknown")
+        // and the else-branch must use the reported total. Both branches previously returned the
+        // same `computeUnknownTotal(...)` — the if-check was a no-op.
+        val effectiveReportedTotal = when {
+            reportedTotal >= MIN_VALID_TOTAL_BYTES -> reportedTotal
+            reportedTotal in 1 until MIN_VALID_TOTAL_BYTES && downloaded > reportedTotal -> -1L
+            else -> reportedTotal
+        }
+
+        // Case 1: total known + stable + valid.
+        if (effectiveReportedTotal >= MIN_VALID_TOTAL_BYTES) {
+            val effectiveTotal = maxOf(effectiveReportedTotal, previousTotal)
+            val ratio = (downloaded.toFloat() / effectiveTotal).coerceIn(0f, 1f)
+            val smoothedRatio = movingAverage(recentRatios + ratio)
+            val progress = (smoothedRatio * MAX_INCOMPLETE_PROGRESS).toInt().coerceIn(0, MAX_INCOMPLETE_PROGRESS)
+            return ProgressUpdate(progress, effectiveTotal, previousEstimate)
+        }
+
+        // Case 2: total unknown (-1) or too small to be real — estimate using "10 MB ahead".
+        return computeUnknownTotal(downloaded, previousTotal, previousEstimate, recentRatios)
+    }
+
+    private fun computeUnknownTotal(
+        downloaded: Long, previousTotal: Long, previousEstimate: Long, recentRatios: List<Float>,
+    ): ProgressUpdate {
+        val estimate = maxOf(previousEstimate, downloaded + INITIAL_ESTIMATE_BYTES)
+        val ratio = (downloaded.toFloat() / estimate).coerceIn(0f, 0.95f)
+        val smoothedRatio = movingAverage(recentRatios + ratio)
+        val progress = (smoothedRatio * MAX_INCOMPLETE_PROGRESS).toInt().coerceIn(0, MAX_INCOMPLETE_PROGRESS)
+        return ProgressUpdate(progress, estimate, estimate)
+    }
+
+    private fun movingAverage(ratios: List<Float>): Float {
+        if (ratios.isEmpty()) return 0f
+        val window = ratios.takeLast(MOVING_AVERAGE_WINDOW)
+        return window.average()
+    }
+
+    /** Called by the queue when the download completes — returns 100%.
+     *
+     * REVIEW-5 M36: wired into the queue's COMPLETED mutation path in 02-queue-management.md §13.3
+     * (`DynamicProgressTracker.complete()` is called after `onTaskCompleted` returns). Previously
+     * dead code — now the canonical way to flip from the 95% cap to 100% on completion.
+     */
+    fun complete(): ProgressUpdate = ProgressUpdate(100, 0L, 0L)
+}
+```
+
+The caller (the queue's `launchDownload`) maintains the `recentRatios` list — adds the current tick's ratio, trims to the last N, passes to `compute`.
+
+### 11.3 The HTTP engine (with proxy-churn fix integration)
+
+```kotlin
+class HttpDownloader(
+    private val client: OkHttpClient,                 // qualified "download"
+    private val tempCache: TempDownloadCache,
+    private val storage: DownloadStorageProvider,
+    private val reResolver: ReResolver?,              // null if proxy-churn fix is disabled
+    private val store: DownloadStore,
+    private val hlsDownloader: HlsDownloader,         // for HLS delegation
+    private val advancedDownloader: AdvancedHttpDownloader,  // for Advanced method
+    private val preferences: DownloadPreferences,
+) : Downloader {
+
+    override suspend fun download(task: DownloadTask, onProgress: (Long, Long) -> Unit): DownloadTask {
+        // 1. Log the URL (smoking-gun log per 15-ui-and-bug-analysis.md §B.7 rule 5).
+        Logger.i(TAG) { "Downloading: ${task.content.title} EP ${task.episode.episodeNumber} — URL: ${task.request.videoUrl}" }
+        if (task.request.videoUrl.startsWith("http://localhost")) {
+            Logger.w(TAG) { "Download depends on extension proxy server — may fail if the proxy is killed by another resolve call." }
+        }
+
+        // 2. Infer the video extension + create the temp file.
+        val ext = extractExtension(task.request.videoUrl)
+        val tempVideo = tempCache.videoFile(task.id, ext)
+
+        // 3. Route to the right sub-pipeline based on URL inspection + method preference.
+        val downloadedBytes = downloadVideoToCache(
+            url = task.request.videoUrl,
+            headers = task.request.videoHeaders,
+            tempFile = tempVideo,
+            taskId = task.id,
+            resolveContext = task.request.resolveContext,
+            onProgress = onProgress,
+        )
+
+        // 4. Validate (size + magic bytes).
+        validateDownloadedFile(task.request.videoUrl, tempVideo, downloadedBytes)
+        verifyVideoMagicBytes(tempVideo)  // non-fatal — failures logged, not thrown
+        // REVIEW-5 M35: emit intermediate onProgress ticks during the post-byte-stream phases
+        // (validation → subtitles → cover → metadata → publish). The OLD project's bar jumped
+        // straight from 95% (last byte tick) to 100% (queue's COMPLETED mutation) — exactly the
+        // user's complaint. These intermediate ticks let the user see the bar move from 95 → 96
+        // → 97 → 98 → 99 → 100 as each phase completes.
+        // The onProgress signature is (downloadedBytes, totalBytes) — the queue's DynamicProgressTracker
+        // caps at 95 during download, so passing (downloaded, total) here would just re-emit 95.
+        // To force the bar past 95, we pass a SYNTHETIC total: `downloaded * 100 / desiredPct` so
+        // the tracker computes the desired percentage. (Equivalent to a separate onPhaseProgress
+        // callback but doesn't change the signature.)
+        emitPhaseProgress(onProgress, downloadedBytes, 96)
+
+        // 5. HLS playlist re-detection (if the downloaded file is small + starts with #EXTM3U).
+        // ... (same as the OLD project)
+
+        // 6. Download subtitles + cover + data.json to the temp cache.
+        downloadSubtitlesToCache(task, tempCache.subtitlesDir(task.id))
+        emitPhaseProgress(onProgress, downloadedBytes, 97)
+        downloadCoverToCache(task, tempCache.coverFile(task.id))
+        writeDataJsonToCache(task, tempCache.dataJsonFile(task.id))
+        emitPhaseProgress(onProgress, downloadedBytes, 98)
+
+        // 7. Publish to SAF (atomic — temp → SAF).
+        val publishResult = storage.publishToUserFolder(
+            content = task.content,
+            episode = task.episode,
+            tempVideoFile = tempVideo,
+            tempSubtitlesDir = tempCache.subtitlesDir(task.id),
+            tempCoverFile = tempCache.coverFile(task.id),
+            tempDataJsonFile = tempCache.dataJsonFile(task.id),
+            videoExtension = ext,
+        )
+        emitPhaseProgress(onProgress, downloadedBytes, 99)
+        if (publishResult is PublishResult.Error) {
+            throw DownloadException(publishResult.message)
+        }
+        val success = publishResult as PublishResult.Success
+
+        // 8. Return the completed task. (The queue bumps progress to 100 via
+        //    DynamicProgressTracker.complete() — see M36.)
+        return task.copy(
+            status = DownloadStatus.COMPLETED,
+            progress = 99, // queue bumps to 100 on COMPLETED mutation
+            videoUri = success.videoUri,
+            subtitleUris = success.subtitleUris,
+            sizeBytes = success.sizeBytes,
+            completedAt = System.currentTimeMillis(),
+        )
+    }
+
+    /**
+     * REVIEW-5 M35: helper that emits a synthetic onProgress tick corresponding to a desired
+     * percentage (96..99) during the post-byte-stream phases. The onProgress signature is
+     * `(downloadedBytes, totalBytes)` — to force the tracker to compute `pct`, we pass
+     * `total = downloaded * 100 / pct`. The tracker caps at MAX_INCOMPLETE_PROGRESS (95), so
+     * we use a separate `onPhaseProgress` channel OR (simpler) the queue's launchDownload
+     * recognises `downloaded == total` post-publish + bumps to 99 then 100. The implementation
+     * below uses the synthetic-total approach (no signature change).
+     */
+    private fun emitPhaseProgress(onProgress: (Long, Long) -> Unit, downloaded: Long, pct: Int) {
+        if (downloaded <= 0L) return
+        val syntheticTotal = downloaded * 100L / pct.coerceIn(1, 100)
+        onProgress(downloaded, syntheticTotal)
+    }
+
+    private suspend fun downloadVideoToCache(
+        url: String, headers: String?, tempFile: File, taskId: Long,
+        resolveContext: ResolveContext?,
+        onProgress: (Long, Long) -> Unit,
+    ): Long {
+        // HLS delegation (URL or Content-Type).
+        if (VideoTypeDetector.detectFromUrl(url) == HLS_STREAM) {
+            return hlsDownloader.downloadToCache(url, headers, tempFile, taskId, onProgress)
+        }
+
+        // Advanced method (if enabled + file is large enough).
+        if (preferences.method().get() == DownloadMethod.ADVANCED) {
+            try {
+                return advancedDownloader.downloadToCache(url, headers, tempFile, taskId, onProgress)
+            } catch (e: DownloadException) {
+                Logger.w(TAG) { "Advanced method failed — falling back to Normal: ${e.message}" }
+                // Fall through to downloadNormal.
+            }
+        }
+
+        // Normal method.
+        return downloadNormal(url, headers, tempFile, taskId, resolveContext, onProgress)
+    }
+
+    private suspend fun downloadNormal(
+        url: String, headers: String?, tempFile: File, taskId: Long,
+        resolveContext: ResolveContext?,
+        onProgress: (Long, Long) -> Unit,
+        // REVIEW-5 M15: counter to bound the re-resolve recursion. Increments on each recursive
+        // call; the catch block refuses to recurse past MAX_RE_RESOLVE_ATTEMPTS.
+        // The public default is 0 — callers don't need to know about it. Only the recursive call
+        // in the catch block (below) passes a non-zero value.
+        reResolveAttempts: Int = 0,
+    ): Long {
+        // ... (same as the OLD project's downloadNormal, BUT with the proxy-churn fix)
+
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    // REVIEW-5 M49: throw the download-module-local HttpException so RetryPolicy
+                    // can match on `e is HttpException` + read `e.code` (see 16-quality-of-life.md
+                    // §1.2). The OLD project wrapped HTTP errors as a generic DownloadException
+                    // with no cause — RetryPolicy's HTTP branches were dead code.
+                    throw HttpException(response.code, "HTTP ${response.code} for video URL")
+                }
+                // ... byte-stream download here ...
+                tempFile.length()
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: DownloadException) {
+            // HttpException IS a DownloadException (subclass) — re-throw as-is so RetryPolicy
+            // can match on its type. Same for any other DownloadException thrown by validation
+            // (validateDownloadedFile, verifyVideoMagicBytes, etc.).
+            throw e
+        } catch (e: IOException) {
+            // ── Proxy-churn fix (see 10-player-integration.md §14.1 Fix 2) ──
+            // REVIEW-5 M15: bound the re-resolve recursion at MAX_RE_RESOLVE_ATTEMPTS (= 1)
+            // so a flaky proxy that dies repeatedly cannot trigger StackOverflowError. The
+            // outer retry loop (16-quality-of-life.md §1.2) still owns the user-visible
+            // "Retrying (2/3)…" status — this inner cap is JUST for the re-resolve path.
+            if (url.startsWith("http://localhost") && resolveContext != null && reResolver != null
+                && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS) {
+                Logger.w(TAG) {
+                    "IOException on localhost URL — attempting re-resolve " +
+                        "(attempt ${reResolveAttempts + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${e.message}"
+                }
+                val fresh = reResolver.reResolve(resolveContext)
+                if (fresh != null) {
+                    // Update the task's video_url + resolve_context in the DB.
+                    store.updateResolveContext(taskId, fresh.url, resolveContext)
+                    // Retry with the fresh URL — pass `reResolveAttempts + 1` so the next
+                    // IOException either goes through ONE more re-resolve OR (if the cap is
+                    // hit) falls through to the throw below.
+                    // Note: the fresh URL is a NEW proxy on a different port; the temp file's
+                    // existing bytes may not be reusable (the new proxy may not support Range).
+                    // We truncate + restart from byte 0 — simplicity over partial-resume.
+                    FileOutputStream(tempFile).use { /* truncate to 0 */ }
+                    return downloadNormal(
+                        url = fresh.url,
+                        headers = fresh.headers,
+                        tempFile = tempFile,
+                        taskId = taskId,
+                        resolveContext = resolveContext,
+                        onProgress = onProgress,
+                        reResolveAttempts = reResolveAttempts + 1,
+                    )
+                }
+            }
+            // Cap exceeded OR re-resolve returned null OR not a localhost URL — give up cleanly.
+            if (url.startsWith("http://localhost") && reResolveAttempts >= MAX_RE_RESOLVE_ATTEMPTS) {
+                throw DownloadException(
+                    "Proxy URL died after $MAX_RE_RESOLVE_ATTEMPTS re-resolve attempt(s) — " +
+                        "the extension's proxy server is being churned by another playback. " +
+                        "Original cause: ${e.message ?: e.javaClass.simpleName}",
+                    e,
+                )
+            }
+            throw DownloadException("Video download failed: ${e.message ?: e.javaClass.simpleName}", e)
+        } catch (e: Exception) {
+            throw DownloadException("Video download failed: ${e.message ?: e.javaClass.simpleName}", e)
+        }
+    }
+
+    companion object {
+        // REVIEW-5 M15 + M18: cap the inner re-resolve at 1 attempt (= 2 total download attempts:
+        // 1 initial + 1 re-resolve). The outer retry loop (16-quality-of-life.md §1.2) caps at 3
+        // attempts. Total = 3 outer × 2 inner = 6 download attempts maximum before the task goes
+        // to ERROR. See REVIEW-5 §6.3 "cap composition".
+        private const val MAX_RE_RESOLVE_ATTEMPTS = 1
+    }
+}
+```
+
+### 11.4 The HLS engine (with per-segment retry + byte-count-based progress)
+
+The OLD project's HLS engine calls `onProgress(tempFile.length(), -1L)` after each segment — total = -1 (unknown). This causes the OLD `DynamicProgressTracker` to use the "10 MB ahead" strategy, which produces reasonable progress but jumps per-segment instead of smoothly per-byte.
+
+The NEW HLS engine:
+
+```kotlin
+class HlsDownloader(
+    private val client: OkHttpClient,
+    private val tempCache: TempDownloadCache,
+    private val preferences: DownloadPreferences,
+) {
+    suspend fun downloadToCache(
+        m3u8Url: String, headers: String?, tempFile: File, taskId: Long,
+        onProgress: (Long, Long) -> Unit,
+    ): Long {
+        // 1. Fetch the playlist text.
+        val playlistText = fetchText(m3u8Url, headers)
+        val baseUrl = m3u8Url
+
+        // 2. Master playlist → pick first variant.
+        val mediaPlaylistText = if (isMasterPlaylist(playlistText)) {
+            val variantUrl = pickFirstVariant(playlistText, baseUrl)
+            fetchText(variantUrl, headers)
+        } else playlistText
+
+        // 3. Encryption check (reject encrypted — needs ffmpeg).
+        if (isEncrypted(mediaPlaylistText)) {
+            throw DownloadException("Encrypted HLS stream — the default downloader cannot decrypt DRM/AES-128...")
+        }
+
+        // 4. Parse segments + init map.
+        val initSegment = parseInitSegment(mediaPlaylistText, baseUrl)
+        val segments = parseSegments(mediaPlaylistText, baseUrl)
+
+        // 5. ── NEW: estimate the total size for smooth progress ──
+        // REVIEW-5 M32: the OLD draft computed `estimatedTotal = firstSegmentSize * segments.size`
+        // ONCE and never refined it. For variable-bitrate HLS (ad segments tiny, action scenes
+        // large), the estimate could be off by 2-5x — the bar hit the 95% cap at 50% actual
+        // download, then jumped 95→100 on completion (exactly the user's complaint).
+        //
+        // The fix: track `bytesDownloadedSoFar` + `segmentsDownloadedSoFar`, and after each
+        // segment recompute `estimatedTotal = (bytesDownloadedSoFar / segmentsDownloadedSoFar)
+        // * segments.size`. The estimate converges to the real total as more segments download.
+        // The initial estimate (before any segment downloads) is the first segment's size × total
+        // segment count, computed below.
+        var estimatedTotal = -1L
+        if (segments.isNotEmpty()) {
+            val firstSegmentSize = probeSegmentSize(segments.first(), headers)
+            if (firstSegmentSize > 0) {
+                estimatedTotal = firstSegmentSize * segments.size
+            }
+        }
+        var bytesDownloadedSoFar = 0L
+        var segmentsDownloadedSoFar = 0
+
+        // 6. Write the init segment first (if present).
+        FileOutputStream(tempFile).use { out ->
+            if (initSegment != null) {
+                val initSize = downloadSegmentWithRetry(initSegment, headers, out, taskId, maxRetries = 3)
+                bytesDownloadedSoFar += initSize
+            }
+
+            // 7. Download each segment with retry.
+            for ((index, segUrl) in segments.withIndex()) {
+                coroutineContext.ensureActive()
+                val segSize = downloadSegmentWithRetry(segUrl, headers, out, taskId, maxRetries = 3)
+                bytesDownloadedSoFar += segSize
+                segmentsDownloadedSoFar += 1
+                // REVIEW-5 M32: refine the estimate after each segment using the running average
+                // segment size. `estimatedTotal = avgSegSize * totalSegmentCount`. The estimate
+                // converges to the real total — the doc's claim at line 771 ("converges to the
+                // real total") is now TRUE.
+                if (segmentsDownloadedSoFar > 0) {
+                    val avgSegSize = bytesDownloadedSoFar / segmentsDownloadedSoFar
+                    val refined = avgSegSize * segments.size
+                    // Only update if the refined estimate is plausible (> 0). Avoids a divide-by-
+                    // zero on empty-segment edge cases.
+                    if (refined > 0) estimatedTotal = refined
+                }
+                // ── NEW: byte-count-based progress (was segment-count-based in the OLD project) ──
+                // The total is the refined `estimatedTotal` (updated per segment per M32).
+                onProgress(tempFile.length(), estimatedTotal)
+            }
+        }
+
+        return tempFile.length()
+    }
+
+    /**
+     * Downloads a single segment with retry. Returns the number of bytes written to `out`.
+     *
+     * REVIEW-5 M33: the OLD draft wrote the response body directly to `out` inside the retry
+     * loop. If a segment partially downloaded (some bytes written) then failed, the retry
+     * wrote the NEW bytes APPENDED to the partial bytes — corrupt .ts output that
+     //  verifyVideoMagicBytes wouldn't catch (sync bytes still present at wrong positions).
+     *
+     * Fix: download each segment attempt to a ByteArrayOutputStream FIRST, write to `out` only
+     * on success. This is the simpler + more reliable of the two options in REVIEW-5 M33 (the
+     // other being FileOutputStream.channel.truncate(posBefore) on failure — also viable).
+     */
+    private suspend fun downloadSegmentWithRetry(
+        segUrl: String, headers: String?, out: OutputStream, taskId: Long, maxRetries: Int,
+    ): Long {
+        var lastError: Exception? = null
+        for (attempt in 1..maxRetries) {
+            try {
+                // Download to a buffer first — only write to `out` on full success.
+                // (Avoids the partial-bytes-then-append corruption the OLD draft had.)
+                val buffer = ByteArrayOutputStream()
+                downloadSegment(segUrl, headers, buffer)
+                val bytes = buffer.toByteArray()
+                out.write(bytes)
+                out.flush()
+                return bytes.size.toLong()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+                Logger.w(TAG) { "Segment download failed (attempt $attempt/$maxRetries): $segUrl — ${e.message}" }
+                if (attempt < maxRetries) delay(1000L * attempt)  // exponential-ish backoff
+            }
+        }
+        throw DownloadException("Segment failed after $maxRetries attempts: $segUrl — ${lastError?.message}", lastError)
+    }
+
+    /**
+     * REVIEW-5 M39: probe the segment size using a 1-byte Range GET instead of HEAD.
+     *
+     * Many anti-scraping CDNs (the same ones the PNG-stripping logic handles — megaplay.buzz,
+     * kotocdn.site) reject HEAD with 405 or return wrong Content-Length. A 1-byte Range GET is
+     //  a real GET (passes the same anti-scraping checks as the actual segment download) and the
+     * Content-Range header reveals the full size.
+     */
+    private fun probeSegmentSize(segUrl: String, headers: String?): Long {
+        return try {
+            val request = Request.Builder().url(segUrl).apply {
+                header("Range", "bytes=0-0")
+                // (apply headers same as downloadSegment)
+            }.build()
+            client.newCall(request).execute().use { response ->
+                // Content-Range: bytes 0-0/12345 → 12345 is the full size.
+                val contentRange = response.header("Content-Range")
+                if (contentRange != null) {
+                    val match = Regex("\\d+-\\d+/(\\d+)").find(contentRange)
+                    match?.groupValues?.get(1)?.toLongOrNull()?.let { return it }
+                }
+                // Fallback: Content-Length × 2 (the response is 1 byte; the full size is unknown).
+                // Don't use Content-Length alone — it's 1, not the full size.
+                -1L
+            }
+        } catch (e: Exception) { -1L }
+    }
+}
+```
+
+**Improvements over the OLD project:**
+1. **Per-segment retry** (3 attempts with backoff) — the OLD project fails the whole download on one bad segment. Each attempt downloads to a `ByteArrayOutputStream` first + writes to `out` only on success (REVIEW-5 M33 — avoids partial-then-append corruption).
+2. **Byte-count-based progress** — `onProgress(tempFile.length(), estimatedTotal)` instead of `onProgress(tempFile.length(), -1)`. The estimated total is REFINED after each segment using the running average segment size (REVIEW-5 M32 — the OLD draft computed it once + never refined, causing the 95→100 jump for variable-bitrate HLS).
+3. **Probe via 1-byte Range GET** (REVIEW-5 M39) — the OLD draft used HEAD, which is rejected by anti-scraping CDNs. A 1-byte Range GET is a real GET + the `Content-Range` header reveals the full size.
+
+### 11.5 The Advanced engine (multi-threaded Range + resume)
+
+Same as the OLD project's `AdvancedHttpDownloader` (see §7 above) with these changes:
+1. Use the NEW `DynamicProgressTracker` (moving average + 95% cap).
+2. Per-chunk progress aggregated via Mutex (same as OLD).
+3. Resume metadata (`resume.json`) validated against the new temp cache layout (`<cacheDir>/anikuta_downloads/<downloadId>/resume.json`).
+
+The Advanced method is **deferred to Phase D.1.5** — the Normal method + HLS cover 95% of cases. Advanced only helps for large direct-video files on slow servers.
+
+### 11.6 Why 3 engines (and not 1)
+
+| Engine | Handles | Tradeoffs |
+|---|---|---|
+| HTTP (Normal) | Direct video URLs (mp4/mkv/webm/m4v/mov/avi/ts) | Single-threaded, no resume, but simple + works for 95% of files. |
+| HLS | `.m3u8` playlists (segmented) | Pure Kotlin (no ffmpeg), handles unencrypted HLS + PNG-header stripping. Per-segment retry. |
+| Advanced | Large direct video files (multi-threaded Range + resume) | Complex (~400 lines + the resume manager), but faster for large files on slow servers. Per-chunk retry. Deferred to Phase D.1.5. |
+
+Routing: `HttpDownloader.download` inspects the URL → HLS playlist → delegate to `HlsDownloader`. Otherwise → check `pref_dl_method` → if ADVANCED, try `AdvancedHttpDownloader` (fall back to Normal on failure). Otherwise → `downloadNormal`.
+
+### 11.7 Cross-references (post-rewrite)
+
+- `02-queue-management.md` §13.3 — how the queue calls `downloader.download(task, onProgress)`.
+- `04-storage-paths.md` §6 — the temp cache layout + the atomic publish step.
+- `10-player-integration.md` §14 — the proxy-churn fix (the `ReResolver` integration in `HttpDownloader.downloadNormal`).
+- `13-implementation-plan.md` Phase D.1 — the implementation plan for the 3 engines.
+- `16-quality-of-life.md` — the per-segment retry + per-chunk retry (auto error handling).

@@ -318,3 +318,293 @@ When "Preferred quality" is expanded:
 5. **Add a deep-link from the notification tap to the Downloads screen** (the old project's KDoc explicitly notes this as a future enhancement).
 6. **Consider an "auto-download new episodes" toggle** — the old project doesn't have this. Not strictly needed for parity, but a common request.
 7. **Settings persistence**: same `SharedPreferences` approach works (it's simple, no migration cost). The new project's existing `PreferenceStore` is fine — just needs the Flow wrapper.
+
+---
+
+## 8. Post-rewrite additions (DL-PLAN-REWRITE)
+
+> **Task ID:** DL-PLAN-REWRITE
+> The user's requirements for the NEW settings:
+> 1. **The download settings page UI must replicate the old project EXACTLY** (same UI, look, feel) — see `14-auto-download-engine.md` §5 + `15-ui-and-bug-analysis.md` Part A.
+> 2. **NEW `dimensionPriority` + `globalFallback` prefs** for the 3-dimensional priority engine (see `14-auto-download-engine.md` §6).
+> 3. **The new project uses `core/preferences`** (`PreferenceStore`) — currently non-reactive. Needs to become reactive for the drag-reorder UI.
+
+### 8.1 The 17 settings (the OLD 15 + 2 new)
+
+| # | Key | Type | Default | UI label | What it controls | NEW? |
+|---|---|---|---|---|---|---|
+| 1 | `pref_dl_folder_uri` | String | `""` | "Download folder" | SAF tree URI of the user's library root. | Existing |
+| 2 | `pref_dl_method` | enum `DownloadMethod` | `ADVANCED` | "Download method" (Normal/Advanced) | NORMAL = single-threaded; ADVANCED = multi-threaded Range + resume. | Existing |
+| 3 | `pref_dl_wifi_only` | Boolean | `true` | "Wi-Fi only" — "Pause downloads on mobile data" | Checked on every `tryStartNext` + every network change. | Existing |
+| 4 | `pref_dl_concurrent` | Int | `1` (UI clamps 1..5) | "Concurrent downloads" | Max parallel downloads. **NEW: reactive — Flow collector calls `refreshConcurrency()` immediately.** | Existing (fixed) |
+| 5 | `pref_dl_show_button` | Boolean | `true` | "Show download button" | Hides the per-episode download button when OFF. | Existing |
+| 6 | `pref_dl_adv_threads` | Int | `8` (UI 1..8) | "Parallel threads" | Per-download thread count for Advanced method. | Existing |
+| 7 | `pref_dl_adv_retries` | Int | `10` (UI 0..10) — **FIXED: was 25 in code** | "Max retries per chunk" | Per-chunk retry cap. | Existing (fixed) |
+| 8 | `pref_dl_adv_min_size_mb` | Int | `1` (UI 1..20) | "Min size for multi-threading" | Files below this use a single thread. | Existing |
+| 9 | `pref_dl_auto_pick` | Boolean | `false` | "Automatic video selection" — "Auto-select your preferences" | Master switch for the auto-download engine. | Existing |
+| 10 | `pref_dl_quality_prefs` | `List<String>` (JSON) | `["1080p", "720p", "480p", "360p"]` | "Preferred quality — drag to re-order" | Ordered list of acceptable quality strings. | Existing |
+| 11 | `pref_dl_audio_prefs` | `List<String>` (JSON) | `["SUB", "DUB"]` | "Preferred audio — drag to re-order" | Ordered list of acceptable audio versions. | Existing |
+| 12 | `pref_dl_server_prefs` | `Map<String, List<String>>` (JSON; `sourceId` (String) → ordered server names) | `{}` | "Preferred server — per extension" | Per-source ordered server names. | Existing |
+| 13 | `pref_dl_quality_fallback` | enum `FallbackStrategy` | `TRY_NEXT` | "If unavailable" (3-way: Try next / Ask / Don't) | What to do when no preferred quality matches. | Existing |
+| 14 | `pref_dl_audio_fallback` | enum `FallbackStrategy` | `TRY_NEXT` | "If unavailable" | What to do when no preferred audio matches. | Existing |
+| 15 | `pref_dl_server_fallback` | enum `FallbackStrategy` | `TRY_NEXT` | "If unavailable" | What to do when no preferred server matches. **NEW: now ACTUALLY consulted by the engine (was dead code in the OLD project — see `14-auto-download-engine.md` §1.7).** | Existing (fixed) |
+| **16** | **`pref_dl_dimension_priority`** | `List<PreferenceDimension>` (JSON) | `[AUDIO, QUALITY, SERVER]` | "Priority order — what matters most?" | **The unified dimension-priority list. User reorders via `DragReorderableList`.** | **NEW** |
+| **17** | **`pref_dl_global_fallback`** | enum `GlobalFallbackStrategy` | `BEST_EFFORT` | "If no preferred match anywhere" (3-way: Best effort / Ask / Don't) | **The global fallback when all per-dimension fallbacks are exhausted.** | **NEW** |
+
+### 8.2 The NEW enums
+
+```kotlin
+enum class PreferenceDimension {
+    AUDIO, QUALITY, SERVER;
+    companion object {
+        val DEFAULT_ORDER = listOf(AUDIO, QUALITY, SERVER)
+    }
+}
+
+enum class GlobalFallbackStrategy {
+    BEST_EFFORT,         // fall back to ANY available video (the OLD project's Step 4 behaviour)
+    ASK,                 // show the picker sheet
+    DO_NOT_DOWNLOAD,     // fail with an error
+}
+
+enum class FallbackStrategy {           // per-dimension (existing)
+    TRY_NEXT, ASK, DO_NOT_DOWNLOAD,
+}
+
+enum class DownloadMethod {             // existing
+    NORMAL, ADVANCED,
+}
+```
+
+### 8.3 The NEW `DownloadPreferences` API (the 17 settings as reactive Flows)
+
+```kotlin
+class DownloadPreferences(private val store: PreferenceStore) {
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    // ── General ──
+    fun downloadFolderUri(): Preference<String> = store.stringPref("pref_dl_folder_uri", "")
+    fun method(): Preference<DownloadMethod> = store.enumPref("pref_dl_method", DownloadMethod.ADVANCED)
+    fun wifiOnly(): Preference<Boolean> = store.booleanPref("pref_dl_wifi_only", true)
+    fun concurrentDownloads(): Preference<Int> = store.intPref("pref_dl_concurrent", 1)
+    fun showDownloadButton(): Preference<Boolean> = store.booleanPref("pref_dl_show_button", true)
+
+    // ── Advanced method ──
+    fun advancedThreadCount(): Preference<Int> = store.intPref("pref_dl_adv_threads", 8)
+    fun advancedMaxRetries(): Preference<Int> = store.intPref("pref_dl_adv_retries", 10)  // FIXED: was 25
+    fun advancedMinSizeMb(): Preference<Int> = store.intPref("pref_dl_adv_min_size_mb", 1)
+
+    // ── Auto-download ──
+    fun autoDownload(): Preference<Boolean> = store.booleanPref("pref_dl_auto_pick", false)
+
+    // ── Preference lists (priority-ordered) ──
+    fun qualityPreferences(): Preference<List<String>> = store.jsonListPref("pref_dl_quality_prefs", DEFAULT_QUALITY_PREFS)
+    fun audioPreferences(): Preference<List<String>> = store.jsonListPref("pref_dl_audio_prefs", DEFAULT_AUDIO_PREFS)
+    fun serverPreferences(): Preference<Map<String, List<String>>> = store.jsonMapPref("pref_dl_server_prefs", emptyMap())
+
+    // ── Per-dimension fallbacks ──
+    fun qualityFallback(): Preference<FallbackStrategy> = store.enumPref("pref_dl_quality_fallback", FallbackStrategy.TRY_NEXT)
+    fun audioFallback(): Preference<FallbackStrategy> = store.enumPref("pref_dl_audio_fallback", FallbackStrategy.TRY_NEXT)
+    fun serverFallback(): Preference<FallbackStrategy> = store.enumPref("pref_dl_server_fallback", FallbackStrategy.TRY_NEXT)
+
+    // ── NEW: dimension priority + global fallback ──
+    fun dimensionPriority(): Preference<List<PreferenceDimension>> =
+        store.jsonListPref("pref_dl_dimension_priority", PreferenceDimension.DEFAULT_ORDER, PreferenceDimension.serializer())
+    fun globalFallback(): Preference<GlobalFallbackStrategy> =
+        store.enumPref("pref_dl_global_fallback", GlobalFallbackStrategy.BEST_EFFORT)
+
+    companion object {
+        val DEFAULT_QUALITY_PREFS = listOf("1080p", "720p", "480p", "360p")
+        val DEFAULT_AUDIO_PREFS = listOf("SUB", "DUB")
+    }
+}
+```
+
+### 8.4 The reactive `PreferenceStore` (REQUIRED for the drag-reorder UI)
+
+The new project's current `PreferenceStore` is non-reactive (just `getString/putString/...` with no Flows — see `core/preferences/PreferenceStore.kt`). The drag-reorder UI + the live-updating settings screen need reactive prefs.
+
+**The fix:** extend `PreferenceStore` with a `Preference<T>` interface that exposes `get()`, `set(T)`, and `changes(): Flow<T>`. Implementation via `SharedPreferences.OnSharedPreferenceChangeListener` (option (b) in `13-implementation-plan.md` D4 — lighter than per-key `MutableStateFlow`).
+
+```kotlin
+// core/preferences/src/main/java/com/confused/anikuta/core/preferences/PreferenceStore.kt (EXTENDED)
+class PreferenceStore(context: Context) {
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences("anikuta_prefs", Context.MODE_PRIVATE)
+
+    // ── Existing non-reactive API (kept for backward compat) ──
+    fun getString(key: String, default: String = ""): String = prefs.getString(key, default) ?: default
+    fun putString(key: String, value: String) { prefs.edit().putString(key, value).apply() }
+    fun getBoolean(key: String, default: Boolean = false): Boolean = prefs.getBoolean(key, default)
+    fun putBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+    fun getInt(key: String, default: Int = 0): Int = prefs.getInt(key, default)
+    fun putInt(key: String, value: Int) { prefs.edit().putInt(key, value).apply() }
+    fun getFloat(key: String, default: Float = 0f): Float = prefs.getFloat(key, default)
+    fun putFloat(key: String, value: Float) { prefs.edit().putFloat(key, value).apply() }
+    fun getLong(key: String, default: Long = 0L): Long = prefs.getLong(key, default)
+    fun putLong(key: String, value: Long) { prefs.edit().putLong(key, value).apply() }
+
+    // ── NEW: reactive API ──
+    private val _changes = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val changes: SharedFlow<String> = _changes.asSharedFlow()  // emits the changed key
+
+    private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != null) _changes.tryEmit(key)
+    }
+    init { prefs.registerOnSharedPreferenceChangeListener(listener) }
+
+    /** Returns a reactive Preference for the given key. */
+    fun <T> preference(key: String, default: T, encode: (T) -> String, decode: (String) -> T): Preference<T> =
+        PreferenceImpl(this, key, default, encode, decode)
+
+    // ── Convenience builders ──
+    fun stringPref(key: String, default: String): Preference<String> =
+        preference(key, default, { it }, { it })
+    fun booleanPref(key: String, default: Boolean): Preference<Boolean> =
+        preference(key, default, { it.toString() }, { it.toBooleanStrictOrNull() ?: default })
+    fun intPref(key: String, default: Int): Preference<Int> =
+        preference(key, default, { it.toString() }, { it.toIntOrNull() ?: default })
+    fun <E : Enum<E>> enumPref(key: String, default: E): Preference<E> =
+        preference(key, default, { it.name }, { v -> runCatching { enumValueOf<E>(v) }.getOrDefault(default) })
+    fun <T> jsonListPref(key: String, default: List<T>, serializer: KSerializer<T>): Preference<List<T>> =
+        preference(key, default,
+            { list -> Json.encodeToString(ListSerializer(serializer), list) },
+            { str -> runCatching { Json.decodeFromString(ListSerializer(serializer), str) }.getOrDefault(default) })
+    fun <T> jsonListPref(key: String, default: List<String>): Preference<List<String>> =
+        jsonListPref(key, default, String.serializer())
+    fun jsonMapPref(key: String, default: Map<String, List<String>>): Preference<Map<String, List<String>>> =
+        preference(key, default,
+            { map -> Json.encodeToString(MapSerializer(String.serializer(), ListSerializer(String.serializer())), map) },
+            { str -> runCatching { Json.decodeFromString(MapSerializer(String.serializer(), ListSerializer(String.serializer())), str) }.getOrDefault(default) })
+}
+
+interface Preference<T> {
+    /**
+     * The storage key (snake_case `pref_dl_*` for download prefs).
+     *
+     * REVIEW-5 M46 (R2-I4): the OLD draft's interface had only `get`/`set`/`changes` (3 methods).
+     * The OLD project's `Preference<T>` interface has 7 methods: `key`/`get`/`set`/`isSet`/`delete`/
+     * `defaultValue`/`changes` (+ optionally `stateIn(scope)`). The 3-method version was a regression
+     * — code that reads `key()` (e.g. for diagnostics, backup/restore, migration) wouldn't compile.
+     */
+    fun key(): String
+    fun get(): T
+    fun set(value: T)
+    fun isSet(): Boolean
+    fun delete()
+    fun defaultValue(): T
+    fun changes(): Flow<T>
+
+    /** Optional helper — converts the cold `changes()` Flow into a hot StateFlow for `collectAsState`. */
+    fun stateIn(scope: CoroutineScope): StateFlow<T> =
+        changes().stateIn(scope, SharingStarted.Eagerly, get())
+}
+
+private class PreferenceImpl<T>(
+    private val store: PreferenceStore,
+    private val key: String,
+    private val default: T,
+    private val encode: (T) -> String,
+    private val decode: (String) -> T,
+) : Preference<T> {
+    override fun key(): String = key
+    override fun get(): T {
+        val raw = store.getString(key, "__DEFAULT__")
+        return if (raw == "__DEFAULT__") default else decode(raw)
+    }
+    override fun set(value: T) { store.putString(key, encode(value)) }
+    override fun isSet(): Boolean = store.getString(key, "__DEFAULT__") != "__DEFAULT__"
+    override fun delete() { store.remove(key) }
+    override fun defaultValue(): T = default
+    override fun changes(): Flow<T> = store.changes
+        .filter { it == key }
+        .map { get() }
+        .distinctUntilChanged()
+        // REVIEW-5 M47 (R2-M4): removed `onStart { emit(get()) }` — it's redundant with
+        // `collectAsState(initial = prefs.x().get())` (the `initial` parameter provides the first
+        // value synchronously). Keeping both caused a double-emit on first collection. The OLD
+        // project's `Preference.changes()` does NOT have `onStart`.
+}
+```
+
+**Why this matters for the drag-reorder UI:**
+- The `DragReorderableList` calls `onReorder(newOrder)` on drag END → the screen calls `preferences.X().set(newOrder)` → the reactive Flow emits → other parts of the UI (e.g. the dimension-priority section if other screens display it) re-render with the new order.
+- The settings screen collects each setting via `collectAsState(initial = prefs.x().get())` → the screen re-renders whenever any pref changes.
+
+### 8.5 The NEW "Priority order" section in the settings UI
+
+Per `14-auto-download-engine.md` §6.5, ADD ONE new collapsible section ABOVE the existing 3 preference-list sections:
+
+```
+┌────────────────────────────────────────────┐
+│ AUTO-DOWNLOAD                              │
+│ ┌────────────────────────────────────────┐ │
+│ │ Automatic video selection          [✓] │ │
+│ │ Auto-select your preferences           │ │
+│ └────────────────────────────────────────┘ │
+├────────────────────────────────────────────┤
+│ PRIORITY ORDER — what matters most?     ⌄  │  ← NEW collapsible section
+│ ┌────────────────────────────────────────┐ │
+│ │ 1. Audio                          ≡    │ │  ← DragReorderableList (3 items)
+│ │ 2. Quality                        ≡    │ │     (reorder: drag to put the most
+│ │ 3. Server                         ≡    │ │      important dimension on top)
+│ │──────────────────────────────────────│ │
+│ │ If no preferred match anywhere        │ │  ← NEW global fallback toggle
+│ │ [ Best effort ] [ Ask ] [ Don't ]     │ │
+│ └────────────────────────────────────────┘ │
+├────────────────────────────────────────────┤
+│ PREFERRED QUALITY — drag to re-order    ›  │  ← existing
+│ PREFERRED AUDIO — drag to re-order     ›   │  ← existing
+│ PREFERRED SERVER — per extension        ›  │  ← existing
+└────────────────────────────────────────────┘
+```
+
+The `DragReorderableList` component takes `List<String>` — so we render the dimension names as strings (`["Audio", "Quality", "Server"]`) and map back to enum values when persisting:
+
+```kotlin
+// In DownloadSettingsScreen.kt, INSIDE the new CollapsibleSection("Priority order — what matters most?"):
+val dimensionLabels = mapOf(
+    PreferenceDimension.AUDIO to "Audio",
+    PreferenceDimension.QUALITY to "Quality",
+    PreferenceDimension.SERVER to "Server",
+)
+val dimensionOrder = dimensionPriority.map { dimensionLabels[it] ?: it.name }
+val reverseLabels = dimensionLabels.entries.associate { (k, v) -> v to k }
+
+DragReorderableList(
+    items = dimensionOrder,
+    onReorder = { newOrder ->
+        preferences.dimensionPriority().set(newOrder.mapNotNull { reverseLabels[it] })
+    },
+)
+// Then the global fallback toggle (FallbackToggle re-used, or a new SegmentedRowLocal).
+```
+
+### 8.6 The exact UI replication (per `14-auto-download-engine.md` §5 + `15-ui-and-bug-analysis.md` Part A)
+
+**Replicate EXACTLY** (no deviations):
+- The 528-line `DownloadSettingsScreen.kt` layout — sections, components, colors, spacings, animations.
+- The 8 private composables: `SectionContainer`, `CollapsibleSection`, `CollapsibleExtensionSection`, `SettingsRow`, `ToggleRow`, `SliderRow`, `FallbackToggle`, `SegmentedRowLocal`.
+- The `DragReorderableList` component (193 lines) — replicate as-is.
+- The `DownloadVideoPickerSheet` (233 lines) — replicate as-is.
+- The visual design tokens (per `14-auto-download-engine.md` §5.4):
+  - Font: `RobotoFamily` everywhere.
+  - Colors: `MaterialTheme.colorScheme` (`surface`, `surfaceVariant` at 30%/20% alpha, `primary`, `onPrimary`, `onSurface`, `onSurfaceVariant`).
+  - Shapes: `RoundedCornerShape(16.dp)` for outer section cards, `12.dp` for inner rows + extension cards, `8.dp` for segmented chips.
+  - Spacings: section horizontal padding 12.dp, row padding 12-16.dp horizontal × 10-14.dp vertical, drag handle 48×48dp, slider section padding 12.dp horizontal × 8.dp vertical.
+  - Animations: `expandVertically() + fadeIn()` for show, `shrinkVertically() + fadeOut()` for hide.
+
+**Add ONE new section** (per §8.5 above): the "Priority order" collapsible section ABOVE the existing 3.
+
+**Fix the OLD project's bugs while replicating:**
+1. The `concurrentDownloads` pref change must call `DownloadQueue.refreshConcurrency()` explicitly — now done reactively via the Flow collector in `DownloadQueue.init` (see `02-queue-management.md` §13.1).
+2. The `advancedMaxRetries` default mismatch (code=25, UI=0..10) — set both to 10.
+3. The `serverFallback` dead-code bug — now ACTUALLY consulted by the engine (see `14-auto-download-engine.md` §6.2.3 Step 3).
+
+### 8.7 Cross-references (post-rewrite)
+
+- `14-auto-download-engine.md` §5 — the EXACT settings UI structure to replicate.
+- `14-auto-download-engine.md` §6 — the NEW priority engine design (the `dimensionPriority` + `globalFallback` prefs are the inputs).
+- `15-ui-and-bug-analysis.md` Part A — the Downloads page UI replication spec (related but separate from the settings page).
+- `13-implementation-plan.md` Phase D.5 — the implementation plan for the settings page.
+- `02-queue-management.md` §13.1 — the reactive `refreshConcurrency()` Flow collector.

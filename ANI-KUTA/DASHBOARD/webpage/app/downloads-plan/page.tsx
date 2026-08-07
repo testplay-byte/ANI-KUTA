@@ -15,6 +15,7 @@ import {
   STATE_DISALLOWED_NOTE,
   STORAGE_TREE,
   STORAGE_TEMP_CACHE,
+  STORAGE_DATA_JSON_EXAMPLE,
   STORAGE_NAMING_RULES,
   STORAGE_DECISIONS,
   FILE_PROVIDER_CONFIG,
@@ -42,6 +43,20 @@ import {
   RISKS,
   OLD_PROJECT_BUGS,
   DOWNLOADS_PLAN_NAV_FOOTER,
+  REVIEW_ROUNDS,
+  REVIEW_TOP_5_FIXES,
+  REVIEW_FIX_BREAKDOWN,
+  REVIEW_VERDICT,
+  AUTO_DOWNLOAD_PIPELINE,
+  AUTO_DOWNLOAD_SETTINGS,
+  AUTO_DOWNLOAD_WORKED_EXAMPLE,
+  AUTO_DOWNLOAD_CUSTOMIZABILITY,
+  PROXY_CHURN_ROOT_CAUSE,
+  PROXY_CHURN_4_LAYERS,
+  PROXY_CHURN_RERESOLVER,
+  PROXY_CHURN_ARCHITECTURAL_RULES,
+  QOL_FEATURES,
+  QOL_RETRY_POLICY_TABLE,
 } from "@/lib/downloadsPlan";
 
 /* ---------------------------------------------------------------------------
@@ -67,7 +82,7 @@ export default function DownloadsPlanPage() {
             {DOWNLOADS_HERO.status}
           </span>
           <span className="text-xs text-[var(--c-text-secondary)]">
-            14 research docs · 6 phases · 7 design decisions
+            15 plan docs · 5 review rounds · 72 must-fix items · 9 phases (D.0→D.8) · 30-40 days
           </span>
         </div>
         <h1 className="text-3xl font-bold tracking-tight text-[var(--c-text-primary)] sm:text-4xl">
@@ -81,9 +96,170 @@ export default function DownloadsPlanPage() {
         </p>
       </section>
 
-      {/* ── 2. Architecture Overview ── */}
+      {/* ── 2. Review Findings (NEW — the 5 review rounds + 72-item fix pass) ── */}
       <SectionHeader
         number={2}
+        title="Review Findings — 5 rounds, 72 must-fix items, all fixed"
+        subtitle="The plan went through 5 senior review rounds (DL-REVIEW-1 → DL-REVIEW-5) + a consolidation pass (DL-PLAN-FIX). All 72 items are now explicit action items in 13-implementation-plan.md §6.1. Sources: REVIEW-1 through REVIEW-5 + REVIEW-5-final.md §8."
+        critical
+      />
+      <div className="mb-10 space-y-4">
+        {/* The amber callout — the headline number */}
+        <Card className="p-4">
+          <div
+            className="rounded-lg p-4"
+            style={{
+              backgroundColor: `color-mix(in srgb, var(--c-warning) 10%, transparent)`,
+              borderLeft: `4px solid var(--c-warning)`,
+            }}
+          >
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white"
+                style={{ backgroundColor: "var(--c-warning)" }}
+              >
+                Plan Hardened
+              </span>
+              <span className="text-sm font-bold text-[var(--c-text-primary)]">
+                5 review rounds surfaced 72 must-fix items — every one is now an action item
+              </span>
+            </div>
+            <p className="text-xs leading-relaxed text-[var(--c-text-secondary)]">
+              The original plan draft was a clean rewrite of the old project's download system, but
+              it carried <span className="font-bold text-[var(--c-text-primary)]">18 unresolved CRITICALs from Reviews 1-4</span> (none
+              had been addressed) + <span className="font-bold text-[var(--c-text-primary)]">3 NEW CRITICALs + 51 IMPORTANTs in REVIEW-5</span>.
+              An implementer following the draft verbatim would have shipped a non-compiling build
+              (Coil 2 on Coil 3, <code>HttpException</code> unresolved, <code>notificationManager</code> undefined,
+              <code>KoinComponent</code> missing), a <code>StackOverflowError</code> (unbounded re-resolve recursion),
+              a <code>ForegroundServiceDidNotStartInTimeException</code> crash on Android 12+, corrupt HLS output
+              on flaky CDNs, tasks stuck in RETRYING forever after a crash, the user's "progress bar jumps to 100%"
+              complaint NOT actually fixed, + a <code>NoBeanDefFoundException</code> for <code>DownloadStorageProvider</code>.
+              The DL-PLAN-FIX consolidation pass closed every one.
+            </p>
+          </div>
+        </Card>
+
+        {/* The 5 review rounds */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          {REVIEW_ROUNDS.map((r) => (
+            <Card key={r.id} className="p-4">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span
+                  className="rounded-md px-2 py-0.5 text-[10px] font-bold text-white"
+                  style={{ backgroundColor: r.color }}
+                >
+                  {r.id}
+                </span>
+                <span className="rounded-md bg-[var(--c-surface-alt)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--c-text-secondary)]">
+                  {r.criticals} CRITICAL · {r.importants} IMPORTANT
+                </span>
+              </div>
+              <h3 className="mb-1.5 text-sm font-bold leading-tight text-[var(--c-text-primary)]">
+                {r.focus}
+              </h3>
+              <p className="text-xs leading-relaxed text-[var(--c-text-secondary)]">{r.findings}</p>
+            </Card>
+          ))}
+        </div>
+
+        {/* Top 5 highest-impact fixes */}
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-danger)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              Top 5 highest-impact fixes (in priority order)
+            </span>
+          </div>
+          <div className="divide-y divide-[var(--c-border)]">
+            {REVIEW_TOP_5_FIXES.map((f) => (
+              <div key={f.rank} className="p-4">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white"
+                    style={{ backgroundColor: f.color }}
+                  >
+                    {f.rank}
+                  </span>
+                  <code
+                    className="rounded-md bg-[var(--c-surface-alt)] px-2 py-0.5 text-[10px] font-bold tracking-wider"
+                    style={{ color: f.color }}
+                  >
+                    {f.mNumber}
+                  </code>
+                  <h3 className="text-sm font-bold leading-tight text-[var(--c-text-primary)]">
+                    {f.title}
+                  </h3>
+                </div>
+                <div className="ml-9 space-y-2">
+                  <div>
+                    <div className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--c-danger)]">
+                      Before
+                    </div>
+                    <p className="text-xs leading-relaxed text-[var(--c-text-secondary)]">{f.before}</p>
+                  </div>
+                  <div>
+                    <div className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--c-success)]">
+                      After
+                    </div>
+                    <p className="text-xs leading-relaxed text-[var(--c-text-secondary)]">{f.after}</p>
+                  </div>
+                  <div>
+                    <div className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--c-warning)]">
+                      Why it matters
+                    </div>
+                    <p className="text-xs leading-relaxed text-[var(--c-text-secondary)]">{f.why}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* The 72-item breakdown by phase */}
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-secondary)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              The 72 MUST-FIX items — grouped by phase (DL-PLAN-FIX consolidation pass)
+            </span>
+          </div>
+          <PreBlock>{REVIEW_FIX_BREAKDOWN}</PreBlock>
+        </Card>
+
+        {/* The verdict */}
+        <Card className="p-4">
+          <div
+            className="rounded-lg p-4"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${REVIEW_VERDICT.color} 8%, transparent)`,
+              borderLeft: `3px solid ${REVIEW_VERDICT.color}`,
+            }}
+          >
+            <div className="mb-1.5 flex items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-white"
+                style={{ backgroundColor: REVIEW_VERDICT.color }}
+              >
+                Verdict
+              </span>
+              <span className="text-sm font-bold text-[var(--c-text-primary)]">All 72 items applied across 15 plan docs</span>
+            </div>
+            <p className="mb-2 text-xs leading-relaxed text-[var(--c-text-secondary)]">{REVIEW_VERDICT.verdict}</p>
+            <p className="mb-2 text-xs leading-relaxed text-[var(--c-text-secondary)]">
+              <span className="font-bold text-[var(--c-text-primary)]">Recommended next step:</span>{" "}
+              {REVIEW_VERDICT.nextStep}
+            </p>
+            <p className="text-xs leading-relaxed text-[var(--c-text-secondary)]">
+              <span className="font-bold text-[var(--c-text-primary)]">Single highest-impact fix:</span>{" "}
+              {REVIEW_VERDICT.highestImpact}
+            </p>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── 3. Architecture Overview ── */}
+      <SectionHeader
+        number={3}
         title="Architecture Overview"
         subtitle="The module map + the click→queue→publish data-flow. Old project structure that the new project replicates."
       />
@@ -128,9 +304,9 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 3. Workflow: Click → Queue ── */}
+      {/* ── 4. Workflow: Click → Queue ── */}
       <SectionHeader
-        number={3}
+        number={4}
         title="Workflow: Click → Queue"
         subtitle="The 10-step trace from tapping the download icon on an episode row to the file landing on disk. Source: 01-workflow-click-to-queue.md."
       />
@@ -161,11 +337,11 @@ export default function DownloadsPlanPage() {
         ))}
       </div>
 
-      {/* ── 4. State Machine ── */}
+      {/* ── 5. State Machine ── */}
       <SectionHeader
-        number={4}
+        number={5}
         title="State Machine"
-        subtitle="6 states (QUEUED / DOWNLOADING / PAUSED / COMPLETED / ERROR / CANCELLED) + 13 transitions. Source: 03-state-machine.md."
+        subtitle="7 states (incl. the NEW RETRYING — M9) + 19 transitions. Source: 03-state-machine.md + REVIEW-5 M6/M9/M10/M11/M12/M13/M14."
       />
       <div className="mb-10 space-y-4">
         <Card className="p-0 overflow-hidden">
@@ -232,11 +408,11 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 5. Storage Paths (CRITICAL) ── */}
+      {/* ── 6. Storage Paths (CRITICAL — REWRITTEN) ── */}
       <SectionHeader
-        number={5}
-        title="Storage Paths"
-        subtitle="CRITICAL — where files are saved, the folder structure, the naming convention, the SAF-vs-internal-cache decision, and the FileProvider config. Source: 04-storage-paths.md."
+        number={6}
+        title="Storage Paths (REWRITTEN — video/images/text + data.json + 5-digit padding)"
+        subtitle="CRITICAL — the folder tree was rewritten (REVIEW-5: video/images/text format folders, 5-digit E00001 padding, NO AniList ID, ONE data.json per content with the 6-section contentId, .nomedia to prevent gallery pollution, scan-on-startup for reinstall recognition). Source: 04-storage-paths.md (rewritten in DL-PLAN-FIX)."
         critical
       />
       <div className="mb-10 space-y-4">
@@ -254,10 +430,20 @@ export default function DownloadsPlanPage() {
           <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
             <StatusDot color="var(--c-secondary)" size="md" />
             <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
-              Internal temp cache (TempDownloadCache.kt) — internal-cache-first pipeline
+              Internal temp cache (TempDownloadCache.kt) — internal-cache-first pipeline + M59 hasSpaceFor check
             </span>
           </div>
           <PreBlock>{STORAGE_TEMP_CACHE}</PreBlock>
+        </Card>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-success)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              data.json — per-content source-of-truth (NEW — 6-section contentId M4, full FK set M5, .nomedia M54)
+            </span>
+          </div>
+          <PreBlock>{STORAGE_DATA_JSON_EXAMPLE}</PreBlock>
         </Card>
 
         <Card className="overflow-hidden p-0">
@@ -315,9 +501,57 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 6. Download Engines ── */}
+      {/* ── 7. Auto-Download Engine (NEW) ── */}
       <SectionHeader
-        number={6}
+        number={7}
+        title="Auto-Download Engine (NEW — 5-step pipeline + dimensionPriority)"
+        subtitle="The new pure-function pipeline (flatten → rank → applyFallbacks → pick → globalFallback) replaces the OLD 4-step selectBestVideo. The user's 'which dimension matters most' gap is now configurable via the dimensionPriority pref (default [AUDIO, QUALITY, SERVER]). Source: 14-auto-download-engine.md §6 (REVIEW-5 M44/M45 fixes)."
+      />
+      <div className="mb-10 space-y-4">
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-primary)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              The 5-step pure-function pipeline (14-auto-download-engine.md §6.2)
+            </span>
+          </div>
+          <PreBlock>{AUTO_DOWNLOAD_PIPELINE}</PreBlock>
+        </Card>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-secondary)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              The NEW dimensionPriority + globalFallback preferences (14-auto-download-engine.md §6.1)
+            </span>
+          </div>
+          <PreBlock>{AUTO_DOWNLOAD_SETTINGS}</PreBlock>
+        </Card>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-success)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              Worked example — dimensionPriority = [AUDIO, QUALITY, SERVER] (audio matters most)
+            </span>
+          </div>
+          <PreBlock>{AUTO_DOWNLOAD_WORKED_EXAMPLE}</PreBlock>
+        </Card>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-warning)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              Why this stays "highly customizable for future changes" (14-auto-download-engine.md §6.4)
+            </span>
+          </div>
+          <PreBlock>{AUTO_DOWNLOAD_CUSTOMIZABILITY}</PreBlock>
+        </Card>
+      </div>
+
+      {/* ── 8. Download Engines ── */}
+      <SectionHeader
+        number={8}
         title="Download Engines"
         subtitle="HTTP (single-threaded) vs HLS (.m3u8 segment concatenator, no ffmpeg) vs Advanced (multi-threaded Range + resume). Source: 05-downloaders.md."
       />
@@ -368,9 +602,9 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 7. Queue Management ── */}
+      {/* ── 9. Queue Management ── */}
       <SectionHeader
-        number={7}
+        number={9}
         title="Queue Management"
         subtitle="DownloadQueue internals — concurrency, FIFO ordering, persistence, dedup, threading. Source: 02-queue-management.md."
       />
@@ -386,11 +620,60 @@ export default function DownloadsPlanPage() {
         ))}
       </div>
 
-      {/* ── 8. Notifications & Foreground Service ── */}
+      {/* ── 10. Proxy-Churn Bug Fix (NEW) ── */}
       <SectionHeader
-        number={8}
-        title="Notifications & Foreground Service"
-        subtitle="The plan + the CRITICAL finding: old project has NO foreground service; new project MUST add one. Source: 06-notifications-foreground-service.md."
+        number={10}
+        title="Proxy-Churn Bug Fix (NEW — root cause + 4-layer fix)"
+        subtitle="The bug: a download is in-flight → user plays another episode from the same source → the extension's proxy server is killed → the download fails. The OLD project can't fix this. The new project has 4 layers (directUrl + re-resolve-on-IOException + ProxyLeaseCoordinator + foreground service). Sources: 15-ui-and-bug-analysis.md Part B + 10-player-integration.md §14 (REVIEW-5 M15/M16/M17/M19 fixes)."
+        critical
+      />
+      <div className="mb-10 space-y-4">
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-danger)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              The root cause (15-ui-and-bug-analysis.md Part B)
+            </span>
+          </div>
+          <PreBlock>{PROXY_CHURN_ROOT_CAUSE}</PreBlock>
+        </Card>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-primary)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              The 4-layer fix (10-player-integration.md §14.1) — Layer 1 (directUrl) + Layer 2 (re-resolve, M15) + Layer 3 (ProxyLeaseCoordinator, deferred) + Layer 4 (foreground service, M20)
+            </span>
+          </div>
+          <PreBlock>{PROXY_CHURN_4_LAYERS}</PreBlock>
+        </Card>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-secondary)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              The ReResolver class (M17 — DIRECT lookup, NOT a re-run of AutoDownloadEngine) + ResolveContext (M64 — 7 fields)
+            </span>
+          </div>
+          <PreBlock>{PROXY_CHURN_RERESOLVER}</PreBlock>
+        </Card>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-warning)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              5 architectural rules to prevent the bug class (15-ui-and-bug-analysis.md §B.7)
+            </span>
+          </div>
+          <PreBlock>{PROXY_CHURN_ARCHITECTURAL_RULES}</PreBlock>
+        </Card>
+      </div>
+
+      {/* ── 11. Notifications & Foreground Service ── */}
+      <SectionHeader
+        number={11}
+        title="Notifications & Foreground Service (REVIEW-5 M20-M30 fixes)"
+        subtitle="The CRITICAL finding (now CLOSED): old project had NO foreground service + the new draft's startForeground was NOT synchronous (ForegroundServiceDidNotStartInTimeException). The fixes: synchronous startForeground (M20), Coil 3 thumbnails (M21+M22), KoinComponent (M25), onTimeout/onTaskRemoved (M27+M28). Source: 06-notifications-foreground-service.md."
       />
       <div className="mb-10 space-y-4">
         <Card className="p-4">
@@ -452,11 +735,11 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 9. Settings ── */}
+      {/* ── 12. Settings ── */}
       <SectionHeader
-        number={9}
+        number={12}
         title="Settings"
-        subtitle="All 15 download settings (general + auto-download + preference lists + fallback strategies + advanced). Source: 07-settings-preferences.md."
+        subtitle="All 15 OLD download settings (general + auto-download + preference lists + fallback strategies + advanced). The NEW dimensionPriority + globalFallback are documented in §7 (Auto-Download Engine). Source: 07-settings-preferences.md."
       />
       <div className="mb-10 space-y-4">
         <Card className="overflow-hidden p-0">
@@ -500,9 +783,9 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 10. Downloads Page UI ── */}
+      {/* ── 13. Downloads Page UI ── */}
       <SectionHeader
-        number={10}
+        number={13}
         title="Downloads Page UI"
         subtitle="Two separate pages (live queue + downloaded library) + settings + picker sheet + components. Source: 08-downloads-page-ui.md."
       />
@@ -526,11 +809,11 @@ export default function DownloadsPlanPage() {
         ))}
       </div>
 
-      {/* ── 11. Details Page Download Control ── */}
+      {/* ── 14. Details Page Download Control ── */}
       <SectionHeader
-        number={11}
+        number={14}
         title="Details Page Download Control"
-        subtitle="Per-episode UI on the anime-details page. 7-state sealed interface (EpisodeDownloadState) + the host mapping. Source: 09-details-page-download-ui.md."
+        subtitle="Per-episode UI on the anime-details page. 7-state sealed interface (EpisodeDownloadState — now includes Retrying(attempt, maxAttempts, lastError) per M13) + the host mapping. Source: 09-details-page-download-ui.md."
       />
       <div className="mb-10 space-y-4">
         <Card className="overflow-hidden p-0">
@@ -578,9 +861,9 @@ export default function DownloadsPlanPage() {
         </div>
       </div>
 
-      {/* ── 12. Player Integration ── */}
+      {/* ── 15. Player Integration ── */}
       <SectionHeader
-        number={12}
+        number={15}
         title="Player Integration"
         subtitle="Offline playback — the offline short-circuit, MPV content:// handling, episode switching, watch progress. Source: 10-player-integration.md."
       />
@@ -607,11 +890,11 @@ export default function DownloadsPlanPage() {
         </div>
       </div>
 
-      {/* ── 13. Database Schema ── */}
+      {/* ── 16. Database Schema (REVIEW-5 M1+M2 — direct .sq edit, NO .sqm migration) ── */}
       <SectionHeader
-        number={13}
-        title="Database Schema"
-        subtitle="The new SQLDelight tables (replacing JSON-in-SharedPrefs). Decision D1: Option B1 (separate columns). Source: 11-db-schema.md + 13-implementation-plan.md."
+        number={16}
+        title="Database Schema (REVIEW-5 M1+M2 — direct .sq edit, NO .sqm migration)"
+        subtitle="The new SQLDelight tables (replacing JSON-in-SharedPrefs). Decision D1: Option B1 (separate columns). REVIEW-5 M1+M2: edit the .sq files DIRECTLY — do NOT add a 3.sqm migration file (the project has ZERO .sqm files). Source: 11-db-schema.md + 13-implementation-plan.md."
       />
       <div className="mb-10 space-y-4">
         <Card className="p-4">
@@ -674,9 +957,9 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 14. DI Wiring ── */}
+      {/* ── 17. DI Wiring ── */}
       <SectionHeader
-        number={14}
+        number={17}
         title="DI Wiring"
         subtitle="Three Koin modules (downloadModule in :core:download, downloadFeatureModule in :feature:download, downloadAppModule in :app). Source: 12-di-wiring.md."
       />
@@ -730,11 +1013,11 @@ export default function DownloadsPlanPage() {
         ))}
       </div>
 
-      {/* ── 15. Implementation Phases ── */}
+      {/* ── 18. Implementation Phases (UPDATED — D.0→D.8, 30-40 days) ── */}
       <SectionHeader
-        number={15}
-        title="Implementation Phases"
-        subtitle="6 phases (D.0–D.6) totaling 12–18 days. Each builds on the previous — D.0 (foundations) is foundational, D.1 (engine) is the biggest. Source: 13-implementation-plan.md §5."
+        number={18}
+        title="Implementation Phases (UPDATED — 9 phases D.0→D.8, 30-40 days)"
+        subtitle="9 phases (D.0–D.8) totaling 30-40 days (was 23-30 — grew by the REVIEW-5 consolidation pass + REVIEW-6 re-review + inevitable mid-implementation discoveries). D.0 (foundations) is foundational, D.1 (engine + NEW data.json storage) is the biggest. Source: 13-implementation-plan.md §5 + §6.1 Review Findings."
       />
       <div className="mb-10 space-y-3">
         {IMPLEMENTATION_PHASES.map((p) => (
@@ -776,9 +1059,45 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 16. Design Decisions ── */}
+      {/* ── 19. Quality of Life (NEW) ── */}
       <SectionHeader
-        number={16}
+        number={19}
+        title="Quality of Life (NEW — auto-retry + auto-resume + auto-pause + orphan cleanup)"
+        subtitle="The QoL features from 16-quality-of-life.md — the headline auto-retry (with RETRYING state M9), auto-resume on network change (M42), auto-pause on metered network, download verification, orphan-file cleanup, auto-clear completed entries after 10s."
+      />
+      <div className="mb-10 space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {QOL_FEATURES.map((q) => (
+            <Card key={q.id} className="p-4">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span
+                  className="rounded-md px-2 py-0.5 text-[10px] font-bold text-white"
+                  style={{ backgroundColor: q.color }}
+                >
+                  {q.id}
+                </span>
+                <h3 className="text-sm font-bold leading-tight text-[var(--c-text-primary)]">{q.title}</h3>
+              </div>
+              <p className="mb-2 text-xs font-medium leading-relaxed text-[var(--c-text-primary)]">{q.headline}</p>
+              <p className="text-xs leading-relaxed text-[var(--c-text-secondary)]">{q.details}</p>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-[var(--c-border)] bg-[var(--c-surface-alt)] px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-danger)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-text-secondary)]">
+              The retry policy table (16-quality-of-life.md §1.1 — M48 type matching, M49 HttpException, M50 dead-branch removed)
+            </span>
+          </div>
+          <PreBlock>{QOL_RETRY_POLICY_TABLE}</PreBlock>
+        </Card>
+      </div>
+
+      {/* ── 20. Design Decisions ── */}
+      <SectionHeader
+        number={20}
         title="Design Decisions"
         subtitle="7 confirmed design decisions (D1–D7) covering persistence, storage, foreground service, reactive prefs, episode-key format, HLS support, and the Advanced method. Source: 13-implementation-plan.md §4."
       />
@@ -788,9 +1107,9 @@ export default function DownloadsPlanPage() {
         ))}
       </div>
 
-      {/* ── 17. Risks ── */}
+      {/* ── 21. Risks ── */}
       <SectionHeader
-        number={17}
+        number={21}
         title="Risks"
         subtitle="8-entry risk register with likelihood + mitigation. Source: 13-implementation-plan.md §8."
       />
@@ -833,9 +1152,9 @@ export default function DownloadsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 18. Old-Project Bugs to Avoid ── */}
+      {/* ── 22. Old-Project Bugs to Avoid ── */}
       <SectionHeader
-        number={18}
+        number={22}
         title="Old-Project Bugs to Avoid"
         subtitle="8 bugs / TODOs found in the old code that the new implementation must avoid. Source: 00-overview.md §6."
       />

@@ -85,8 +85,11 @@ Column(modifier = Modifier.fillMaxSize()) {
             hasPaused = paused > 0,
             hasFailed = failed > 0,
             hasAny = queue.isNotEmpty(),
-            onPauseAll = { queue.filter { it.status == DOWNLOADING || it.status == QUEUED }.forEach { viewModel.pause(it.id) } },
+            onPauseAll = { queue.filter { it.status == DOWNLOADING || it.status == QUEUED || it.status == RETRYING }.forEach { viewModel.pause(it.id) } },  // REVIEW-5 M10 + M14 — RETRYING added to pause + retry-all
             onResumeAll = { queue.filter { it.status == PAUSED }.forEach { viewModel.resume(it.id) } },
+            // REVIEW-5 M14 (R4-M9): "Retry all" only retries ERROR tasks — RETRYING tasks are already being
+            // retried by the engine (calling viewModel.retry on them would double-retry). Skip RETRYING.
+            // Optionally show a "Retrying (N)" count chip in the bulk action bar for visibility.
             onRetryAll = { queue.filter { it.status == ERROR }.forEach { viewModel.retry(it.id) } },
             onCancelAll = { queue.forEach { viewModel.cancel(it.id) } },
         )

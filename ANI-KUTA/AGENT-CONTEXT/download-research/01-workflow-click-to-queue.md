@@ -294,6 +294,26 @@ Algorithm (from the KDoc):
 
 Helper: `orderByName(items, prefs, nameOf)` — sorts items by their position in the user's preference list (unknowns last). `orderByQuality` is the same for videos.
 
+### 7.5 NEW project: `selectBestVideo` is replaced by the 5-step `AutoDownloadEngine` (REVIEW-5 M52)
+
+> **REVIEW-5 M52 (R4-I9):** the OLD-project trace above (§7) is a faithful reference for the
+> OLD `DownloadOrchestrator.selectBestVideo` 3-step algorithm (audio check → quality check →
+> server×audio×quality combinations). The NEW project REPLACES this with the 5-step
+> `AutoDownloadEngine.selectBestVideo` pipeline per `14-auto-download-engine.md` §6.2:
+>
+> 1. **Flatten** — `List<ResolverServer>` → `List<Candidate>` with per-dimension `*Rank` fields.
+> 2. **Rank** — sort by the rank tuple in the user's `dimensionPriority` order (lexicographic).
+> 3. **applyFallbacks** — per-dimension fallback checks (generalizes the OLD Steps 1+2 to ALL 3 dimensions).
+> 4. **Pick** — return the first sorted candidate.
+> 5. **globalFallback** — REVIEW-5 M44: fire based on the picked candidate's match quality
+>    (perfect vs. best-effort), NOT on `sortedCandidates.isEmpty()`.
+>
+> The 5-step pipeline preserves the same API contract (`Selection.Selected` / `Selection.NoMatch`)
+> so the rest of the trace (`buildRequest` → `manager.enqueueDownload` → `DownloadQueue.enqueue`
+> → `tryStartNext`) is UNCHANGED. The `directUrl` field on `ResolverVideo` (per
+> `10-player-integration.md` §14.1 Fix 1) is preferred for `DownloadRequest.videoUrl` — falls
+> back to `selection.video.url` (the proxy URL) if `directUrl` is null.
+
 ### `buildRequest` — lines 336-360
 
 ```kotlin

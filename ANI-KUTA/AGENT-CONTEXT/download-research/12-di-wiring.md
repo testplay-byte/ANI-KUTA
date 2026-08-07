@@ -311,3 +311,246 @@ downloadAppModule = module {
 ```
 
 See `13-implementation-plan.md` for the full phased plan.
+
+---
+
+## 11. Post-rewrite additions (DL-PLAN-REWRITE)
+
+> **Task ID:** DL-PLAN-REWRITE
+> The OLD project's DI wiring (documented in §§1-10 above) is the baseline. The NEW project's DI must:
+> 1. Adapt to the new project's Koin module style (the existing `downloadModule` in `core/download/DownloadModule.kt` is a stub — see §9 above — needs to be rewritten).
+> 2. Make `DownloadStorageProvider` an EXPLICIT Koin binding (the OLD project creates it internally in `DefaultDownloadManager`'s constructor — fragile).
+> 3. Make `HttpDownloader` + `HlsDownloader` + `AdvancedHttpDownloader` + `DownloadNotificationManager` + `DownloadQueue` + `AutoDownloadEngine` + `ReResolver` + `DownloadScanner` all EXPLICIT Koin bindings (the OLD project creates them internally — fragile + hard to test).
+> 4. Register `DownloadService` as a foreground service (the OLD project doesn't have one).
+> 5. NO `DownloadMigration` — fresh start, no migration from the OLD project's schema.
+> 6. Wire into the existing `AnikutaApp.kt`'s `startKoin { modules(...) }` call (which already includes the stub `downloadModule` — just needs the stub replaced + the new modules added).
+
+### 11.1 The NEW `:core:download` module (the engine)
+
+**File:** `core/download/src/main/java/com/confused/anikuta/core/download/DownloadModule.kt` (REWRITE — replaces the stub)
+
+```kotlin
+package com.confused.anikuta.core.download
+
+import com.confused.anikuta.core.download.advanced.AdvancedHttpDownloader
+import com.confused.anikuta.core.download.advanced.DownloadResumeManager
+import okhttp3.OkHttpClient
+import org.koin.android.ext.koin.androidContext
+import org.koin.dsl.module
+import java.util.concurrent.TimeUnit
+
+val downloadModule = module {
+    // ── Preferences (backed by the reactive PreferenceStore — see 07-settings-preferences.md §8.4) ──
+    single { DownloadPreferences(get()) }
+    single { ServerDiscoveryStore(get()) }
+
+    // ── Database adapter (SQLDelight-backed — see 11-db-schema.md §4) ──
+    single { DownloadStore(get()) }
+
+    // ── Storage (the NEW SAF + data.json system — see 04-storage-paths.md) ──
+    single { TempDownloadCache(androidContext()) }  // calls cleanupStale() on creation
+    single { DownloadStorageProvider(androidContext(), get()) }
+    single { DownloadScanner(androidContext(), get(), get(), get()) }
+
+    // ── HTTP client (qualified "download" — separate from the extension NetworkHelper client) ──
+    single(named("download")) {
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    // ── The 3 downloaders (modular — see 05-downloaders.md §11.1) ──
+    single { DownloadResumeManager(get()) }
+    single { HlsDownloader(get(named("download")), get(), get()) }
+    single { AdvancedHttpDownloader(get(named("download")), get(), get(), get()) }
+    single { HttpDownloader(
+        client = get(named("download")),
+        tempCache = get(),
+        storage = get(),
+        reResolver = getOrNull(),  // null if proxy-churn fix is disabled (set by the app module — see §11.2)
+        store = get(),
+        hlsDownloader = get(),
+        advancedDownloader = get(),
+        preferences = get(),
+    ) }
+
+    // ── Notifications + foreground service (the NEW design — see 06-notifications-foreground-service.md §13) ──
+    single { DownloadNotificationManager(androidContext(), get()) }
+
+    // ── Queue + Manager (the SQLDelight-backed design — see 02-queue-management.md §13) ──
+    single { DownloadQueue(
+        store = get(),
+        preferences = get(),
+        scope = get(named("downloadScope")),  // private scope — survives app-backgrounding with the foreground service
+        downloader = get(),
+        notifier = get(),
+    ) }
+    single<DownloadManager> { DefaultDownloadManager(
+        context = androidContext(),
+        queue = get(),
+        store = get(),
+        storage = get(),
+        scanner = get(),
+        preferences = get(),
+        notifier = get(),
+    ) }
+}
+```
+
+### 11.2 The NEW `:app` module (orchestrator + proxy-churn fix)
+
+**File:** `app/src/main/java/com/confused/anikuta/di/DownloadAppModule.kt` (CREATE)
+
+```kotlin
+package com.confused.anikuta.di
+
+import com.confused.anikuta.core.download.*
+import com.confused.anikuta.core.videoresolver.VideoResolver
+import org.koin.dsl.module
+
+val downloadAppModule = module {
+    // Re-export the core + feature modules so App.kt only lists one entry.
+    includes(downloadModule, downloadFeatureModule)
+
+    // ── The 5-step priority engine (NEW — see 14-auto-download-engine.md §6.2) ──
+    single { AutoDownloadEngine() }  // pure functions — no state, no constructor params
+
+    // ── The proxy-churn fix (NEW — see 10-player-integration.md §14) ──
+    single { ReResolver(get<VideoResolver>(), get<DownloadPreferences>()) }  // REVIEW-5 M17: removed `get<AutoDownloadEngine>()` — dead DI param (the reResolve implementation does a DIRECT lookup, never calls the engine)
+    // Optional tertiary fix (deferred — see 10-player-integration.md §14.1 Fix 3):
+    // single { ProxyLeaseCoordinator(get<VideoResolver>()) }
+
+    // ── The orchestrator (bridges VideoResolver + DownloadManager — uses the NEW AutoDownloadEngine) ──
+    single { DownloadOrchestrator(
+        videoResolver = get(),
+        downloadManager = get(),
+        preferences = get(),
+        serverDiscovery = get(),
+        autoDownloadEngine = get(),  // used by the orchestrator's selectBestVideo (NOT by ReResolver — see M17)
+        reResolver = get(),
+    ) }
+
+    // ── The private download scope (survives app-backgrounding — see 02-queue-management.md §13.1) ──
+    single(named("downloadScope")) {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Logger.e("DownloadScope", e) { "Uncaught exception in download scope (suppressed)" }
+        })
+    }
+
+    // ── NO DownloadMigration (fresh start — no migration from the OLD project's schema) ──
+}
+```
+
+### 11.3 The NEW `:feature:download` module (the ViewModel)
+
+**File:** `feature/download/src/main/java/com/confused/anikuta/feature/download/di/DownloadModule.kt` (CREATE)
+
+```kotlin
+package com.confused.anikuta.feature.download.di
+
+import com.confused.anikuta.feature.download.DownloadViewModel
+import org.koin.core.module.dsl.viewModelOf
+import org.koin.dsl.module
+
+val downloadFeatureModule = module {
+    viewModelOf(::DownloadViewModel)
+}
+```
+
+Same as the OLD project — `viewModelOf(::DownloadViewModel)` resolves `DownloadManager` + `DownloadPreferences` from the Koin graph.
+
+### 11.4 Wiring into `AnikutaApp.kt`
+
+The existing `AnikutaApp.kt` already includes `downloadModule` in the `startKoin { modules(...) }` call (see §9 of the OLD project's DI doc above). The post-rewrite change:
+
+```kotlin
+// AnikutaApp.kt — the startKoin block (POST-REWRITE):
+startKoin {
+    androidContext(this@AnikutaApp)
+    modules(
+        anilistModule,
+        browseModule,
+        detailsModule,
+        libraryModule,
+        searchModule,
+        activityTrackerModule,
+        extensionModule,
+        playerModule,
+        videoResolverModule,
+        // downloadModule,               // ← REMOVE the old stub binding
+        metadataModule,
+        trackerAniListModule,
+        watchProgressModule,
+        smartMatcherModule,
+        contentModule,
+        dataCacheModule,
+        downloadAppModule,              // ← NEW: includes downloadModule + downloadFeatureModule + orchestrator + reResolver + scope
+        appModule,
+    )
+}
+```
+
+`downloadAppModule` aggregates the rewritten `downloadModule` + the new `downloadFeatureModule` + the orchestrator + the proxy-churn fix + the private scope. ONE entry in the `modules(...)` list.
+
+### 11.5 The complete post-rewrite Koin graph
+
+```
+AnikutaApp.startKoin
+  └── modules: [..., downloadAppModule, ...]
+       │
+       ├── includes: downloadModule (:core:download — REWRITTEN)
+       │    ├── single DownloadPreferences(PreferenceStore)
+       │    ├── single DownloadStore(AnikutaDatabase)              ← SQLDelight adapter
+       │    ├── single ServerDiscoveryStore(PreferenceStore)
+       │    ├── single TempDownloadCache(Context) — cleanupStale() on creation
+       │    ├── single DownloadStorageProvider(Context, DownloadPreferences)  ← NEW: explicit binding
+       │    ├── single DownloadScanner(Context, DownloadStorageProvider, DownloadStore, ContentRepository)  ← NEW: scan-on-startup
+       │    ├── single OkHttpClient("download") — 30s/60s/60s timeouts
+       │    ├── single HlsDownloader(OkHttpClient("download"), TempDownloadCache, DownloadPreferences)
+       │    ├── single DownloadResumeManager(TempDownloadCache)
+       │    ├── single AdvancedHttpDownloader(OkHttpClient("download"), TempDownloadCache, DownloadResumeManager, DownloadPreferences)
+       │    ├── single HttpDownloader(OkHttpClient("download"), TempDownloadCache, DownloadStorageProvider, ReResolver?, DownloadStore, HlsDownloader, AdvancedHttpDownloader, DownloadPreferences)
+       │    ├── single DownloadNotificationManager(Context, DownloadStorageProvider)  ← NEW: with thumbnails + dual channels
+       │    ├── single DownloadQueue(DownloadStore, DownloadPreferences, scope("downloadScope"), HttpDownloader, DownloadNotificationManager)  ← NEW: SQLDelight-backed + Mutex
+       │    └── single DownloadManager → DefaultDownloadManager(Context, DownloadQueue, DownloadStore, DownloadStorageProvider, DownloadScanner, DownloadPreferences, DownloadNotificationManager)
+       │
+       ├── includes: downloadFeatureModule (:feature:download)
+       │    └── viewModel DownloadViewModel(DownloadManager, DownloadPreferences)
+       │
+       ├── single AutoDownloadEngine()  ← NEW: the 5-step priority pipeline
+       ├── single ReResolver(VideoResolver, DownloadPreferences)  ← NEW: proxy-churn fix (REVIEW-5 M17: removed AutoDownloadEngine — dead DI param)
+       ├── single DownloadOrchestrator(VideoResolver, DownloadManager, DownloadPreferences, ServerDiscoveryStore, AutoDownloadEngine, ReResolver)
+       ├── single CoroutineScope("downloadScope") — private, SupervisorJob + Dispatchers.IO + exception handler
+       └── (NO DownloadMigration — fresh start)
+```
+
+### 11.6 What's DIFFERENT from the OLD project's DI (and why)
+
+| Aspect | OLD project | NEW project (post-rewrite) | Why |
+|---|---|---|---|
+| `DownloadStorageProvider` | Internal to `DefaultDownloadManager` (not a Koin binding) | EXPLICIT Koin `single` | Testable + the `DownloadScanner` needs it as a constructor param. |
+| `HttpDownloader` / `HlsDownloader` / `AdvancedHttpDownloader` | Internal to `DefaultDownloadManager` | EXPLICIT Koin `single`s | Testable + the `HttpDownloader` needs `ReResolver` injected (the proxy-churn fix). |
+| `DownloadNotificationManager` | Internal to `DefaultDownloadManager` | EXPLICIT Koin `single` | The `DownloadService` needs it directly (not via the manager). |
+| `DownloadQueue` | Internal to `DefaultDownloadManager` | EXPLICIT Koin `single` | Testable + the manager delegates most operations to it anyway. |
+| `AutoDownloadEngine` | N/A (the orchestrator's internal `selectBestVideo`) | EXPLICIT Koin `single` | The orchestrator uses it (the `ReResolver` does NOT — REVIEW-5 M17). Pure functions — no state. |
+| `ReResolver` | N/A | EXPLICIT Koin `single` | The `HttpDownloader` needs it for the proxy-churn fix. |
+| `DownloadScanner` | N/A | EXPLICIT Koin `single` | The `AnikutaApp` calls `requestFolderRescan()` on startup. |
+| `DownloadMigration` | Koin `single` (the Phase 6 migration) | NOT REGISTERED | Fresh start — no migration from the OLD project's schema. |
+| `DownloadService` | N/A (no foreground service) | Registered in the manifest (not in Koin — `Service` instances are created by Android) | The service uses `by inject<DownloadManager>()` (Koin scope). |
+| `OkHttpClient("download")` | Koin `single` | Same | Separate from the extension `NetworkHelper` client. |
+| `CoroutineScope("downloadScope")` | Implicit (created in `DefaultDownloadManager`'s constructor default param) | EXPLICIT Koin `single(named("downloadScope"))` | Testable + the `DownloadQueue` takes it as a constructor param (so tests can pass a TestScope). |
+
+### 11.7 Cross-references (post-rewrite)
+
+- `04-storage-paths.md` — the NEW `DownloadStorageProvider` + `DownloadScanner` + `TempDownloadCache`.
+- `02-queue-management.md` §13 — the NEW `DownloadQueue` (SQLDelight-backed + Mutex + reactive concurrency).
+- `05-downloaders.md` §11 — the NEW `Downloader` interface + the 3 engines.
+- `06-notifications-foreground-service.md` §13 — the NEW `DownloadNotificationManager` + `DownloadService`.
+- `07-settings-preferences.md` §8 — the NEW `DownloadPreferences` (17 settings) + the reactive `PreferenceStore`.
+- `10-player-integration.md` §14 — the NEW `ReResolver` + `ResolveContext` (the proxy-churn fix).
+- `11-db-schema.md` §4 — the NEW `DownloadStore` adapter (SQLDelight-backed).
+- `13-implementation-plan.md` Phase D.1 + D.2 — the implementation plan for the DI wiring.
+- `14-auto-download-engine.md` §6.2 — the NEW `AutoDownloadEngine` (the 5-step priority pipeline).

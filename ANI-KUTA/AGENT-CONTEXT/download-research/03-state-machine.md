@@ -6,17 +6,28 @@
 
 **File**: `core/download/src/main/java/app/confused/anikuta/core/download/DownloadStatus.kt`
 
+> **REVIEW-5 M9 + M12:** the canonical type is `enum class DownloadStatus` (UPPERCASE constants —
+> matches the OLD project + `13-implementation-plan.md` line 216 + Review 3 M1's recommendation).
+> The NEW project's stub `DownloadState.kt` (sealed interface, PascalCase variants — `Failed`/`Queued`/...)
+> is DELETED in Phase D.0 (per `13-implementation-plan.md` task list). The QoL `16-quality-of-life.md`
+> §1.3 draft that proposed `sealed interface DownloadStatus` with `data class RETRYING(...)` is
+> REVISED to use the enum + put the retry metadata on `DownloadTask` instead (the enum constant
+> can't carry per-instance data).
+
 ```kotlin
 enum class DownloadStatus {
     QUEUED,
     DOWNLOADING,
+    RETRYING,   // REVIEW-5 M9 — NEW. Auto-retry in-progress (see 16-quality-of-life.md §1.3).
+                // The retry metadata (attempt / maxAttempts / lastError) lives on DownloadTask
+                // (see DownloadTask.retryAttempt / retryMaxAttempts / lastError below).
     PAUSED,
     COMPLETED,
     ERROR,
     CANCELLED;
 
     val isTerminal: Boolean get() = this == COMPLETED || this == CANCELLED
-    val isActive: Boolean get() = this == DOWNLOADING
+    val isActive: Boolean get() = this == DOWNLOADING || this == RETRYING
 }
 ```
 
@@ -24,12 +35,33 @@ enum class DownloadStatus {
 |---|---|
 | `QUEUED` | In the queue, waiting for a download slot (Semaphore permit). |
 | `DOWNLOADING` | Actively downloading — `DownloadTask.progress` is updating. |
+| `RETRYING` | Auto-retry in-progress — the engine caught a retryable error (`RetryPolicy.forException` returned a non-zero maxAttempts) + is in the backoff delay before the next attempt. UI shows `"Retrying (2/3)…"`. The retry metadata lives on `DownloadTask.retryAttempt` + `retryMaxAttempts` + `lastError`. |
 | `PAUSED` | User-paused; stays in the queue, can be resumed. |
 | `COMPLETED` | Finished — file + all subtitles are on disk. **Terminal.** |
-| `ERROR` | Failed (network/IO/validation). Recoverable via retry. |
+| `ERROR` | Failed (network/IO/validation) AND all retry attempts exhausted. Recoverable via user-initiated retry. |
 | `CANCELLED` | User-cancelled + file deleted. **Terminal.** (In practice never persisted — see `02-queue-management.md` §5.) |
 
+The `DownloadTask` data class gains three fields to support RETRYING (carrying the metadata
+the enum constant can't):
+
+```kotlin
+@Serializable
+data class DownloadTask(
+    // ... existing fields ...
+    val retryAttempt: Int = 0,
+    val retryMaxAttempts: Int = 3,
+    val lastError: String? = null,
+)
+```
+
+These are updated by `setRetryingStatus` + `setErrorStatus` (defined in `02-queue-management.md` §13).
+
 ## 2. State machine diagram
+
+> **REVIEW-5 M9:** the diagram below is the ORIGINAL 6-state diagram from the KDoc on
+> `DownloadStatus.kt:7-14`. The 7th state (`RETRYING`) is added in §2.1 below — the ASCII
+> art is preserved as-is for traceability to the OLD project's KDoc, with a §2.1 addendum
+> showing the RETRYING transitions.
 
 Quoted directly from the KDoc on `DownloadStatus.kt:7-14`:
 
@@ -74,6 +106,42 @@ Queued ──start──▶ Downloading ──100%──▶ Completed
                             └──────────┘    persisted as CANCELLED)
 ```
 
+### 2.1 The RETRYING state (NEW — REVIEW-5 M9)
+
+The 7th state `RETRYING` is added to the diagram above. Here's the augmented diagram with
+RETRYING + its transitions:
+
+```
+Queued ──start──▶ Downloading ──100%──▶ Completed
+  │                  │  │
+  │                  │  ├──retryable-error──▶ Retrying ──backoff-elapsed──▶ Downloading (next attempt)
+  │                  │  │                         │
+  │                  │  │                         ├──max-attempts-exceeded──▶ Error ──retry──▶ Queued
+  │                  │  │                         ├──pause──▶ Paused ──resume──▶ Queued
+  │                  │  │                         └──cancel──▶ Cancelled (terminal)
+  │                  │  │
+  │                  ├──pause──▶ Paused ──resume──▶ Queued
+  │                  ├──error──▶ Error ──retry──▶ Queued
+  │                  └──cancel──▶ Cancelled (terminal)
+  └──cancel──▶ Cancelled (terminal)
+```
+
+**RETRYING transitions** (REVIEW-5 M9):
+- `DOWNLOADING` → retryable error → `RETRYING` (the queue's `setRetryingStatus` is called from
+  the retry loop's catch block — see `16-quality-of-life.md` §1.2).
+- `RETRYING` → backoff elapsed → `DOWNLOADING` (the retry loop calls `downloader.download(task)`
+  again; the queue mutates status back to DOWNLOADING).
+- `RETRYING` → max attempts exceeded → `ERROR` (the retry loop's `attempt >= policy.maxAttempts`
+  check; the queue calls `setErrorStatus`).
+- `RETRYING` → user pause → `PAUSED` (the queue's `pause` accepts RETRYING — cancels the retry
+  loop's delay Job + transitions to PAUSED. See REVIEW-5 M10 + `02-queue-management.md` §13.)
+- `RETRYING` → user cancel → `CANCELLED` (same as pause but removes from queue + cleans up).
+- `RETRYING` → app restart → `QUEUED` (the `resetDownloadingToQueued` SQL now resets BOTH
+  DOWNLOADING AND RETRYING — see `11-db-schema.md` §3 line 251. REVIEW-5 M6 / R3-I2 / R4-C7.)
+
+The retry metadata (`attempt`, `maxAttempts`, `lastError`) lives on `DownloadTask` (not on the
+enum constant — enums can't carry per-instance data). See §1 above.
+
 ## 3. Allowed transitions (reference table)
 
 | From → Action | To | Where enforced |
@@ -86,16 +154,22 @@ Queued ──start──▶ Downloading ──100%──▶ Completed
 | `PAUSED` → resume | `QUEUED` | `DownloadQueue.resumeInternal` (line 166-174) |
 | `ERROR` → resume | `QUEUED` | `DownloadQueue.resumeInternal` (line 168 — accepts ERROR too) |
 | `ERROR` → retry | `QUEUED` (progress=0) | `DownloadQueue.retry` (line 137-145) |
-| `DOWNLOADING` → error | `ERROR` | `DownloadQueue.launchDownload` catch blocks (line 241-263) |
-| `QUEUED`/`DOWNLOADING`/`PAUSED`/`ERROR` → cancel | (removed from list) | `DownloadQueue.cancel` (line 123-135) |
+| `DOWNLOADING` → retryable error | `RETRYING` | `DownloadQueue.launchDownload` retry loop's catch block → `setRetryingStatus` (`16-quality-of-life.md` §1.2). REVIEW-5 M9. |
+| `RETRYING` → backoff elapsed | `DOWNLOADING` | retry loop calls `downloader.download(task)` again → `setDownloadingStatus`. REVIEW-5 M9. |
+| `RETRYING` → max attempts exceeded | `ERROR` | retry loop's `attempt >= policy.maxAttempts` check → `setErrorStatus`. REVIEW-5 M9. |
+| `RETRYING` → pause | `PAUSED` | `DownloadQueue.pause` (REVIEW-5 M10 — accepts RETRYING; cancels the retry loop's delay Job). |
+| `RETRYING` → cancel | `CANCELLED` | `DownloadQueue.cancel` (REVIEW-5 M10). |
+| `RETRYING` → app restart | `QUEUED` | `DownloadStore.resetDownloadingToQueued` SQL `WHERE state IN ('DOWNLOADING', 'RETRYING')` (REVIEW-5 M6). |
+| `DOWNLOADING` → error (non-retryable OR retries exhausted) | `ERROR` | `DownloadQueue.launchDownload` catch blocks (line 241-263) |
+| `QUEUED`/`DOWNLOADING`/`PAUSED`/`RETRYING`/`ERROR` → cancel | (removed from list) | `DownloadQueue.cancel` (line 123-135 — REVIEW-5 M10 added RETRYING to the allowed set) |
 | `COMPLETED` → removeFromQueue | (removed from list, file stays) | `DownloadQueue.removeCompleted` (line 148-151) |
 | `COMPLETED` → deleteDownload | (removed + file deleted) | `DefaultDownloadManager.deleteDownload` (line 142-148) |
 | `ERROR` → enqueue same episode | `QUEUED` (via `resumeInternal`) | `DownloadQueue.enqueue` (line 91-94) |
 
 **Disallowed** (silently no-op):
-- `pause` on `PAUSED` / `ERROR` / `COMPLETED` (line 112-113: only accepts `DOWNLOADING` + `QUEUED`).
+- `pause` on `PAUSED` / `ERROR` / `COMPLETED` (line 112-113: only accepts `DOWNLOADING` + `QUEUED` + `RETRYING` per REVIEW-5 M10).
 - `retry` on non-`ERROR` (line 139: `if (it.status != DownloadStatus.ERROR) return@mutateTask it`).
-- `resume` on `QUEUED` / `DOWNLOADING` / `COMPLETED` (line 168: only accepts `PAUSED` + `ERROR`).
+- `resume` on `QUEUED` / `DOWNLOADING` / `RETRYING` / `COMPLETED` (line 168: only accepts `PAUSED` + `ERROR`).
 
 ## 4. How state is persisted
 
@@ -275,8 +349,15 @@ There's no `Resolving` in `DownloadStatus` — that's a UI-only state for the 1-
 
 ## 9. Where the state machine lives in the new project
 
-The new project's stub `DownloadState.kt`:
+> **REVIEW-5 M12:** the canonical type is `enum class DownloadStatus` (UPPERCASE constants —
+> matches the OLD project + `13-implementation-plan.md` line 216 + Review 3 M1's recommendation).
+> The NEW project's stub `DownloadState.kt` (sealed interface, PascalCase variants — `Failed`/
+> `Queued`/`Downloading`/`Paused`/`Completed`) is **DELETED in Phase D.0** per
+> `13-implementation-plan.md` task list.
+
+The new project's stub `DownloadState.kt` (preserved here for traceability — DO NOT implement):
 ```kotlin
+// DELETED in Phase D.0 — replaced by `DownloadStatus.kt` (the enum from §1 above).
 sealed interface DownloadState {
     data object Queued : DownloadState
     data class Downloading(val progress: Int) : DownloadState
@@ -286,10 +367,15 @@ sealed interface DownloadState {
 }
 ```
 
-Differences vs old:
-- `Failed` instead of `ERROR` (cosmetic).
-- **No `CANCELLED`** (the old project doesn't really use it either).
-- **No `Resolving`** (was UI-only in the old project anyway).
-- `Downloading` carries `progress: Int` inline (the old project keeps progress as a separate field on `DownloadTask`).
+Differences vs the canonical enum (all RESOLVED by deleting the stub + using the enum):
+- ~~`Failed` instead of `ERROR`~~ → use `ERROR` (matches OLD project + all docs).
+- ~~**No `CANCELLED`**~~ → keep `CANCELLED` (the SQL column comment + `02-queue-management.md` + this doc all reference it).
+- ~~**No `Resolving`**~~ → keep as UI-only state (`EpisodeDownloadState.Resolving` — never persisted).
+- ~~`Downloading` carries `progress: Int` inline~~ → keep `progress` as a separate field on `DownloadTask` (matches OLD project + the DB schema).
+- ~~No `RETRYING`~~ → ADD `RETRYING` to the enum (REVIEW-5 M9). The retry metadata (`attempt`, `maxAttempts`, `lastError`) lives on `DownloadTask` (enums can't carry per-instance data).
 
-Recommendation for the new project: adopt the old project's `DownloadStatus` enum (terminal/active helpers are useful) + keep the UI-side `EpisodeDownloadState` sealed type separate. See `13-implementation-plan.md`.
+The QoL `16-quality-of-life.md` §1.3 draft that proposed `sealed interface DownloadStatus` with
+`data class RETRYING(attempt, maxAttempts, lastError)` is **REVISED** to use the enum + put the
+retry metadata on `DownloadTask` instead. This keeps `status == DownloadStatus.ERROR` style checks
+(which the implementation plan + all docs already use) working without refactor to
+`status is DownloadStatus.ERROR`.
