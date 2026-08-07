@@ -16,6 +16,7 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:video-resolver"))
     implementation(project(":core:watch-progress"))
+    implementation(project(":core:download"))
     implementation(project(":data:extension"))
     implementation(project(":core:source-api"))
 

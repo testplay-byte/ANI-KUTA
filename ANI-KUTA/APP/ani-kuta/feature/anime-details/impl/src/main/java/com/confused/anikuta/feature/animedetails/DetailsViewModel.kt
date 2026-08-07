@@ -440,19 +440,51 @@ class DetailsViewModel(
                     Logger.i(TAG) { "D.3 Stage 1: Updated episode cache with ${cachedList.size} fresh episodes (incl. episodeUrl)" }
                 }
 
-                // If we have an anilistId, auto-fetch episode metadata for new episodes.
+                // If we have an anilistId, auto-fetch episode metadata + write back to cache.
+                // D.FIX: The old code only updated _episodeMetadata in memory but never
+                // wrote the enriched metadata back to the cache. This meant the cache
+                // retained sparse extension data (from the upsert above), and on the
+                // next open, the cache restore would show sparse data — no rich titles,
+                // descriptions, or thumbnails.
                 val anilistId = anime.anilistId
                 if (anilistId != null && anilistId > 0 && episodes.isNotEmpty()) {
                     val malId = (_state.value as? DetailsState.Success)?.anime?.idMal
+                    val episodesForCache = episodes // capture for inner lambda
+                    val mainIdForCache = mainId // capture for inner lambda
                     viewModelScope.launch {
                         try {
                             val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
                                 anilistId = anilistId,
                                 malId = malId,
-                                episodeCount = episodes.size,
+                                episodeCount = episodesForCache.size,
                             )
-                            _episodeMetadata.value = metadata
-                            Logger.i(TAG) { "D.3 Stage 1: Auto-fetched episode metadata" }
+                            if (metadata.isNotEmpty()) {
+                                _episodeMetadata.value = metadata
+                                Logger.i(TAG) { "D.3 Stage 1: Auto-fetched ${metadata.size} episode metadata entries" }
+
+                                // Write enriched metadata back to the cache, preserving
+                                // episodeUrl from the extension episodes.
+                                if (mainIdForCache != null) {
+                                    val now = System.currentTimeMillis()
+                                    val epNumToUrl = episodesForCache.associate { it.episode_number.toInt() to it.url }
+                                    val enrichedCache = metadata.entries.map { (epNum, meta) ->
+                                        com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                                            mainId = mainIdForCache,
+                                            episodeNumber = epNum.toFloat(),
+                                            title = meta.title,
+                                            description = meta.description,
+                                            thumbnailUrl = meta.thumbnailUrl,
+                                            airDate = meta.airDate,
+                                            fetchedAt = now,
+                                            episodeUrl = epNumToUrl[epNum],
+                                        )
+                                    }
+                                    dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
+                                    Logger.i(TAG) { "D.3 Stage 1: Wrote ${enrichedCache.size} enriched metadata entries to cache (episodeUrl preserved)" }
+                                }
+                            } else {
+                                Logger.w(TAG) { "D.3 Stage 1: Episode metadata fetch returned empty — keeping existing metadata" }
+                            }
                         } catch (e: Exception) {
                             Logger.w(TAG) { "D.3 Stage 1: Episode metadata fetch failed: ${e.message}" }
                         }
@@ -1502,11 +1534,18 @@ class DetailsViewModel(
                     _episodeMetadata.value = metadataMap
                     Logger.i(TAG) { "Episode metadata restored from cache: ${metadataMap.size} entries" }
 
-                    // D.FIX: Do a BACKGROUND refresh from the network so the cache
-                    // stays fresh. The user sees cached data instantly, but the
-                    // background fetch updates the cache for the NEXT open.
-                    // This eliminates the "stale data" issue without adding a loading
-                    // delay on every open.
+                    // ── Background refresh: fetch fresh episodes + compare with cache ──
+                    //
+                    // KEY DESIGN (user requirement):
+                    // - If fresh episodes == cached episodes (same URLs): SKIP the update
+                    //   entirely. Don't replace _episodeState, don't touch the cache.
+                    //   This prevents the "metadata disappears" bug where the background
+                    //   refresh destructively overwrites rich AniList metadata with sparse
+                    //   extension data (INSERT OR REPLACE overwrites ALL columns).
+                    // - If fresh episodes != cached (new episodes found): replace
+                    //   _episodeState, insert ONLY new episodes into the cache (preserve
+                    //   existing rich metadata), and auto-fetch metadata for the new
+                    //   episodes.
                     try {
                         val sAnime = SAnime.create().apply {
                             url = animeUrl
@@ -1516,27 +1555,98 @@ class DetailsViewModel(
                         val freshEpisodes = withContext(Dispatchers.IO) {
                             source.getEpisodeList(sAnime)
                         }
-                        if (freshEpisodes.isNotEmpty()) {
-                            Logger.i(TAG) { "Background refresh: fetched ${freshEpisodes.size} fresh episodes" }
-                            val sorted = freshEpisodes.sortedByDescending { it.episode_number }
-                            _episodeState.value = EpisodeState.Loaded(sorted)
+                        Logger.i(TAG) { "Background refresh: fetched ${freshEpisodes.size} fresh episodes from ${source.name}" }
 
-                            // Update the cache with fresh episodes (including episodeUrl).
-                            val now = System.currentTimeMillis()
-                            val cachedList = freshEpisodes.map { ep ->
-                                com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
-                                    mainId = mainId,
-                                    episodeNumber = ep.episode_number,
-                                    title = ep.name,
-                                    description = ep.summary,
-                                    thumbnailUrl = null,
-                                    airDate = if (ep.date_upload > 0) ep.date_upload else null,
-                                    fetchedAt = now,
-                                    episodeUrl = ep.url,
-                                )
+                        if (freshEpisodes.isEmpty()) {
+                            Logger.i(TAG) { "Background refresh: fresh episode list is empty — keeping cached data untouched" }
+                            return@launch
+                        }
+
+                        // Compare fresh episodes with cached episodes by URL set.
+                        val cachedUrls = cachedEpisodes.mapNotNull { it.episodeUrl }.toSet()
+                        val freshUrls = freshEpisodes.map { it.url }.toSet()
+                        val hasNewEpisodes = freshUrls != cachedUrls
+
+                        if (!hasNewEpisodes) {
+                            // No changes — skip the update entirely. This is the critical
+                            // fix: the old code ALWAYS replaced _episodeState + ALWAYS
+                            // overwrote the cache, destroying rich AniList metadata.
+                            Logger.i(TAG) { "Background refresh: no new episodes (same ${freshUrls.size} URLs) — cache + display untouched, metadata preserved" }
+                            return@launch
+                        }
+
+                        // New episodes found — update the display + cache.
+                        val newEpisodes = freshEpisodes.filter { it.url !in cachedUrls }
+                        Logger.i(TAG) { "Background refresh: ${newEpisodes.size} new episode(s) detected (cached=${cachedUrls.size}, fresh=${freshUrls.size})" }
+
+                        val sorted = freshEpisodes.sortedByDescending { it.episode_number }
+                        _episodeState.value = EpisodeState.Loaded(sorted)
+
+                        // Insert ONLY new episodes into the cache — don't overwrite
+                        // existing rich metadata (titles, descriptions, thumbnails from
+                        // AniList) for episodes that are already cached.
+                        val now = System.currentTimeMillis()
+                        val newCacheEntries = newEpisodes.map { ep ->
+                            com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                                mainId = mainId,
+                                episodeNumber = ep.episode_number,
+                                title = ep.name,
+                                description = ep.summary,
+                                thumbnailUrl = null,
+                                airDate = if (ep.date_upload > 0) ep.date_upload else null,
+                                fetchedAt = now,
+                                episodeUrl = ep.url,
+                            )
+                        }
+                        if (newCacheEntries.isNotEmpty()) {
+                            dataCacheRepository.upsertEpisodeMetadataBatch(newCacheEntries)
+                            Logger.i(TAG) { "Background refresh: inserted ${newCacheEntries.size} new episode(s) into cache (existing metadata preserved)" }
+                        }
+
+                        // Auto-fetch metadata for the new episodes (if we have an AniList ID).
+                        // This is the user's requirement: "if new episodes are found,
+                        // launch the metadata functionality automatically."
+                        val animeId = currentAnimeId
+                        val malId = (_state.value as? DetailsState.Success)?.anime?.idMal
+                        if (animeId > 0) {
+                            viewModelScope.launch {
+                                try {
+                                    val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
+                                        anilistId = animeId,
+                                        malId = malId,
+                                        episodeCount = freshEpisodes.size,
+                                    )
+                                    if (metadata.isNotEmpty()) {
+                                        // Merge: keep existing metadata, add/update with fresh.
+                                        val merged = _episodeMetadata.value.toMutableMap()
+                                        merged.putAll(metadata)
+                                        _episodeMetadata.value = merged
+                                        Logger.i(TAG) { "Background refresh: merged ${metadata.size} metadata entries (total: ${merged.size})" }
+
+                                        // Update cache with enriched metadata for ALL episodes,
+                                        // preserving episodeUrl from the fresh extension episodes.
+                                        val epNumToUrl = freshEpisodes.associate { it.episode_number.toInt() to it.url }
+                                        val enrichedCache = metadata.entries.map { (epNum, meta) ->
+                                            com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                                                mainId = mainId,
+                                                episodeNumber = epNum.toFloat(),
+                                                title = meta.title,
+                                                description = meta.description,
+                                                thumbnailUrl = meta.thumbnailUrl,
+                                                airDate = meta.airDate,
+                                                fetchedAt = now,
+                                                episodeUrl = epNumToUrl[epNum],
+                                            )
+                                        }
+                                        dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
+                                        Logger.i(TAG) { "Background refresh: enriched cache with ${enrichedCache.size} metadata entries (episodeUrl preserved)" }
+                                    } else {
+                                        Logger.w(TAG) { "Background refresh: metadata fetch returned empty — keeping existing metadata" }
+                                    }
+                                } catch (e: Exception) {
+                                    Logger.w(TAG) { "Background refresh: metadata fetch failed: ${e.message}" }
+                                }
                             }
-                            dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
-                            Logger.i(TAG) { "Background refresh: updated cache with ${cachedList.size} fresh episodes" }
                         }
                     } catch (e: Exception) {
                         Logger.w(TAG) { "Background refresh failed (non-fatal): ${e.message}" }
@@ -1606,8 +1716,14 @@ class DetailsViewModel(
                             }
 
                             // D-147: Update the cache with the fetched metadata.
+                            // D.FIX: Preserve episodeUrl from the extension episodes —
+                            // the AniList metadata only has episode numbers, not URLs.
+                            // Without this, INSERT OR REPLACE would overwrite the
+                            // episode_url column with NULL (destructive!), causing all
+                            // episodes to fall back to the anime URL on the next open.
                             if (mainId != null) {
                                 val now = System.currentTimeMillis()
+                                val epNumToUrl = episodes.associate { it.episode_number.toInt() to it.url }
                                 val enrichedCache = metadata.entries.map { (epNum, meta) ->
                                     com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                         mainId = mainId,
@@ -1617,10 +1733,11 @@ class DetailsViewModel(
                                         thumbnailUrl = meta.thumbnailUrl,
                                         airDate = meta.airDate,
                                         fetchedAt = now,
+                                        episodeUrl = epNumToUrl[epNum],
                                     )
                                 }
                                 dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
-                                Logger.i(TAG) { "Updated episode cache with enriched metadata" }
+                                Logger.i(TAG) { "Updated episode cache with enriched metadata (episodeUrl preserved for ${epNumToUrl.size} episodes)" }
                             }
                         } catch (e: Exception) {
                             Logger.w(TAG) { "Episode metadata fetch failed: ${e.message}" }

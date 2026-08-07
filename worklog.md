@@ -1156,3 +1156,29 @@ Stage Summary:
 - NOT merged to main — awaiting user testing + confirmation.
 - Test checklist to be written for the user.
 - NTFY notification to be sent.
+
+---
+Task ID: METADATA-FIX-v2
+Agent: Z.ai Code (orchestrator)
+Task: Fix episode metadata disappearing on reopen, episode list empty from downloads page, and local subtitles not showing
+
+Work Log:
+- Analyzed the user's logcat showing "Loaded 6 episodes from cache" → "Episode metadata restored from cache: 6 entries" → "Background refresh: fetched 6 fresh episodes" → "Background refresh: updated cache with 6 fresh episodes". Root cause identified: the background refresh in DetailsViewModel.fetchEpisodes() ALWAYS replaced _episodeState and ALWAYS destructively overwrote the cache via upsertEpisodeMetadataBatch (INSERT OR REPLACE) with sparse extension data — destroying rich AniList metadata (titles, descriptions, thumbnails) that was previously cached.
+- Fix 1 (DetailsViewModel.fetchEpisodes background refresh): Rewrote to compare fresh episode URLs with cached episode URLs. If same (no new episodes): SKIP the update entirely (don't replace _episodeState, don't touch cache). If different (new episodes): replace _episodeState, insert ONLY new episodes into cache (preserve existing rich metadata), auto-fetch AniList metadata for new episodes, write enriched metadata back to cache with episodeUrl preserved.
+- Fix 1b (DetailsViewModel.fetchEpisodes enriched metadata cache): The enriched metadata from AniList (lines ~1608-1624) was not setting episodeUrl — INSERT OR REPLACE overwrote the episode_url column with NULL. Fixed by building epNumToUrl map from extension episodes and passing episodeUrl = epNumToUrl[epNum].
+- Fix 1c (DetailsViewModel.refreshEpisodesList manual refresh): The manual refresh fetched metadata but never wrote it back to the cache — the cache retained sparse extension data. Fixed by writing enriched metadata back to cache with episodeUrl preserved.
+- Fix 2 (MainActivity onPlayEpisode): The episode list for the watch screen was built from DOWNLOADED episodes only — if the user downloaded 1 episode, the list showed 1 entry. Fixed by loading the FULL episode list from DataCacheRepository.getEpisodeMetadata(mainId) + building episodeMetadataSerialized from cached metadata.
+- Fix 3 (MainActivity onPlayEpisode + SubtitleEngine): subtitleTracksSerialized was "" (empty) — no subtitles passed for downloaded episodes. Fixed by passing subtitleUris from DownloadedEpisode as subtitleTracksSerialized. Also modified SubtitleEngine.downloadSingle() to handle content:// URIs (via ContentResolver) and file:// URIs (via File.copyTo) in addition to HTTP/HTTPS URLs (via OkHttp).
+- Fix 3b (WatchScreen onEpisodeSwitch): Episode switching from the downloads page failed with "source not available" because sourceId was 0L. Fixed by: (a) passing sourceId from contentRepository.getExtensionDetail(mainId)?.sourceId in MainActivity, (b) adding a downloaded-episode check at the beginning of onEpisodeSwitch — if the target episode is downloaded, play it offline via fd:// (content:// → fd:// conversion) with subtitle URIs, bypassing the network resolver entirely.
+- Added extensive console logging throughout: cache hit/miss, freshness timestamps, URL comparison results, no-op skips, new episode detection, metadata merge counts, episodeUrl preservation counts, offline playback path logging.
+
+Stage Summary:
+- 5 files modified:
+  * feature/anime-details/impl/.../DetailsViewModel.kt — background refresh + enriched metadata + manual refresh fixes
+  * app/.../MainActivity.kt — DataCacheRepository injection + onPlayEpisode rewrite (full episode list + subtitle URIs + sourceId)
+  * core/player/.../subtitles/SubtitleEngine.kt — content:// + file:// URI handling
+  * feature/watch/impl/.../WatchScreen.kt — DownloadManager injection + offline episode switching
+- Root cause of "metadata disappears" bug: destructive INSERT OR REPLACE cache overwrite by background refresh. Fixed with URL-based comparison + skip-if-same + insert-only-new logic.
+- Root cause of "episode list empty" from downloads: episode list built from downloaded episodes only. Fixed by loading from DataCacheRepository.
+- Root cause of "subtitles not showing": subtitleTracksSerialized was empty + SubtitleEngine couldn't handle content:// URIs. Fixed by passing subtitleUris + adding content:// support to SubtitleEngine.
+- User requirement satisfied: "if it found nothing new then why does it refresh the saved copy?" → now skips entirely. "if new episodes found, refresh metadata automatically" → now auto-fetches metadata only when new episodes detected.

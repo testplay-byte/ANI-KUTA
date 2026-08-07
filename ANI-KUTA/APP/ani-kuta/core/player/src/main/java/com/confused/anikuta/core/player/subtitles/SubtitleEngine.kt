@@ -89,6 +89,13 @@ class SubtitleEngine(
 
     /**
      * Download a single subtitle file.
+     *
+     * D.FIX: Handles three URL types:
+     * 1. `content://` URIs — local downloaded subtitle files (SAF). Copied via
+     *    ContentResolver (OkHttp can't open SAF content URIs).
+     * 2. `file://` URIs or plain file paths — local temp files. Copied directly.
+     * 3. `http://` / `https://` URLs — remote subtitles. Downloaded via OkHttp
+     *    with proper headers.
      */
     private suspend fun downloadSingle(request: SubtitleDownloadRequest): File? {
         val url = request.url
@@ -106,6 +113,53 @@ class SubtitleEngine(
             return outFile
         }
 
+        // ── Handle content:// URIs (local downloaded subtitles via SAF) ──
+        if (url.startsWith("content://")) {
+            Logger.i(TAG) { "Loading local subtitle (content://): lang=${request.lang}, uri=${url.take(80)}..." }
+            return try {
+                val uri = android.net.Uri.parse(url)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    outFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: run {
+                    Logger.w(TAG) { "ContentResolver returned null stream for: ${url.take(80)}" }
+                    return null
+                }
+                if (outFile.length() > 0) {
+                    Logger.i(TAG) { "Loaded local subtitle: ${outFile.name} (${outFile.length()} bytes)" }
+                    outFile
+                } else {
+                    Logger.w(TAG) { "Local subtitle file is empty: ${url.take(80)}" }
+                    outFile.delete()
+                    null
+                }
+            } catch (e: Exception) {
+                Logger.w(TAG) { "Failed to load local subtitle (content://): ${e.message}" }
+                outFile.delete()
+                null
+            }
+        }
+
+        // ── Handle file:// URIs or plain file paths (local temp files) ──
+        if (url.startsWith("file://") || url.startsWith("/")) {
+            val srcFile = File(if (url.startsWith("file://")) android.net.Uri.parse(url).path!! else url)
+            Logger.i(TAG) { "Loading local subtitle (file): lang=${request.lang}, path=${srcFile.name}" }
+            return try {
+                if (srcFile.exists() && srcFile.length() > 0) {
+                    srcFile.copyTo(outFile, overwrite = true)
+                    if (outFile.length() > 0) outFile else null
+                } else {
+                    Logger.w(TAG) { "Local subtitle file not found or empty: ${srcFile.absolutePath}" }
+                    null
+                }
+            } catch (e: Exception) {
+                Logger.w(TAG) { "Failed to copy local subtitle: ${e.message}" }
+                null
+            }
+        }
+
+        // ── Handle HTTP/HTTPS URLs (remote subtitles via OkHttp) ──
         // Build the request with headers.
         val requestBuilder = Request.Builder().url(url)
         if (request.headers.isNotBlank()) {
@@ -129,7 +183,7 @@ class SubtitleEngine(
             )
         }
 
-        Logger.i(TAG) { "Downloading subtitle: lang=${request.lang}, url=${url.take(80)}..." }
+        Logger.i(TAG) { "Downloading remote subtitle: lang=${request.lang}, url=${url.take(80)}..." }
 
         return try {
             val response = client.newCall(requestBuilder.build()).execute()

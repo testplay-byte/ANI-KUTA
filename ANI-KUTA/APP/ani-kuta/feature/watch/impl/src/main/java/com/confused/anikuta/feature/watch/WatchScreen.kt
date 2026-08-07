@@ -148,6 +148,10 @@ fun WatchScreen(
     val videoResolver = koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
     val watchProgressStore = koinInject<WatchProgressStore>()
     val subtitleEngine = koinInject<com.confused.anikuta.core.player.subtitles.SubtitleEngine>()
+    // D.FIX: DownloadManager — needed to check if an episode is downloaded when
+    // switching, so downloaded episodes play offline (fd://) instead of trying
+    // to resolve from the network source.
+    val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
     val scope = rememberCoroutineScope()
 
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
@@ -739,14 +743,83 @@ fun WatchScreen(
         Logger.i(TAG) { "=== EPISODE SWITCH ===" }
         Logger.i(TAG) { "New episode: ${ep.name} (num: ${ep.episodeNumber}, url: ${ep.url})" }
 
-        val source = if (watchKey.sourceId != 0L) {
-            extensionManager.getSource(watchKey.sourceId) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+        // D.FIX: Check if the target episode is downloaded — if so, play it offline
+        // (fd://) instead of trying to resolve from the network source. This is
+        // critical when playing from the downloads page, and also improves the
+        // experience when switching between downloaded episodes from the details page.
+        val currentMainId = downloadManager.getDownloadedEpisodes().value
+            .firstOrNull { it.videoUri == watchKey.videoUrl }
+            ?.content?.mainId
+        val offlineUri = if (currentMainId != null) {
+            downloadManager.getDownloadedEpisodeUri(currentMainId, ep.url)
         } else null
 
-        if (source == null) {
-            Logger.w(TAG) { "Cannot switch episode — source not available (sourceId=${watchKey.sourceId})" }
-            stateHolder.setSwitchingError("Cannot switch episode: source not available")
+        if (offlineUri != null) {
+            // ── Offline playback path (downloaded episode) ──
+            Logger.i(TAG) { "Episode switch — episode is DOWNLOADED, playing offline (fd://)" }
+            stateHolder.setSwitching(true)
+            stateHolder.setSwitchingEpisode(true)
+            stateHolder.updateCurrentEpisode(
+                url = ep.url,
+                number = ep.episodeNumber,
+                title = ep.name,
+                resolvedVideosKey = "",
+            )
+            scope.launch {
+                try {
+                    // Close the old ParcelFileDescriptor before opening a new one.
+                    runCatching { mpvParcelFileDescriptor?.close() }
+                    mpvParcelFileDescriptor = null
+
+                    // Convert content:// URI to fd:// for MPV.
+                    val uri = android.net.Uri.parse(offlineUri)
+                    val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                    if (pfd != null) {
+                        val fdUrl = "fd://${pfd.fd}"
+                        mpvParcelFileDescriptor = pfd
+
+                        // Look up the downloaded episode for subtitle URIs.
+                        val dlEp = downloadManager.getDownloadedEpisodes().value
+                            .firstOrNull { it.content.mainId == currentMainId && it.episode.episodeKey == ep.url }
+                        val subUris = dlEp?.subtitleUris ?: emptyList()
+                        if (subUris.isNotEmpty()) {
+                            observer?.let { obs ->
+                                obs.pendingSubtitleTracks = subUris.mapIndexed { i, u -> Pair(u, "Subtitle ${i + 1}") }
+                                obs.trackHeaders = ""
+                            }
+                            Logger.i(TAG) { "Episode switch — set ${subUris.size} pending subtitle track(s) for offline episode" }
+                        }
+
+                        // For fd:// URLs, delay 500ms for surface readiness (same as initial load).
+                        mpvView?.postDelayed({
+                            try {
+                                MPVLib.command(arrayOf("loadfile", fdUrl, "replace"))
+                                MPVLib.setPropertyBoolean("pause", false)
+                                Logger.i(TAG) { "Episode switch — loadfile sent for offline fd:// (fd=${pfd.fd})" }
+                            } catch (e: Exception) {
+                                Logger.e(TAG, e) { "Episode switch — offline loadfile failed" }
+                                stateHolder.setSwitchingError("Offline playback failed: ${e.message}")
+                            }
+                        }, 500)
+                    } else {
+                        Logger.e(TAG) { "Episode switch — failed to open file descriptor for offline URI" }
+                        stateHolder.setSwitchingError("Failed to open downloaded episode file")
+                    }
+                } catch (e: Exception) {
+                    Logger.e(TAG, e) { "Episode switch — offline playback failed" }
+                    stateHolder.setSwitchingError("Offline playback failed: ${e.message}")
+                }
+            }
         } else {
+            // ── Network resolution path (existing code) ──
+            val source = if (watchKey.sourceId != 0L) {
+                extensionManager.getSource(watchKey.sourceId) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+            } else null
+
+            if (source == null) {
+                Logger.w(TAG) { "Cannot switch episode — source not available (sourceId=${watchKey.sourceId})" }
+                stateHolder.setSwitchingError("Cannot switch episode: source not available")
+            } else {
             // CRITICAL: Do NOT call MPVLib.command(arrayOf("stop")) before switch.
             // The old project does NOT stop before switching — it just calls loadfile
             // with "replace" mode, which replaces the current file (stopping the old
@@ -860,6 +933,7 @@ fun WatchScreen(
                     stateHolder.setSwitchingError("Episode switch failed: ${e.message}")
                 }
             }
+        }
         }
     }
 
