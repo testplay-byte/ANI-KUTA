@@ -529,7 +529,7 @@ private fun handleDownloadEpisode(
 private fun handleDownloadSpecificVideo(
     detailsKey: AnimeDetailsKey,
     episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
-    video: com.confused.anikuta.core.videoresolver.ResolverVideo,
+    video: com.confused.anikuta.core.videoresolver.ResolvedVideo,
     serverName: String,
     sourceIdStr: String,
     orchestrator: DownloadOrchestrator,
@@ -596,9 +596,16 @@ private fun handleDownloadSpecificVideo(
                 episode = episode,
                 content = contentInfo,
                 episodeInfo = episodeInfo,
-                video = video,
+                video = com.confused.anikuta.core.videoresolver.ResolverVideo(
+                    quality = video.quality,
+                    url = video.url,
+                    directUrl = video.directUrl,
+                    videoHeaders = video.headers,
+                    subtitleTracks = video.subtitleTracks,
+                    audioTracks = video.audioTracks,
+                ),
                 serverName = serverName,
-                audioLabel = "", // The resolver sheet doesn't carry the audio label — the orchestrator can derive it.
+                audioLabel = "",
             )
 
             when (result) {
