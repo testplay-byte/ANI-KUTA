@@ -131,7 +131,7 @@ object AutoDownloadEngine {
                 GlobalFallback.ASK -> Selection.NoCandidates // caller shows picker
                 GlobalFallback.BEST_EFFORT -> {
                     // Fall back to the best-ranked candidate from the full list.
-                    val best = ranked.minByOrNull { it.rankTuple(dimensionPriority) }
+                    val best = ranked.minWithOrNull(compareBy { it.rankTuple(dimensionPriority) })
                         ?: return Selection.NoCandidates
                     Selection.Selected(best.candidate, isPerfectMatch = false)
                 }
@@ -139,7 +139,7 @@ object AutoDownloadEngine {
         }
 
         // Step 4: pick (sort by rank tuple, return first)
-        val best = fallbackFiltered.minByOrNull { it.rankTuple(dimensionPriority) }
+        val best = fallbackFiltered.minWithOrNull(compareBy { it.rankTuple(dimensionPriority) })
             ?: return Selection.NoCandidates
 
         // Step 5: globalFallback — check if the best candidate is a perfect match.

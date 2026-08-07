@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:network"))
     implementation(project(":core:content"))
+    implementation(project(":core:video-resolver"))
 
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)
