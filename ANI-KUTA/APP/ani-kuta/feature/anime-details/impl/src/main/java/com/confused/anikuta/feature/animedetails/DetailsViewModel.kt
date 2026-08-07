@@ -435,7 +435,7 @@ class DetailsViewModel(
                             fetchedAt = now,
                         )
                     }
-                    dataCacheRepository.cacheEpisodeMetadata(mainId, cachedList)
+                    dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
                     Logger.i(TAG) { "D.3 Stage 1: Updated episode cache with ${cachedList.size} fresh episodes" }
                 }
 
