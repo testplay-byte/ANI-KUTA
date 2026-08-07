@@ -169,15 +169,14 @@ class DownloadOrchestrator(
         source: AnimeHttpSource,
         episode: SEpisode,
     ): List<ResolverServer> {
-        // Collect the first Success state from the resolver flow.
-        return videoResolver.resolve(source, episode).first { state ->
-            state is ResolverState.Success || state is ResolverState.Error
-        }.let { state ->
-            when (state) {
-                is ResolverState.Success -> state.servers
-                is ResolverState.Error -> throw state.error ?: RuntimeException("Resolve failed")
-                else -> emptyList()
-            }
+        // Collect the first Success/Error state from the resolver flow.
+        val state = videoResolver.resolve(source, episode).first { s ->
+            s is ResolverState.Success || s is ResolverState.Error
+        }
+        return when (state) {
+            is ResolverState.Success -> videoResolver.buildServers(state.rawEntries, source.name)
+            is ResolverState.Error -> throw RuntimeException(state.message)
+            else -> emptyList()
         }
     }
 
@@ -212,7 +211,7 @@ class DownloadOrchestrator(
                 quality = video.quality,
                 mainId = content.mainId,
                 episodeKey = episodeInfo.episodeKey,
-            ).let { kotlinx.serialization.json.Json.encodeToString(it) }
+            ).let { kotlinx.serialization.json.Json.encodeToString(ResolveContext.serializer(), it) }
         } else {
             null
         }

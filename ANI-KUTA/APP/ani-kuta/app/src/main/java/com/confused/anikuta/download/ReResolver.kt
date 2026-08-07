@@ -54,21 +54,21 @@ class ReResolver(
 
         // Collect the resolve result.
         val servers: List<ResolverServer> = try {
-            val entries = mutableListOf<ResolverServer>()
+            var result: List<ResolverServer> = emptyList()
             videoResolver.resolve(source, episode).collect { state ->
                 when (state) {
+                    is com.confused.anikuta.core.videoresolver.ResolverState.Idle -> { }
                     is com.confused.anikuta.core.videoresolver.ResolverState.Loading -> { }
                     is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
-                        entries.clear()
-                        entries.addAll(state.servers)
+                        result = videoResolver.buildServers(state.rawEntries, source.name)
                     }
                     is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
-                        Logger.e(TAG, state.error) { "reResolve — resolve failed: ${state.error?.message}" }
+                        Logger.e(TAG) { "reResolve — resolve failed: ${state.message}" }
                         return null
                     }
                 }
             }
-            entries
+            result
         } catch (e: Exception) {
             Logger.e(TAG, e) { "reResolve — exception during resolve" }
             return null
