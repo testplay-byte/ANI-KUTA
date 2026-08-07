@@ -516,13 +516,17 @@ fun WatchScreen(
                         val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                             else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                         MPVLib.setOptionString("http-header-fields", headers)
-                        Logger.i(TAG) { "=== MPV LOADFILE ===" }
-                        Logger.i(TAG) { "URL: $currentVideoUrl" }
+                        Logger.i(TAG) { "=== MPV LOADFILE (network) ===" }
+                        Logger.i(TAG) { "URL: $loadUrl" }
                         Logger.i(TAG) { "Headers (full): $headers" }
                         Logger.i(TAG) { "Video title: $currentVideoTitle" }
+                    } else if (isContentUri) {
+                        Logger.i(TAG) { "=== MPV LOADFILE (offline fd://) ===" }
+                        Logger.i(TAG) { "loadUrl: $loadUrl" }
+                        Logger.i(TAG) { "originalUrl: $currentVideoUrl" }
                     } else {
                         Logger.i(TAG) { "=== MPV LOADFILE (localhost proxy) ===" }
-                        Logger.i(TAG) { "URL: $currentVideoUrl" }
+                        Logger.i(TAG) { "URL: $loadUrl" }
                         Logger.i(TAG) { "No headers set (localhost proxy)" }
                     }
                 } catch (e: Exception) {

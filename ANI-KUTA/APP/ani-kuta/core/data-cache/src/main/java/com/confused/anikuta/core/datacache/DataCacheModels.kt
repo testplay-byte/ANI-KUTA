@@ -33,6 +33,7 @@ data class CachedEpisodeMetadata(
     val thumbnailUrl: String? = null,
     val airDate: Long? = null,
     val fetchedAt: Long,
+    val episodeUrl: String? = null,
 )
 
 /**

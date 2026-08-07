@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS data_cache_episode (
     thumbnail_url TEXT,
     air_date INTEGER,
     fetched_at INTEGER NOT NULL,
+    episode_url TEXT,
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
@@ -80,9 +81,9 @@ SELECT * FROM data_cache_episode WHERE main_id = :mainId AND episode_number = :e
 
 upsertEpisodeMetadata:
 INSERT OR REPLACE INTO data_cache_episode(
-    main_id, episode_number, title, description, thumbnail_url, air_date, fetched_at
+    main_id, episode_number, title, description, thumbnail_url, air_date, fetched_at, episode_url
 ) VALUES (
-    :mainId, :episodeNumber, :title, :description, :thumbnailUrl, :airDate, :fetchedAt
+    :mainId, :episodeNumber, :title, :description, :thumbnailUrl, :airDate, :fetchedAt, :episodeUrl
 );
 
 deleteEpisodeMetadata:

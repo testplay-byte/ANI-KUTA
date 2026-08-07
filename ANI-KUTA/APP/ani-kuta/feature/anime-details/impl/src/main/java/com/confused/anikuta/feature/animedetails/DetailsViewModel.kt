@@ -420,7 +420,7 @@ class DetailsViewModel(
                 _episodeState.value = if (episodes.isEmpty()) EpisodeState.Empty else EpisodeState.Loaded(sorted)
 
                 // D.FIX: Update the cache with fresh episodes so the next open
-                // shows the latest data (not stale cache).
+                // shows the latest data (not stale cache). Include episodeUrl!
                 val mainId = currentMainId
                 if (mainId != null && episodes.isNotEmpty()) {
                     val now = System.currentTimeMillis()
@@ -433,10 +433,11 @@ class DetailsViewModel(
                             thumbnailUrl = null,
                             airDate = if (ep.date_upload > 0) ep.date_upload else null,
                             fetchedAt = now,
+                            episodeUrl = ep.url,
                         )
                     }
                     dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
-                    Logger.i(TAG) { "D.3 Stage 1: Updated episode cache with ${cachedList.size} fresh episodes" }
+                    Logger.i(TAG) { "D.3 Stage 1: Updated episode cache with ${cachedList.size} fresh episodes (incl. episodeUrl)" }
                 }
 
                 // If we have an anilistId, auto-fetch episode metadata for new episodes.
@@ -1469,15 +1470,17 @@ class DetailsViewModel(
         _episodeState.value = EpisodeState.Loading
         viewModelScope.launch {
             // D-147: Check the local cache first — if episodes are cached, display instantly.
+            // D.FIX: Also do a BACKGROUND refresh from the network so the cache stays fresh.
             val mainId = currentMainId
             if (mainId != null) {
                 val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(mainId)
                 if (cachedEpisodes.isNotEmpty()) {
-                    Logger.i(TAG) { "Loaded ${cachedEpisodes.size} episodes from cache" }
+                    Logger.i(TAG) { "Loaded ${cachedEpisodes.size} episodes from cache (last updated: ${cachedEpisodes.firstOrNull()?.fetchedAt ?: "unknown"})" }
                     // Reconstruct SEpisode objects from cached metadata.
+                    // D.FIX: Use the cached episode URL if available, fall back to animeUrl.
                     val episodes = cachedEpisodes.map { meta ->
                         SEpisode.create().apply {
-                            url = animeUrl // We don't cache the episode URL separately.
+                            url = meta.episodeUrl ?: animeUrl
                             episode_number = meta.episodeNumber
                             name = meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
                             date_upload = meta.airDate ?: 0L
@@ -1499,8 +1502,45 @@ class DetailsViewModel(
                     _episodeMetadata.value = metadataMap
                     Logger.i(TAG) { "Episode metadata restored from cache: ${metadataMap.size} entries" }
 
-                    // Don't re-fetch from network — cache is sufficient.
-                    // User can manually refresh via the three-dot menu.
+                    // D.FIX: Do a BACKGROUND refresh from the network so the cache
+                    // stays fresh. The user sees cached data instantly, but the
+                    // background fetch updates the cache for the NEXT open.
+                    // This eliminates the "stale data" issue without adding a loading
+                    // delay on every open.
+                    try {
+                        val sAnime = SAnime.create().apply {
+                            url = animeUrl
+                            title = animeTitle
+                            initialized = false
+                        }
+                        val freshEpisodes = withContext(Dispatchers.IO) {
+                            source.getEpisodeList(sAnime)
+                        }
+                        if (freshEpisodes.isNotEmpty()) {
+                            Logger.i(TAG) { "Background refresh: fetched ${freshEpisodes.size} fresh episodes" }
+                            val sorted = freshEpisodes.sortedByDescending { it.episode_number }
+                            _episodeState.value = EpisodeState.Loaded(sorted)
+
+                            // Update the cache with fresh episodes (including episodeUrl).
+                            val now = System.currentTimeMillis()
+                            val cachedList = freshEpisodes.map { ep ->
+                                com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                                    mainId = mainId,
+                                    episodeNumber = ep.episode_number,
+                                    title = ep.name,
+                                    description = ep.summary,
+                                    thumbnailUrl = null,
+                                    airDate = if (ep.date_upload > 0) ep.date_upload else null,
+                                    fetchedAt = now,
+                                    episodeUrl = ep.url,
+                                )
+                            }
+                            dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
+                            Logger.i(TAG) { "Background refresh: updated cache with ${cachedList.size} fresh episodes" }
+                        }
+                    } catch (e: Exception) {
+                        Logger.w(TAG) { "Background refresh failed (non-fatal): ${e.message}" }
+                    }
                     return@launch
                 }
             }
@@ -1525,7 +1565,7 @@ class DetailsViewModel(
                     EpisodeState.Loaded(sorted)
                 }
 
-                // D-147: Cache the episode list locally.
+                // D-147: Cache the episode list locally. D.FIX: Include episodeUrl.
                 if (mainId != null && episodes.isNotEmpty()) {
                     val now = System.currentTimeMillis()
                     val cachedList = episodes.map { ep ->
@@ -1534,13 +1574,14 @@ class DetailsViewModel(
                             episodeNumber = ep.episode_number,
                             title = ep.name,
                             description = ep.summary,
-                            thumbnailUrl = null, // Will be filled by episode metadata fetcher.
+                            thumbnailUrl = null,
                             airDate = if (ep.date_upload > 0) ep.date_upload else null,
                             fetchedAt = now,
+                            episodeUrl = ep.url,
                         )
                     }
                     dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
-                    Logger.i(TAG) { "Cached ${episodes.size} episodes locally" }
+                    Logger.i(TAG) { "Cached ${episodes.size} episodes locally (incl. episodeUrl)" }
                 }
 
                 // Fetch episode metadata (titles, thumbnails, descriptions, dates).

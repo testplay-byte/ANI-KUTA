@@ -84,6 +84,7 @@ class DataCacheRepository(
                 thumbnailUrl = it.thumbnail_url,
                 airDate = it.air_date,
                 fetchedAt = it.fetched_at,
+                episodeUrl = it.episode_url,
             )
         }
     }
@@ -97,6 +98,7 @@ class DataCacheRepository(
             thumbnailUrl = meta.thumbnailUrl,
             airDate = meta.airDate,
             fetchedAt = meta.fetchedAt,
+            episodeUrl = meta.episodeUrl,
         )
     }
 
@@ -111,6 +113,7 @@ class DataCacheRepository(
                     thumbnailUrl = meta.thumbnailUrl,
                     airDate = meta.airDate,
                     fetchedAt = meta.fetchedAt,
+                    episodeUrl = meta.episodeUrl,
                 )
             }
         }
