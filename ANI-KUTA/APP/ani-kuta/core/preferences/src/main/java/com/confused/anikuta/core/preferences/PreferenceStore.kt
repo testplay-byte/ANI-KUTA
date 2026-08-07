@@ -7,7 +7,6 @@ import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.onStart
 
 /**
  * SharedPreferences wrapper for ANI-KUTA preferences.
@@ -151,9 +150,15 @@ class PreferenceStore(context: Context) {
         })
 
     /**
-     * Core reactive primitive. Emits [getValue] on start, then re-emits on
-     * every SharedPreference change to [key]. Uses [distinctUntilChanged] to
-     * suppress duplicate emissions.
+     * Core reactive primitive. Emits [getValue] immediately (BEFORE the listener
+     * is registered would miss writes — so we register the listener FIRST, then
+     * emit the initial value via [trySendBlocking] inside the callbackFlow).
+     *
+     * REVIEW-D0 I4 fix: the previous `onStart { emit(getValue()) }` approach had
+     * a race — onStart ran BEFORE the listener was registered, so a write during
+     * that ~microsecond window was silently dropped. Now the listener is
+     * registered FIRST, then the initial value is emitted, then we await close.
+     * Uses [distinctUntilChanged] to suppress duplicate emissions.
      */
     private fun <T> preferenceFlow(key: String, getValue: () -> T): Flow<T> =
         callbackFlow {
@@ -162,10 +167,13 @@ class PreferenceStore(context: Context) {
                     trySendBlocking(getValue())
                 }
             }
+            // Register listener FIRST, then emit the current value. This closes
+            // the race window — any write between listener registration and the
+            // initial emit will be caught by the listener.
             prefs.registerOnSharedPreferenceChangeListener(listener)
+            trySendBlocking(getValue())
             awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
         }
-            .onStart { emit(getValue()) }
             .distinctUntilChanged()
 }
 

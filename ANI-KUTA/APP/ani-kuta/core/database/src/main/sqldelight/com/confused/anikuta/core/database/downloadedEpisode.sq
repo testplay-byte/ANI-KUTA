@@ -19,43 +19,52 @@ CREATE TABLE IF NOT EXISTS downloaded_episode (
     -- ── Episode metadata (denormalized for UI display without a JOIN) ──
     content_id TEXT NOT NULL,
     content_title TEXT NOT NULL,
+    content_format TEXT NOT NULL DEFAULT 'video',  -- "video" | "images" | "text" | "audio"
+    content_type TEXT NOT NULL DEFAULT 'anime',    -- "anime" | "movie" | "series" | "manga" | "novel" | ...
     episode_number REAL NOT NULL,
     episode_name TEXT NOT NULL,
     cover_url TEXT,
-    cover_color TEXT,
+    cover_color INTEGER,                    -- ARGB int for UI tinting
 
     -- ── File metadata ──
-    file_path TEXT NOT NULL,       -- content:// URI to the published video file
+    content_folder_uri TEXT NOT NULL,       -- DocumentFile URI of the content folder (<root>/video/<title>/)
+    file_path TEXT NOT NULL,                -- content:// URI to the published video file
     file_size INTEGER NOT NULL,
     quality TEXT,
-    video_uri TEXT,                -- content:// URI (same as file_path — kept for clarity)
-    subtitle_uris TEXT,            -- JSON: List<String> (content:// URIs)
+    video_uri TEXT,                         -- content:// URI (same as file_path — kept for clarity)
+    video_file_name TEXT NOT NULL,          -- "Title - E00001.mp4" (matches the file on disk)
+    subtitle_uris TEXT,                     -- JSON: List<String> (content:// URIs)
 
     -- ── Source tracking ──
     source_id INTEGER,
     video_server TEXT,
     video_audio TEXT,
 
+    -- ── Verification ──
+    verified_at INTEGER,                    -- last time the file was verified to exist + be non-empty
+
     downloaded_at INTEGER NOT NULL,
 
     PRIMARY KEY (main_id, episode_key)
 );
 
--- Fast lookup by mainId (for "is this content downloaded?" + library badges).
-CREATE INDEX IF NOT EXISTS idx_downloaded_episode_main
-    ON downloaded_episode(main_id);
+-- REVIEW-1 I3: NO separate index on main_id — it's the leftmost column of the
+-- composite PRIMARY KEY, which SQLite uses as a covering index. A separate
+-- idx_downloaded_episode_main would be redundant.
 
 -- ── Queries ────────────────────────────────────────────────────────────────
 
 insertDownloadedEpisode:
 INSERT OR REPLACE INTO downloaded_episode(
-    main_id, episode_key, content_id, content_title, episode_number, episode_name,
-    cover_url, cover_color, file_path, file_size, quality, video_uri, subtitle_uris,
-    source_id, video_server, video_audio, downloaded_at
+    main_id, episode_key, content_id, content_title, content_format, content_type,
+    episode_number, episode_name, cover_url, cover_color,
+    content_folder_uri, file_path, file_size, quality, video_uri, video_file_name,
+    subtitle_uris, source_id, video_server, video_audio, verified_at, downloaded_at
 ) VALUES (
-    :main_id, :episode_key, :content_id, :content_title, :episode_number, :episode_name,
-    :cover_url, :cover_color, :file_path, :file_size, :quality, :video_uri, :subtitle_uris,
-    :source_id, :video_server, :video_audio, :downloaded_at
+    :main_id, :episode_key, :content_id, :content_title, :content_format, :content_type,
+    :episode_number, :episode_name, :cover_url, :cover_color,
+    :content_folder_uri, :file_path, :file_size, :quality, :video_uri, :video_file_name,
+    :subtitle_uris, :source_id, :video_server, :video_audio, :verified_at, :downloaded_at
 );
 
 getDownloadedEpisode:
@@ -67,10 +76,11 @@ SELECT * FROM downloaded_episode
 WHERE main_id = :main_id
 ORDER BY episode_number ASC;
 
--- REVIEW-5 M3: uses MAX(...) for bare columns (consistent with downloadQueue.sq).
+-- REVIEW-5 M3: uses MAX(...) for bare columns (not DISTINCT + GROUP BY).
 getDownloadedMainIds:
 SELECT main_id, MAX(content_title) AS content_title, MAX(cover_url) AS cover_url,
-       MAX(cover_color) AS cover_color, COUNT(*) AS episode_count
+       MAX(cover_color) AS cover_color, MAX(content_format) AS content_format,
+       COUNT(*) AS episode_count
 FROM downloaded_episode
 GROUP BY main_id
 ORDER BY MAX(content_title) ASC;
@@ -87,6 +97,17 @@ SELECT EXISTS(SELECT 1 FROM downloaded_episode WHERE main_id = :main_id);
 
 getDownloadedEpisodeCount:
 SELECT COUNT(*) FROM downloaded_episode WHERE main_id = :main_id;
+
+-- Gets the content_folder_uri for a mainId (used by the scanner + cleanup).
+getContentFolderUri:
+SELECT content_folder_uri FROM downloaded_episode
+WHERE main_id = :main_id LIMIT 1;
+
+-- Updates the verified_at timestamp (QoL: download verification).
+updateVerifiedAt:
+UPDATE downloaded_episode
+SET verified_at = :verified_at
+WHERE main_id = :main_id AND episode_key = :episode_key;
 
 deleteDownloadedEpisode:
 DELETE FROM downloaded_episode
