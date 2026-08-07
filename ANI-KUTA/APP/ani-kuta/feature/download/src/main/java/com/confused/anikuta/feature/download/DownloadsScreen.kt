@@ -160,14 +160,15 @@ fun DownloadsScreen(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                if (state.downloaded.isNotEmpty()) {
-                    IconButton(onClick = onOpenDownloaded) {
-                        Icon(
-                            imageVector = Icons.Filled.Download,
-                            contentDescription = "Downloaded files",
-                            tint = MaterialTheme.colorScheme.onBackground,
-                        )
-                    }
+                // D.FIX: Always show the "Downloaded" button (not conditional on
+                // state.downloaded.isNotEmpty()) — the user wants to navigate to
+                // the downloaded files page even when the list is empty.
+                IconButton(onClick = onOpenDownloaded) {
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = "Downloaded files",
+                        tint = MaterialTheme.colorScheme.onBackground,
+                    )
                 }
                 IconButton(onClick = onOpenSettings) {
                     Icon(

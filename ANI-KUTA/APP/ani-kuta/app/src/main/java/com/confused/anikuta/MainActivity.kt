@@ -452,6 +452,7 @@ private fun handleDownloadEpisode(
             val anilistDetail = contentRepository.getAniListDetail(mainId)
             val extDetail = contentRepository.getExtensionDetail(mainId)
             val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+            // D.FIX: Use extDetail to fill in FK fields that are null in ContentRecord.
             val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
                 mainId = content.mainId,
                 contentId = content.contentId,
@@ -460,14 +461,13 @@ private fun handleDownloadEpisode(
                 coverColor = null,
                 contentFormat = content.contentFormat,
                 contentType = content.contentType,
-                // D.FIX: Populate FK columns from ContentRecord for data.json.
-                description = content.description,
+                description = content.description ?: extDetail?.description,
                 dataSourceId = content.dataSourceId,
                 systemId = content.systemId,
                 extensionRepoId = content.extensionRepoId,
-                extensionId = content.extensionId,
-                sourceId = content.sourceId,
-                animeUrl = content.animeUrl,
+                extensionId = content.extensionId ?: extDetail?.extensionId,
+                sourceId = content.sourceId ?: extDetail?.sourceId,
+                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
                 displaySource = content.displaySource,
                 anilistId = anilistDetail?.anilistId,
             )
@@ -575,6 +575,9 @@ private fun handleDownloadSpecificVideo(
             val anilistDetail = contentRepository.getAniListDetail(mainId)
             val extDetail = contentRepository.getExtensionDetail(mainId)
             val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+            // D.FIX: Use extDetail to fill in FK fields that are null in ContentRecord.
+            // For extension-only content, ContentRecord.sourceId/animeUrl/extensionId can
+            // be null — but ExtensionDetail always has them.
             val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
                 mainId = content.mainId,
                 contentId = content.contentId,
@@ -583,14 +586,13 @@ private fun handleDownloadSpecificVideo(
                 coverColor = null,
                 contentFormat = content.contentFormat,
                 contentType = content.contentType,
-                // D.FIX: Populate FK columns from ContentRecord for data.json.
-                description = content.description,
+                description = content.description ?: extDetail?.description,
                 dataSourceId = content.dataSourceId,
                 systemId = content.systemId,
                 extensionRepoId = content.extensionRepoId,
-                extensionId = content.extensionId,
-                sourceId = content.sourceId,
-                animeUrl = content.animeUrl,
+                extensionId = content.extensionId ?: extDetail?.extensionId,
+                sourceId = content.sourceId ?: extDetail?.sourceId,
+                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
                 displaySource = content.displaySource,
                 anilistId = anilistDetail?.anilistId,
             )
@@ -600,7 +602,7 @@ private fun handleDownloadSpecificVideo(
                 name = episode.name,
             )
 
-            val sourceId = content.sourceId
+            val sourceId = contentInfo.sourceId
             val source = sourceId?.let {
                 org.koin.core.context.GlobalContext.get()
                     .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()

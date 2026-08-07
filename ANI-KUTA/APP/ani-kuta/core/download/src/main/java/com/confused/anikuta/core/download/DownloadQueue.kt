@@ -467,6 +467,25 @@ class DownloadQueue(
                             errorMessage = null,
                         )
                         store.updateResult(task.id, completedTask.videoUri, decodeSubtitleUris(completedTask.subtitleUris))
+
+                        // D.FIX: Insert into downloaded_episode table so isEpisodeDownloaded()
+                        // returns true + the episode shows as Downloaded in the details page.
+                        // Without this, the auto-clear removes the task from the queue after 10s
+                        // and the episode shows as NotDownloaded.
+                        if (completedTask.videoUri != null) {
+                            val downloadedEp = DownloadedEpisode(
+                                content = completedTask.content,
+                                episode = completedTask.episode,
+                                videoUri = completedTask.videoUri,
+                                subtitleUris = decodeSubtitleUris(completedTask.subtitleUris),
+                                sizeBytes = 0L, // Best-effort — the actual file size is on disk.
+                                quality = completedTask.videoQuality.ifBlank { null },
+                                completedAt = completedTask.completedAt ?: now(),
+                            )
+                            store.insertDownloadedEpisode(downloadedEp)
+                            DownloadLogger.i { "launchDownload — inserted into downloaded_episode table for task ${task.id}" }
+                        }
+
                         scheduleAutoClear(task.id)
                     }
                     onTaskCompleted?.invoke(completed)
