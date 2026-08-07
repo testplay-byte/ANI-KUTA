@@ -1040,3 +1040,20 @@ Stage Summary:
 - IMPORTANT: I1 (cover_color TEXT vs INTEGER — MAX() behaves differently), I2 (total_bytes DEFAULT 0 vs -1 sentinel — DynamicProgressTracker needs the -1 for indeterminate progress), I3 (idx_downloaded_episode_main retained — REVIEW-1 I3 explicitly said REMOVE; regression), I4 (PreferenceStore onStart race — write between initial emit and listener registration is silently dropped; fix: register listener FIRST then trySendBlocking current value, drop onStart), I5 (getDownloadQueue excludes ERROR but includes RETRYING — opposite of plan; UX decision needs documenting).
 - Recommended next action: a follow-up commit DL-D0-FIX addressing C1+C2+I1+I2+I3+I4 before D.1 starts. Estimated 1-2 hours. No D.1 code depends on D.0 output yet (D.1 starts fresh), so the fix window is cheap. Without these fixes, D.1 will accumulate workarounds + likely a mid-D.1 schema-wipe-and-re-edit (defeating M1's "wipe once" goal).
 - The highest-impact single fix: C1 (the 5 missing columns). Without content_format + video_file_name + content_folder_uri, the D.1 DownloadStorageProvider + DownloadScanner can't function as designed.
+
+---
+Task ID: DL-D0
+Agent: Z.ai Code (orchestrator)
+Task: Phase D.0 — Download system foundations (implementation + review + fixes)
+
+Work Log:
+- Implemented all 12 D.0 tasks: PreferenceStore reactive Flow API, SQLDelight schema rewrite (downloadQueue.sq + downloadedEpisode.sq re-keyed by mainId+episodeKey), download OkHttpClient (separate pool, 60s timeouts), dependencies (documentfile, serialization, core:content), deleted stub DownloadManager+DownloadState, created DownloadException+HttpException, created core/download AndroidManifest.xml (ACCESS_NETWORK_STATE + DownloadService), created ic_pause+ic_cancel vector drawables.
+- CI build: D.0 initial (5849e13) — GREEN ✅ (run 31141882239).
+- Sub-agent review (DL-D0-REVIEW): found 2 critical (missing 5 columns in downloaded_episode, duplicate getDownloadedMainIds) + 5 important (cover_color type, total_bytes default, redundant index, PreferenceStore race condition, getDownloadQueue ERROR inclusion).
+- Applied all fixes (DL-D0-FIX, 379f3a6): added content_format/content_type/content_folder_uri/video_file_name/verified_at columns; removed duplicate query; cover_color→INTEGER; total_bytes DEFAULT -1; removed redundant index; fixed PreferenceStore race (register listener FIRST, then emit initial value); getDownloadQueue includes ERROR.
+- CI build: D.0-FIX (379f3a6) — GREEN ✅ (run 31143451779).
+
+Stage Summary:
+- Phase D.0 COMPLETE. Branch download-system-plan @ 379f3a6. CI green.
+- All foundations in place for D.1: reactive PreferenceStore, SQLDelight schema with all review-fixed columns, download OkHttpClient, exceptions, manifest, drawables.
+- Next: Phase D.1 (Engine + Storage) — 20+ files including DownloadStatus, DownloadModels, ContentDataJson, DownloadStorageProvider, DownloadScanner, HttpDownloader, HlsDownloader, DownloadQueue, DownloadManager, DownloadService, DownloadNotificationManager, DI module.
