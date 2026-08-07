@@ -193,7 +193,8 @@ class DetailsViewModel(
             )
 
     private var currentAnimeId: Int = 0
-    private var currentMainId: String? = null
+    // D.FIX: Made internal (was private) so DetailsScreen can read it for offline playback.
+    internal var currentMainId: String? = null
 
     // ── D-134: Original data bases (for data-source switching) ──
     // The bug: merging with ANILIST priority overwrites extension fields.

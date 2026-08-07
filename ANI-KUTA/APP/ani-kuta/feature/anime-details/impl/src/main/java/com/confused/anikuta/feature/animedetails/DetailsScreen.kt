@@ -78,6 +78,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
+import org.koin.compose.koinInject
 
 /**
  * Details screen — complete UI overhaul matching the old project's design.
@@ -109,6 +110,10 @@ fun DetailsScreen(
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
+
+    // D.FIX: Inject DownloadManager for offline playback (checking isEpisodeDownloaded
+    // + getting the local content:// URI).
+    val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
 
     // Dispatch to the correct load method based on the key type.
     LaunchedEffect(detailsKey) {
@@ -391,6 +396,52 @@ fun DetailsScreen(
                                 onEpisodeClick = { episode ->
                                     currentEpisode = episode
                                     resolverDownloadMode = false
+                                    // D.FIX: Check if this episode is already downloaded.
+                                    // If so, play it offline (skip the resolver).
+                                    val stateKey = viewModel.episodeDownloadStateKey(episode)
+                                    val downloadState = stateKey?.let { downloadStates[it] }
+                                    if (downloadState is EpisodeDownloadState.Downloaded) {
+                                        // Play offline — use the downloaded video URI.
+                                        val mainId = viewModel.currentMainId
+                                        if (mainId != null) {
+                                            val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
+                                            if (localUri != null) {
+                                                Logger.i("Anikuta:Feature:Details") {
+                                                    "onEpisodeClick — episode is downloaded, playing offline: $localUri"
+                                                }
+                                                val anime = (state as? DetailsState.Success)?.anime
+                                                val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                                                val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                                                    "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+                                                } ?: ""
+                                                val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
+                                                    val title = meta.title ?: ""
+                                                    val thumb = meta.thumbnailUrl ?: ""
+                                                    val date = meta.airDate?.toString() ?: "0"
+                                                    val desc = meta.description ?: ""
+                                                    val scanlator = episode.scanlator ?: ""
+                                                    "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+                                                }
+                                                onNavigateToWatch(
+                                                    localUri,
+                                                    anime?.displayName ?: "Downloaded",
+                                                    "Downloaded",
+                                                    episode.url,
+                                                    episode.episode_number,
+                                                    episode.name,
+                                                    epListStr,
+                                                    "", // no headers for local file
+                                                    "", // no resolvedVideosKey
+                                                    effectiveLinkedSource?.sourceId ?: 0L,
+                                                    "", // no subtitle tracks (they're on disk)
+                                                    "", // no audio tracks
+                                                    epMetaStr,
+                                                )
+                                                return@EpisodesSection
+                                            }
+                                        }
+                                    }
+                                    // Not downloaded — resolve normally.
                                     viewModel.resolveEpisode(episode)
                                     showResolverSheet = true
                                 },
@@ -1303,6 +1354,7 @@ private fun EpisodesSection(
                             onCancel = { onCancelEpisodeDownload(episode) },
                             onRetry = { onRetryEpisodeDownload(episode) },
                             onDelete = { onDeleteDownloadedEpisode(episode) },
+                            onPlayDownloaded = { onEpisodeClick(episode) },
                         )
                     }
                     // Unlink button at the bottom.
@@ -1334,6 +1386,7 @@ private fun EpisodeRow(
     onCancel: () -> Unit = {},
     onRetry: () -> Unit = {},
     onDelete: () -> Unit = {},
+    onPlayDownloaded: () -> Unit = {},
 ) {
     // ── Parse display values ──
     val displayTitle = remember(episode, metadata) {
@@ -1524,6 +1577,7 @@ private fun EpisodeRow(
                                     onCancel = onCancel,
                                     onRetry = onRetry,
                                     onDelete = onDelete,
+                                    onPlayDownloaded = onPlayDownloaded,
                                 )
                             }
                         }
@@ -1570,6 +1624,7 @@ private fun EpisodeRow(
                         onRetry = onRetry,
                         onDelete = onDelete,
                     )
+                        onPlayDownloaded = onPlayDownloaded,
                 }
             } else {
                 // No synopsis — move download button up to the date/audio pills row.
