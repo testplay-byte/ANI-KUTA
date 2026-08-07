@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.confused.anikuta.core.download.DownloadPreferences
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -206,6 +207,3 @@ fun FirstRunSetupDialog(
         )
     }
 }
-
-// Need 'sp' import — using the full path to avoid adding another import line.
-private val sp = androidx.compose.ui.unit.sp
