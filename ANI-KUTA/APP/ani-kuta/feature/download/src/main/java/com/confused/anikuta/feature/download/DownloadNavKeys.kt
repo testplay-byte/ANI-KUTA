@@ -1,4 +1,4 @@
-package com.confused.anikuta.feature.download.api
+package com.confused.anikuta.feature.download
 
 import com.confused.anikuta.core.navigation.NavKey
 import kotlinx.serialization.Serializable
