@@ -37,13 +37,13 @@ class TempDownloadCache(
     }
 
     /** The temp video file for a download. */
-    fun getTempVideoFile(downloadId: Long): File {
-        return File(getTempDir(downloadId), VIDEO_FILE_NAME)
+    fun getTempVideoFile(downloadId: Long, ext: String = "mp4"): File {
+        return File(getTempDir(downloadId), "video.$ext")
     }
 
     /** The temp subtitle file for a download (by index). */
-    fun getTempSubtitleFile(downloadId: Long, index: Int): File {
-        return File(getTempDir(downloadId), "$SUBTITLE_FILE_PREFIX$index$SUBTITLE_FILE_SUFFIX")
+    fun getTempSubtitleFile(downloadId: Long, index: Int, ext: String = "vtt"): File {
+        return File(getTempDir(downloadId), "$SUBTITLE_FILE_PREFIX$index.$ext")
     }
 
     /**

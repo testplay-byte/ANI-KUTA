@@ -348,7 +348,7 @@ class HttpDownloader(
             val results = mutableListOf<File>()
             for ((index, track) in task.subtitleTracks.withIndex()) {
                 val ext = subtitleExtension(track.url)
-                val tempFile = tempCache.getTempSubtitleFile(task.id, track.lang, index, ext)
+                val tempFile = tempCache.getTempSubtitleFile(task.id, index, ext)
                 try {
                     val request = Request.Builder().url(track.url).build()
                     client.newCall(request).execute().use { response ->
