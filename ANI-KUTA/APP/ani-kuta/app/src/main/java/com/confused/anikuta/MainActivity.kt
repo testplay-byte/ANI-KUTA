@@ -76,12 +76,6 @@ import com.confused.anikuta.feature.watch.WatchKey
 import com.confused.anikuta.feature.watch.WatchScreen
 import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
-import com.confused.anikuta.feature.download.DownloadsKey
-import com.confused.anikuta.feature.download.DownloadedFilesKey
-import com.confused.anikuta.feature.download.DownloadSettingsKey
-import com.confused.anikuta.feature.download.DownloadsScreen
-import com.confused.anikuta.feature.download.DownloadedFilesScreen
-import com.confused.anikuta.feature.download.DownloadSettingsScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
