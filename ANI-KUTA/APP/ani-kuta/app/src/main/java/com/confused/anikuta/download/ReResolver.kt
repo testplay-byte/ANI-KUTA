@@ -52,27 +52,27 @@ class ReResolver(
                 "quality=${context.quality}"
         }
 
-        // Collect the resolve result.
+        // Collect the resolve result — use first() to get the terminal state.
         val servers: List<ResolverServer> = try {
-            var result: List<ResolverServer> = emptyList()
-            videoResolver.resolve(source, episode).collect { state ->
-                when (state) {
-                    is com.confused.anikuta.core.videoresolver.ResolverState.Idle -> { }
-                    is com.confused.anikuta.core.videoresolver.ResolverState.Loading -> { }
-                    is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
-                        result = videoResolver.buildServers(state.rawEntries, source.name)
-                    }
-                    is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
-                        Logger.e(TAG) { "reResolve — resolve failed: ${state.message}" }
-                        return null
-                    }
-                }
+            val state = videoResolver.resolve(source, episode).first { s ->
+                s is com.confused.anikuta.core.videoresolver.ResolverState.Success ||
+                    s is com.confused.anikuta.core.videoresolver.ResolverState.Error
             }
-            result
+            when (state) {
+                is com.confused.anikuta.core.videoresolver.ResolverState.Success ->
+                    videoResolver.buildServers(state.rawEntries, source.name)
+                is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
+                    Logger.e(TAG) { "reResolve — resolve failed: ${state.message}" }
+                    emptyList()
+                }
+                else -> emptyList()
+            }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "reResolve — exception during resolve" }
             return null
         }
+
+        if (servers.isEmpty()) return null
 
         // Direct lookup by pinned (server, audio, quality).
         for (server in servers) {
