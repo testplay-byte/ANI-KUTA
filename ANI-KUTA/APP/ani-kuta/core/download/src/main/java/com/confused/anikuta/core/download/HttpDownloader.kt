@@ -231,7 +231,7 @@ class HttpDownloader(
                 }
 
                 val appendMode = isPartial && effectiveResumeFrom > 0L
-                FileOutputStream(tempFile, append = appendMode).use { os ->
+                FileOutputStream(tempFile, appendMode).use { os ->
                     response.body?.byteStream()?.use { input ->
                         val buffer = ByteArray(BUFFER_SIZE)
                         var downloaded = effectiveResumeFrom
