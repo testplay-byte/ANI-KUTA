@@ -6,6 +6,7 @@ import com.confused.anikuta.core.videoresolver.ResolverVideo
 import com.confused.anikuta.core.videoresolver.VideoResolver
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import kotlinx.coroutines.flow.first
 
 /**
  * The re-resolve helper for the proxy-churn fix.
