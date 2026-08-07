@@ -147,6 +147,16 @@ class AnikutaApp : Application() {
             single { AutoLinkPreferences(get()) }
             single { PlayerPreferences(get()) }
             single { ThemePreferences(get()) }
+
+            // D.2: Download orchestrator + re-resolver (bridges :core:video-resolver + :core:download)
+            single { com.confused.anikuta.download.ReResolver(get<com.confused.anikuta.core.videoresolver.VideoResolver>()) }
+            single {
+                com.confused.anikuta.download.DownloadOrchestrator(
+                    get<com.confused.anikuta.core.videoresolver.VideoResolver>(),
+                    get<com.confused.anikuta.core.download.DownloadManager>(),
+                    get<com.confused.anikuta.core.download.DownloadPreferences>(),
+                )
+            }
         }
     }
 }

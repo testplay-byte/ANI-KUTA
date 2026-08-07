@@ -44,6 +44,12 @@ data class ResolverAudioVersion(
  *
  * @param quality Display label, e.g. "1080p", "720p", "Default".
  * @param url The playable URL (may be a proxied URL from the extension).
+ * @param directUrl D.2: The direct CDN URL (bypasses the extension proxy).
+ *    Null if the extension doesn't expose a direct URL. When non-null, the
+ *    download orchestrator prefers this over [url] to avoid the proxy-churn
+ *    bug (extension local-proxy-server port rotation kills in-flight downloads).
+ *    The player still uses [url] (proxy URL) for streaming — directUrl is for
+ *    downloads only.
  * @param videoTitle A stable identifier used to match the currently-playing
  *    video across re-resolutions. Proxied URLs change between resolutions,
  *    so we match by title instead.
@@ -56,6 +62,7 @@ data class ResolverAudioVersion(
 data class ResolverVideo(
     val quality: String,
     val url: String,
+    val directUrl: String? = null,
     val videoTitle: String = "",
     val videoHeaders: String? = null,
     val subtitleTracks: List<ResolverSubtitleTrack> = emptyList(),
