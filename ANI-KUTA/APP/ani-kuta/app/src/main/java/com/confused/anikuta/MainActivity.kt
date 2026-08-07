@@ -619,6 +619,12 @@ private fun handleDownloadSpecificVideo(
                     com.confused.anikuta.core.common.Logger.i("MainActivity") {
                         "Specific video download enqueued: taskId=${result.taskId}"
                     }
+                    // D.FIX: Visual feedback — show a toast.
+                    android.widget.Toast.makeText(
+                        org.koin.core.context.GlobalContext.get().get(),
+                        "Download started",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
                 }
                 is EnqueueResult.ShowPicker -> {
                     com.confused.anikuta.core.common.Logger.w("MainActivity") {
@@ -629,17 +635,32 @@ private fun handleDownloadSpecificVideo(
                     com.confused.anikuta.core.common.Logger.w("MainActivity") {
                         "handleDownloadSpecificVideo — no sources"
                     }
+                    android.widget.Toast.makeText(
+                        org.koin.core.context.GlobalContext.get().get(),
+                        "No extension source linked",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
                 }
                 is EnqueueResult.Error -> {
                     com.confused.anikuta.core.common.Logger.e("MainActivity") {
                         "handleDownloadSpecificVideo failed: ${result.message}"
                     }
+                    android.widget.Toast.makeText(
+                        org.koin.core.context.GlobalContext.get().get(),
+                        "Download failed: ${result.message}",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
                 }
             }
         } catch (e: Exception) {
             com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
                 "handleDownloadSpecificVideo — exception"
             }
+            android.widget.Toast.makeText(
+                org.koin.core.context.GlobalContext.get().get(),
+                "Download failed: ${e.message}",
+                android.widget.Toast.LENGTH_LONG,
+            ).show()
         }
     }
 }

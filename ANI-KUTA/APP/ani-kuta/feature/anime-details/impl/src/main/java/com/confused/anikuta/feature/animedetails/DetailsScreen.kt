@@ -174,6 +174,20 @@ fun DetailsScreen(
                 val anime = s.anime
                 val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 
+                // D.FIX: Compute the effective linked source ONCE — used by both
+                // EpisodesSection AND the ResolverSheet. Previously, linkedSource
+                // (from the ViewModel) was null for extension entries — the source
+                // was only derived locally inside the EpisodesSection item block.
+                // The ResolverSheet's onPickVideo checked `linked != null` → failed
+                // silently → downloads never started.
+                val effectiveLinkedSource = linkedSource ?: run {
+                    val sourceId = anime.sourceId
+                    val sourceName = anime.sourceName
+                    if (sourceId != null && sourceName != null) {
+                        LinkedSource(sourceId, sourceName, anime.animeUrl ?: "")
+                    } else null
+                }
+
                 // ── 3-stage pull-to-refresh state ──
                 // A custom NestedScrollConnection cooperates with the LazyColumn's
                 // own scroll: the pull gesture ONLY activates when the list is at
@@ -366,15 +380,8 @@ fun DetailsScreen(
 
                         // ── Episodes section ──
                         item {
-                            // For extension entries: the source is already known.
-                            // Create a LinkedSource from the UnifiedAnime's sourceId/sourceName.
-                            val effectiveLinkedSource = linkedSource ?: run {
-                                val sourceId = anime.sourceId
-                                val sourceName = anime.sourceName
-                                if (sourceId != null && sourceName != null) {
-                                    LinkedSource(sourceId, sourceName, anime.animeUrl ?: "")
-                                } else null
-                            }
+                            // D.FIX: effectiveLinkedSource is now computed at the top
+                            // of the Success branch — no duplicate here.
                             EpisodesSection(
                                 linkedSource = effectiveLinkedSource,
                                 episodeState = episodeState,
@@ -518,11 +525,18 @@ fun DetailsScreen(
             downloadMode = resolverDownloadMode,
             onPickVideo = { video ->
                 val anime = (state as? DetailsState.Success)?.anime
-                val linked = linkedSource
+                val linked = effectiveLinkedSource
                 val ep = currentEpisode
+                // D.FIX: Log the guard condition so we can trace failures.
+                Logger.i("Anikuta:Feature:Details") {
+                    "onPickVideo — downloadMode=$resolverDownloadMode, anime=${anime != null}, linked=${linked != null}, ep=${ep != null}"
+                }
                 if (anime != null && linked != null && ep != null) {
                     if (resolverDownloadMode) {
                         // D.FIX: Download mode — enqueue the selected video for download.
+                        Logger.i("Anikuta:Feature:Details") {
+                            "onPickVideo — download mode: calling onDownloadSpecificVideo"
+                        }
                         onDownloadSpecificVideo(
                             ep,
                             video,
