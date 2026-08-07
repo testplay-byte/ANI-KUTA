@@ -565,9 +565,8 @@ fun WatchScreen(
     // playback), resolve the episode on-demand so the user can switch to a
     // live server/quality.
     var isResolvingOnDemand by remember { mutableStateOf(false) }
-    val downloadManager = org.koin.compose.koinInject<com.confused.anikuta.core.download.DownloadManager>()
-    val videoResolver = org.koin.compose.koinInject<com.confused.anikuta.core.videoresolver.VideoResolver>()
-    val extensionManager = org.koin.compose.koinInject<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+    // D.FIX: videoResolver + extensionManager are already declared at the top of
+    // WatchScreen (lines 147-148) — no need to re-declare here.
 
     LaunchedEffect(showQualitySheet) {
         if (showQualitySheet && resolvedServers.isEmpty() && !isResolvingOnDemand) {
@@ -590,7 +589,7 @@ fun WatchScreen(
                                 val servers = videoResolver.buildServers(state.rawEntries, source.name)
                                 if (servers.isNotEmpty()) {
                                     val key = com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry.put(servers)
-                                    stateHolder.setResolvedVideosKey(key)
+                                    stateHolder.updateResolvedVideosKey(key)
                                     Logger.i(TAG) { "On-demand resolve: got ${servers.size} servers" }
                                 }
                             }
