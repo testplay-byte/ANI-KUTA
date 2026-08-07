@@ -1057,3 +1057,54 @@ Stage Summary:
 - Phase D.0 COMPLETE. Branch download-system-plan @ 379f3a6. CI green.
 - All foundations in place for D.1: reactive PreferenceStore, SQLDelight schema with all review-fixed columns, download OkHttpClient, exceptions, manifest, drawables.
 - Next: Phase D.1 (Engine + Storage) — 20+ files including DownloadStatus, DownloadModels, ContentDataJson, DownloadStorageProvider, DownloadScanner, HttpDownloader, HlsDownloader, DownloadQueue, DownloadManager, DownloadService, DownloadNotificationManager, DI module.
+
+---
+Task ID: DL-D1-FIX2
+Agent: kotlin-build-fixer
+Task: Fix ALL compilation errors in the download system files (CI run 31145931216, branch download-system-plan)
+
+Work Log:
+- Read /home/z/my-project/ANI-KUTA/worklog.md in full to understand the project context (D.0 complete + CI green; D.1 in progress; 65fe7a4 was DL-D1-FIX1 which aligned the DownloadManager interface).
+- Read each affected file (DownloadQueue.kt, DownloadStore.kt, DownloadScanner.kt, DownloadStorageProvider.kt, DownloadModule.kt, DownloadNotificationManager.kt, DefaultDownloadManager.kt) + referenced files (ServerDiscoveryStore.kt, ContentRepository.kt, ContentModels.kt, ContentDataJson.kt, DownloadModels.kt) + the .sq files (downloadQueue.sq, downloadedEpisode.sq, content.sq).
+- Cross-checked SQLDelight 2.0.2 default naming behavior by downloading + extracting the official source jar (app.cash.sqldelight:core:2.0.2-sources.jar). Verified in NamedQuery.kt:119 (`ClassName(pureTable.sqFile().packageName!!, allocateName(pureTable).capitalize())`) + StringUtilKt (`capitalize` only uppercases the first char, doesn't PascalCase the rest) + BindableQuery.kt:115 (`name = it.text` — preserves the SQL identifier as-is for named arguments) — that:
+  * Data class name for table `download_queue` is `Download_queue` (NOT `DownloadQueue`, NOT `Download_queueData`).
+  * Data class name for table `downloaded_episode` is `Downloaded_episode`.
+  * Column property names are PRESERVED AS-IS (snake_case stays snake_case) — matches what ContentRepository.kt already does (`it.main_id`, `it.content_id`, etc.).
+  * Named-argument method parameters are preserved AS-IS (`:main_id` → `main_id`).
+- Confirmed androidx.core 1.15.0's NotificationCompat.BigPictureStyle has both `bigLargeIcon(Bitmap?)` + `bigLargeIcon(Icon?)` overloads (NotificationCompat.java:3280 + 3290) — passing literal `null` is ambiguous. Confirmed `setSummaryText(CharSequence)` IS a public method on BigPictureStyle (line 3230) — the reported "Unresolved reference" at line 146 was a cascading error from the line 145 ambiguity.
+
+Fixes applied (minimal, targeted — no file rewrites, no .sq / interface / forbidden-file changes):
+
+1. DownloadQueue.kt — 8 errors fixed:
+   * Removed `updatedAt = now()` from 9 `DownloadTask.copy(...)` calls (the data class has no `updatedAt` field — see DownloadModels.kt:156-181). Lines 146, 173-181 (retry), 218, 291, 347-351, 417-423, 434-441, 480-490, 494.
+   * Replaced `onTaskError?.invoke(_tasks.value.firstOrNull { it.id == task.id })` with `_tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }` at both catch blocks (lines 459, 462). `firstOrNull` returns `DownloadTask?` but `onTaskError` expects non-null `DownloadTask`.
+
+2. DownloadStore.kt — 4+ errors fixed with 2 line changes:
+   * Line 361: `com.confused.anikuta.core.database.DownloadQueue` → `com.confused.anikuta.core.database.Download_queue` (the SQLDelight-generated data class name).
+   * Line 407: `com.confused.anikuta.core.database.DownloadedEpisode` → `com.confused.anikuta.core.database.Downloaded_episode`.
+   * Kept all snake_case property accesses (`main_id`, `content_id`, `content_title`, etc.) + snake_case named arguments (`main_id = ...`, `episode_key = ...`) AS-IS — they're correct per SQLDelight 2.0.2 default behavior (matches ContentRepository.kt's working pattern). The "Unresolved reference 'main_id'" errors at lines 363-365 were cascading consequences of the unresolved receiver type at line 361.
+
+3. DownloadScanner.kt — 5 errors fixed with 2 line changes:
+   * Line 68: `associateBy { it.name }` → `associateBy { it.name!! }` — produces `Map<String, DocumentFile>` instead of `Map<String?, DocumentFile!>`. Resolves the line 69 mismatch + the cascade at lines 106/107/109/110 (the `(fileName, file)` destructuring on a `Map<String, DocumentFile>` now gives `fileName: String` instead of `String?`).
+   * Line 211: `anilistId = data.anilistId` → `anilistId = data.anilistId!!` — `ContentDataJson.anilistId` is `Int?` but `AniListDetail.anilistId` is `Int`. The `!!` is safe because `upsertAniListDetail` is only called from line 99's `if (dataJson.anilistId != null)` guard.
+
+4. DownloadStorageProvider.kt — 5 errors fixed with 6 line changes:
+   * Lines 117, 165, 194 (default param), 256, 276, 295: `associateBy { it.name }` → `associateBy { it.name!! }` everywhere. Resolves the Map<String?, DocumentFile!> mismatch at the 4 use-sites (120, 166, 277, 296) + the default-parameter value type mismatch at line 194.
+
+5. DownloadModule.kt — 1 error fixed:
+   * Line 49: `ServerDiscoveryStore(get<PreferenceStore>())` → `ServerDiscoveryStore()` — ServerDiscoveryStore has a no-arg constructor (in-memory only, doesn't take PreferenceStore).
+
+6. DownloadNotificationManager.kt — 2 errors fixed with 1 line change:
+   * Line 145: `.bigLargeIcon(null)` → `.bigLargeIcon(null as Bitmap?)` — disambiguates between the `bigLargeIcon(Bitmap?)` + `bigLargeIcon(Icon?)` overloads. `Bitmap` is already imported.
+   * Line 146 (`.setSummaryText(task.content.title)`): NO change needed — the "Unresolved reference" was a cascade from the line 145 ambiguity. Once line 145 resolves to `BigPictureStyle`, `.setSummaryText(...)` resolves correctly (verified the method exists at NotificationCompat.java:3230 in androidx.core 1.15.0).
+
+7. DefaultDownloadManager.kt — 1 error fixed:
+   * Line 164: `name.contains("E$numStr", ignoreCase = true)` → `name?.contains("E$numStr", ignoreCase = true) == true` — `name` comes from `DocumentFile.getName()` which returns `String?`. The `== true` makes the `if` condition `Boolean` (not `Boolean?`).
+
+Stage Summary:
+- All 30+ compilation errors across 7 files fixed with minimal, targeted edits.
+- No forbidden files modified (.sq files, DownloadManager.kt interface, DownloadModels.kt, etc. untouched).
+- Verified the SQLDelight naming convention by extracting + reading the official 2.0.2 source jar — confirmed snake_case preservation + `Download_queue`/`Downloaded_episode` data class names (NOT camelCase properties, NOT `<TableName>Data`).
+- The "setSummaryText doesn't exist" hint in the task description was incorrect — `setSummaryText` IS a valid method on `NotificationCompat.BigPictureStyle` in androidx.core 1.15.0; the reported error was a cascade from the line 145 overload ambiguity, fixed by casting `null as Bitmap?`.
+- The "convert snake_case to camelCase" hint was also incorrect for this project's SQLDelight 2.0.2 default config — ContentRepository.kt (which builds green) uses snake_case property access (`it.main_id`, `it.content_id`), confirming the convention. Only the data class NAMES needed fixing.
+- Next: re-run CI on branch download-system-plan to confirm all errors are resolved.

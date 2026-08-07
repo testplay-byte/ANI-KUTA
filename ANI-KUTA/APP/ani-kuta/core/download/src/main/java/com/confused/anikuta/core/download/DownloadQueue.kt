@@ -143,7 +143,7 @@ class DownloadQueue(
         val task = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
         if (task.status != DownloadStatus.PAUSED && task.status != DownloadStatus.ERROR) return@withLock
         mutateTaskLocked(taskId) {
-            it.copy(status = DownloadStatus.QUEUED, lastError = null, updatedAt = now())
+            it.copy(status = DownloadStatus.QUEUED, lastError = null)
         }
         store.updateState(
             id = taskId,
@@ -178,7 +178,6 @@ class DownloadQueue(
                 totalBytes = -1L,
                 lastError = null,
                 retryAttempt = 0,
-                updatedAt = now(),
             )
         }
         store.updateState(
@@ -215,7 +214,7 @@ class DownloadQueue(
             .filter { it.status == DownloadStatus.PAUSED || it.status == DownloadStatus.ERROR }
             .forEach { task ->
                 mutateTaskLocked(task.id) {
-                    it.copy(status = DownloadStatus.QUEUED, lastError = null, updatedAt = now())
+                    it.copy(status = DownloadStatus.QUEUED, lastError = null)
                 }
                 store.updateState(
                     id = task.id,
@@ -289,7 +288,7 @@ class DownloadQueue(
             current.status != DownloadStatus.RETRYING
         ) return
         mutateTaskLocked(taskId) {
-            it.copy(status = DownloadStatus.PAUSED, updatedAt = now())
+            it.copy(status = DownloadStatus.PAUSED)
         }
         store.updateState(
             id = taskId,
@@ -348,7 +347,6 @@ class DownloadQueue(
                             it.copy(
                                 status = DownloadStatus.DOWNLOADING,
                                 startedAt = now(),
-                                updatedAt = now(),
                             )
                         }
                         store.updateState(
@@ -420,7 +418,6 @@ class DownloadQueue(
                                 progress = progress,
                                 downloadedBytes = downloaded,
                                 totalBytes = if (total > 0) total else t.totalBytes,
-                                updatedAt = now(),
                             ) else t
                         }
                         progressChannel.trySend(
@@ -438,7 +435,6 @@ class DownloadQueue(
                             status = DownloadStatus.COMPLETED,
                             progress = finalProgress,
                             completedAt = now(),
-                            updatedAt = now(),
                         )
                         mutateTaskLocked(task.id) { completedTask }
                         store.updateState(
@@ -460,10 +456,10 @@ class DownloadQueue(
                 DownloadLogger.d { "Job cancelled: id=${task.id}" }
             } catch (e: DownloadException) {
                 setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
-                onTaskError?.invoke(_tasks.value.firstOrNull { it.id == task.id })
+                _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
             } catch (e: Exception) {
                 setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
-                onTaskError?.invoke(_tasks.value.firstOrNull { it.id == task.id })
+                _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
             } finally {
                 jobs.remove(task.id)
                 tryStartNext()
@@ -487,7 +483,6 @@ class DownloadQueue(
                 retryAttempt = attempt,
                 retryMaxAttempts = maxAttempts,
                 lastError = lastError,
-                updatedAt = now(),
             )
         }
         store.setRetryingStatus(taskId, attempt, maxAttempts, lastError)
@@ -496,7 +491,7 @@ class DownloadQueue(
     /** REVIEW-5 M11: sets ERROR status + error message. */
     private suspend fun setErrorStatus(taskId: Long, message: String) = mutex.withLock {
         mutateTaskLocked(taskId) {
-            it.copy(status = DownloadStatus.ERROR, lastError = message, updatedAt = now())
+            it.copy(status = DownloadStatus.ERROR, lastError = message)
         }
         store.setErrorStatus(taskId, message)
     }

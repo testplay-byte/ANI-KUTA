@@ -114,7 +114,7 @@ class DownloadStorageProvider(
             ?: throw DownloadException("Failed to create content folder for ${content.title}")
 
         // REVIEW-5 M55: listFiles() ONCE, build a name→DocumentFile index.
-        val index = contentDir.listFiles().associateBy { it.name }
+        val index = contentDir.listFiles().associateBy { it.name!! }
 
         // 1. Write data.json (read-modify-write).
         writeDataJson(content, contentDir, index)
@@ -162,7 +162,7 @@ class DownloadStorageProvider(
      * builds the index on-demand — used by [scanAllContent]).
      */
     fun readDataJson(folder: DocumentFile): ContentDataJson? {
-        val index = folder.listFiles().associateBy { it.name }
+        val index = folder.listFiles().associateBy { it.name!! }
         return readDataJsonIndexed(index)
     }
 
@@ -191,7 +191,7 @@ class DownloadStorageProvider(
     suspend fun writeDataJson(
         content: DownloadContentInfo,
         folder: DocumentFile,
-        index: Map<String, DocumentFile> = folder.listFiles().associateBy { it.name },
+        index: Map<String, DocumentFile> = folder.listFiles().associateBy { it.name!! },
     ): Unit = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val existing = readDataJsonIndexed(index)
@@ -253,7 +253,7 @@ class DownloadStorageProvider(
 
     /** Creates a `.nomedia` file in [folder] if one doesn't already exist. */
     fun writeNomedia(folder: DocumentFile) {
-        val index = folder.listFiles().associateBy { it.name }
+        val index = folder.listFiles().associateBy { it.name!! }
         if (index[".nomedia"] == null) {
             runCatching { folder.createFile("application/octet-stream", ".nomedia") }
         }
@@ -273,7 +273,7 @@ class DownloadStorageProvider(
             val formatDir = root.findFile(format)?.takeIf { it.isDirectory } ?: continue
             for (contentDir in formatDir.listFiles()) {
                 if (!contentDir.isDirectory) continue
-                val index = contentDir.listFiles().associateBy { it.name }
+                val index = contentDir.listFiles().associateBy { it.name!! }
                 val dataJson = readDataJsonIndexed(index) ?: continue
                 result.add(dataJson)
             }
@@ -292,7 +292,7 @@ class DownloadStorageProvider(
             val formatDir = root.findFile(format)?.takeIf { it.isDirectory } ?: continue
             for (contentDir in formatDir.listFiles()) {
                 if (!contentDir.isDirectory) continue
-                val index = contentDir.listFiles().associateBy { it.name }
+                val index = contentDir.listFiles().associateBy { it.name!! }
                 val dataJson = readDataJsonIndexed(index) ?: continue
                 if (dataJson.mainId == mainId) return@withContext contentDir
             }

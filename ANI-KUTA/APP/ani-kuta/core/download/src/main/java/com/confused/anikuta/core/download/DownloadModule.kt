@@ -46,7 +46,7 @@ val downloadModule = module {
 
     // ── Preferences (backed by the reactive PreferenceStore) ─────────────────
     single { DownloadPreferences(get<PreferenceStore>()) }
-    single { ServerDiscoveryStore(get<PreferenceStore>()) }
+    single { ServerDiscoveryStore() }
 
     // ── Database adapter (SQLDelight-backed) ─────────────────────────────────
     single { DownloadStore(get()) }

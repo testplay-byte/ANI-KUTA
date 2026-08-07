@@ -358,7 +358,7 @@ class DownloadStore(private val database: AnikutaDatabase) {
 
     // ── Row → Model mappers ──────────────────────────────────────────────────
 
-    private fun com.confused.anikuta.core.database.DownloadQueue.toTask(): DownloadTask {
+    private fun com.confused.anikuta.core.database.Download_queue.toTask(): DownloadTask {
         val content = DownloadContentInfo(
             mainId = main_id,
             contentId = content_id,
@@ -404,7 +404,7 @@ class DownloadStore(private val database: AnikutaDatabase) {
         )
     }
 
-    private fun com.confused.anikuta.core.database.DownloadedEpisode.toDownloadedEpisode(): DownloadedEpisode {
+    private fun com.confused.anikuta.core.database.Downloaded_episode.toDownloadedEpisode(): DownloadedEpisode {
         val content = DownloadContentInfo(
             mainId = main_id,
             contentId = content_id,

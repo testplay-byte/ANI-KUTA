@@ -65,7 +65,7 @@ class DownloadScanner(
             for (contentDir in formatDir.listFiles()) {
                 if (!contentDir.isDirectory) continue
                 // REVIEW-5 M55: listFiles() ONCE per content folder + build the index.
-                val index = contentDir.listFiles().associateBy { it.name }
+                val index = contentDir.listFiles().associateBy { it.name!! }
                 val dataJson = readDataJsonIndexed(index)
                 if (dataJson == null) {
                     skippedUnreadable++
@@ -208,7 +208,7 @@ class DownloadScanner(
     private fun upsertAniListDetail(data: ContentDataJson) {
         val detail = AniListDetail(
             mainId = data.mainId,
-            anilistId = data.anilistId,
+            anilistId = data.anilistId!!,
             updatedAt = System.currentTimeMillis(),
         )
         contentRepository.upsertAniListDetail(detail)

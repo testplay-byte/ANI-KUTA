@@ -161,7 +161,7 @@ class DefaultDownloadManager(
                     // Best-effort match: derive the expected episode number from the
                     // episodeKey (the part after the `|`).
                     val numStr = episodeKey.substringAfter('|', "")
-                    if (numStr.isNotBlank() && name.contains("E$numStr", ignoreCase = true)) {
+                    if (numStr.isNotBlank() && name?.contains("E$numStr", ignoreCase = true) == true) {
                         file.delete()
                     }
                 }

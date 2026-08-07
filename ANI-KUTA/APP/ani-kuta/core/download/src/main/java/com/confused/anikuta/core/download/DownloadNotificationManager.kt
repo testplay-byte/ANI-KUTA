@@ -142,7 +142,7 @@ class DownloadNotificationManager(
                 builder.setStyle(
                     NotificationCompat.BigPictureStyle()
                         .bigPicture(thumbnail)
-                        .bigLargeIcon(null)
+                        .bigLargeIcon(null as Bitmap?)
                         .setSummaryText(task.content.title),
                 ).setLargeIcon(thumbnail)
             }
