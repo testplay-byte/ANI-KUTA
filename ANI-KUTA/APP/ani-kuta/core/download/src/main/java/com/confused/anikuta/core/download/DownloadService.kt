@@ -5,6 +5,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -51,11 +55,58 @@ class DownloadService : Service(), KoinComponent {
 
     private val manager by inject<DownloadManager>()
     private val notifier by inject<DownloadNotificationManager>()
+    private val queue by inject<DownloadQueue>()
 
     /** REVIEW-5 M22: heavy work on Dispatchers.IO; only notify() needs Dispatchers.Main. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var isForeground = false
     private var queueCollector: Job? = null
+
+    /**
+     * D.7: NetworkCallback for auto-pause on metered + auto-resume on network return.
+     *
+     * Registered in [onCreate] (when the service starts). Unregistered in [onDestroy].
+     * Calls [DownloadQueue.onNetworkChanged] which:
+     *  - Pauses all DOWNLOADING/RETRYING tasks if network is lost OR if `wifiOnly`
+     *    is ON and the active network is metered.
+     *  - Resumes (via `tryStartNext`) when network returns and is allowed.
+     */
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            super.onAvailable(network)
+            DownloadLogger.i { "Network available — checking if downloads should resume" }
+            evaluateAndNotify(isAvailable = true)
+        }
+
+        override fun onLost(network: Network) {
+            super.onLost(network)
+            DownloadLogger.i { "Network lost — pausing active downloads" }
+            evaluateAndNotify(isAvailable = false)
+        }
+
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            super.onCapabilitiesChanged(network, capabilities)
+            // Re-evaluate on every capability change (e.g. Wi-Fi → mobile switch).
+            DownloadLogger.d {
+                "Network capabilities changed — re-evaluating (wifi=${capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)})"
+            }
+            evaluateAndNotify(isAvailable = true)
+        }
+
+        private fun evaluateAndNotify(isAvailable: Boolean) {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (cm == null) {
+                queue.onNetworkChanged(isWifi = false, hasInternet = isAvailable)
+                return
+            }
+            val activeNetwork = cm.activeNetwork
+            val caps = activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true
+            val hasInternet = isAvailable && caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            queue.onNetworkChanged(isWifi = isWifi, hasInternet = hasInternet)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -99,6 +150,9 @@ class DownloadService : Service(), KoinComponent {
                 }
             }
         }
+
+        // D.7: register the NetworkCallback for auto-pause/resume.
+        registerNetworkCallback()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -142,8 +196,34 @@ class DownloadService : Service(), KoinComponent {
 
     override fun onDestroy() {
         queueCollector?.cancel()
+        unregisterNetworkCallback()
         scope.cancel()
         super.onDestroy()
+    }
+
+    /** D.7: Registers the [networkCallback] for auto-pause/resume on network changes. */
+    private fun registerNetworkCallback() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            cm.registerNetworkCallback(request, networkCallback)
+            DownloadLogger.i { "NetworkCallback registered — auto-pause/resume active" }
+        } catch (e: Exception) {
+            DownloadLogger.e(e) { "Failed to register NetworkCallback — auto-pause/resume disabled" }
+        }
+    }
+
+    /** D.7: Unregisters the [networkCallback]. */
+    private fun unregisterNetworkCallback() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            cm?.unregisterNetworkCallback(networkCallback)
+        } catch (e: Exception) {
+            // Best-effort — ignore (callback may not have been registered).
+        }
     }
 
     /** Mirrors `ExtensionInstallService.startForegroundCompat` — explicit type on API 34+. */

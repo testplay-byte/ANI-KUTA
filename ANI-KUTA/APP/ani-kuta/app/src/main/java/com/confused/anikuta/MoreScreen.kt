@@ -41,6 +41,7 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 @Composable
 fun MoreScreen(
     onOpenSettings: () -> Unit,
+    onOpenDownloads: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -106,7 +107,7 @@ fun MoreScreen(
                             icon = Icons.Filled.Download,
                             title = "Downloads",
                             subtitle = "Downloaded episodes",
-                            onClick = { /* Phase 4c: navigate to Downloads */ },
+                            onClick = onOpenDownloads,
                         )
                     }
 

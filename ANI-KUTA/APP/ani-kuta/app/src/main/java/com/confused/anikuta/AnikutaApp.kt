@@ -28,6 +28,7 @@ import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
 import com.confused.anikuta.feature.animesearch.di.searchModule
+import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
 import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -93,6 +94,7 @@ class AnikutaApp : Application() {
                 playerModule,
                 videoResolverModule,
                 downloadModule,
+                downloadFeatureModule,
                 metadataModule,
                 trackerAniListModule,
                 watchProgressModule,

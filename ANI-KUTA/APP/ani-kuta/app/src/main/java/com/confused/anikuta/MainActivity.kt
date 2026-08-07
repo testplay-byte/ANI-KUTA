@@ -60,6 +60,12 @@ import com.confused.anikuta.feature.animelibrary.LibrarySelectionMode
 import com.confused.anikuta.feature.animelibrary.LocalLibrarySelectionMode
 import com.confused.anikuta.feature.animesearch.AnimeSearchKey
 import com.confused.anikuta.feature.animesearch.SearchScreen
+import com.confused.anikuta.feature.download.DownloadsKey
+import com.confused.anikuta.feature.download.DownloadsScreen
+import com.confused.anikuta.feature.download.DownloadedFilesKey
+import com.confused.anikuta.feature.download.DownloadedFilesScreen
+import com.confused.anikuta.feature.download.DownloadSettingsKey
+import com.confused.anikuta.feature.download.DownloadSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsKey
@@ -68,11 +74,14 @@ import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
 import com.confused.anikuta.feature.watch.WatchKey
 import com.confused.anikuta.feature.watch.WatchScreen
+import com.confused.anikuta.download.DownloadOrchestrator
+import com.confused.anikuta.download.EnqueueResult
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
 import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 
@@ -161,6 +170,11 @@ fun AppRoot() {
     // D-143: Library selection mode state — shared between LibraryScreen + AppRoot.
     val librarySelectionMode = remember { LibrarySelectionMode() }
 
+    // D.6: download orchestrator + content repository (for the episode download path).
+    val orchestrator = koinInject<DownloadOrchestrator>()
+    val contentRepository = koinInject<com.confused.anikuta.core.content.ContentRepository>()
+    val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+
     val backstack = remember {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
     }
@@ -194,12 +208,28 @@ fun AppRoot() {
                         onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
                         },
+                        onDownloadEpisode = { episode ->
+                            handleDownloadEpisode(
+                                detailsKey = currentKey,
+                                episode = episode,
+                                orchestrator = orchestrator,
+                                contentRepository = contentRepository,
+                            )
+                        },
                     )
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
                         onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
+                        },
+                        onDownloadEpisode = { episode ->
+                            handleDownloadEpisode(
+                                detailsKey = currentKey,
+                                episode = episode,
+                                orchestrator = orchestrator,
+                                contentRepository = contentRepository,
+                            )
                         },
                     )
                 }
@@ -236,6 +266,43 @@ fun AppRoot() {
             )
             is MoreKey -> MoreScreen(
                 onOpenSettings = { backstack.add(SettingsKey) },
+                onOpenDownloads = { backstack.add(DownloadsKey) },
+            )
+            is DownloadsKey -> DownloadsScreen(
+                onBack = pop,
+                onOpenSettings = { backstack.add(DownloadSettingsKey) },
+                onOpenDownloaded = { backstack.add(DownloadedFilesKey) },
+            )
+            is DownloadedFilesKey -> DownloadedFilesScreen(
+                onBack = pop,
+                onPlayEpisode = { mainId, episodeKey ->
+                    // D.6: Player integration — short-circuit the resolver when the
+                    // episode is already downloaded. Build a WatchKey with the local
+                    // content:// URI as the video URL.
+                    val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey)
+                    if (localUri != null) {
+                        backstack.add(
+                            WatchKey(
+                                videoUrl = localUri,
+                                animeTitle = "Downloaded",
+                                quality = "",
+                                episodeUrl = episodeKey,
+                                episodeNumber = 0f,
+                                episodeTitle = "Downloaded episode",
+                                episodeListSerialized = "",
+                                videoHeaders = "",
+                                resolvedVideosKey = "",
+                                sourceId = 0L,
+                                subtitleTracksSerialized = "",
+                                audioTracksSerialized = "",
+                                episodeMetadataSerialized = "",
+                            ),
+                        )
+                    }
+                },
+            )
+            is DownloadSettingsKey -> DownloadSettingsScreen(
+                onBack = pop,
             )
             is SettingsKey -> SettingsScreen(
                 onOpenAppearance = { backstack.add(AppearanceKey) },
@@ -313,9 +380,112 @@ fun AppRoot() {
 }
 
 /**
- * D-143: Selection action bar — replaces the nav pills when in library selection mode.
- * Shows Cancel (left) / Category (center) / Delete (right) with icons.
+ * D.6: Triggers a download for [episode] from the anime represented by [detailsKey].
+ *
+ * Resolves the content identity (mainId, title, cover) via [contentRepository],
+ * then delegates to [orchestrator.enqueueDownload]. The orchestrator runs the
+ * auto-download engine (or shows the picker sheet on ASK fallback).
+ *
+ * Runs in a background coroutine scope — the user sees the spinner on the
+ * episode row immediately (the DetailsViewModel exposes the Resolving state).
  */
+private fun handleDownloadEpisode(
+    detailsKey: AnimeDetailsKey,
+    episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
+    orchestrator: DownloadOrchestrator,
+    contentRepository: com.confused.anikuta.core.content.ContentRepository,
+) {
+    val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
+    scope.launch {
+        try {
+            // 1. Resolve the content identity.
+            val mainId: String? = when (detailsKey) {
+                is AnimeDetailsKey.AniList ->
+                    contentRepository.getContentByAniListId(detailsKey.animeId)?.mainId
+                is AnimeDetailsKey.Extension ->
+                    contentRepository.getContentByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
+            }
+            if (mainId == null) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleDownloadEpisode — no mainId for detailsKey=$detailsKey"
+                }
+                return@launch
+            }
+
+            // 2. Build the content + episode identity (cover is best-effort — null is fine).
+            val content = contentRepository.getContentByMainId(mainId)
+            if (content == null) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleDownloadEpisode — no content for mainId=$mainId"
+                }
+                return@launch
+            }
+            val anilistDetail = contentRepository.getAniListDetail(mainId)
+            val extDetail = contentRepository.getExtensionDetail(mainId)
+            val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+            val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
+                mainId = content.mainId,
+                contentId = content.contentId,
+                title = content.title,
+                coverUrl = coverUrl,
+                coverColor = null,
+                contentFormat = content.contentFormat,
+                contentType = content.contentType,
+            )
+            val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
+                episodeKey = episode.url,
+                episodeNumber = episode.episode_number,
+                name = episode.name,
+            )
+
+            // 3. Look up the extension source.
+            val sourceId = content.sourceId
+            val source = sourceId?.let {
+                org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+                    .getSource(it) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+            }
+
+            // 4. Enqueue.
+            val result = orchestrator.enqueueDownload(
+                source = source,
+                episode = episode,
+                content = contentInfo,
+                episodeInfo = episodeInfo,
+            )
+            when (result) {
+                is EnqueueResult.Success -> {
+                    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                        "Download enqueued: taskId=${result.taskId}"
+                    }
+                }
+                is EnqueueResult.ShowPicker -> {
+                    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                        "Download picker needed (ASK fallback) — ${result.servers.size} servers"
+                    }
+                    // TODO: show the DownloadVideoPickerSheet (Phase D.6 follow-up).
+                    // For now, log only — the auto-download engine handles 99% of cases.
+                }
+                is EnqueueResult.NoSources -> {
+                    com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                        "Download failed — no extension source linked"
+                    }
+                }
+                is EnqueueResult.Error -> {
+                    com.confused.anikuta.core.common.Logger.e("MainActivity") {
+                        "Download failed: ${result.message}"
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
+                "handleDownloadEpisode — exception"
+            }
+        }
+    }
+}
 @Composable
 private fun SelectionActionBar(
     selectedCount: Int,

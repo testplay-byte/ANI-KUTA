@@ -104,6 +104,7 @@ fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
     onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -129,6 +130,7 @@ fun DetailsScreen(
     val resolvedVideosKey by viewModel.resolvedVideosKey.collectAsState()
     val availableSources by viewModel.availableSources.collectAsState()
     val manualSearchState by viewModel.manualSearchState.collectAsState()
+    val downloadStates by viewModel.downloadStates.collectAsState()
 
     // Phase B: auto-link state
     val autoLinkState by viewModel.autoLinkState.collectAsState()
@@ -382,6 +384,28 @@ fun DetailsScreen(
                                     currentEpisode = episode
                                     viewModel.resolveEpisode(episode)
                                     showResolverSheet = true
+                                },
+                                downloadStates = downloadStates,
+                                onDownloadEpisode = { episode ->
+                                    onDownloadEpisode(episode)
+                                },
+                                onPauseEpisodeDownload = { episode ->
+                                    viewModel.pauseEpisodeDownload(episode)
+                                },
+                                onResumeEpisodeDownload = { episode ->
+                                    viewModel.resumeEpisodeDownload(episode)
+                                },
+                                onCancelEpisodeDownload = { episode ->
+                                    viewModel.cancelEpisodeDownload(episode)
+                                },
+                                onRetryEpisodeDownload = { episode ->
+                                    viewModel.retryEpisodeDownload(episode)
+                                },
+                                onDeleteDownloadedEpisode = { episode ->
+                                    viewModel.deleteDownloadedEpisode(episode)
+                                },
+                                episodeDownloadStateKey = { episode ->
+                                    viewModel.episodeDownloadStateKey(episode)
                                 },
                             )
                         }
@@ -1008,6 +1032,14 @@ private fun EpisodesSection(
     onOpenSourcePicker: () -> Unit,
     onUnlinkSource: () -> Unit,
     onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit,
+    downloadStates: Map<String, EpisodeDownloadState> = emptyMap(),
+    onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
+    onPauseEpisodeDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
+    onResumeEpisodeDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
+    onCancelEpisodeDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
+    onRetryEpisodeDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
+    onDeleteDownloadedEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
+    episodeDownloadStateKey: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> String? = { null },
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
@@ -1221,10 +1253,20 @@ private fun EpisodesSection(
                     episodeState.episodes.forEach { episode ->
                         val epNum = episode.episode_number.toInt()
                         val metadata = episodeMetadata[epNum]
+                        val stateKey = episodeDownloadStateKey(episode)
+                        val downloadState = stateKey?.let { downloadStates[it] }
+                            ?: EpisodeDownloadState.NotDownloaded
                         EpisodeRow(
                             episode = episode,
                             metadata = metadata,
                             onClick = { onEpisodeClick(episode) },
+                            downloadState = downloadState,
+                            onDownload = { onDownloadEpisode(episode) },
+                            onPause = { onPauseEpisodeDownload(episode) },
+                            onResume = { onResumeEpisodeDownload(episode) },
+                            onCancel = { onCancelEpisodeDownload(episode) },
+                            onRetry = { onRetryEpisodeDownload(episode) },
+                            onDelete = { onDeleteDownloadedEpisode(episode) },
                         )
                     }
                     // Unlink button at the bottom.
@@ -1249,6 +1291,13 @@ private fun EpisodeRow(
     episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
     metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,
+    downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
+    onDownload: () -> Unit = {},
+    onPause: () -> Unit = {},
+    onResume: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    onRetry: () -> Unit = {},
+    onDelete: () -> Unit = {},
 ) {
     // ── Parse display values ──
     val displayTitle = remember(episode, metadata) {
@@ -1427,10 +1476,19 @@ private fun EpisodeRow(
                                 }
                             }
                             // Download button — shown here (next to pills) when no synopsis.
-                            // CORE_RULES §22: consistent size + clickable + toast feedback.
+                            // D.6: replaced the placeholder toast button with the state-driven
+                            // EpisodeDownloadControl (7 states + AnimatedContent transitions).
                             if (description.isNullOrBlank()) {
                                 Spacer(Modifier.weight(1f))
-                                DownloadEpisodeButton()
+                                EpisodeDownloadControl(
+                                    state = downloadState,
+                                    onDownload = onDownload,
+                                    onPause = onPause,
+                                    onResume = onResume,
+                                    onCancel = onCancel,
+                                    onRetry = onRetry,
+                                    onDelete = onDelete,
+                                )
                             }
                         }
                     }
@@ -1467,7 +1525,15 @@ private fun EpisodeRow(
                         )
                     }
                     Spacer(Modifier.width(8.dp))
-                    DownloadEpisodeButton()
+                    EpisodeDownloadControl(
+                        state = downloadState,
+                        onDownload = onDownload,
+                        onPause = onPause,
+                        onResume = onResume,
+                        onCancel = onCancel,
+                        onRetry = onRetry,
+                        onDelete = onDelete,
+                    )
                 }
             } else {
                 // No synopsis — move download button up to the date/audio pills row.

@@ -68,6 +68,7 @@ class DetailsViewModel(
     private val contentResolver: com.confused.anikuta.core.content.ContentResolver,
     private val contentRepository: com.confused.anikuta.core.content.ContentRepository,
     private val dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
+    private val downloadManager: com.confused.anikuta.core.download.DownloadManager,
 ) : ViewModel() {
 
     companion object {
@@ -133,6 +134,42 @@ class DetailsViewModel(
     /** The contentId of the current anime (for logging/debugging). */
     private val _contentId = MutableStateFlow("")
     val contentId: StateFlow<String> = _contentId.asStateFlow()
+
+    /**
+     * D.6: Per-episode download states — collected from [DownloadManager.episodeDownloadStates]
+     * + mapped to the sealed [EpisodeDownloadState] (NOT the core typealias — that one
+     * is `Pair<DownloadStatus, Int>`). The mapping is one-way: core → feature.
+     *
+     * Key: `"$mainId|$episodeKey"`.
+     */
+    val downloadStates: StateFlow<Map<String, EpisodeDownloadState>> =
+        downloadManager.episodeDownloadStates
+            .map { coreMap ->
+                coreMap.mapValues { (_, coreState) ->
+                    val (status, progress) = coreState
+                    when (status) {
+                        com.confused.anikuta.core.download.DownloadStatus.QUEUED ->
+                            EpisodeDownloadState.Queued
+                        com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
+                            EpisodeDownloadState.Downloading(progress)
+                        com.confused.anikuta.core.download.DownloadStatus.RETRYING ->
+                            EpisodeDownloadState.Retrying
+                        com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
+                            EpisodeDownloadState.Paused
+                        com.confused.anikuta.core.download.DownloadStatus.ERROR ->
+                            EpisodeDownloadState.Error(null)
+                        com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
+                            EpisodeDownloadState.Downloaded
+                        com.confused.anikuta.core.download.DownloadStatus.CANCELLED ->
+                            EpisodeDownloadState.NotDownloaded
+                    }
+                }
+            }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                emptyMap(),
+            )
 
     private var currentAnimeId: Int = 0
     private var currentMainId: String? = null
@@ -1605,6 +1642,65 @@ class DetailsViewModel(
     fun clearResolver() {
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
+    }
+
+    // ── D.6: Episode download management ────────────────────────────────────
+    //
+    // The enqueue path is handled by the host (MainActivity → DownloadOrchestrator)
+    // via a callback lambda — :feature:anime-details doesn't depend on :app's
+    // DownloadOrchestrator (it would create a circular dep). Pause/resume/cancel/
+    // retry/delete go directly through [downloadManager] (the :core:download
+    // boundary is fine — :feature:anime-details depends on :core:download).
+    //
+    // The episodeKey used here is the SEpisode.url — stable across re-resolves
+    // + matches the DownloadOrchestrator's enqueue path (which derives episodeKey
+    // from the same source).
+
+    /** Builds the per-episode lookup key used by [downloadStates]. */
+    fun episodeDownloadStateKey(episode: eu.kanade.tachiyomi.animesource.model.SEpisode): String? {
+        val mainId = currentMainId ?: return null
+        return "$mainId|${episode.url}"
+    }
+
+    /** Pauses the download for [episode] (if a task exists). */
+    fun pauseEpisodeDownload(episode: eu.kanade.tachiyomi.animesource.model.SEpisode) {
+        val taskId = findTaskId(episode) ?: return
+        viewModelScope.launch { downloadManager.pauseDownload(taskId) }
+    }
+
+    /** Resumes the download for [episode] (if a task exists). */
+    fun resumeEpisodeDownload(episode: eu.kanade.tachiyomi.animesource.model.SEpisode) {
+        val taskId = findTaskId(episode) ?: return
+        viewModelScope.launch { downloadManager.resumeDownload(taskId) }
+    }
+
+    /** Cancels the download for [episode] (if a task exists). */
+    fun cancelEpisodeDownload(episode: eu.kanade.tachiyomi.animesource.model.SEpisode) {
+        val taskId = findTaskId(episode) ?: return
+        viewModelScope.launch { downloadManager.cancelDownload(taskId) }
+    }
+
+    /** Retries the errored download for [episode] (if a task exists). */
+    fun retryEpisodeDownload(episode: eu.kanade.tachiyomi.animesource.model.SEpisode) {
+        val taskId = findTaskId(episode) ?: return
+        viewModelScope.launch { downloadManager.retryDownload(taskId) }
+    }
+
+    /** Deletes the downloaded episode (file + DB row). */
+    fun deleteDownloadedEpisode(episode: eu.kanade.tachiyomi.animesource.model.SEpisode) {
+        val mainId = currentMainId ?: return
+        viewModelScope.launch {
+            downloadManager.deleteDownloadedEpisode(mainId, episode.url)
+        }
+    }
+
+    /** Looks up a task ID by (mainId, episodeKey) in the live queue. */
+    private fun findTaskId(episode: eu.kanade.tachiyomi.animesource.model.SEpisode): Long? {
+        val mainId = currentMainId ?: return null
+        val task = downloadManager.getQueue().value.firstOrNull {
+            it.content.mainId == mainId && it.episode.episodeKey == episode.url
+        }
+        return task?.id
     }
 }
 
