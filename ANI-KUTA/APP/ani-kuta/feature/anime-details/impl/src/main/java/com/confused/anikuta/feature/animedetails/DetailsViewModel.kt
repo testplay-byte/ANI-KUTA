@@ -1595,8 +1595,15 @@ class DetailsViewModel(
                                 malId = malId,
                                 episodeCount = episodes.size,
                             )
-                            _episodeMetadata.value = metadata
-                            Logger.i(TAG) { "Episode metadata loaded: ${metadata.size} entries" }
+                            // D.FIX: Only overwrite if the new metadata is non-empty.
+                            // Otherwise keep the cached metadata (which may have been
+                            // loaded from a previous successful fetch).
+                            if (metadata.isNotEmpty()) {
+                                _episodeMetadata.value = metadata
+                                Logger.i(TAG) { "Episode metadata loaded: ${metadata.size} entries" }
+                            } else {
+                                Logger.w(TAG) { "Episode metadata fetch returned empty — keeping cached metadata (${_episodeMetadata.value.size} entries)" }
+                            }
 
                             // D-147: Update the cache with the fetched metadata.
                             if (mainId != null) {

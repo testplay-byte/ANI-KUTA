@@ -534,9 +534,27 @@ fun WatchScreen(
                 }
 
                 Logger.i(TAG) { "Sending loadfile command to MPV..." }
-                MPVLib.command(arrayOf("loadfile", loadUrl, "replace"))
-                MPVLib.setPropertyBoolean("pause", false)
-                Logger.i(TAG) { "loadfile command sent. Waiting for FILE_LOADED event..." }
+                // D.FIX: For fd:// URLs (offline playback), delay 500ms so the
+                // SurfaceView's surfaceCreated fires first. Without this delay, MPV
+                // tries to initialize vo_android_init before the surface is ready →
+                // assertion "vo->opts->WinID != 0" fails → SIGABRT crash.
+                // (Ported from the old project's PlayerInitializer.loadVideo.)
+                if (loadUrl.startsWith("fd://")) {
+                    Logger.i(TAG) { "Offline fd:// URL — delaying loadfile 500ms for surface readiness" }
+                    mpvView?.postDelayed({
+                        try {
+                            MPVLib.command(arrayOf("loadfile", loadUrl, "replace"))
+                            MPVLib.setPropertyBoolean("pause", false)
+                            Logger.i(TAG) { "loadfile command sent (after 500ms delay). Waiting for FILE_LOADED event..." }
+                        } catch (e: Exception) {
+                            Logger.e(TAG, e) { "Failed to load offline video (fd://)" }
+                        }
+                    }, 500)
+                } else {
+                    MPVLib.command(arrayOf("loadfile", loadUrl, "replace"))
+                    MPVLib.setPropertyBoolean("pause", false)
+                    Logger.i(TAG) { "loadfile command sent. Waiting for FILE_LOADED event..." }
+                }
             }
         }
     }
