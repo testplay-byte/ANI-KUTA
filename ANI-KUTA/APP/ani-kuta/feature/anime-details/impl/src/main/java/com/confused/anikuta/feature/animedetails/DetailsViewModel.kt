@@ -415,9 +415,29 @@ class DetailsViewModel(
                     initialized = false
                 }
                 val episodes = withContext(Dispatchers.IO) { source.getEpisodeList(sAnime) }
-                Logger.i(TAG) { "D.3 Stage 1: Fetched ${episodes.size} episodes" }
+                Logger.i(TAG) { "D.3 Stage 1: Fetched ${episodes.size} fresh episodes" }
                 val sorted = episodes.sortedByDescending { it.episode_number }
                 _episodeState.value = if (episodes.isEmpty()) EpisodeState.Empty else EpisodeState.Loaded(sorted)
+
+                // D.FIX: Update the cache with fresh episodes so the next open
+                // shows the latest data (not stale cache).
+                val mainId = currentMainId
+                if (mainId != null && episodes.isNotEmpty()) {
+                    val now = System.currentTimeMillis()
+                    val cachedList = episodes.map { ep ->
+                        com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                            mainId = mainId,
+                            episodeNumber = ep.episode_number,
+                            title = ep.name,
+                            description = ep.summary,
+                            thumbnailUrl = null,
+                            airDate = if (ep.date_upload > 0) ep.date_upload else null,
+                            fetchedAt = now,
+                        )
+                    }
+                    dataCacheRepository.cacheEpisodeMetadata(mainId, cachedList)
+                    Logger.i(TAG) { "D.3 Stage 1: Updated episode cache with ${cachedList.size} fresh episodes" }
+                }
 
                 // If we have an anilistId, auto-fetch episode metadata for new episodes.
                 val anilistId = anime.anilistId

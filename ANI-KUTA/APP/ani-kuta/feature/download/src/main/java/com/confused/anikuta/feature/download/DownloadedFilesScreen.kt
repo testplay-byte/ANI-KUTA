@@ -70,6 +70,7 @@ import org.koin.compose.viewmodel.koinViewModel
 fun DownloadedFilesScreen(
     onBack: () -> Unit,
     onPlayEpisode: (mainId: String, episodeKey: String) -> Unit = { _, _ -> },
+    onNavigateToDetails: (mainId: String) -> Unit = {},
     viewModel: DownloadViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -146,6 +147,7 @@ fun DownloadedFilesScreen(
                                 viewModel.deleteEpisode(animeKey.mainId, episodeKey)
                             },
                             onDeleteAll = { viewModel.deleteAnime(animeKey.mainId) },
+                            onNavigateToDetails = { onNavigateToDetails(animeKey.mainId) },
                         )
                     }
                 }
@@ -161,6 +163,7 @@ private fun DownloadedAnimeCard(
     onPlay: (String) -> Unit,
     onDelete: (String) -> Unit,
     onDeleteAll: () -> Unit,
+    onNavigateToDetails: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(true) }
 
@@ -171,9 +174,9 @@ private fun DownloadedAnimeCard(
     ) {
         Column {
             // Header: cover + title + count + delete-all + expand
+            // D.FIX: Title tap → navigate to details. Only the chevron toggles expand.
             Row(
                 modifier = Modifier.fillMaxWidth()
-                    .clickable { expanded = !expanded }
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -184,11 +187,16 @@ private fun DownloadedAnimeCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .size(width = 44.dp, height = 62.dp)
-                            .clip(RoundedCornerShape(6.dp)),
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onNavigateToDetails() },
                     )
                     Spacer(Modifier.width(10.dp))
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onNavigateToDetails() },
+                ) {
                     Text(
                         animeKey.title,
                         fontFamily = RobotoFamily,
@@ -213,12 +221,15 @@ private fun DownloadedAnimeCard(
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
+                // D.FIX: Only the chevron button toggles expand/collapse.
+                IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
 
             // Episode list.

@@ -303,20 +303,34 @@ fun AppRoot() {
             is DownloadedFilesKey -> DownloadedFilesScreen(
                 onBack = pop,
                 onPlayEpisode = { mainId, episodeKey ->
-                    // D.6: Player integration — short-circuit the resolver when the
-                    // episode is already downloaded. Build a WatchKey with the local
-                    // content:// URI as the video URL.
+                    // D.FIX: Build a proper WatchKey with the local content:// URI
+                    // + episode metadata from the downloaded_episode DB table.
                     val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey)
                     if (localUri != null) {
+                        // Look up the downloaded episode for metadata.
+                        val downloaded = downloadManager.getDownloadedEpisodes().value
+                            .firstOrNull { it.content.mainId == mainId && it.episode.episodeKey == episodeKey }
+                        val animeTitle = downloaded?.content?.title ?: "Downloaded"
+                        val epTitle = downloaded?.episode?.name ?: "Episode"
+                        val epNum = downloaded?.episode?.episodeNumber ?: 0f
+                        val quality = downloaded?.quality ?: ""
+                        // Build episode list from all downloaded episodes of this anime.
+                        val allEps = downloadManager.getDownloadedEpisodes().value
+                            .filter { it.content.mainId == mainId }
+                            .sortedBy { it.episode.episodeNumber }
+                        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                        val epListStr = allEps.joinToString("\n") { e ->
+                            "${e.episode.episodeKey}${delim}${e.episode.episodeNumber}${delim}${e.episode.name}"
+                        }
                         backstack.add(
                             WatchKey(
                                 videoUrl = localUri,
-                                animeTitle = "Downloaded",
-                                quality = "",
+                                animeTitle = animeTitle,
+                                quality = quality,
                                 episodeUrl = episodeKey,
-                                episodeNumber = 0f,
-                                episodeTitle = "Downloaded episode",
-                                episodeListSerialized = "",
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epListStr,
                                 videoHeaders = "",
                                 resolvedVideosKey = "",
                                 sourceId = 0L,
@@ -325,6 +339,27 @@ fun AppRoot() {
                                 episodeMetadataSerialized = "",
                             ),
                         )
+                    }
+                },
+                onNavigateToDetails = { mainId ->
+                    // D.FIX: Navigate to the details page for this anime.
+                    val content = contentRepository.getContentByMainId(mainId)
+                    if (content != null) {
+                        val anilistDetail = contentRepository.getAniListDetail(mainId)
+                        if (anilistDetail != null) {
+                            backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                        } else {
+                            // Extension-only entry.
+                            val extDetail = contentRepository.getExtensionDetail(mainId)
+                            if (extDetail != null) {
+                                backstack.add(AnimeDetailsKey.Extension(
+                                    sourceId = extDetail.sourceId,
+                                    animeUrl = extDetail.animeUrl,
+                                    title = content.title,
+                                    thumbnailUrl = extDetail.thumbnailUrl,
+                                ))
+                            }
+                        }
                     }
                 },
             )
