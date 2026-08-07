@@ -133,6 +133,19 @@ fun DetailsScreen(
     val manualSearchState by viewModel.manualSearchState.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
 
+    // D.FIX: Compute the effective linked source at the top level — used by both
+    // the EpisodesSection (inside Success branch) AND the ResolverSheet (outside).
+    // For extension entries, viewModel.linkedSource is null — the source is derived
+    // from the anime's sourceId/sourceName.
+    val effectiveLinkedSource = linkedSource ?: run {
+        val anime = (state as? DetailsState.Success)?.anime
+        val sourceId = anime?.sourceId
+        val sourceName = anime?.sourceName
+        if (sourceId != null && sourceName != null) {
+            LinkedSource(sourceId, sourceName, anime.animeUrl ?: "")
+        } else null
+    }
+
     // Phase B: auto-link state
     val autoLinkState by viewModel.autoLinkState.collectAsState()
     val anilistSearchState by viewModel.anilistSearchState.collectAsState()
@@ -173,20 +186,6 @@ fun DetailsScreen(
             is DetailsState.Success -> {
                 val anime = s.anime
                 val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
-
-                // D.FIX: Compute the effective linked source ONCE — used by both
-                // EpisodesSection AND the ResolverSheet. Previously, linkedSource
-                // (from the ViewModel) was null for extension entries — the source
-                // was only derived locally inside the EpisodesSection item block.
-                // The ResolverSheet's onPickVideo checked `linked != null` → failed
-                // silently → downloads never started.
-                val effectiveLinkedSource = linkedSource ?: run {
-                    val sourceId = anime.sourceId
-                    val sourceName = anime.sourceName
-                    if (sourceId != null && sourceName != null) {
-                        LinkedSource(sourceId, sourceName, anime.animeUrl ?: "")
-                    } else null
-                }
 
                 // ── 3-stage pull-to-refresh state ──
                 // A custom NestedScrollConnection cooperates with the LazyColumn's
