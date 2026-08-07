@@ -1108,3 +1108,25 @@ Stage Summary:
 - The "setSummaryText doesn't exist" hint in the task description was incorrect — `setSummaryText` IS a valid method on `NotificationCompat.BigPictureStyle` in androidx.core 1.15.0; the reported error was a cascade from the line 145 overload ambiguity, fixed by casting `null as Bitmap?`.
 - The "convert snake_case to camelCase" hint was also incorrect for this project's SQLDelight 2.0.2 default config — ContentRepository.kt (which builds green) uses snake_case property access (`it.main_id`, `it.content_id`), confirming the convention. Only the data class NAMES needed fixing.
 - Next: re-run CI on branch download-system-plan to confirm all errors are resolved.
+
+---
+Task ID: DL-D2
+Agent: Z.ai Code (orchestrator)
+Task: Phase D.2 — Orchestrator + Auto-download engine + proxy-churn fix
+
+Work Log:
+- Created 7 files: AutoDownloadEngine (5-step pipeline), ResolveContext (7 fields), ReResolver (direct lookup), DownloadOrchestrator (bridge), EnqueueResult + PickerContext, EpisodeDownloadState (8-state sealed interface).
+- Modified ResolverTypes.kt (added directUrl to ResolverVideo), AnikutaApp.kt (Koin bindings for ReResolver + DownloadOrchestrator), core/download build.gradle.kts (added :core:video-resolver dep).
+- 5 rounds of iterative compilation fixes:
+  * FIX1: added :core:video-resolver dep to :core:download + fixed List<Int> Comparable (minByOrNull → minWithOrNull).
+  * FIX2: compareBy still required Comparable<*>? — added custom candidateComparator.
+  * FIX3: ResolverState field names (servers→buildServers(rawEntries), error→message) + ResolveContext serializer.
+  * FIX4: return prohibited in collect crossinline lambda — replaced with first() + when.
+  * FIX5: missing first() import.
+- CI: D.2-FIX5 (30ed37a) GREEN ✅ (run 31160593455).
+
+Stage Summary:
+- Phase D.2 COMPLETE. Branch download-system-plan @ 30ed37a. CI green.
+- Auto-download engine: 5-step pipeline (flatten → rank → applyFallbacks → pick → globalFallback) with user-configurable dimensionPriority.
+- Proxy-churn fix: Layer 1 (directUrl on ResolverVideo) + Layer 2 (ReResolver with bounded re-resolve).
+- Next: Phases D.3-D.8 (queue management, foreground service, settings UI, downloads page UI, QoL, polish).

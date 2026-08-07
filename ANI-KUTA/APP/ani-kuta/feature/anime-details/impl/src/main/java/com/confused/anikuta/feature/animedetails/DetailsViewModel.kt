@@ -79,6 +79,27 @@ class DetailsViewModel(
     private val _state = MutableStateFlow<DetailsState>(DetailsState.Loading)
     val state: StateFlow<DetailsState> = _state.asStateFlow()
 
+    /**
+     * D.6: Per-episode download states (for the episode-row download buttons).
+     * Collected from [DownloadManager.episodeDownloadStates] — keyed by
+     * `"$mainId|$episodeKey"`. The UI maps this to [EpisodeDownloadState].
+     */
+    val downloadStates: StateFlow<Map<String, EpisodeDownloadState>> =
+        downloadManager.episodeDownloadStates.map { rawMap ->
+            rawMap.mapValues { (_, pair) ->
+                val (status, progress) = pair
+                when (status) {
+                    com.confused.anikuta.core.download.DownloadStatus.QUEUED -> EpisodeDownloadState.Queued
+                    com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING -> EpisodeDownloadState.Downloading(progress)
+                    com.confused.anikuta.core.download.DownloadStatus.RETRYING -> EpisodeDownloadState.Retrying
+                    com.confused.anikuta.core.download.DownloadStatus.PAUSED -> EpisodeDownloadState.Paused
+                    com.confused.anikuta.core.download.DownloadStatus.ERROR -> EpisodeDownloadState.Error(null)
+                    com.confused.anikuta.core.download.DownloadStatus.COMPLETED -> EpisodeDownloadState.Downloaded
+                    com.confused.anikuta.core.download.DownloadStatus.CANCELLED -> EpisodeDownloadState.NotDownloaded
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     /** The available trusted sources (for the manual search sheet). */
     val availableSources: StateFlow<List<AnimeCatalogueSource>> =
         extensionManager.sources.map { sourceMap ->
