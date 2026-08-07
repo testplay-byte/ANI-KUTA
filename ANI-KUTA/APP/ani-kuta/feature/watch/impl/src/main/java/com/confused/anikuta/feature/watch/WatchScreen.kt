@@ -161,6 +161,9 @@ fun WatchScreen(
     // in the logs (4 observers registered after 4 entries).
     var logObserverRef by remember { mutableStateOf<`is`.xyz.mpv.MPVLib.LogObserver?>(null) }
     var eventObserverRef by remember { mutableStateOf<`is`.xyz.mpv.MPVLib.EventObserver?>(null) }
+    // D.FIX: ParcelFileDescriptor for offline playback (content:// → fd:// conversion).
+    // Kept open while MPV plays from it. Closed on dispose.
+    var mpvParcelFileDescriptor by remember { mutableStateOf<android.os.ParcelFileDescriptor?>(null) }
 
     // Seed the current-episode state from the WatchKey (immutable Nav3 contract —
     // we track the CURRENTLY playing episode in the state holder so it updates
@@ -488,10 +491,28 @@ fun WatchScreen(
 
                 // CRITICAL: Set HTTP headers BEFORE loadfile.
                 // For localhost proxy URLs (AniKotoS), don't set upstream headers.
+                // For content:// URIs (downloaded files), convert to fd:// — MPV can't
+                // open SAF content:// URIs directly (it needs a file descriptor).
                 val isLocalhost = currentVideoUrl.contains("127.0.0.1") ||
                     currentVideoUrl.contains("localhost")
+                val isContentUri = currentVideoUrl.startsWith("content://")
+                var loadUrl = currentVideoUrl
                 try {
-                    if (!isLocalhost) {
+                    if (isContentUri) {
+                        // D.FIX: Convert content:// URI to fd:// for MPV.
+                        val uri = android.net.Uri.parse(currentVideoUrl)
+                        val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                        if (pfd != null) {
+                            loadUrl = "fd://${pfd.fd}"
+                            Logger.i(TAG) { "Converted content:// URI to fd:// (fd=${pfd.fd})" }
+                            // Keep pfd open — MPV reads from the fd. It will be closed
+                            // when the player disposes.
+                            mpvParcelFileDescriptor = pfd
+                        } else {
+                            Logger.e(TAG) { "Failed to open file descriptor for content:// URI" }
+                        }
+                    }
+                    if (!isLocalhost && !isContentUri) {
                         val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                             else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                         MPVLib.setOptionString("http-header-fields", headers)
@@ -509,7 +530,7 @@ fun WatchScreen(
                 }
 
                 Logger.i(TAG) { "Sending loadfile command to MPV..." }
-                MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+                MPVLib.command(arrayOf("loadfile", loadUrl, "replace"))
                 MPVLib.setPropertyBoolean("pause", false)
                 Logger.i(TAG) { "loadfile command sent. Waiting for FILE_LOADED event..." }
             }
@@ -549,7 +570,10 @@ fun WatchScreen(
             }
             // Clean up downloaded subtitle temp files.
             runCatching { subtitleEngine.cleanupAll() }
-            Logger.i(TAG) { "MPV destroyed + observers removed + subtitles cleaned" }
+            // D.FIX: Close the ParcelFileDescriptor for offline playback.
+            runCatching { mpvParcelFileDescriptor?.close() }
+            mpvParcelFileDescriptor = null
+            Logger.i(TAG) { "MPV destroyed + observers removed + subtitles cleaned + fd closed" }
         }
     }
 
