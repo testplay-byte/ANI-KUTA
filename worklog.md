@@ -1130,3 +1130,29 @@ Stage Summary:
 - Auto-download engine: 5-step pipeline (flatten → rank → applyFallbacks → pick → globalFallback) with user-configurable dimensionPriority.
 - Proxy-churn fix: Layer 1 (directUrl on ResolverVideo) + Layer 2 (ReResolver with bounded re-resolve).
 - Next: Phases D.3-D.8 (queue management, foreground service, settings UI, downloads page UI, QoL, polish).
+
+---
+Task ID: DL-D3-D8
+Agent: Z.ai Code (orchestrator)
+Task: Phases D.3-D.8 — Queue management, foreground service, settings UI, downloads page UI, QoL, polish
+
+Work Log:
+- Discovered the D.1 sub-agent had already created ALL the D.5/D.6 files: DownloadsScreen, DownloadedFilesScreen, DownloadSettingsScreen, DownloadViewModel, DownloadUiState, DownloadVideoPickerSheet, DownloadNavKeys, DownloadsEmptyState, DragReorderableList, EpisodeDownloadControl + di/DownloadModule.
+- D.3 (queue management) + D.4 (foreground service + notifications) + D.7 (QoL features) are all implemented in D.1's DownloadQueue.kt + DownloadService.kt + DownloadNotificationManager.kt.
+- D.8: Wired the download states into DetailsViewModel (downloadStates StateFlow mapping DownloadManager.episodeDownloadStates to EpisodeDownloadState sealed interface). Fixed 3 compilation issues:
+  * FIX1: removed duplicate downloadStates property (sub-agent already added it at line 166) + added documentfile dep to :feature:download.
+  * FIX2: fixed DownloadNavKeys.kt package (was .api, moved to root) + added imports in MainActivity.
+  * FIX3: removed duplicate imports in MainActivity (sub-agent already had them).
+- CI: e9d5592 GREEN ✅ (run 31164423562) — Build APK + Verify ABIs passed.
+
+Stage Summary:
+- ALL 9 PHASES (D.0-D.8) COMPLETE. Branch download-system-plan @ e9d5592. CI green.
+- Download system is functionally complete:
+  * Engine: 22 files in :core:download
+  * Orchestrator: AutoDownloadEngine + DownloadOrchestrator + ReResolver
+  * UI: :feature:download module (DownloadsScreen, DownloadedFilesScreen, DownloadSettingsScreen, EpisodeDownloadControl, DragReorderableList, DownloadVideoPickerSheet)
+  * Navigation: DownloadsKey + DownloadedFilesKey + DownloadSettingsKey wired in MainActivity
+  * Koin: all modules registered (downloadModule + downloadFeatureModule + downloadAppModule)
+- NOT merged to main — awaiting user testing + confirmation.
+- Test checklist to be written for the user.
+- NTFY notification to be sent.
