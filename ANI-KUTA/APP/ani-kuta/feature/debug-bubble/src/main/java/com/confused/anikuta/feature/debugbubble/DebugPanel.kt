@@ -7,6 +7,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -120,7 +121,7 @@ fun DebugPanel(
             // while the panel is open, which would cause the panel to follow +
             // potentially flip sides). Sub-agent review IMPORTANT #2.
             .pointerInput(Unit) {
-                androidx.compose.foundation.gestures.detectTapGestures(onTap = { onDismiss() })
+                detectTapGestures(onTap = { onDismiss() })
             },
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
