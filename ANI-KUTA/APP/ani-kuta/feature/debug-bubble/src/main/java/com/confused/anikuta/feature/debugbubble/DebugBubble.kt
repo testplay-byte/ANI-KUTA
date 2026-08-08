@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,7 +56,6 @@ fun DebugBubble(
     val visible by preferences.visibleFlow().collectAsStateWithLifecycle(initialValue = preferences.visible)
     if (!visible) return
 
-    val state = remember { DebugBubbleState() }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
@@ -75,10 +75,10 @@ fun DebugBubble(
         y = screenHeightPx - bubbleSizePx - insetPx - navBarPx,
     )
 
-    // Initialize the offset to the default on first composition (no persistence — D-163).
-    LaunchedEffect(Unit) {
-        state.offset.snapTo(defaultOffset)
-    }
+    // State — initialized directly with the default offset (no one-frame flash
+    // at Offset.Zero). remember(defaultOffset) recreates the state on rotation
+    // (defaultOffset changes), matching the re-clamp intent.
+    val state = remember(defaultOffset) { DebugBubbleState(defaultOffset) }
 
     // Re-clamp on rotation (configChanges means Activity isn't recreated, but
     // LocalConfiguration changes → Compose recomposes). Animate to the clamped

@@ -20,8 +20,8 @@ import androidx.compose.ui.geometry.Offset
  * @property dragged Tracks whether the current gesture is a drag (vs a tap).
  *           Used for tap-vs-drag disambiguation (< 8px = tap).
  */
-class DebugBubbleState {
-    val offset = Animatable(Offset.Zero)
+class DebugBubbleState(initialOffset: Offset = Offset.Zero) {
+    val offset = Animatable(initialOffset)
     var expanded by mutableStateOf(false)
         private set
     var dragged by mutableStateOf(false)
