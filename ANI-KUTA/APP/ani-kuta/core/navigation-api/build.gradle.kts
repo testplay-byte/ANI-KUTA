@@ -1,4 +1,5 @@
 plugins {
+    alias(libs.plugins.kotlin.serialization)
     id("anikuta.library")
 }
 
@@ -7,4 +8,5 @@ android {
 }
 
 dependencies {
+    implementation(libs.kotlinx.serialization.json)
 }
