@@ -156,7 +156,7 @@ fun DebugPanel(
                     ) {
                         when (activeTab) {
                             DebugTab.SCREEN -> CurrentScreenContent()
-                            DebugTab.DATABASE -> PlaceholderContent("Database", "DB-3")
+                            DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab()
                             DebugTab.CONSOLE -> PlaceholderContent("Console", "DB-4")
                             DebugTab.NETWORK -> PlaceholderContent("Network", "DB-5")
                             DebugTab.APP_INFO -> PlaceholderContent("App Info", "DB-6")
