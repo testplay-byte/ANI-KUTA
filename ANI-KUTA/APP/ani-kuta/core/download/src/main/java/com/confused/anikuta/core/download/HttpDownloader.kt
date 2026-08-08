@@ -145,7 +145,7 @@ class HttpDownloader(
             // parses this back to List<String>.
             val subtitleUrisJson = if (publishResult.subtitleUris.isEmpty()) null
                 else kotlinx.serialization.json.Json.encodeToString(
-                    kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.builtins.serializer<String>()),
+                    kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()),
                     publishResult.subtitleUris,
                 )
 
