@@ -110,13 +110,17 @@ fun NotificationsSettingsScreen(
                     }
 
                     // ── New anime defaults (smoothly hidden when master is off) ──
+                    // Wrapped in a Column so AnimatedVisibility's ColumnScope overload
+                    // resolves (LazyItemScope doesn't provide ColumnScope).
                     item {
-                        AnimatedVisibility(
-                            visible = masterEnabled,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
-                            DefaultsSection(defaults, viewModel)
+                        Column {
+                            AnimatedVisibility(
+                                visible = masterEnabled,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically(),
+                            ) {
+                                DefaultsSection(defaults, viewModel)
+                            }
                         }
                     }
 

@@ -33,6 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -294,8 +297,8 @@ private fun AnimeConfigSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // Working snapshot — defaults if no config exists yet.
-    var config by androidx.compose.runtime.remember(item.mainId) {
-        androidx.compose.runtime.mutableStateOf(item.config ?: NotificationConfig(mainId = item.mainId))
+    var config by remember(item.mainId) {
+        mutableStateOf(item.config ?: NotificationConfig(mainId = item.mainId))
     }
 
     ModalBottomSheet(
