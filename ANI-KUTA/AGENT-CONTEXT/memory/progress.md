@@ -47,7 +47,7 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - Rating UI not built — store + schema ready, UI pending.
 - Continue Watching UI not placed — logic ready, UI deferred.
 
-**Next:** Debug bubble — plan done (D-162, on `feature/debug-bubble` branch, dashboard live). Awaiting user approval → implement DB-1..DB-8 → Rating UI → Continue Watching UI → Subtitle loading investigation.
+**Next:** Debug bubble — IMPLEMENTED (D-163, all 8 phases done on `feature/debug-bubble`, CI green, awaiting device verification). After verification → Rating UI → Continue Watching UI → Subtitle loading investigation.
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -114,11 +114,11 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: debug-bubble planning (Z.ai Code sandbox) — on `feature/debug-bubble` branch.
-- By: main agent (planning + sub-agent review + dashboard).
+- Session: debug-bubble implementation (Z.ai Code sandbox) — on `feature/debug-bubble` branch.
+- By: main agent (implementation + sub-agent reviews + CI verification).
 - Branch: `feature/debug-bubble` (all debug-bubble work here; main untouched). `main` is at 73b16ba (D-161 crash fix).
-- CI: ✅ feature branch builds green (run 31278786368, commit 13ca829, artifact 53 MB). Dashboard deployed from the feature branch (live at /debug-bubble/).
-- Note: D-001..D-162 decisions. Debug bubble plan complete + sub-agent reviewed (D-162) — 5 CRITICAL + 8 IMPORTANT issues caught + fixed. Plan at APP/ani-kuta/DOCUMENTATION/planning/debug-bubble/PLAN.md. Dashboard page live. No app code changed — planning only. Implementation (DB-1..DB-8) awaits user approval.
+- CI: ✅ all 8 phases green on feature/debug-bubble. Final: run 31283553038, commit 477a256, artifact 54 MB.
+- Note: D-001..D-163 decisions. Debug bubble fully implemented (DB-1..DB-8) — 5-tab panel (Current Screen, Database, Console, Network, App Info) + draggable squircle bubble + 4 screen opt-ins (Details, Browse, Watch, Downloads). Debug-only (debugImplementation); release builds have zero debug-bubble code. Awaiting device verification.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 

@@ -487,3 +487,26 @@
 
 ### Status
 - ✅ Planning complete + sub-agent reviewed + dashboard deployed. No app code changed. Implementation (DB-1..DB-8) begins after user reviews + approves the plan.
+
+## Session — Debug Bubble implementation (DB-1..DB-8, feature/debug-bubble branch)
+
+### Branch
+- All work on `feature/debug-bubble` (main untouched).
+
+### Implementation (8 phases, each CI-green)
+- **DB-1:** module scaffold (`:core:debug-api` + `:feature:debug-bubble`) + draggable squircle bubble + AppRoot integration (hoisted DebugContext state + CompositionLocalProvider wrapping nav content + bubble). Sub-agent review caught 3 issues (Compose runtime dep, offset import, initial-position flash) — all fixed.
+- **DB-2:** panel shell (AnimatedVisibility, scrim, expand-direction by bubble position, tab strip) + Current Screen tab (reads LocalDebugContext). Sub-agent review caught 2 issues (status/nav bar insets, drag interception) — both fixed.
+- **DB-3:** Database tab. DebugDatabaseBrowser opens a separate read-only SQLiteDatabase. Table chips + scrollable grid + parameterized search + BLOB handling.
+- **DB-4:** Console tab. DebugLogBuffer (10,000-entry ring buffer) implements LogAppender (moved to :core:common). Logger.setAppender wired in :app/src/debug. Tag/level filters, clear, auto-scroll.
+- **DB-5:** Network tab. DebugNetworkStats OkHttp interceptor (request/byte/error counts, status histogram, recent requests). Wraps both default + download clients via wrapDebugOkHttp.
+- **DB-6:** App Info tab. DebugBuildInfo (BuildConfig values via debug/release source-set Koin modules). Build + project + memory sections. All 5 tabs now live (no placeholders).
+- **DB-7:** Screen opt-ins. Details, Browse, Watch, Downloads provide LocalDebugContext (screenName, screenData, relevantTables). DisposableEffect clears on exit (prevents VM leak).
+- **DB-8:** docs update (this entry + D-163 decision + progress.md).
+
+### CI
+- All 8 phases CI green on feature/debug-bubble. Final: run 31283553038, commit 477a256, artifact 54 MB.
+
+### Status
+- ✅ All 8 phases implemented + CI green. Awaiting device verification.
+- The bubble is visible by default in debug builds (per user). Release builds contain zero debug-bubble code.
+- Future: "Show debug bubble" Settings toggle (deferred — bubble is visible-by-default), automated testing via the bubble (future phase per user).

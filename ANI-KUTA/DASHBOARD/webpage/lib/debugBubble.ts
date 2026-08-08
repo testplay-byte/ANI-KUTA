@@ -7,12 +7,12 @@
  */
 
 export const DEBUG_BUBBLE_HERO = {
-  status: "PLANNING",
-  statusColor: "var(--c-warning, #f59e0b)",
+  status: "IMPLEMENTED",
+  statusColor: "var(--c-success, #22c55e)",
   title: "Debug Bubble",
   subtitle:
-    "A floating, draggable debug overlay on every screen. Tap to expand a panel with database, console-log, network, and screen-specific debug tools. Debug-only, trivially removable, zero impact on app code when off.",
-  meta: "Branch feature/debug-bubble · Planning phase · Sub-agent reviewed (D-162)",
+    "A floating, draggable debug overlay on every screen. Tap to expand a panel with database, console-log, network, and screen-specific debug tools. Debug-only, trivially removable, zero impact on app code when off. All 8 phases implemented (DB-1..DB-8); CI green; awaiting device verification.",
+  meta: "Branch feature/debug-bubble · All 8 phases done (D-163) · CI green · Awaiting device verification",
 };
 
 // ── Goals ─────────────────────────────────────────────────────────────────────

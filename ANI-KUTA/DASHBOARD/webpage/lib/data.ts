@@ -50,7 +50,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
   { label: "Phase D", href: "/phase-d/", icon: "planning", desc: "Data Management & Caching — IMPLEMENTED (local-first storage, smart refresh, image caching)" },
   { label: "Downloads Plan", href: "/downloads-plan/", icon: "planning", desc: "Download system — IMPLEMENTED (all 9 phases D.0–D.8 done + CI GREEN)" },
-  { label: "Debug Bubble", href: "/debug-bubble/", icon: "debug", desc: "Floating debug overlay — PLANNING (sub-agent reviewed D-162, awaiting approval)" },
+  { label: "Debug Bubble", href: "/debug-bubble/", icon: "debug", desc: "Floating debug overlay — IMPLEMENTED (all 8 phases done, D-163, CI green, awaiting device verification)" },
   { label: "Testing", href: "/testing/", icon: "testing", desc: "Device testing checklist, log capture guide, concerns" },
 ];
 
