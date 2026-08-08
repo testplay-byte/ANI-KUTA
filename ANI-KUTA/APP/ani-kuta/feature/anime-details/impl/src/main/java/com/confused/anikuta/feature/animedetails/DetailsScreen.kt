@@ -190,12 +190,16 @@ fun DetailsScreen(
     val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
     val mainId = viewModel.currentMainId
     val debugCtx = remember(state, mainId, resolverState) {
+        val epCount = when (val es = episodeState) {
+            is EpisodeState.Loaded -> es.episodes.size
+            else -> 0
+        }
         com.confused.anikuta.core.debugapi.DebugContext(
             screenName = "Details",
             screenData = buildMap {
                 mainId?.let { put("mainId", it) }
                 put("resolverState", resolverState::class.simpleName ?: "Unknown")
-                put("episodeCount", episodeState.episodes.size.toString())
+                put("episodeCount", epCount.toString())
                 linkedSource?.let { put("sourceId", it.sourceId.toString()); put("sourceName", it.sourceName) }
             },
             relevantTables = mainId?.let {
