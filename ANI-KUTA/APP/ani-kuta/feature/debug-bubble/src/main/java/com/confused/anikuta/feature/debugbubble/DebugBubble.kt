@@ -84,7 +84,7 @@ fun DebugBubble(
         val current = state.offset
         val clamped = clampOffset(current, screenWidthPx, screenHeightPx, bubbleSizePx, statusBarPx, navBarPx)
         if (clamped != current) {
-            state.setOffset(clamped)
+            state.updateOffset(clamped)
         }
     }
 
@@ -112,7 +112,7 @@ fun DebugBubble(
                             state.offset + dragAmount,
                             screenWidthPx, screenHeightPx, bubbleSizePx, statusBarPx, navBarPx,
                         )
-                        state.setOffset(newValue)
+                        state.updateOffset(newValue)
                     }
                 },
         ) {
