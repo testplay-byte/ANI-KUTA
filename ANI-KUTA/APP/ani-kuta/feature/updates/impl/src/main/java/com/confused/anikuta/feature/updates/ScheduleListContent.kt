@@ -57,6 +57,7 @@ fun ScheduleListContent(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val fetching by viewModel.fetching.collectAsStateWithLifecycle()
+    var calendarView by remember { androidx.compose.runtime.mutableStateOf(false) }
     // Tick every second for the live countdown.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -66,7 +67,63 @@ fun ScheduleListContent(
         }
     }
 
-    when (val s = state) {
+    // View toggle: List / Calendar
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        listOf("List" to false, "Calendar" to true).forEach { (label, isCal) ->
+            val isSelected = calendarView == isCal
+            val bgColor by androidx.compose.animation.animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+                else androidx.compose.ui.graphics.Color.Transparent,
+                animationSpec = androidx.compose.animation.core.tween(200),
+                label = "schedView_$isCal",
+            )
+            val textColor by androidx.compose.animation.animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                animationSpec = androidx.compose.animation.core.tween(200),
+                label = "schedText_$isCal",
+            )
+            Surface(
+                color = bgColor,
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f).clickable { calendarView = isCal },
+            ) {
+                Text(
+                    text = label,
+                    color = textColor,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                )
+            }
+            if (!isCal) Spacer(Modifier.width(4.dp))
+        }
+    }
+
+    if (calendarView) {
+        // Calendar view
+        when (val s = state) {
+            is ScheduleUiState.Loading -> {
+                Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            is ScheduleUiState.Loaded -> {
+                val allEntries = s.groups.flatMap { it.entries }
+                ScheduleCalendarContent(
+                    entries = allEntries,
+                    onNavigateToDetails = onNavigateToDetails,
+                )
+            }
+        }
+    } else {
+        // List view (existing)
+        when (val s = state) {
         is ScheduleUiState.Loading -> {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -105,6 +162,7 @@ fun ScheduleListContent(
                 }
             }
         }
+    }
     }
 }
 
