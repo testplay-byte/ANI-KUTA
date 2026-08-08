@@ -154,8 +154,10 @@ writes to a hoisted `MutableState` in `AppRoot`.
 2. **`BuildConfig.DEBUG` runtime gate:** even in debug builds, the bubble only
    renders when `BuildConfig.DEBUG` is true.
 
-3. **Runtime toggle:** a preference (`debug_bubble_visible`, default `false`)
-   controls whether the bubble is shown. Hidden by default in debug builds.
+3. **Runtime toggle:** a preference (`debug_bubble_visible`, default `true`)
+   controls whether the bubble is shown. **Visible by default in debug builds**
+   (per user decision D-163) — the user wants it always-on during the debugging
+   phase. A Settings toggle can disable it when not needed.
 
 **To fully remove the debug bubble (honest edit list — D-162 I8):**
 1. Delete `:feature:debug-bubble/` folder.
@@ -198,15 +200,19 @@ are untouched.
 
 ## 3. The Bubble
 
-### 3.1 Visual
-- 48dp circle, semi-transparent dark surface (`surfaceVariant.copy(alpha=0.9f)`),
-  1dp border, 12dp corner radius (circle).
+### 3.1 Visual (D-163 — squircle, not circle)
+- **Squircle shape** (rounded square / superellipse), not a pure circle. Per
+  user: "a circle and icon" but with a squircle silhouette. Implemented as a
+  `RoundedCornerShape(50%)` on a 48dp box (visual squircle) or a custom
+  `CornerSize` yielding a superellipse-like curve.
+- 48dp size, semi-transparent dark surface (`surfaceVariant.copy(alpha=0.9f)`),
+  1dp border.
 - Contents: a small bug icon (`Icons.Filled.Bug`) centered, tinted with
   `onSurfaceVariant`.
-- Subtle shadow (`Modifier.shadow(4.dp, CircleShape)`) for depth.
+- Subtle shadow (`Modifier.shadow(4.dp, RoundedCornerShape(50%))`) for depth.
 - A long-press on the bubble shows a "Hide bubble" tooltip + a drag handle hint.
 
-### 3.2 Drag mechanics
+### 3.2 Drag mechanics (D-163 — position does NOT persist)
 - Position held in `DebugBubbleState.offset: Offset` (px), backed by
   `Animatable<Offset>` for smooth spring-back if the user flings.
 - `Modifier.pointerInput(Unit) { detectDragGestures(onDrag = { delta ->
@@ -214,10 +220,11 @@ are untouched.
 - **Bounds clamping:** after each drag, clamp X to `[0, screenWidth - 48dp]`
   and Y to `[0, screenHeight - 48dp - statusBarHeight]`. Uses
   `LocalConfiguration.screenWidthDp` + `WindowInsets.statusBars`.
-- **Position persistence:** on drag end (`onDragEnd`), write the offset (as
-  Dp) to `DebugBubblePreferences` (SharedPreferences: `debug_bubble_x`,
-  `debug_bubble_y`). On startup, read the saved position; if absent, default
-  to bottom-end (bottom-right, 16dp inset).
+- **Position does NOT persist (D-163):** per user decision, the bubble returns
+  to its default position (bottom-end, 16dp inset) every time the app is
+  reopened. No SharedPreferences write on drag end. The offset is ephemeral —
+  held in `remember { DebugBubbleState() }`, reset on process restart. This is
+  simpler than persisting + avoids stale positions after rotation/uninstall.
 - **Tap vs drag disambiguation:** `detectDragGestures` provides `onDragStart`
   — if the total drag distance is < 8px, treat it as a tap (expand/collapse
   the panel). Implemented by tracking a `dragged` flag in `onDragStart` +
@@ -232,18 +239,26 @@ are untouched.
 
 ## 4. The Panel
 
-### 4.1 Expand-direction detection
-When `state.expanded` becomes true:
-1. Read the bubble's current X position (px).
-2. Read screen width (px).
-3. If `bubbleX < screenWidth / 2` → expand panel to the **RIGHT** of the bubble.
-4. Else → expand panel to the **LEFT**.
-5. Panel width = `min(360.dp, availableSpace - 8.dp)` where `availableSpace` is
-   the distance from the bubble to the screen edge on the chosen side. This
-   ensures the panel never overflows.
+### 4.1 Expand-direction detection (D-163 — direction by bubble position)
+When `state.expanded` becomes true, the panel expands toward the side with more
+space, AND vertically away from the nearest edge — so it's always fully visible:
 
-The panel is anchored to the bubble's Y position (top-aligned with the bubble,
-extending downward, clamped to screen height).
+1. Read the bubble's current X + Y position (px) + screen width/height (px).
+2. **Horizontal:** if `bubbleX < screenWidth / 2` → panel opens to the **RIGHT**
+   of the bubble; else → **LEFT**. The panel's horizontal anchor is the bubble's
+   edge on the chosen side.
+3. **Vertical:** if `bubbleY < screenHeight / 2` → panel extends **DOWNWARD**
+   from the bubble's Y; else → **UPWARD** (anchored at the bubble's Y, extending
+   up). This handles the user's spec: "if the bubble is at the top then it
+   expands downwards; if at the bottom then upwards."
+4. **Panel width (D-163):** based on the actual device width — the panel takes
+   up most of the display width with a little padding on left/right. Width =
+   `screenWidth - 2 * horizontalPadding` where `horizontalPadding = 12dp` (the
+   panel hugs the screen edges with a small margin). Capped at the available
+   space on the chosen side (if the bubble is far to one side, the panel may
+   be narrower to fit).
+5. The panel is always fully on-screen (clamped). If the bubble is centered,
+   the panel opens right + downward by default.
 
 ### 4.2 Layout
 ```
@@ -261,11 +276,16 @@ extending downward, clamped to screen height).
 └─────────────────────────────────┘
 ```
 
-- Panel max height: `80% of screen height`.
+- Panel max height: `75% of screen height` (D-163 — user preferred 75% over 80%).
 - Panel surface: `surface.copy(alpha=0.95f)` with `backdropBlur` if available
   (RenderEffect, API 31+; falls back to solid surface on lower APIs).
 - Close button (✕) collapses the panel.
-- Each tab has its own Refresh button (data isn't auto-polled).
+- Each tab has its own Refresh button (data fetched when the panel/tab opens —
+  D-163: "data should be fetched when the menu is opened").
+- **Tabs are flexible (D-163):** the 5 default tabs are the baseline, but the
+  tab set can vary per screen (a screen's `DebugContext` can declare additional
+  screen-specific tabs or hide irrelevant ones). Adding/removing tabs later is
+  a low-cost change.
 
 ### 4.3 Tabs
 
@@ -459,7 +479,7 @@ object Logger {
 
 ```kotlin
 // :feature:debug-bubble — DebugLogBuffer.kt
-class DebugLogBuffer(private val capacity: Int = 1000) : LogAppender {
+class DebugLogBuffer(private val capacity: Int = 10000) : LogAppender {
     private val deque = ArrayDeque<LogEntry>()
     private val lock = Any()
 
@@ -479,7 +499,7 @@ class DebugLogBuffer(private val capacity: Int = 1000) : LogAppender {
 }
 ```
 
-- Capacity 1000 entries. Throwable stored as a capped (2KB) string (M2) —
+- Capacity 10,000 entries (D-163 — user-specified). Throwable stored as a capped (2KB) string (M2) —
   prevents a single error with a huge stack trace from blowing the buffer.
 - `appender` is `@Volatile` + null by default — zero overhead in release builds.
 - Wiring in `:app/src/debug/java/…/DebugInit.kt` (debug source set only):
@@ -594,38 +614,48 @@ shippable (the bubble works end-to-end after DB-1; later phases add tabs).
 
 ---
 
-## 9. Open Questions / Design Decisions (for user review)
+## 9. Design Decisions — RESOLVED (D-163, user review)
 
-1. **Debug builds only?** — I've planned `debugImplementation` (release builds
-   have no bubble). If you want it in release builds too (hidden by default),
-   that's a small change (swap `debugImplementation` → `implementation`). I
-   recommend debug-only for now.
+All open questions answered by the user. Decisions locked in:
 
-2. **DB browser read-only?** — I've planned read-only this phase. If you want
-   write capability (insert/update/delete rows), that's a "danger zone" toggle
-   I can add. I recommend read-only for now — mutations via the app's proper
-   flows are safer.
+1. **Debug builds only?** → ✅ **Yes, debug-only** (`debugImplementation`).
+   Release builds will not contain the bubble. When the user is ready to ship a
+   release, the bubble is removed via the edit list in §2.4.
 
-3. **Log buffer size?** — I've planned 1000 entries (~200KB). If you want more
-   (e.g., 5000), it's a one-line change. 1000 should cover a typical session.
+2. **DB browser read-only?** → ✅ **Read-only.** No manual writes. When data
+   changes (via the app's normal flows), the user sees a toast/snackbar about it;
+   they cannot mutate rows from the bubble. (Future "danger zone" write toggle
+   is explicitly deferred.)
 
-4. **Default visibility?** — I've planned the bubble **hidden by default** in
-   debug builds (toggled on via a setting or a long-press on the app version
-   in Settings). If you want it visible by default in debug builds, that's a
-   one-line default flip. I recommend hidden-by-default so it never gets in
-   the way.
+3. **Log buffer size?** → ✅ **10,000 entries** (not 1000). Per user. At ~200
+   bytes/entry average → ~2MB max RAM. Acceptable for a debug tool.
 
-5. **How to toggle the bubble on?** — Options: (a) a Settings toggle, (b) a
-   long-press on the app version in Settings (easter-egg style), (c) a
-   developer-options screen unlocked by tapping the version 7 times. I lean
-   toward (a) — a simple "Show debug bubble" toggle in Settings → General
-   (debug builds only). Let me know your preference.
+4. **Default visibility?** → ✅ **Visible by default** in debug builds. The user
+   wants it always-on during the debugging phase. A Settings toggle can disable
+   it when not needed, but the default is ON.
 
-6. **Screen opt-in scope?** — I've planned opt-in per screen via
-   `LocalDebugContext`. Initially only Details + Browse + Watch + Downloads
-   would provide context. Other screens show the generic tabs. Is that the
-   right initial scope, or do you want every screen to provide context from
-   day one?
+5. **How to toggle?** → ✅ **Settings toggle** ("Show debug bubble" in Settings →
+   General, debug builds only), default ON.
+
+6. **Screen opt-in scope?** → ✅ **Details, Browse, Watch, Downloads** provide
+   `LocalDebugContext` initially (DB-7). Other screens show the generic tabs.
+   More screens can opt in over time.
+
+### Additional user decisions (D-163)
+- **Position does NOT persist** — the bubble returns to its default (bottom-end)
+  every time the app is reopened. See §3.2.
+- **Squircle shape** (not a pure circle) for the bubble. See §3.1.
+- **Panel width:** based on actual device width, takes up most of the display
+  with a little padding on left/right (12dp). See §4.1.
+- **Panel max height: 75%** of screen height (not 80%). See §4.2.
+- **Expand direction by bubble position:** top→down, bottom→up, left→right,
+  right→left. Always fully visible. See §4.1.
+- **Tabs are flexible** — the 5 default tabs are the baseline; per-screen tabs
+  can vary. Adding/removing tabs later is low-cost. See §4.2.
+- **Data fetched when the panel opens** (not auto-polled). See §4.2.
+- **Future: automated testing** — the bubble may eventually have a "testing"
+  option that auto-tests the app and produces a report (download/share). Not
+  this phase — kept in mind for the future.
 
 ---
 

@@ -118,6 +118,10 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 dataCacheModule,
                 appModule,
             )
+            // Debug-only Koin modules (debug-bubble, etc.). No-op in release
+            // builds — debugKoinModules() returns emptyList() there.
+            // (Phase DB-1 — D-163.)
+            modules(debugKoinModules())
         }
 
         // Seed lookup tables + Default library category (idempotent — INSERT OR IGNORE).

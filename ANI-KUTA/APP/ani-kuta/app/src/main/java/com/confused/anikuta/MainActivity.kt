@@ -206,7 +206,18 @@ fun AppRoot() {
         pop()
     }
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalLibrarySelectionMode provides librarySelectionMode) {
+    // D-163 (DB-1): hoisted debug-context state. Screens write via
+    // LocalDebugContextUpdater; the debug bubble reads via LocalDebugContext.
+    // The provider wraps BOTH the nav content AND the bubble (DebugBubbleHost)
+    // so the bubble — a sibling of the nav content in this Box — is inside the
+    // provider's subtree and can read the context (D-162 C1 fix).
+    var debugContext by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.core.debugapi.DebugContext?>(null) }
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalLibrarySelectionMode provides librarySelectionMode,
+        com.confused.anikuta.core.debugapi.LocalDebugContext provides debugContext,
+        com.confused.anikuta.core.debugapi.LocalDebugContextUpdater provides { ctx -> debugContext = ctx },
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -603,6 +614,11 @@ fun AppRoot() {
                 selectionModeContent = selectionContent,
             )
         }
+
+        // D-163 (DB-1): the debug bubble — renders on top of every screen.
+        // DebugBubbleHost is a no-op in release builds (release source set).
+        // In debug builds it renders the draggable squircle bubble.
+        DebugBubbleHost()
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }

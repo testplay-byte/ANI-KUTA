@@ -47,6 +47,7 @@ include(":core:updates")
 include(":core:schedule")
 include(":core:ratings")
 include(":core:notifications")
+include(":core:debug-api")
 
 // ── :data ──
 include(":data:extension")
@@ -69,3 +70,4 @@ include(":feature:anime-history:api")
 include(":feature:anime-history:impl")
 include(":feature:updates:api")
 include(":feature:updates:impl")
+include(":feature:debug-bubble")
