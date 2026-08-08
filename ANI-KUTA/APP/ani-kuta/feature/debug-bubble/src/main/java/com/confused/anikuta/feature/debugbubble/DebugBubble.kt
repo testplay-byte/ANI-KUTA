@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.changedToUp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -141,7 +140,7 @@ fun DebugBubble(
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Main)
                             val change = event.changes.firstOrNull() ?: break
-                            if (change.changedToUp()) {
+                            if (!change.pressed) {
                                 // Pointer released.
                                 change.consume()
                                 pressed = false
