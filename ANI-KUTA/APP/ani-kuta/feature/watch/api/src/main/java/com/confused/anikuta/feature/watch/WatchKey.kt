@@ -46,6 +46,18 @@ data class WatchKey(
      *  VideoResolver.resolve() for the new episode. */
     val sourceId: Long = 0L,
 
+    /**
+     * The content's stable `main_id` (UUID from `:core:content`).
+     *
+     * Phase WP (episode_key standardization): used to build the standardized
+     * `episode_key` = `"${mainId}|${padded_5_digit}"` for `WatchProgressStore`
+     * saves. This format is STABLE across extension reinstalls + source URL
+     * changes + backup/restore (unlike the old `"$sourceId|$epUrl"` format
+     * which broke when sourceId changed). Empty string = fallback (the old
+     * format is used temporarily if mainId isn't available — logged WARN).
+     */
+    val mainId: String = "",
+
     /** Serialized subtitle tracks for external subtitle loading via MPV's sub-add.
      *  Format: "url\u001Flang" per line, separated by newlines.
      *  Populated from the picked video's `subtitleTracks` — the extension provides

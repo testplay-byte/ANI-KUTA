@@ -1,22 +1,19 @@
 # Plan — Watch Progress, History, Updates, Schedule, Tracking
 
 > **Branch:** `feature/watch-progress-history-updates` (created from `main` at `167f3fd`).
-> **Status:** DRAFT (iteration 3 — post-review-2 fixes).
+> **Status:** DRAFT (iteration 4 — user decisions integrated + new requirements).
 > **Scope:** A big multi-feature plan. The user wants thorough planning + sub-agent review (3-4 iterations) before any implementation. **This document is the plan, NOT the implementation.**
 >
-> **Iteration 3 changes (from PLAN-REVIEW-2):**
-> - 🚨 BLOCKER fixed: `episode_key` format standardization (new §1.9) — the codebase has 4 different formats; standardize on `${mainId}|${padded_5_digit}` for `watch_progress` (stable for backup). Spec the WatchScreen migration. This is a prerequisite for Phase WP.
-> - CF1 state-diagram vs prose inconsistency fixed: SUPPRESSED states now consistently have `completed=0` in BOTH the diagram + the prose. This also fixes the UX bug (un-mark + replay now requires re-crossing 85% — `completed=0` means `isWatched=false` until the user watches past 85% again).
-> - CF5 race condition fixed: details-page hook uses `INSERT OR REPLACE` (overwrites the worker's `acknowledged=0` with `acknowledged=1` if both fire).
-> - CF6 WorkManager prerequisite: new §4.3.1 "WorkManager infrastructure setup" — add the dep, disable default initializer, implement `Configuration.Provider`, custom `WorkerFactory`.
-> - CF6 one-shot uniqueness: spec'd — unique name `notify_after_airing_${mainId}_${episodeNumber}` + `ExistingWorkPolicy.KEEP`.
-> - §1.1 code block fixed: replaced the misleading `ALTER TABLE` statements with the EDITED `CREATE TABLE watch_progress` (11 columns inline) — SQLDelight `.sq` files need the CREATE TABLE edited, not ALTER statements.
-> - M6 (behind-on-episodes indicator): explicitly deferred to a later phase.
-> - M5 (suppress already-watched): now checks the derived `isWatched` (not just `completed`), covering `user_marked_watched=1` with `completed=0`.
-> - Added `idx_episode_update_main_id` index (for CASCADE-delete perf + per-anime queries).
-> - Resolved Q4 (backoff_step): committed to persisting it (a column on `anime_update_state`).
-> - Resolved Q7 (calendar first-day-of-week): default to `WeekFields.of(Locale).firstDayOfWeek` (modern Android default).
-> - New §13 "Module wiring checklist" — Koin DI modules, settings.gradle.kts includes, NavKey definitions + MainActivity dispatch.
+> **Iteration 4 changes (user decisions + new requirements):**
+> - Q1 resolved: Updates stays under **More** (NOT promoted to bottom-nav).
+> - Q2 resolved: auto-mark threshold is **user-configurable** (default 85%, in Settings) — NOT hardcoded. Added a `WatchPreferences` field + Settings UI.
+> - Q3 resolved: calendar limits are **fixed** (1 month back + 1 year forward) — NOT configurable.
+> - Q4 resolved: **Continue Watching — logic only for now** (the query + derived view + the `getContinueWatching` store method). UI placement deferred to a later decision. Added Phase CW (logic-only).
+> - Q5 resolved: **full-fledged notification system** — per-content + per-episode + sub/dub config, 3 trigger types (on-schedule-arrival, on-watchable, on-immediate-release), settings UI. Added Phase NOTIF + §14 (notification system design, sub-agent-designed).
+> - **NEW: per-episode ratings.** The user wants to rate individual episodes AND whole content. Added a `user_episode_rating` table (separate from `user_rating`). Phase TR extended.
+> - **NEW: "Lego" architecture emphasis.** All systems built as independent, swappable modules. UI strictly separate from logic. Each section improvable without affecting others. Documented as a guiding principle (§0.1).
+> - **NEW: highly-detailed internal tracking.** The `activity_event` system must be rich enough to feed any external system + future statistics. Per-episode ratings feed into it.
+> - **Implementation cadence:** one phase at a time, verify CI green after each (read GitHub check-runs), sub-agent review per phase, fix errors from the beginning.
 > - CF1: replaced broken `manually_marked` single-flag with two columns (`auto_mark_suppressed` + `user_marked_watched`) + corrected `isWatched` derivation.
 > - CF2: added §1.8 migration mechanics (edit `.sq` for codegen + idempotent `ALTER TABLE` in `DatabaseDriverFactory.onOpen` for existing installs).
 > - CF3: added `FOREIGN KEY ... ON DELETE CASCADE` to all new tables + missing indexes (`watch_progress(main_id)`, `anime_update_state(status)`, etc.).
@@ -68,6 +65,18 @@ Five interconnected features, all sharing a centralized tracking + DB layer:
 **What this plan covers:** DB schema, module structure, the logic for each feature, the UI specs (taking inspiration from the old project), the smart engines (update detection, schedule actual-release), console logging, backup-friendliness, and the implementation phases.
 
 **What this plan does NOT cover (deferred):** full-fledged statistics UI, full backup/restore UI (only the schema is designed to be backup-friendly), MAL/TMDB trackers (AniList only for now), the "self-improving actual-release detection" ML stuff (basic heuristic for now).
+
+### 0.1 Guiding architecture principle — "Lego" modularity (user directive)
+
+The user explicitly wants a **Lego-style architecture**: independent, swappable modules joined together. Concretely:
+
+1. **Each system is its own `:core:*` module** — watch-progress, updates, schedule, ratings, notifications, activity-tracker. Each owns its tables + logic + Koin module. A module can be improved/replaced without touching the others.
+2. **UI is strictly separate from logic** (CORE_RULES §7). `:feature:*:impl` modules render state + dispatch user actions; they do NOT contain business logic. ViewModels call `:core:*` stores/repositories; the stores do the work. A UI module can be rewritten without touching the logic module.
+3. **Defined contracts (interfaces) between modules.** `WatchProgressStore`, `UpdateEngine`, `ScheduleRepository`, `RatingStore`, `NotificationManager` are interfaces. The impls can be swapped (e.g. SQLDelight → something else later) without breaking consumers.
+4. **Non-overlapping table ownership.** Each `:core:*` module owns specific tables + specific columns on shared tables (see §13.6). No two modules write the same column → no write conflicts → modules can evolve independently.
+5. **Each module is independently testable + reviewable.** Sub-agent code review happens per-phase, per-module.
+
+This principle is enforced throughout the plan. If a design choice would couple two modules, it's rejected.
 
 ---
 
@@ -234,7 +243,27 @@ CREATE TABLE IF NOT EXISTS user_rating (
 );
 ```
 
-The user mentioned tracking ratings. This is a simple per-anime rating. (Per-episode ratings deferred — YAGNI for now.)
+The user mentioned tracking ratings. This is a per-anime rating (the whole content). Per-episode ratings are in §1.10.
+
+### 1.10 `user_episode_rating` (NEW — iteration 4: per-episode ratings, user-requested)
+
+The user wants to rate **individual episodes** alongside the whole content. This is a separate table from `user_rating` (§1.6) — per-episode, keyed by `main_id` + `episode_key`.
+
+```sql
+CREATE TABLE IF NOT EXISTS user_episode_rating (
+    main_id TEXT NOT NULL,               -- FK → content(main_id)
+    episode_key TEXT NOT NULL,           -- the standardized episode key (${mainId}|${padded_5_digit})
+    rating INTEGER NOT NULL,             -- 0-100 (AniList-native; displayed as 0-10 with one decimal — same scale as user_rating)
+    rated_at INTEGER NOT NULL,
+    PRIMARY KEY (main_id, episode_key),
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE  -- CF3
+);
+CREATE INDEX IF NOT EXISTS idx_episode_rating_main ON user_episode_rating(main_id);
+```
+
+**Why a separate table?** Per-anime (`user_rating`) + per-episode (`user_episode_rating`) have different cardinalities (1 per anime vs N per anime) + different query patterns. Keeping them separate is cleaner than one table with a nullable `episode_key`. Both feed into the `activity_event` log (RATING_SET, EPISODE_RATING_SET) for future statistics.
+
+**Note on `episode_key`:** uses the standardized `${mainId}|${padded_5_digit}` format (§1.9) — stable for backup/restore. Does NOT include `audio_variant` (sub + dub of the same episode share the rating — defensible default; if the user wants separate sub/dub ratings later, add an `audio_variant` column).
 
 ### 1.7 Schema summary
 
@@ -721,27 +750,39 @@ The features have dependencies. Suggested order (IM14: SC split into SC-1 indepe
 1. Wire the UpdateEngine's episode-find (§4.3 step 7, IM11) to set `episode_schedule.actual_at`.
 2. Schedule UI shows `actual_at` when available, else `scheduled_at`.
 
-**Phase TR (Tracking) — mostly done, small additions:**
-1. `user_rating` schema + `RatingStore` (§1.6, §6.2).
-2. (IM2: no facade. Backup enumerates tables directly — deferred to Phase 6.)
+**Phase TR (Tracking) — mostly done, additions (iteration 4: per-episode ratings):**
+1. `user_rating` schema (per-anime) + `RatingStore` (§1.6, §6.2).
+2. `user_episode_rating` schema (per-episode, NEW iteration 4) + `EpisodeRatingStore` (§1.10).
+3. `:core:ratings` module hosts BOTH stores (or split into `:core:ratings` + `:core:episode-ratings` if they diverge — start unified).
+4. (IM2: no facade. Backup enumerates tables directly — deferred to Phase 6.)
+
+**Phase NOTIF (Notification system — NEW iteration 4, after UP + SC):**
+1. `:core:notifications` module — `NotificationConfigStore`, `NotificationManager`, `NotificationWorker`.
+2. `notification_config` schema (§14 — sub-agent-designed).
+3. Settings UI for per-content/per-episode/sub/dub config + 3 trigger types.
+4. Wire to `UpdateEngine` (on-new-episode) + `ScheduleEngine` (on-schedule-arrival).
+
+**Phase CW (Continue Watching — logic only, iteration 4):**
+1. `getContinueWatching(limit)` query in `watch.sq` (§1.1).
+2. `observeContinueWatching(limit): Flow<List<WatchProgress>>` in `WatchProgressStore`.
+3. (UI placement deferred — the user will decide later where this appears.)
 
 **Phase INT (Integration + More screen wiring):**
-1. Wire More screen: History row → `HistoryKey`, Updates row → `UpdatesKey` (which hosts both Updates + Schedule tabs).
-2. Bottom-nav: consider promoting Updates to a top-level tab (UX decision — Q1 for user).
-3. Console-logging audit (all new code uses the right tags).
-4. S6: library-change hooks (insert/delete `anime_update_state` rows on library add/remove).
+1. Wire More screen: History row → `HistoryKey`, Updates row → `UpdatesKey` (which hosts both Updates + Schedule tabs). (Q1 resolved: Updates stays under More — NOT promoted to bottom-nav.)
+2. Console-logging audit (all new code uses the right tags).
+3. S6: library-change hooks (insert/delete `anime_update_state` rows on library add/remove).
 
 ---
 
-## 9. Open questions for the user
+## 9. Open questions for the user — ALL RESOLVED (iteration 4)
 
-*(Iteration 3: resolved Q4 — `backoff_step` is persisted (a column on `anime_update_state`). Resolved Q7 — calendar first-day-of-week defaults to `WeekFields.of(Locale).firstDayOfWeek`. The following 5 remain — genuine UX calls.)*
+*(All 5 questions answered by the user. Documented here for the record.)*
 
-1. **Bottom-nav promotion:** should Updates be a top-level bottom-nav tab (like Browse/Library/Search/More), or stay under More? The old project had it under More. The new project's More currently has History + Updates stubs. Promoting Updates to top-level is a UX call.
-2. **Auto-mark threshold configurability:** 85% is the default (per your spec). Should it be user-configurable in Settings, or hardcoded for now? (Plan defaults to hardcoded; defer the setting.)
-3. **Schedule calendar back-limit configurability:** 1 month back + 1 year forward (per your spec). Should the back-limit be configurable (some users want to see history further back), or fixed?
-4. **Continue Watching placement:** the `getContinueWatching` query is spec'd (§1.1). Where should it appear in the UI — the Library screen top rail (like the old project), the Browse screen, or a new Home screen? (The old project had it on Library.)
-5. **Updates notification:** when the worker finds new episodes, should it post a system notification (in addition to updating the in-app feed)? The old project didn't. Defer or include in v1?
+1. **Bottom-nav promotion:** ✅ **RESOLVED** — Updates stays under **More** (NOT promoted to bottom-nav). Matches the old project.
+2. **Auto-mark threshold configurability:** ✅ **RESOLVED** — **user-configurable** (default 85%, in Settings). NOT hardcoded. Added a `WatchPreferences` field + a Settings UI slider (50%-95%). The `SqlDelightWatchProgressStore.save()` reads the threshold from preferences at save time.
+3. **Schedule calendar back-limit configurability:** ✅ **RESOLVED** — **fixed** (1 month back + 1 year forward). NOT configurable.
+4. **Continue Watching placement:** ✅ **RESOLVED** — **logic only for now** (the query + store method). UI placement deferred to a later decision. Added Phase CW (logic-only).
+5. **Updates system notification:** ✅ **RESOLVED** — **yes, a full-fledged notification system**. Per-content + per-episode + sub/dub config, 3 trigger types (on-schedule-arrival, on-watchable, on-immediate-release). Added Phase NOTIF + §14 (sub-agent-designed).
 
 ---
 
@@ -826,6 +867,30 @@ include(":feature:updates:impl")
 - Disable default `WorkManagerInitializer` in manifest.
 - Register the periodic `UpdateCheckWorker` in `AnikutaApp.onCreate()`.
 
+### 13.8 New modules added in iteration 4
+- `:core:notifications` (Phase NOTIF) — `NotificationConfigStore`, `NotificationManager`, `NotificationWorker`.
+- `:core:ratings` hosts both `RatingStore` (per-anime) + `EpisodeRatingStore` (per-episode).
+- (No new feature modules for NOTIF — the settings UI lives in the existing `:feature:extensions-settings` or a new `:feature:settings` — decide in Phase NOTIF.)
+
 ---
 
-*This is iteration 3 of the plan (post-review-2 fixes). Ready to present to the user with the 5 open questions (§9).*
+## 14. Notification system design (Phase NOTIF — sub-agent-designed, pending)
+
+> **Status:** PENDING — a sub-agent is designing this section in parallel. The user's requirements:
+> - Per-content config (notify for anime X, not for anime Y).
+> - Per-episode config (notify for EP 5 of anime X specifically).
+> - Sub/dub config (notify for sub releases, dub releases, or both — per content).
+> - 3 trigger types:
+>   1. **On schedule arrival** — notify when the AniList airing time is reached (the episode is scheduled).
+>   2. **On watchable** — notify when the episode is actually available on a source (UpdateEngine found it).
+>   3. **On immediate release** — notify immediately when the release schedule is reached (same as #1? or a distinct "don't wait for watchable" mode?).
+> - Global settings (master toggle, quiet hours, etc.).
+> - The system must be modular + customizable + future-proof.
+>
+> The sub-agent will design: the `notification_config` schema, the `NotificationConfigStore` interface, the `NotificationManager` (posts system notifications), the trigger wiring (how UpdateEngine + ScheduleEngine call it), the settings UI structure, + the interaction with the existing `DownloadNotificationManager` (2 channels — do we add more?).
+>
+> **This section will be filled in by the sub-agent's design + integrated before Phase NOTIF implementation begins.** Phases WP/HI/UP/SC-1/SC-2/TR can proceed in the meantime (NOTIF depends on UP + SC).
+
+---
+
+*This is iteration 4 of the plan (user decisions + new requirements integrated). All 5 open questions resolved. Implementation begins — Phase WP first. The notification system (§14) is being designed by a sub-agent in parallel.*

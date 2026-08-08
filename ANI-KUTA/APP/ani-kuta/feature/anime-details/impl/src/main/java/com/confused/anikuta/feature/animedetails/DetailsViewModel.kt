@@ -1523,7 +1523,7 @@ class DetailsViewModel(
                     // Also restore episode metadata map.
                     val metadataMap = cachedEpisodes.associate { meta ->
                         meta.episodeNumber.toInt() to com.confused.anikuta.core.metadata.EpisodeMetadata(
-                            episodeKey = mainId + ":" + meta.episodeNumber.toInt(),
+                            episodeKey = mainId + "|" + String.format("%05d", meta.episodeNumber.toInt()),
                             number = meta.episodeNumber.toDouble(),
                             title = meta.title,
                             thumbnailUrl = meta.thumbnailUrl,

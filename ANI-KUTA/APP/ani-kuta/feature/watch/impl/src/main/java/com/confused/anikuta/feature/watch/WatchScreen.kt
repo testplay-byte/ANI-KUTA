@@ -358,7 +358,7 @@ fun WatchScreen(
             val dur = stateHolder.duration.value
             val epUrl = stateHolder.currentEpisodeUrl.value
             if (dur > 0 && epUrl.isNotBlank()) {
-                val epKey = "${watchKey.sourceId}|$epUrl"
+                val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                 val progress = WatchProgress(
                     episodeKey = epKey,
                     position = pos.toLong(),
@@ -571,7 +571,7 @@ fun WatchScreen(
             val dur = stateHolder.duration.value
             val epUrl = stateHolder.currentEpisodeUrl.value
             if (dur > 0 && epUrl.isNotBlank()) {
-                val epKey = "${watchKey.sourceId}|$epUrl"
+                val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                 val progress = WatchProgress(
                     episodeKey = epKey,
                     position = pos.toLong(),
@@ -1832,5 +1832,35 @@ private fun formatDate(epochMillis: Long): String {
     if (epochMillis <= 0) return ""
     val sdf = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
     return sdf.format(java.util.Date(epochMillis))
+}
+
+/**
+ * Builds the standardized `episode_key` for `WatchProgressStore` saves.
+ *
+ * Phase WP (episode_key standardization — PLAN §1.9): the standard format is
+ * `"${mainId}|${padded_5_digit}"` where `mainId` is the content's stable UUID
+ * (from `:core:content`) + `padded_5_digit` is the zero-padded episode number.
+ * This format is STABLE across extension reinstalls, source URL changes, AND
+ * backup/restore — unlike the old `"$sourceId|$epUrl"` format which broke when
+ * `sourceId` changed.
+ *
+ * Fallback: if `mainId` is blank (shouldn't happen — WatchKey is constructed
+ * with it), falls back to the old `"$sourceId|$epUrl"`-style key using the
+ * episode number instead of the URL (best-effort — logged WARN so the gap is
+ * visible). This is a safety net, not the intended path.
+ *
+ * @param mainId The content's stable `main_id` (UUID).
+ * @param episodeNumber The current episode number (from `PlayerStateHolder`).
+ */
+private fun buildEpisodeKey(mainId: String, episodeNumber: Float): String {
+    if (mainId.isBlank()) {
+        com.confused.anikuta.core.common.Logger.w("Anikuta:Feature:Watch") {
+            "buildEpisodeKey — mainId is blank; falling back to non-standard key. " +
+                "WatchKey should be constructed with mainId. (episodeNumber=$episodeNumber)"
+        }
+        // Best-effort fallback (NOT the standard format — won't be backup-stable).
+        return "unknown|${String.format("%05d", episodeNumber.toInt())}"
+    }
+    return "$mainId|${String.format("%05d", episodeNumber.toInt())}"
 }
 

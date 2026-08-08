@@ -104,7 +104,7 @@ import org.koin.compose.koinInject
 fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
-    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String) -> Unit = { _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
@@ -423,6 +423,7 @@ fun DetailsScreen(
                                                     "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
                                                 }
                                                 onNavigateToWatch(
+                                                    mainId ?: "",
                                                     localUri,
                                                     anime?.displayName ?: "Downloaded",
                                                     "Downloaded",
@@ -628,6 +629,7 @@ fun DetailsScreen(
                         "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
                     }
                     onNavigateToWatch(
+                        viewModel.currentMainId ?: "",
                         video.url,
                         anime.displayName,
                         video.quality,

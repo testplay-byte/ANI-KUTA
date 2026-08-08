@@ -214,8 +214,8 @@ fun AppRoot() {
                     is AnimeDetailsKey.AniList -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
@@ -240,8 +240,8 @@ fun AppRoot() {
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
@@ -398,6 +398,7 @@ fun AppRoot() {
                                 videoHeaders = "",
                                 resolvedVideosKey = "",
                                 sourceId = sourceId,
+                                mainId = mainId,
                                 subtitleTracksSerialized = subtitleTracksStr,
                                 audioTracksSerialized = "",
                                 episodeMetadataSerialized = epMetaStr,
