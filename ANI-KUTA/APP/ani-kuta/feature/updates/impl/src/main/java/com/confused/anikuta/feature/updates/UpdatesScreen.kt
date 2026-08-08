@@ -127,65 +127,66 @@ fun UpdatesScreen(
             if (selectedTab == 0) {
                 when (val s = state) {
                     is UpdatesUiState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                is UpdatesUiState.Loaded -> {
-                    if (s.newUpdates.isEmpty() && s.earlierUpdates.isEmpty()) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "No new episodes",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    text = "Check for updates or wait for new releases.",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    } else {
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            if (s.newUpdates.isNotEmpty()) {
-                                item(key = "header_new") { UpdatesSectionHeader("New") }
-                                items(s.newUpdates, key = { "new_${it.mainId}_${it.episodeNumber}" }) { update ->
-                                    UpdateRow(
-                                        update = update,
-                                        onClick = {
-                                            viewModel.acknowledgeUpdates(update.mainId)
-                                            onNavigateToDetails(update.mainId)
-                                        },
+                    }
+                    is UpdatesUiState.Loaded -> {
+                        if (s.newUpdates.isEmpty() && s.earlierUpdates.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "No new episodes",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = "Check for updates or wait for new releases.",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             }
-                            if (s.earlierUpdates.isNotEmpty()) {
-                                item(key = "header_earlier") { UpdatesSectionHeader("Earlier") }
-                                items(s.earlierUpdates, key = { "earlier_${it.mainId}_${it.episodeNumber}" }) { update ->
-                                    UpdateRow(
-                                        update = update,
-                                        onClick = {
-                                            viewModel.acknowledgeUpdates(update.mainId)
-                                            onNavigateToDetails(update.mainId)
-                                        },
-                                    )
+                        } else {
+                            LazyColumn(
+                                state = listState,
+                                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                if (s.newUpdates.isNotEmpty()) {
+                                    item(key = "header_new") { UpdatesSectionHeader("New") }
+                                    items(s.newUpdates, key = { "new_${it.mainId}_${it.episodeNumber}" }) { update ->
+                                        UpdateRow(
+                                            update = update,
+                                            onClick = {
+                                                viewModel.acknowledgeUpdates(update.mainId)
+                                                onNavigateToDetails(update.mainId)
+                                            },
+                                        )
+                                    }
+                                }
+                                if (s.earlierUpdates.isNotEmpty()) {
+                                    item(key = "header_earlier") { UpdatesSectionHeader("Earlier") }
+                                    items(s.earlierUpdates, key = { "earlier_${it.mainId}_${it.episodeNumber}" }) { update ->
+                                        UpdateRow(
+                                            update = update,
+                                            onClick = {
+                                                viewModel.acknowledgeUpdates(update.mainId)
+                                                onNavigateToDetails(update.mainId)
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
