@@ -87,6 +87,10 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    // DocumentFile — used by scanSubtitleFilesOnDisk (SAF subtitle scan in :app).
+    // :core:download declares this as `implementation` so it isn't transitively
+    // visible here; :app references DocumentFile directly, so it needs its own dep.
+    implementation(libs.androidx.documentfile)
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))
