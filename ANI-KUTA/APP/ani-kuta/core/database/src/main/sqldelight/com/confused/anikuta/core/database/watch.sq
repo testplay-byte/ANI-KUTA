@@ -1,23 +1,40 @@
 -- Watch progress table
 -- Per APP/ani-kuta/DOCUMENTATION/database/watch.md
 -- Separate from activity_event for O(1) "Continue Watching" queries.
+--
+-- Phase WP (PLAN §1.1): extended with main_id (FK → content, for JOINs + backup),
+-- watch_count, first_watched_at, auto_mark_suppressed (CF1: user un-marked →
+-- suppress 85% auto-mark), user_marked_watched (CF1: user explicitly marked).
+-- The old 6 columns + 5 new = 11 total. Migration via DatabaseDriverFactory.onOpen.
 
 CREATE TABLE IF NOT EXISTS watch_progress (
     episode_key TEXT NOT NULL PRIMARY KEY,
-    position INTEGER NOT NULL,
-    duration INTEGER NOT NULL,
+    position INTEGER NOT NULL,                              -- seconds
+    duration INTEGER NOT NULL,                              -- seconds
     completed INTEGER NOT NULL DEFAULT 0,
     completed_at INTEGER,
-    last_watched_at INTEGER NOT NULL
+    last_watched_at INTEGER NOT NULL,
+    -- Phase WP new columns: --
+    main_id TEXT,                                           -- FK → content(main_id), for JOINs + backup (app-level enforced for existing installs; FK in CREATE TABLE for fresh)
+    watch_count INTEGER NOT NULL DEFAULT 0,                 -- incremented each completed watch
+    first_watched_at INTEGER,                               -- the first time the user watched this episode
+    auto_mark_suppressed INTEGER NOT NULL DEFAULT 0,        -- CF1: user manually un-marked → suppress auto-mark until next play
+    user_marked_watched INTEGER NOT NULL DEFAULT 0          -- CF1: user explicitly marked watched (sticky)
 );
 
 CREATE INDEX IF NOT EXISTS idx_watch_progress_last_watched ON watch_progress(last_watched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id);
 
--- Upsert progress (called by player via WatchProgressStore, batched every 30s)
+-- Upsert progress (called by player via WatchProgressStore, batched every 10s + on pause/dispose)
+-- Uses named params (:paramName) so the generated Kotlin method has named args.
 upsertWatchProgress:
 INSERT OR REPLACE INTO watch_progress(
-    episode_key, position, duration, completed, completed_at, last_watched_at
-) VALUES (?, ?, ?, ?, ?, ?);
+    episode_key, position, duration, completed, completed_at, last_watched_at,
+    main_id, watch_count, first_watched_at, auto_mark_suppressed, user_marked_watched
+) VALUES (
+    :episode_key, :position, :duration, :completed, :completed_at, :last_watched_at,
+    :main_id, :watch_count, :first_watched_at, :auto_mark_suppressed, :user_marked_watched
+);
 
 -- Get progress for a specific episode
 getWatchProgress:
@@ -26,6 +43,17 @@ SELECT * FROM watch_progress WHERE episode_key = ?;
 -- Get recent progress (for "Continue Watching" — O(1) via index)
 getRecentWatchProgress:
 SELECT * FROM watch_progress
+ORDER BY last_watched_at DESC
+LIMIT ?;
+
+-- Phase WP: Get all progress for an anime (for the details page episode list).
+getWatchProgressByMainId:
+SELECT * FROM watch_progress WHERE main_id = ? ORDER BY last_watched_at DESC;
+
+-- Phase WP: Continue Watching — in-progress, not suppressed (PLAN §1.1).
+getContinueWatching:
+SELECT * FROM watch_progress
+WHERE completed = 0 AND auto_mark_suppressed = 0 AND position > 0
 ORDER BY last_watched_at DESC
 LIMIT ?;
 
@@ -41,6 +69,48 @@ UPDATE watch_progress
 SET completed = 1, completed_at = ?
 WHERE episode_key = ?;
 
+-- Phase WP: Increment watch_count + set first_watched_at if null (called on transition to completed).
+incrementWatchCount:
+UPDATE watch_progress
+SET watch_count = watch_count + 1,
+    first_watched_at = COALESCE(first_watched_at, ?)
+WHERE episode_key = ?;
+
+-- Phase WP (CF1): user manually un-marked → suppress auto-mark + clear completed.
+setAutoMarkSuppressed:
+UPDATE watch_progress
+SET auto_mark_suppressed = ?, completed = 0, user_marked_watched = 0
+WHERE episode_key = ?;
+
+-- Phase WP (CF1): user explicitly marked watched (sticky).
+setUserMarkedWatched:
+UPDATE watch_progress
+SET user_marked_watched = ?, completed = 1
+WHERE episode_key = ?;
+
+-- Phase WP (CF1): reset auto_mark_suppressed on next play (re-arms the 85% auto-mark).
+-- Does NOT reset completed (it stays 0 if the user had un-marked — they must re-cross 85%).
+resetAutoMarkSuppressed:
+UPDATE watch_progress
+SET auto_mark_suppressed = 0
+WHERE episode_key = ?;
+
+-- Phase WP: Get the watched episode count for an anime (for stats).
+getWatchedEpisodeCount:
+SELECT COUNT(*) FROM watch_progress WHERE main_id = ? AND completed = 1;
+
+-- Phase WP: Clear all progress for an anime (for library-remove — S3).
+clearByMainId:
+DELETE FROM watch_progress WHERE main_id = ?;
+
 -- Delete progress (when episode is removed from library)
 deleteWatchProgress:
 DELETE FROM watch_progress WHERE episode_key = ?;
+
+-- Phase WP: Delete ALL watch progress (for the History "Clear all" action).
+deleteAllWatchProgress:
+DELETE FROM watch_progress;
+
+-- Phase WP: Get all watch progress (for backup export).
+getAllWatchProgress:
+SELECT * FROM watch_progress;

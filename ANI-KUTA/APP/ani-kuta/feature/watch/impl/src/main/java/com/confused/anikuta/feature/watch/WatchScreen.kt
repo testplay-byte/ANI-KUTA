@@ -347,8 +347,8 @@ fun WatchScreen(
     }
 
     // ── Periodic watch progress save (every 10s) ──
-    // Phase 5c capture-only: saves to InMemoryWatchProgressStore. Restore is
-    // Phase 5e when the database is wired. Reads values directly from the state
+    // Phase WP: saves to SqlDelightWatchProgressStore (persistent — survives app restart).
+    // The 85% auto-mark logic is in the store. Reads values directly from the state
     // holder (not collected state) so they're fresh at save time.
     LaunchedEffect(mpvInitialized) {
         if (!mpvInitialized) return@LaunchedEffect
@@ -361,6 +361,7 @@ fun WatchScreen(
                 val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                 val progress = WatchProgress(
                     episodeKey = epKey,
+                    mainId = watchKey.mainId.ifBlank { null },
                     position = pos.toLong(),
                     duration = dur.toLong(),
                     completed = false,
@@ -574,6 +575,7 @@ fun WatchScreen(
                 val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
                 val progress = WatchProgress(
                     episodeKey = epKey,
+                    mainId = watchKey.mainId.ifBlank { null },
                     position = pos.toLong(),
                     duration = dur.toLong(),
                     completed = false,
