@@ -11,12 +11,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -37,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +77,10 @@ fun DebugPanel(
     val horizontalPaddingPx = with(density) { PANEL_HORIZONTAL_PADDING.toPx() }
     val gapPx = with(density) { PANEL_GAP.toPx() }
     val bubbleSizePx = with(density) { BUBBLE_SIZE.toPx() }
+    // System-bar insets — the panel must not overlap the status/nav bars
+    // (enableEdgeToEdge means screenHeightDp includes them). D-162 I6.
+    val statusBarPx = with(density) { WindowInsets.statusBars.getTop(density).toFloat() }
+    val navBarPx = with(density) { WindowInsets.navigationBars.getBottom(density).toFloat() }
 
     val bubbleOffset = state.offset
     val direction = remember(bubbleOffset, screenWidthPx, screenHeightPx) {
@@ -94,6 +102,8 @@ fun DebugPanel(
         panelHeightPx = panelHeightPx,
         horizontalPaddingPx = horizontalPaddingPx,
         gapPx = gapPx,
+        statusBarPx = statusBarPx,
+        navBarPx = navBarPx,
     )
 
     var activeTab by remember { mutableStateOf(DebugTab.SCREEN) }
@@ -105,7 +115,13 @@ fun DebugPanel(
         modifier = Modifier
             .fillMaxSize()
             .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.3f))
-            .clickable(onClick = onDismiss),  // tap the scrim to dismiss
+            // Intercept ALL pointer events on the scrim — taps dismiss the panel,
+            // drags are swallowed (so the bubble underneath can't be dragged
+            // while the panel is open, which would cause the panel to follow +
+            // potentially flip sides). Sub-agent review IMPORTANT #2.
+            .pointerInput(Unit) {
+                androidx.compose.foundation.gestures.detectTapGestures(onTap = { onDismiss() })
+            },
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Surface(
@@ -388,7 +404,13 @@ private fun computePanelOffset(
     panelHeightPx: Float,
     horizontalPaddingPx: Float,
     gapPx: Float,
+    statusBarPx: Float,
+    navBarPx: Float,
 ): Offset {
+    // Vertical bounds — the panel must not overlap the status/nav bars.
+    val minY = statusBarPx.coerceAtLeast(horizontalPaddingPx)
+    val maxY = (screenHeightPx - panelHeightPx - navBarPx).coerceAtLeast(minY)
+
     val x = when (direction) {
         ExpandDirection.RIGHT_DOWN, ExpandDirection.RIGHT_UP -> {
             // Panel opens right of the bubble.
@@ -405,17 +427,11 @@ private fun computePanelOffset(
     val y = when (direction) {
         ExpandDirection.RIGHT_DOWN, ExpandDirection.LEFT_DOWN -> {
             // Panel extends downward from the bubble's top.
-            bubbleOffset.y.coerceIn(
-                horizontalPaddingPx,
-                (screenHeightPx - panelHeightPx - horizontalPaddingPx).coerceAtLeast(horizontalPaddingPx),
-            )
+            bubbleOffset.y.coerceIn(minY, maxY)
         }
         ExpandDirection.RIGHT_UP, ExpandDirection.LEFT_UP -> {
             // Panel extends upward from the bubble's bottom.
-            (bubbleOffset.y + bubbleSizePx - panelHeightPx).coerceIn(
-                horizontalPaddingPx,
-                (screenHeightPx - panelHeightPx - horizontalPaddingPx).coerceAtLeast(horizontalPaddingPx),
-            )
+            (bubbleOffset.y + bubbleSizePx - panelHeightPx).coerceIn(minY, maxY)
         }
     }
 
