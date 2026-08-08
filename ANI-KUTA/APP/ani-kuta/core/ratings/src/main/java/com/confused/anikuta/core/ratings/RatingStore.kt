@@ -6,6 +6,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.database.AnikutaDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
@@ -43,7 +44,7 @@ class RatingStore(
         database.ratingsQueries.getUserRating(mainId)
             .asFlow()
             .mapToOneOrNull(Dispatchers.IO)
-            .let { kotlinx.coroutines.flow.map(it) { row -> row?.rating?.toInt() } }
+            .map { it?.rating?.toInt() }
 
     /** Delete the per-anime rating. */
     suspend fun deleteAnimeRating(mainId: String) = withContext(Dispatchers.IO) {
