@@ -111,7 +111,7 @@ class DefaultDownloadManager(
                 val current = _episodeDownloadStates.value.toMutableMap()
                 for (ep in downloaded) {
                     val key = "${ep.content.mainId}|${ep.episode.episodeKey}"
-                    if (key !in current || current[key]?.status != DownloadStatus.DOWNLOADING) {
+                    if (key !in current || current[key]?.first != DownloadStatus.DOWNLOADING) {
                         current[key] = EpisodeDownloadState(DownloadStatus.COMPLETED, 100)
                     }
                 }
