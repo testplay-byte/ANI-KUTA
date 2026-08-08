@@ -24,6 +24,38 @@ import kotlinx.coroutines.flow.map
  */
 class NotificationPreferences(private val store: PreferenceStore) {
 
+    init {
+        // One-time migration: the trigger defaults were stored as Boolean in the
+        // previous build (notif_def_schedule/watchable/immediate = true/false). This
+        // build stores them as Int (0=OFF, 1=ON, 2=SILENT). SharedPreferences does NOT
+        // auto-convert types — getInt on a Boolean key throws ClassCastException at
+        // runtime (crash on opening the Notifications page). Migrate each key: if it
+        // currently holds a Boolean, map true→1 (ON) / false→0 (OFF) and write it as
+        // Int. Idempotent + safe: if the key is absent or already an Int, nothing
+        // happens. Runs at singleton construction (before any flow is collected).
+        // SharedPreferences.apply() updates the in-memory cache synchronously, so the
+        // subsequent flow reads see the migrated Int values — no race.
+        migrateLegacyBooleanTriggersToInt()
+    }
+
+    private fun migrateLegacyBooleanTriggersToInt() {
+        for (key in listOf(KEY_DEF_SCHEDULE, KEY_DEF_WATCHABLE, KEY_DEF_IMMEDIATE)) {
+            try {
+                // If the key is absent OR already an Int, this succeeds (no migration).
+                // Absent → returns 0 without writing (preserves "use default" semantics).
+                store.getInt(key, 0)
+            } catch (e: ClassCastException) {
+                // The key holds a Boolean from the old build. Read it + map to Int.
+                val oldBool = try {
+                    store.getBoolean(key, false)
+                } catch (e2: ClassCastException) {
+                    false // Unexpected type — fall back to OFF.
+                }
+                store.putInt(key, if (oldBool) 1 else 0)
+            }
+        }
+    }
+
     /** Master kill switch — when false, NO notifications are posted. */
     var notificationsEnabled: Boolean
         get() = store.getBoolean(KEY_ENABLED, true)
