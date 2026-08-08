@@ -150,29 +150,31 @@ class DownloadStorageProvider(
             runCatching { contentDir.createFile("application/octet-stream", ".nomedia") }
         }
 
-        // 4. Write the video file. Delete any existing file with the same name first
-        //    (handles re-downloads).
+        // 4. Write the video file into an "episodes" subfolder.
+        // Folder structure: <root>/video/<title>/episodes/<title> - E00001.mp4
+        //                    <root>/video/<title>/subtitles/.subtitle_E00001_english_0.srt
+        //                    <root>/video/<title>/.data.json, .cover.jpg, .nomedia (hidden, stay in root)
+        val episodesDir = getOrCreateSubfolder(contentDir, "episodes", index)
         val videoName = episodeFileName(content, episode, videoExtension)
-        index[videoName]?.delete()
-        val videoTarget = contentDir.createFile("video/*", videoName)
+        // Check if the video already exists in the episodes subfolder.
+        val epIndex = episodesDir.listFiles().associateBy { it.name!! }
+        epIndex[videoName]?.delete()
+        val videoTarget = episodesDir.createFile("video/*", videoName)
             ?: throw DownloadException("Failed to create video file: $videoName")
         copyFile(tempFile, videoTarget.uri)
 
-        // 5. Write subtitle files alongside the video.
-        // D-FIX-SUB: name includes the language so the offline subtitle picker can
-        // show "English" / "Japanese". Format: .subtitle_E{00001}_{lang}_{index}.{ext}
-        // (hidden file). The _index guarantees uniqueness when two tracks share a lang.
-        // Older format (.subtitle_E{00001}_{index}.{ext}) is still recognized by
-        // DownloadScanner for backward compat with pre-fix downloads.
+        // 5. Write subtitle files into a "subtitles" subfolder.
+        val subtitlesDir = getOrCreateSubfolder(contentDir, "subtitles", index)
+        val subIndex = subtitlesDir.listFiles().associateBy { it.name!! }
         val publishedSubtitleUris = mutableListOf<String>()
-        for ((subIndex, subFile) in subtitleFiles.withIndex()) {
+        for ((subIndex2, subFile) in subtitleFiles.withIndex()) {
             val ext = subFile.extension.ifBlank { "vtt" }
             val epNum = String.format("%05d", episode.episodeNumber.toInt())
-            val rawLang = subtitleLangs.getOrNull(subIndex) ?: ""
+            val rawLang = subtitleLangs.getOrNull(subIndex2) ?: ""
             val safeLang = sanitizeLangForFileName(rawLang)
-            val subName = ".subtitle_E${epNum}_${safeLang}_${subIndex}.$ext"
-            index[subName]?.delete()
-            val subTarget = contentDir.createFile("application/octet-stream", subName)
+            val subName = ".subtitle_E${epNum}_${safeLang}_${subIndex2}.$ext"
+            subIndex[subName]?.delete()
+            val subTarget = subtitlesDir.createFile("application/octet-stream", subName)
             if (subTarget != null) {
                 copyFile(subFile, subTarget.uri)
                 publishedSubtitleUris.add(subTarget.uri.toString())
@@ -197,6 +199,21 @@ class DownloadStorageProvider(
             .replace(Regex("[^a-z0-9]+"), "-")
             .trim('-')
         return sanitized.ifBlank { "unknown" }
+    }
+
+    /**
+     * Gets or creates a subfolder inside [parent] with the given [name].
+     * Uses the [index] (parent's listFiles index) to check if it already exists.
+     * Returns the subfolder DocumentFile.
+     */
+    private fun getOrCreateSubfolder(
+        parent: DocumentFile,
+        name: String,
+        index: Map<String, DocumentFile>,
+    ): DocumentFile {
+        return index[name]?.takeIf { it.isDirectory }
+            ?: parent.createDirectory(name)
+            ?: throw DownloadException("Failed to create subfolder: $name")
     }
 
     /**

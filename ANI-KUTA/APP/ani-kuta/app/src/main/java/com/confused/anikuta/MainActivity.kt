@@ -375,6 +375,10 @@ fun AppRoot() {
                         // Falls back to "Subtitle N" for legacy files (pre-fix naming) or
                         // if the lang segment can't be parsed.
                         val subtitleUris = downloaded?.subtitleUris ?: emptyList()
+                        Logger.i("Anikuta:MainActivity") {
+                            "Downloads→Watch: downloaded.subtitleUris.size=${subtitleUris.size}, " +
+                                "uris=${subtitleUris.joinToString("; ") { it.take(60) }}"
+                        }
                         val subtitleTracksStr = subtitleUris.mapIndexed { index, uri ->
                             val langLabel = extractSubtitleLangFromUri(uri, index)
                             "$uri${delim}$langLabel"

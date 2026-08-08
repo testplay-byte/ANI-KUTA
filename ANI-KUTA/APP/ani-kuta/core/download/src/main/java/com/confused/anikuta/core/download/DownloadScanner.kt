@@ -99,23 +99,33 @@ class DownloadScanner(
                     upsertAniListDetail(dataJson)
                 }
 
-                // Discover episode files in the folder (video files matching the
-                // `<title> - E<num>.<ext>` naming convention).
-                for ((fileName, file) in index) {
+                // Discover episode files. Look in the "episodes" subfolder first (new
+                // folder structure), then fall back to the content folder root (legacy).
+                val episodesDir = index["episodes"]?.takeIf { it.isDirectory }
+                val videoIndex = if (episodesDir != null) {
+                    episodesDir.listFiles().associateBy { it.name!! }
+                } else {
+                    index
+                }
+                // Subtitle files are in the "subtitles" subfolder (new) or root (legacy).
+                val subtitlesDir = index["subtitles"]?.takeIf { it.isDirectory }
+                val subtitleIndex = if (subtitlesDir != null) {
+                    subtitlesDir.listFiles().associateBy { it.name!! }
+                } else {
+                    index
+                }
+
+                for ((fileName, file) in videoIndex) {
                     if (!file.isFile) continue
                     if (!isVideoFile(fileName)) continue
                     val episodeKey = deriveEpisodeKey(dataJson.mainId, fileName) ?: continue
                     val episodeNumber = deriveEpisodeNumber(fileName) ?: continue
                     val episodeName = deriveEpisodeName(fileName)
 
-                    // D-FIX-SUB: re-discover subtitle files for this episode so a
-                    // reinstall / re-scan recovers them (previously subtitleUris was
-                    // hard-coded to emptyList() → offline subtitles lost after reinstall
-                    // even though the files existed on disk). Matches both the new
-                    // naming (.subtitle_E{num}_{lang}_{index}.{ext}) and the legacy
-                    // naming (.subtitle_E{num}_{index}.{ext}) for backward compat.
+                    // D-FIX-SUB: re-discover subtitle files for this episode.
+                    // Searches the subtitles/ subfolder (new) or the content root (legacy).
                     val epNumPadded = String.format("%05d", episodeNumber.toInt())
-                    val subtitleUris = findSubtitleUrisForEpisode(index, epNumPadded)
+                    val subtitleUris = findSubtitleUrisForEpisode(subtitleIndex, epNumPadded)
 
                     store.insertDownloadedEpisode(
                         DownloadedEpisode(

@@ -178,20 +178,33 @@ class DefaultDownloadManager(
 
     override suspend fun deleteDownloadedEpisode(mainId: String, episodeKey: String) {
         DownloadLogger.i { "deleteDownloadedEpisode — mainId=$mainId, episodeKey=$episodeKey" }
-        // 1. Delete the file on disk (best-effort — failures logged, not thrown).
+        // 1. Delete the video file + subtitle files on disk (best-effort).
         runCatching {
             val contentDir = storage.findContentFolder(mainId)
             if (contentDir != null) {
-                // Walk the folder + delete the file whose name contains the episode key.
-                // (The videoFileName follows the `<title> - E<num>.<ext>` convention.)
-                for (file in contentDir.listFiles()) {
-                    if (!file.isFile) continue
-                    val name = file.name
-                    // Best-effort match: derive the expected episode number from the
-                    // episodeKey (the part after the `|`).
-                    val numStr = episodeKey.substringAfter('|', "")
-                    if (numStr.isNotBlank() && name?.contains("E$numStr", ignoreCase = true) == true) {
-                        file.delete()
+                val numStr = episodeKey.substringAfter('|', "")
+                // Look in the "episodes" subfolder (new) + the root (legacy) for the video.
+                val episodesDir = contentDir.listFiles().firstOrNull { it.name == "episodes" && it.isDirectory }
+                val videoSearchDirs = if (episodesDir != null) listOf(episodesDir, contentDir) else listOf(contentDir)
+                for (dir in videoSearchDirs) {
+                    for (file in dir.listFiles()) {
+                        if (!file.isFile) continue
+                        if (numStr.isNotBlank() && file.name?.contains("E$numStr", ignoreCase = true) == true) {
+                            file.delete()
+                            DownloadLogger.i { "Deleted video: ${file.name}" }
+                        }
+                    }
+                }
+                // Look in the "subtitles" subfolder (new) + the root (legacy) for subtitle files.
+                val subtitlesDir = contentDir.listFiles().firstOrNull { it.name == "subtitles" && it.isDirectory }
+                val subtitleSearchDirs = if (subtitlesDir != null) listOf(subtitlesDir, contentDir) else listOf(contentDir)
+                for (dir in subtitleSearchDirs) {
+                    for (file in dir.listFiles()) {
+                        if (!file.isFile) continue
+                        if (numStr.isNotBlank() && file.name?.contains("E$numStr", ignoreCase = true) == true) {
+                            file.delete()
+                            DownloadLogger.i { "Deleted subtitle: ${file.name}" }
+                        }
                     }
                 }
             }
