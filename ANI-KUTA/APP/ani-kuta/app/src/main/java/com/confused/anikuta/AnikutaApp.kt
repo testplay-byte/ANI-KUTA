@@ -183,9 +183,11 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
         // App-level infrastructure DI
         private val appModule = module {
             // Network
-            single<OkHttpClient> { HttpClientFactory().create() }
+            // DB-5: wrapDebugOkHttp adds the DebugNetworkStats interceptor in
+            // debug builds; no-op (identity) in release builds.
+            single<OkHttpClient> { wrapDebugOkHttp(HttpClientFactory().create()) }
             // D.0.4: Download HTTP client — long timeouts, separate connection pool.
-            single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { HttpClientFactory().createDownloadClient() }
+            single<OkHttpClient>(HttpClientFactory.DOWNLOAD) { wrapDebugOkHttp(HttpClientFactory().createDownloadClient()) }
 
             // D.4: Coil ImageLoader with 500MB disk cache (persistent)
             single { ImageLoaderFactory.create(get(), get()) }
