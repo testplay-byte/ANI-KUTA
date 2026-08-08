@@ -185,6 +185,33 @@ fun DetailsScreen(
     var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
 
+    // DB-7: provide debug context for the Current Screen tab.
+    // Shows the anime's mainId, resolver state, + relevant DB rows.
+    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
+    val mainId = viewModel.currentMainId
+    val debugCtx = remember(state, mainId, resolverState) {
+        com.confused.anikuta.core.debugapi.DebugContext(
+            screenName = "Details",
+            screenData = buildMap {
+                mainId?.let { put("mainId", it) }
+                put("resolverState", resolverState::class.simpleName ?: "Unknown")
+                put("episodeCount", episodeState.episodes.size.toString())
+                linkedSource?.let { put("sourceId", it.sourceId.toString()); put("sourceName", it.sourceName) }
+            },
+            relevantTables = mainId?.let {
+                listOf(
+                    com.confused.anikuta.core.debugapi.DbReference("content", "main_id", it, "View content row"),
+                    com.confused.anikuta.core.debugapi.DbReference("episode_metadata", "main_id", it, "View episode metadata"),
+                    com.confused.anikuta.core.debugapi.DbReference("watch_progress", "main_id", it, "View watch progress"),
+                )
+            } ?: emptyList(),
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(debugCtx) { updateDebugContext(debugCtx) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { updateDebugContext(null) }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()

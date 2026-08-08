@@ -9,6 +9,7 @@ android {
 
 dependencies {
     implementation(project(":feature:anime-details:api"))
+    implementation(project(":core:debug-api"))  // DB-7: LocalDebugContext
     implementation(project(":core:designsystem"))
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))

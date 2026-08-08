@@ -154,6 +154,28 @@ fun WatchScreen(
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
     val scope = rememberCoroutineScope()
 
+    // DB-7: provide debug context for the Current Screen tab.
+    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
+    val watchCtx = remember(watchKey) {
+        com.confused.anikuta.core.debugapi.DebugContext(
+            screenName = "Watch — ${watchKey.animeTitle}",
+            screenData = mapOf(
+                "mainId" to watchKey.mainId,
+                "episodeNumber" to watchKey.episodeNumber.toString(),
+                "videoUrl" to (watchKey.videoUrl.take(60) + "…"),
+                "episodeCount" to episodeList.size.toString(),
+            ),
+            relevantTables = if (watchKey.mainId.isNotBlank()) listOf(
+                com.confused.anikuta.core.debugapi.DbReference("watch_progress", "main_id", watchKey.mainId, "View watch progress"),
+                com.confused.anikuta.core.debugapi.DbReference("downloaded_episode", "main_id", watchKey.mainId, "View downloads"),
+            ) else emptyList(),
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(watchCtx) { updateDebugContext(watchCtx) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { updateDebugContext(null) }
+    }
+
     var mpvView by remember { mutableStateOf<AnikutaMPVView?>(null) }
     var mpvInitialized by remember { mutableStateOf(false) }
     // Hoist the observer so switch handlers can set pending subtitle/audio tracks

@@ -8,6 +8,7 @@ android {
 
 dependencies {
     implementation(project(":core:download"))
+    implementation(project(":core:debug-api"))  // DB-7: LocalDebugContext
     implementation(project(":core:designsystem"))
     implementation(project(":core:common"))
     implementation(project(":core:preferences"))

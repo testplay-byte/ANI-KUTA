@@ -84,6 +84,27 @@ fun BrowseScreen(
     val collapsed = gridState.firstVisibleItemIndex > 0 ||
         gridState.firstVisibleItemScrollOffset > 20
 
+    // DB-7: provide debug context for the Current Screen tab.
+    val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
+    val browseCtx = remember(state) {
+        val animeCount = when (state) {
+            is BrowseState.Success -> (state as BrowseState.Success).anime.size
+            else -> 0
+        }
+        com.confused.anikuta.core.debugapi.DebugContext(
+            screenName = "Browse",
+            screenData = mapOf(
+                "state" to (state::class.simpleName ?: "Unknown"),
+                "animeCount" to animeCount.toString(),
+                "isRefreshing" to isRefreshing.toString(),
+            ),
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(browseCtx) { updateDebugContext(browseCtx) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { updateDebugContext(null) }
+    }
+
     val ptrState = rememberPullToRefreshState()
     val context = LocalContext.current
 
