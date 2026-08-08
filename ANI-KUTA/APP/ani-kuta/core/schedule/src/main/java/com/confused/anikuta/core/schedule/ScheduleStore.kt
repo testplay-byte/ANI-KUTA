@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.map
  */
 class ScheduleStore(
     private val database: AnikutaDatabase,
-) {
+) : com.confused.anikuta.core.updates.ActualReleaseUpdater {
     companion object {
         private const val TAG = "Anikuta:Core:Schedule:Store"
     }

@@ -44,7 +44,7 @@ class UpdateEngine(
     private val extensionManager: ExtensionManager,
     private val contentRepository: ContentRepository,
     private val watchProgressStore: WatchProgressStore,
-    private val scheduleStore: com.confused.anikuta.core.schedule.ScheduleStore,
+    private val actualReleaseUpdater: ActualReleaseUpdater?,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Updates"
@@ -178,10 +178,9 @@ class UpdateEngine(
 
                     // Phase SC-2 (IM11): update episode_schedule.actual_at with the source's
                     // dateUpload (the claimed upload time). Falls back to discoveredAt (now).
-                    // If actualAt < scheduledAt (source early-release), prefer scheduledAt.
                     val sourceDateUpload = ep.date_upload
                     val actualAt = if (sourceDateUpload > 0) sourceDateUpload else now
-                    scheduleStore.updateActualAt(mainId, epNum.toLong(), actualAt)
+                    actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(), actualAt)
                 }
 
                 // Reset backoff + compute next_check_at from next airing (or +24h fallback).

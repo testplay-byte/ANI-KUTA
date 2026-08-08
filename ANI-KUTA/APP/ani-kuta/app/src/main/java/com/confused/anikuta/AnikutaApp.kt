@@ -176,6 +176,12 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single<SqlDriver> { DatabaseDriverFactory(get()).create() }
             single<AnikutaDatabase> { AnikutaDatabase(get()) }
 
+            // Phase SC-2: bind ScheduleStore as ActualReleaseUpdater (breaks the circular
+            // dependency between :core:updates + :core:schedule).
+            single<com.confused.anikuta.core.updates.ActualReleaseUpdater> {
+                get<com.confused.anikuta.core.schedule.ScheduleStore>()
+            }
+
             // Session ID (for activity tracking — new per process restart)
             single(named("sessionId")) { UUID.randomUUID().toString() }
 
