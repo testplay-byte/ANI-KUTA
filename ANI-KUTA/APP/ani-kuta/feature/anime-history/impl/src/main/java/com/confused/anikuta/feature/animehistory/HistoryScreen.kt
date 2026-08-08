@@ -247,8 +247,11 @@ private fun HistoryRow(
 ) {
     val swipeOffset = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val swipeThresholdPx = with(density) { 120.dp.toPx() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidthPx = with(LocalDensity.current) { configuration.screenWidthDp.dp.toPx() }
+    val swipeThresholdPx = screenWidthPx * 0.35f
+    var thresholdCrossed by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     // Watched styling: grayscale + faded (same as EpisodeRow).
     val targetAlpha = if (entry.completed) 0.5f else 1.0f
@@ -269,49 +272,65 @@ private fun HistoryRow(
             .fillMaxWidth()
             .graphicsLayer { this.alpha = alpha },
     ) {
-        // Background delete icon revealed during swipe-left.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(90.dp)
-                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.CenterEnd,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Delete,
-                contentDescription = "Delete from history",
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(end = 24.dp),
-            )
+        // Background delete icon — ONLY visible during active swipe (not always).
+        if (kotlin.math.abs(swipeOffset.value) > 1f) {
+            Surface(
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    contentAlignment = if (swipeOffset.value < 0) Alignment.CenterEnd
+                    else Alignment.CenterStart,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Delete from history",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
         }
 
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(swipeOffset.value.toInt(), 0) }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
+                        onDragStart = { thresholdCrossed = false },
                         onDragEnd = {
                             if (kotlin.math.abs(swipeOffset.value) > swipeThresholdPx) {
+                                com.confused.anikuta.core.common.HapticHelper.releaseConfirm(context)
                                 onDelete()
                             }
                             coroutineScope.launch {
                                 swipeOffset.animateTo(
                                     targetValue = 0f,
-                                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                    animationSpec = androidx.compose.animation.core.tween(
+                                        durationMillis = 300,
+                                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                                    ),
                                 )
                             }
+                            thresholdCrossed = false
                         },
                     ) { _, dragAmount ->
-                        // Only consume leftward drags (swipe left to delete).
-                        if (dragAmount < 0) {
-                            coroutineScope.launch {
-                                swipeOffset.snapTo(
-                                    (swipeOffset.value + dragAmount).coerceAtMost(0f),
-                                )
-                            }
+                        val newValue = (swipeOffset.value + dragAmount).coerceIn(
+                            minimumValue = -swipeThresholdPx * 1.5f,
+                            maximumValue = swipeThresholdPx * 1.5f,
+                        )
+                        coroutineScope.launch {
+                            swipeOffset.snapTo(newValue)
+                        }
+                        if (!thresholdCrossed && kotlin.math.abs(newValue) > swipeThresholdPx) {
+                            thresholdCrossed = true
+                            com.confused.anikuta.core.common.HapticHelper.stageCross(context)
+                        } else if (thresholdCrossed && kotlin.math.abs(newValue) <= swipeThresholdPx) {
+                            thresholdCrossed = false
                         }
                     }
                 }
@@ -371,6 +390,18 @@ private fun HistoryRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
+                    // Duration on the top-right of the progress bar (user request).
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        Text(
+                            text = "${formatDuration(entry.position)} / ${formatDuration(entry.duration)}",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     // Progress bar
                     LinearProgressIndicator(
                         progress = { entry.progressFraction },
@@ -381,12 +412,6 @@ private fun HistoryRow(
                         color = if (entry.completed) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                         trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    )
-                    Text(
-                        text = "${formatDuration(entry.position)} / ${formatDuration(entry.duration)}",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

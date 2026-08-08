@@ -104,24 +104,53 @@ fun UpdatesScreen(
                 },
             )
 
-            // ── Phase SC: Updates | Schedule tab strip ──
-            Row(
+            // ── Phase SC: Updates | Schedule tab strip (old project's combined-pill style) ──
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.Center,
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
             ) {
-                UpdatesTabPill(
-                    label = "Updates",
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                )
-                Spacer(Modifier.width(8.dp))
-                UpdatesTabPill(
-                    label = "Schedule",
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                )
+                Row(
+                    modifier = Modifier.padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    listOf("Updates" to 0, "Schedule" to 1).forEach { (label, tab) ->
+                        val isSelected = selectedTab == tab
+                        val bgColor by androidx.compose.animation.animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+                            else androidx.compose.ui.graphics.Color.Transparent,
+                            animationSpec = androidx.compose.animation.core.tween(200),
+                            label = "tabBg_$tab",
+                        )
+                        val textColor by androidx.compose.animation.animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = androidx.compose.animation.core.tween(200),
+                            label = "tabText_$tab",
+                        )
+                        Surface(
+                            color = bgColor,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedTab = tab },
+                        ) {
+                            Text(
+                                text = label,
+                                color = textColor,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
             }
 
             if (selectedTab == 0) {

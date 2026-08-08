@@ -35,9 +35,44 @@ class ScheduleEngine(
      * Called by: Schedule screen open, pull-to-refresh, the WorkManager worker (M4).
      */
     suspend fun fetchSchedule() = withContext(Dispatchers.IO) {
-        val enabledAnime = updateStore.getAutoUpdateEnabledAnime()
+        var enabledAnime = updateStore.getAutoUpdateEnabledAnime()
+
+        // FIX: if anime_update_state is empty, populate it from the library.
+        // This happens when the user hasn't explicitly enabled auto-update for any anime
+        // (the ensureUpdateState was never called). We scan ALL library content that has
+        // an AniList ID + create update states for them.
         if (enabledAnime.isEmpty()) {
-            Logger.i(TAG) { "fetchSchedule — no auto-update-enabled anime" }
+            Logger.i(TAG) { "fetchSchedule — no auto-update-enabled anime. Scanning library for AniList-linked content..." }
+            val libraryMainIds = contentRepository.getLibraryMainIds()
+            var created = 0
+            for (mainId in libraryMainIds) {
+                val anilistDetail = contentRepository.getAniListDetail(mainId)
+                if (anilistDetail != null) {
+                    updateStore.upsertAnimeUpdateState(
+                        com.confused.anikuta.core.updates.AnimeUpdateState(
+                            mainId = mainId,
+                            status = null, // will be filled by the airing fetch
+                            lastCheckedAt = null,
+                            nextCheckAt = System.currentTimeMillis(), // due immediately
+                            lastKnownEpisodeCount = 0,
+                            nextAiringEpisode = null,
+                            nextAiringAt = null,
+                            autoUpdateEnabled = true,
+                            consecutiveFailures = 0,
+                            backoffStep = 0,
+                        )
+                    )
+                    created++
+                }
+            }
+            if (created > 0) {
+                Logger.i(TAG) { "fetchSchedule — created $created anime_update_state rows from library" }
+                enabledAnime = updateStore.getAutoUpdateEnabledAnime()
+            }
+        }
+
+        if (enabledAnime.isEmpty()) {
+            Logger.i(TAG) { "fetchSchedule — no AniList-linked library anime found" }
             return@withContext
         }
 

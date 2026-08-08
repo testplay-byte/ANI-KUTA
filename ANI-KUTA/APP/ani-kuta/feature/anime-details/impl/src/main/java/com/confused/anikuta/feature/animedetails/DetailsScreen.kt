@@ -1443,16 +1443,21 @@ private fun EpisodeRow(
 
     // ── Phase WP: swipe-to-toggle watched state ──
     // Custom pointerInput (not SwipeToDismissBox — that's for dismiss, not toggle).
-    // Swipe right past 40% of width → toggle. Spring back on release.
+    // Swipe right past threshold → toggle. Spring back smoothly on release.
+    // Bidirectional: swipe right to toggle, swipe left to cancel a rightward swipe.
     val swipeOffset = remember { androidx.compose.animation.core.Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val swipeThresholdPx = with(density) { 120.dp.toPx() } // ~40% of a typical row width
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        configuration.screenWidthDp.dp.toPx()
+    }
+    val swipeThresholdPx = screenWidthPx * 0.35f // 35% of screen width
+
+    // Track whether the threshold was crossed DURING the drag (for haptic feedback).
+    var thresholdCrossed by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     // ── Phase WP: watched styling (IM4: alpha fade + grayscale on the thumbnail) ──
-    // Animate the alpha for a smooth transition (CORE_RULES §22). The grayscale
-    // uses a precomputed saturation=0 ColorMatrix (Compose's ColorMatrix doesn't
-    // have setSaturation, so we construct it from the known grayscale values).
     val targetAlpha = if (isWatched) 0.5f else 1.0f
     val alpha by androidx.compose.animation.core.animateFloatAsState(
         targetValue = targetAlpha,
@@ -1460,7 +1465,6 @@ private fun EpisodeRow(
     )
     val colorFilter = remember(isWatched) {
         if (isWatched) {
-            // Grayscale matrix (saturation=0): standard BT.601 luma weights.
             ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
                 0.299f, 0.587f, 0.114f, 0f, 0f,
                 0.299f, 0.587f, 0.114f, 0f, 0f,
@@ -1476,59 +1480,72 @@ private fun EpisodeRow(
             .fillMaxWidth()
             .graphicsLayer { this.alpha = alpha },
     ) {
-        // Background icon revealed during swipe (check for "mark watched", eye-off for "unwatch").
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(100.dp) // approx row height
-                .background(
-                    color = if (isWatched) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                ),
-            contentAlignment = androidx.compose.ui.Alignment.CenterStart,
-        ) {
-            androidx.compose.material3.Icon(
-                imageVector = if (isWatched) Icons.Filled.VisibilityOff
-                else Icons.Filled.CheckCircle,
-                contentDescription = if (isWatched) "Mark as unwatched" else "Mark as watched",
-                tint = if (isWatched) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 24.dp),
-            )
+        // Background icon — ONLY visible during active swipe (not always).
+        // Uses the same rounded shape as the card so it looks clean.
+        if (kotlin.math.abs(swipeOffset.value) > 1f) {
+            Surface(
+                color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    contentAlignment = if (swipeOffset.value > 0) androidx.compose.ui.Alignment.CenterStart
+                    else androidx.compose.ui.Alignment.CenterEnd,
+                ) {
+                    Icon(
+                        imageVector = if (isWatched) Icons.Filled.VisibilityOff
+                        else Icons.Filled.CheckCircle,
+                        contentDescription = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                        tint = if (isWatched) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
         }
 
-        // The actual card — translates horizontally with the swipe.
+        // The actual card — opaque (NOT transparent), translates with the swipe.
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            color = MaterialTheme.colorScheme.surfaceVariant,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(swipeOffset.value.toInt(), 0) }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
+                        onDragStart = { thresholdCrossed = false },
                         onDragEnd = {
-                            // If past threshold → toggle. Else spring back.
+                            // If past threshold → toggle + haptic. Else smooth spring back.
                             if (kotlin.math.abs(swipeOffset.value) > swipeThresholdPx) {
+                                com.confused.anikuta.core.common.HapticHelper.releaseConfirm(context)
                                 onToggleWatched()
                             }
                             coroutineScope.launch {
                                 swipeOffset.animateTo(
                                     targetValue = 0f,
-                                    animationSpec = androidx.compose.animation.core.spring(
-                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                    animationSpec = androidx.compose.animation.core.tween(
+                                        durationMillis = 300,
+                                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
                                     ),
                                 )
                             }
+                            thresholdCrossed = false
                         },
                     ) { _, dragAmount ->
-                        // Only consume rightward drags (swipe right to toggle — IM3: one direction for v1).
-                        // Leftward drags pass through (no action — future: remove from history).
-                        if (dragAmount > 0) {
-                            coroutineScope.launch {
-                                swipeOffset.snapTo(
-                                    (swipeOffset.value + dragAmount).coerceAtLeast(0f),
-                                )
-                            }
+                        val newValue = (swipeOffset.value + dragAmount).coerceIn(
+                            minimumValue = -swipeThresholdPx * 1.5f, // allow left cancel
+                            maximumValue = swipeThresholdPx * 1.5f,   // allow right toggle
+                        )
+                        coroutineScope.launch {
+                            swipeOffset.snapTo(newValue)
+                        }
+                        // Haptic feedback when crossing the threshold for the first time.
+                        if (!thresholdCrossed && kotlin.math.abs(newValue) > swipeThresholdPx) {
+                            thresholdCrossed = true
+                            com.confused.anikuta.core.common.HapticHelper.stageCross(context)
+                        } else if (thresholdCrossed && kotlin.math.abs(newValue) <= swipeThresholdPx) {
+                            thresholdCrossed = false
                         }
                     }
                 }

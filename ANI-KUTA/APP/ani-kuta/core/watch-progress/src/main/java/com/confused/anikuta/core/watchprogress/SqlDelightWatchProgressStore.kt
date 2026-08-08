@@ -144,8 +144,34 @@ class SqlDelightWatchProgressStore(
 
     override suspend fun setUserMarkedWatched(episodeKey: String) = withContext(dispatchers) {
         // CF1: user explicitly marked watched (sticky).
-        database.watchQueries.setUserMarkedWatched(1L, episodeKey)
-        Logger.i(TAG) { "setUserMarkedWatched (user marked watched): key=$episodeKey → isWatched=true (sticky)" }
+        // FIX: if the row doesn't exist (user never watched the episode), INSERT it
+        // with the watched flags set + sensible defaults. The old UPDATE-only approach
+        // was a silent no-op when the row didn't exist — the swipe "didn't work".
+        val existing = database.watchQueries.getWatchProgress(episodeKey).executeAsOneOrNull()
+        if (existing == null) {
+            // Row doesn't exist — INSERT with watched flags + extract mainId from the key.
+            // The episode_key format is "${mainId}|${padded_5_digit}" — extract the mainId.
+            val mainId = episodeKey.substringBeforeLast('|').takeIf { it != episodeKey }
+            val now = System.currentTimeMillis()
+            database.watchQueries.upsertWatchProgress(
+                episode_key = episodeKey,
+                position = 0L,
+                duration = 0L,
+                completed = 1L,
+                completed_at = now,
+                last_watched_at = now,
+                main_id = mainId,
+                watch_count = 0L,
+                first_watched_at = now,
+                auto_mark_suppressed = 0L,
+                user_marked_watched = 1L,
+            )
+            Logger.i(TAG) { "setUserMarkedWatched — INSERTED new row (was no-op before): key=$episodeKey mainId=$mainId → isWatched=true (sticky)" }
+        } else {
+            // Row exists — UPDATE.
+            database.watchQueries.setUserMarkedWatched(1L, episodeKey)
+            Logger.i(TAG) { "setUserMarkedWatched (user marked watched): key=$episodeKey → isWatched=true (sticky)" }
+        }
     }
 
     override suspend fun toggleWatched(episodeKey: String): Boolean = withContext(dispatchers) {
