@@ -422,6 +422,13 @@ function NavIcon({ name, className = "" }: { name: string; className?: string })
         <path d="M8.5 13l2.2 2.2L15.5 10.5" />
       </>
     ),
+    debug: (
+      <>
+        {/* Bug — debug bubble */}
+        <rect x="8" y="6" width="8" height="12" rx="4" />
+        <path d="M8 10H4M16 10h4M8 14H4M16 14h4M9 6l-2-2M15 6l2-2M9 18l-2 2M15 18l2 2" />
+      </>
+    ),
   };
 
   return (
