@@ -6,6 +6,49 @@
 
 ---
 
+> ## 🔖 RESOLUTION (D-150 — analysis-and-doc-update session)
+>
+> **Decision: KEEP the hand-rolled navigation. Do NOT migrate to Nav3.**
+>
+> This research recommended Nav3 (motivated primarily by R7 — back-stack
+> recreation on process death). In practice, the implementation uses a
+> **hand-rolled backstack**: `mutableStateListOf<NavKey>` + a `when(currentKey)`
+> dispatch in `MainActivity.kt` (where `NavKey` is the project marker
+> `com.confused.anikuta.core.navigation.NavKey`, NOT `androidx.navigation3`).
+> Nav3 1.1.5 is on the classpath (7 `build.gradle.kts` files) but has **zero**
+> `androidx.navigation3.*` imports — it is unused dead weight, and it is the
+> reason `compileSdk` was bumped to 36.
+>
+> **Accepted limitation:** the hand-rolled backstack does NOT survive process
+> death (it's held in `remember { }`, not `rememberSaveable`). This means the
+> R7 benefit that motivated choosing Nav3 is **not realized** — if the OS kills
+> the app process while the user is several screens deep, the backstack is lost
+> and the app reopens at the root. The manifest's `configChanges` mitigates
+> configuration changes (rotation, theme toggle — Activity is not recreated),
+> but NOT process death. This is accepted as a known limitation.
+>
+> **Why keep hand-rolled:** it works well for the current 16 screens, the
+> `when`-dispatch is simple + agent-friendly, and migrating to Nav3 is medium-
+> large effort (~2-4 hours + CI) with a real risk (the `WatchKey` has 13 fields
+> / 4 large pre-serialized strings → potential `TransactionTooLargeException`
+> on the saved Bundle). No forcing function (deep links / dynamic tabs) is on
+> the near-term roadmap. The user explicitly decided to keep hand-rolled.
+>
+> **The Nav3 1.1.5 dependency** stays on the classpath for now (removing it
+> touches 7 modules + could allow reverting `compileSdk` to 35 — a separate
+> cleanup, not done here). It is documented as unused.
+>
+> **If R7 becomes important later:** the smallest fix is a hybrid — swap
+> `remember { mutableStateListOf<NavKey>(...) }` → `rememberSaveable(saver =
+> listSaver(...))` using kotlinx.serialization polymorphism (~1-2 hours, fixes
+> R7 only without a full migration). See sandbox
+> `ani-kuta-analysis/03-nav3-comparison.md` Option C.1 for the sketch.
+>
+> This note supplements (does not replace) the research below. The research's
+> library comparison + R1-R9 requirements remain valid reference material.
+
+---
+
 ## Project Requirements
 
 The navigation library for the ANI-KUTA rebuild must satisfy **all nine** of the

@@ -77,8 +77,8 @@ ANI-KUTA/                        ← repo root (git)
 - **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/`
 - **Open items** (see `memory/progress.md` → "What's Next"):
   - Download-system device testing.
-  - Wire proxy-churn re-resolve (DL.2 gap — built but not wired, D-149). Deferred per user.
-  - Nav3 vs hand-rolled nav decision (docs claim Nav3, code is hand-rolled — discrepancy D004). Awaiting user decision.
+  - Download system future-phase gaps (D-149, D-151): proxy-churn re-resolve wiring + 2 re-resolve bugs + outer retry loop + DownloadVideoPickerSheet cleanup. All DEFERRED per user — full plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
+  - Nav3: ✅ DECIDED (D-150) — keep hand-rolled nav. R7 accepted as known limitation. Nav3 1.1.5 dep unused (future cleanup option). Resolution in `APP/ani-kuta/DOCUMENTATION/12-nav-research.md`.
   - Doc-debt sweep (discrepancy D005 — knowledge/* + decisions.md numbering). Deferred.
   - Phase 5e: watch-progress persistence (currently in-memory, D-072).
 

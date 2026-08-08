@@ -458,7 +458,14 @@ fun AppRoot() {
                 watchKey = currentKey,
                 onBack = pop,
             )
-            else -> {}
+            // Safety net — should never be reached (all NavKey subtypes are handled above).
+            // Non-silent: logs a warning so a missing route is visible in logcat instead of
+            // rendering a blank screen with no clue why. Filter: tag:MainActivity.
+            else -> {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "Unrecognized NavKey in dispatch — no screen rendered: ${currentKey::class.simpleName}. Add a branch for this NavKey type."
+                }
+            }
         }
 
         // Bottom navigation — ONLY show on root tab screens (not sub-screens)

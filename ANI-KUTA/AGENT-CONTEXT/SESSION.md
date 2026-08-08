@@ -61,9 +61,9 @@ ANI-KUTA/                        ← repo root (git)
 
 ## ❓ Currently Blocked On / Open Items
 - **Download system device testing** (Phase DL.0-DL.8 substantially implemented on `download-system-plan`; needs on-device verification).
-- **Proxy-churn re-resolve (DL.2)** — built but NOT wired (D-149, discrepancy D003). Deferred per user — awaiting go-ahead. Full plan in sandbox `ani-kuta-analysis/04-proxy-churn-explanation.md`.
-- **Nav3 vs hand-rolled nav** (discrepancy D004) — docs claim Nav3, code is hand-rolled `mutableStateListOf<NavKey>`. Awaiting user decision. See sandbox `ani-kuta-analysis/03-nav3-comparison.md`.
-- **Doc-debt sweep** (discrepancy D005) — `knowledge/*` + `decisions.md` numbering stale. Deferred until Nav3 + proxy-churn settle.
+- **Download system future-phase gaps** (D-149, D-151) — proxy-churn re-resolve wiring + 2 re-resolve bugs + outer retry loop + DownloadVideoPickerSheet cleanup. All DEFERRED per user. Full plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
+- **Nav3** — ✅ DECIDED (D-150): keep hand-rolled nav. R7 (process-death backstack recreation) accepted as known limitation. Nav3 1.1.5 dep unused (future cleanup option). Resolution in `APP/ani-kuta/DOCUMENTATION/12-nav-research.md`.
+- **Doc-debt sweep** (discrepancy D005) — `knowledge/*` + `decisions.md` numbering stale. Deferred until proxy-churn/retry future phase settles.
 - **Phase 5e** — watch-progress persistence (currently in-memory, D-072).
 - See `memory/progress.md` → "What's Next" for the full list.
 

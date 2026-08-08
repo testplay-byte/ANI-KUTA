@@ -47,17 +47,17 @@ Phases 0-4, 5a/5b/5c (watch screen), Phase B (auto-link), Phase C (content ident
 
 ## What's Next
 1. **Download system device testing** (verify on real device): enqueue a download, pause/resume, offline playback of a downloaded episode, auto-download trigger, notification channels, foreground service survival across screen-off/task-removal.
-2. **Wire proxy-churn re-resolve (DL.2 gap)** — DEFERRED per user. Full plan in sandbox `ani-kuta-analysis/04-proxy-churn-explanation.md`: ~50-line adapter in `:app` implementing `HttpDownloader.ReResolver` (deserialize `resolveContextJson` → look up `AnimeHttpSource` via `ExtensionManager.getSource(sourceId)` → call `:app` `ReResolver` → map `ResolverVideo`→`ReResolvedVideo`), register via Koin, change `DownloadModule.kt:92` from `null` to `getOrNull()`. ⚠️ Also fix the `127.0.0.1` guard (HttpDownloader.kt:261 only checks `localhost` — AniKotoS uses `127.0.0.1`) + the `video_uri` vs `video_url` column bug (HttpDownloader.kt:271). Not started — awaiting user go-ahead.
-3. **Nav3 vs hand-rolled nav decision** (discrepancy D004). Docs claim "Nav3 backstack"; code uses `mutableStateListOf<NavKey>` + `when(currentKey)`. Nav3 1.1.5 is on the classpath but UNUSED (0 `androidx.navigation3` imports). Loses R7 (process-death backstack recreation — the explicit reason Nav3 was chosen). See sandbox `ani-kuta-analysis/03-nav3-comparison.md` for options (A: keep hand-rolled + update docs; B: full Nav3 migration; C.1: hybrid `rememberSaveable` fix for R7 only). Awaiting user decision.
+2. **Wire proxy-churn re-resolve + outer retry loop + 2 re-resolve bugs** (D-149, D-151) — DEFERRED per user, grouped into a future phase. Full plan in `download-research/FUTURE-PHASE-DL-GAPS.md`: (a) ~50-line adapter in `:app` implementing `HttpDownloader.ReResolver` + Koin binding + `DownloadModule.kt:92` null→getOrNull(); (b) fix `127.0.0.1` guard (`HttpDownloader.kt:261`) + `video_uri`/`video_url` column bug (`:271`); (c) `RetryPolicy` class + outer retry loop in `launchDownload` catch block + backoff + notification UX; (d) delete or wire `DownloadVideoPickerSheet`. Estimated ~6-8 hours. Manual retry (`retryDownload()`) works as today's fallback.
+3. **Nav3 vs hand-rolled nav** — ✅ DECIDED (D-150): keep hand-rolled `mutableStateListOf<NavKey>` + `when(currentKey)` nav as-is. Do NOT migrate to Nav3. R7 (process-death backstack recreation) accepted as a known limitation. Nav3 1.1.5 dep stays on classpath (unused; future cleanup option). Docs updated: `12-nav-research.md` (Resolution note). If R7 becomes important later: hybrid `rememberSaveable` fix (~1-2h, Option C.1 in sandbox `03-nav3-comparison.md`).
 4. **Doc-debt sweep** (discrepancy D005): master.md [DONE this session], navigation.md [DONE this session], knowledge/* + decisions.md numbering [DEFERRED until Nav3 + proxy-churn decisions settle, so docs reflect final state].
 5. **Phase 5e**: watch-progress persistence (swap `InMemoryWatchProgressStore` → SQLDelight impl; wire restore on loadfile). Currently capture-only (D-072) — progress lost on process death.
 6. **Episode switching inside WatchScreen** (needs PlayerStateHolder fields: `episodeList`, `currentEpisodeIndex`, `isSwitchingEpisode`) + resume position.
 7. **Phase 6+**: ads (D-033), activity-tracker UI, manga reader (D-030), novels, backup/restore (`15-backup-research.md`), identity system (Phase 5d).
 
 ## Blockers / Open Questions
-- Download system implemented but NOT device-tested yet. Proxy-churn re-resolve built but not wired (D-149, D003) — deferred per user.
-- Nav3 claimed in docs but hand-rolled nav in code — decision needed (D004). Nav3 1.1.5 dep is dead weight until decided.
-- AGENT-CONTEXT knowledge/* + decisions.md numbering stale — doc-debt sweep deferred (D005) until Nav3 + proxy-churn settle.
+- Download system implemented but NOT device-tested yet. Proxy-churn re-resolve + outer retry loop + 2 re-resolve bugs deferred to a future phase (D-149, D-151) — plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
+- Nav3: ✅ DECIDED (D-150) — keep hand-rolled nav; R7 accepted as known limitation. Nav3 1.1.5 dep unused (future cleanup option).
+- AGENT-CONTEXT knowledge/* + decisions.md numbering stale — doc-debt sweep deferred (D005) until proxy-churn/retry future phase settles.
 - Watch progress is capture-only (in-memory) — Phase 5e will persist (D-072).
 - Custom color picker (palette editor) deferred to Phase 5f.
 
