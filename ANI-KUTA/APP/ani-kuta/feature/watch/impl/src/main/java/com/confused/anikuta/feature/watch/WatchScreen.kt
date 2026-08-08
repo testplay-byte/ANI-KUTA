@@ -787,8 +787,8 @@ fun WatchScreen(
                         if (subUris.isNotEmpty()) {
                             observer?.let { obs ->
                                 obs.pendingSubtitleTracks = subUris.mapIndexed { i, u ->
-                                    val lang = com.confused.anikuta.extractSubtitleLangFromUri(u, i)
-                                    Pair(u, lang)
+                                    val lang = com.confused.anikuta.core.common.Logger.w(TAG) { "subtitle URI: ${u.take(60)}" }
+                                    Pair(u, "Subtitle ${i + 1}")
                                 }
                                 obs.trackHeaders = ""
                             }
