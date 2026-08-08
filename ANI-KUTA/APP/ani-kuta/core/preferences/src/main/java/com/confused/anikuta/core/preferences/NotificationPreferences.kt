@@ -36,7 +36,7 @@ class NotificationPreferences(private val store: PreferenceStore) {
     // Stored as Int (0=OFF, 1=ON, 2=SILENT) — matches TriggerState.dbValue.
 
     var defaultNotifyOnSchedule: TriggerState
-        get() = TriggerState.fromDb(store.getInt(KEY_DEF_SCHEDULE, TriggerState.OFF.dbValue).toLong())
+        get() = TriggerState.fromDb(store.getInt(KEY_DEF_SCHEDULE, TriggerState.OFF.dbValue.toInt()).toLong())
         set(value) = store.putInt(KEY_DEF_SCHEDULE, value.dbValue.toInt())
 
     fun defaultNotifyOnScheduleFlow(): Flow<TriggerState> =
@@ -44,7 +44,7 @@ class NotificationPreferences(private val store: PreferenceStore) {
             .map { TriggerState.fromDb(it.toLong()) }
 
     var defaultNotifyOnWatchable: TriggerState
-        get() = TriggerState.fromDb(store.getInt(KEY_DEF_WATCHABLE, TriggerState.ON.dbValue).toLong())
+        get() = TriggerState.fromDb(store.getInt(KEY_DEF_WATCHABLE, TriggerState.ON.dbValue.toInt()).toLong())
         set(value) = store.putInt(KEY_DEF_WATCHABLE, value.dbValue.toInt())
 
     fun defaultNotifyOnWatchableFlow(): Flow<TriggerState> =
@@ -52,7 +52,7 @@ class NotificationPreferences(private val store: PreferenceStore) {
             .map { TriggerState.fromDb(it.toLong()) }
 
     var defaultNotifyOnImmediate: TriggerState
-        get() = TriggerState.fromDb(store.getInt(KEY_DEF_IMMEDIATE, TriggerState.OFF.dbValue).toLong())
+        get() = TriggerState.fromDb(store.getInt(KEY_DEF_IMMEDIATE, TriggerState.OFF.dbValue.toInt()).toLong())
         set(value) = store.putInt(KEY_DEF_IMMEDIATE, value.dbValue.toInt())
 
     fun defaultNotifyOnImmediateFlow(): Flow<TriggerState> =
