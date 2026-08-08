@@ -366,9 +366,16 @@ fun AppRoot() {
                         // The DownloadedEpisode.subtitleUris contains content:// URIs
                         // for subtitle files stored alongside the video. Without this,
                         // the subtitles option shows nothing for downloaded episodes.
+                        //
+                        // D-FIX-SUB: extract the language label from the on-disk filename
+                        // (.subtitle_E{num}_{lang}_{index}.{ext}) so the subtitle picker
+                        // shows "English" / "Japanese" instead of "Subtitle 1" / "Subtitle 2".
+                        // Falls back to "Subtitle N" for legacy files (pre-fix naming) or
+                        // if the lang segment can't be parsed.
                         val subtitleUris = downloaded?.subtitleUris ?: emptyList()
                         val subtitleTracksStr = subtitleUris.mapIndexed { index, uri ->
-                            "$uri${delim}Subtitle ${index + 1}"
+                            val langLabel = extractSubtitleLangFromUri(uri, index)
+                            "$uri${delim}$langLabel"
                         }.joinToString("\n")
                         Logger.i("Anikuta:MainActivity") { "Downloads→Watch: passing ${subtitleUris.size} local subtitle track(s)" }
 
@@ -784,6 +791,42 @@ private fun showDownloadToast(message: String) {
             message,
             android.widget.Toast.LENGTH_SHORT,
         ).show()
+    }
+}
+
+/**
+ * Extracts a human-readable language label from a downloaded subtitle's
+ * `content://` URI by parsing the on-disk filename.
+ *
+ * D-FIX-SUB: the download storage names subtitle files
+ * `.subtitle_E{num}_{lang}_{index}.{ext}` (e.g. `.subtitle_E00001_english_0.srt`).
+ * This extracts the `{lang}` segment + title-cases it ("english" → "English") so
+ * the offline subtitle picker shows "English" / "Japanese" instead of "Subtitle 1".
+ *
+ * Falls back to `"Subtitle {index+1}"` for:
+ * - Legacy filenames (`.subtitle_E{num}_{index}.{ext}` — pre-fix, no lang segment).
+ * - URIs whose last path segment doesn't match the expected pattern.
+ * - A `lang` segment of `"unknown"` (written when the track had no language).
+ *
+ * @param uri The subtitle `content://` URI.
+ * @param index The 0-based track index (for the fallback label).
+ */
+private fun extractSubtitleLangFromUri(uri: String, index: Int): String {
+    val fileName = android.net.Uri.parse(uri).lastPathSegment ?: return "Subtitle ${index + 1}"
+    // Expected: .subtitle_E{num}_{lang}_{index}.{ext}
+    // Strip the leading ".subtitle_E" prefix + the "E{num}_" episode segment.
+    if (!fileName.startsWith(".subtitle_E")) return "Subtitle ${index + 1}"
+    val withoutExt = fileName.substringBeforeLast('.')
+    // withoutExt = ".subtitle_E00001_english_0" → split by '_' → [".subtitle", "E00001", "english", "0"]
+    val segments = withoutExt.split('_')
+    // Need at least 4 segments for the new format (prefix, enum, lang, index).
+    // Legacy format has 3 segments (prefix, enum, index) → no lang → fallback.
+    if (segments.size < 4) return "Subtitle ${index + 1}"
+    val lang = segments[segments.size - 2] // second-to-last segment
+    if (lang.isBlank() || lang == "unknown") return "Subtitle ${index + 1}"
+    // Title-case: "english" → "English", "espanol-latino" → "Espanol Latino".
+    return lang.split('-').joinToString(" ") { word ->
+        word.replaceFirstChar { it.titlecase() }
     }
 }
 

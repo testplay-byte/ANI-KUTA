@@ -104,10 +104,18 @@ class DownloadScanner(
                 for ((fileName, file) in index) {
                     if (!file.isFile) continue
                     if (!isVideoFile(fileName)) continue
-                    val episodeKey = deriveEpisodeKey(dataJson.mainId, fileName)
-                    if (episodeKey == null) continue
+                    val episodeKey = deriveEpisodeKey(dataJson.mainId, fileName) ?: continue
                     val episodeNumber = deriveEpisodeNumber(fileName) ?: continue
                     val episodeName = deriveEpisodeName(fileName)
+
+                    // D-FIX-SUB: re-discover subtitle files for this episode so a
+                    // reinstall / re-scan recovers them (previously subtitleUris was
+                    // hard-coded to emptyList() → offline subtitles lost after reinstall
+                    // even though the files existed on disk). Matches both the new
+                    // naming (.subtitle_E{num}_{lang}_{index}.{ext}) and the legacy
+                    // naming (.subtitle_E{num}_{index}.{ext}) for backward compat.
+                    val epNumPadded = String.format("%05d", episodeNumber.toInt())
+                    val subtitleUris = findSubtitleUrisForEpisode(index, epNumPadded)
 
                     store.insertDownloadedEpisode(
                         DownloadedEpisode(
@@ -126,7 +134,7 @@ class DownloadScanner(
                                 name = episodeName,
                             ),
                             videoUri = file.uri.toString(),
-                            subtitleUris = emptyList(),
+                            subtitleUris = subtitleUris,
                             sizeBytes = file.length(),
                             quality = null,
                             completedAt = dataJson.updatedAt,
@@ -248,6 +256,42 @@ class DownloadScanner(
         val noExt = fileName.substringBeforeLast('.')
         return noExt.substringBeforeLast(" - E").ifBlank { fileName }
     }
+
+    /**
+     * Finds the subtitle `content://` URIs for a given episode by scanning the
+     * folder's name→DocumentFile index.
+     *
+     * D-FIX-SUB: on reinstall / re-scan, the subtitle files exist on disk but the
+     * DB had no record of them (previously `subtitleUris = emptyList()` was
+     * hard-coded). This recovers them so offline playback works after a reinstall.
+     *
+     * Recognizes BOTH naming conventions (backward-compat with pre-fix downloads):
+     * - New: `.subtitle_E{epNumPadded}_{lang}_{index}.{ext}` (D-FIX-SUB)
+     * - Legacy: `.subtitle_E{epNumPadded}_{index}.{ext}` (pre-fix)
+     *
+     * Returns the URIs sorted by the trailing index (so track order is preserved),
+     * which matches the order the downloader wrote them.
+     */
+    private fun findSubtitleUrisForEpisode(
+        index: Map<String, DocumentFile>,
+        epNumPadded: String,
+    ): List<String> {
+        val prefix = ".subtitle_E${epNumPadded}_"
+        val matching = index.entries.filter { (name, _) ->
+            name.startsWith(prefix) && name.substringAfterLast('.', "").lowercase() in SUBTITLE_EXTENSIONS
+        }
+        // Sort by the index segment (the last numeric token before the extension).
+        // For both new (`_lang_index.ext`) and legacy (`_index.ext`) formats, the
+        // index is the segment immediately before the extension.
+        return matching.sortedBy { (name, _) ->
+            val withoutExt = name.substringBeforeLast('.')
+            val lastSegment = withoutExt.substringAfterLast('_')
+            lastSegment.toIntOrNull() ?: 0
+        }.map { (_, file) -> file.uri.toString() }
+    }
+
+    /** Subtitle file extensions recognized by the scanner + downloader. */
+    private val SUBTITLE_EXTENSIONS = setOf("srt", "vtt", "ass", "ssa", "sub")
 
     /**
      * The scan report returned by [scan].

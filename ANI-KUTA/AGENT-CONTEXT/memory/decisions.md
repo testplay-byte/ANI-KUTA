@@ -1099,3 +1099,22 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Recommended future-phase scope:** Items 1+2+4 together (share the catch-block + RETRYING state + device-test pass) + Item 3 (delete, ~15 min). Estimated ~6-8 hours total.
 - **Status:** ⚠️ All DEFERRED per user. Not started. Full plan + adapter sketch + RetryPolicy sketch + design questions in `download-research/FUTURE-PHASE-DL-GAPS.md`. Sandbox deep-dive: `ani-kuta-analysis/04-proxy-churn-explanation.md`.
 - **Date:** analysis-and-doc-update session.
+
+### D-152 — D-FIX-SUB: Downloaded-episode subtitle fixes (5 issues)
+- **What:** Fixed 5 issues with how downloaded episodes' subtitles are saved, named, and loaded offline. All found during a focused subtitle investigation (this session).
+  1. **`subtitleUris` was never populated (CRITICAL).** `HttpDownloader.download()` returned `task.copy(videoUri=...)` but NOT `subtitleUris`. `DownloadStorageProvider.publishVideoFile` returned only the video URI string, discarding the subtitle content:// URIs. → `completedTask.subtitleUris` was always null → DB stored null → **offline playback had no subtitles** (files existed on disk but nobody knew their URIs). **Fix:** added `PublishResult(videoUri, subtitleUris)` return type; `HttpDownloader` now serializes the subtitle URIs to JSON on the task.
+  2. **`downloadSubtitlesToCache` sent NO headers.** Built `Request.Builder().url(track.url).build()` with no headers → subtitle fetches 403'd on protected CDNs (Referer/UA required) + were silently skipped. The streaming-side `SubtitleEngine` already handled headers; the download side didn't. **Fix:** added `applyTrackHeaders()` (parses MPV comma-format `"Key: Value,Key2: Value2"` — matches `VideoResolver.formatHeaders`) + a User-Agent fallback.
+  3. **`DownloadTrack` had no `headers` field.** Even if #2 were fixed, the model couldn't carry headers from resolver to downloader. **Fix:** added `headers: String? = null` to `DownloadTrack`. `DownloadOrchestrator.buildRequest` now passes the video's `videoHeaders` as a fallback for each subtitle/audio track (subtitles from the same source usually need the same headers).
+  4. **Subtitle naming was index-based, not language-based.** Files were `.subtitle_E00001_0.srt` — the `lang` was lost. Offline, the subtitle picker showed "Subtitle 1", "Subtitle 2" (MainActivity). **Fix:** naming is now `.subtitle_E{00001}_{lang}_{index}.{ext}` (lang sanitized to `[a-z0-9-]`, `unknown` if blank). `MainActivity.extractSubtitleLangFromUri()` parses the lang from the filename + title-cases it → picker shows "English" / "Japanese". Legacy filenames still recognized by the scanner for backward compat.
+  5. **`DownloadScanner` set `subtitleUris = emptyList()` on reinstall.** On app reinstall / re-scan, subtitle files existed on disk but the scanner didn't re-discover them → offline subtitles lost after reinstall. **Fix:** added `findSubtitleUrisForEpisode()` to the scanner — finds `.subtitle_E{num}_*.{ext}` files (new + legacy naming) in the folder + repopulates `subtitleUris` in track order.
+- **Sub-agent reviewed (SUB-REVIEW):** COMPILES, no issues. Reviewer caught a logic bug (header format was JSON in my first pass but the actual format is MPV comma-string) — fixed before push.
+- **Files changed (6):**
+  - `core/download/.../DownloadModels.kt` (DownloadTrack.headers + PublishResult)
+  - `core/download/.../DownloadStorageProvider.kt` (return PublishResult + lang-based naming + sanitizeLangForFileName)
+  - `core/download/.../HttpDownloader.kt` (consume PublishResult + set subtitleUris + applyTrackHeaders + UA fallback)
+  - `core/download/.../DownloadScanner.kt` (findSubtitleUrisForEpisode + SUBTITLE_EXTENSIONS)
+  - `app/.../MainActivity.kt` (extractSubtitleLangFromUri for the picker label)
+  - `app/.../download/DownloadOrchestrator.kt` (pass videoHeaders as fallback for subtitle/audio tracks)
+- **Status:** ✅ Implemented. Sub-agent reviewed. Awaiting device verification (see `APP/ani-kuta/DOCUMENTATION/download-device-testing-checklist.md` section C).
+- **Note:** existing downloads (made before this fix) will have the OLD subtitle naming + null `subtitleUris` in the DB. They'll show "Subtitle N" labels. Re-downloading fixes them. The scanner's backward-compat means the subtitle FILES are still found after reinstall, but the labels will be "Subtitle N" for old-named files.
+- **Date:** analysis-and-doc-update session (subtitle investigation task).

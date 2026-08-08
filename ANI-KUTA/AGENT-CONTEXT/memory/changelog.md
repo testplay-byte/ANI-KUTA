@@ -360,3 +360,34 @@
 > MISSING from this file — that backfill is part of the deferred doc-debt sweep
 > (discrepancy D005). Their decisions ARE recorded in `decisions.md`; their
 > progress detail IS in `progress.md`. Only this changelog file lacks them.
+
+## D-FIX-SUB — Downloaded-episode subtitle fixes (this session)
+
+> 5 issues fixed in how downloaded episodes' subtitles are saved, named, and
+> loaded offline. See `decisions.md` D-152 for full detail + the device testing
+> checklist (`APP/ani-kuta/DOCUMENTATION/download-device-testing-checklist.md`
+> section C) for verification.
+
+- **D-FIX-SUB-1 (CRITICAL): `subtitleUris` never populated.** `HttpDownloader.download()`
+  returned `task.copy(videoUri=...)` but NOT `subtitleUris`; `publishVideoFile`
+  returned only the video URI string. → offline playback had NO subtitles (files
+  existed on disk but URIs were lost). **Fix:** `PublishResult` return type;
+  HttpDownloader serializes subtitle URIs onto the task.
+- **D-FIX-SUB-2: subtitle fetch sent no headers.** `downloadSubtitlesToCache`
+  built the request with no headers → 403 on protected CDNs → subtitles silently
+  skipped. **Fix:** `applyTrackHeaders()` (MPV comma-format) + UA fallback.
+- **D-FIX-SUB-3: `DownloadTrack` had no `headers` field.** **Fix:** added
+  `headers: String?`; `DownloadOrchestrator` passes the video's headers as a
+  fallback for each subtitle/audio track.
+- **D-FIX-SUB-4: subtitle naming was index-based.** Files were
+  `.subtitle_E00001_0.srt`; offline picker showed "Subtitle 1". **Fix:**
+  `.subtitle_E{00001}_{lang}_{index}.{ext}`; `MainActivity.extractSubtitleLangFromUri()`
+  → picker shows "English" / "Japanese".
+- **D-FIX-SUB-5: `DownloadScanner` set `subtitleUris = emptyList()` on reinstall.**
+  → offline subtitles lost after reinstall. **Fix:** `findSubtitleUrisForEpisode()`
+  re-discovers subtitle files (new + legacy naming) + repopulates the URIs.
+
+### Status
+- Sub-agent reviewed (SUB-REVIEW): COMPILES. Reviewer caught a header-format
+  logic bug (JSON vs MPV-comma) — fixed before push.
+- Awaiting device verification (checklist section C).

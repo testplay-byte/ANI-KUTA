@@ -198,8 +198,31 @@ class DownloadOrchestrator(
         // Proxy-churn fix Layer 1: prefer directUrl (CDN) over url (proxy).
         val downloadUrl = video.directUrl ?: video.url
 
-        // Build the resolve context (for re-resolve-on-IOException — Layer 2).
-        // Only needed if the URL is a localhost proxy URL.
+        // D-FIX-SUB: subtitles from the same source usually need the SAME headers as
+        // the video (Referer / User-Agent) to avoid 403. The resolver-side
+        // ResolverSubtitleTrack doesn't carry per-track headers yet, so we fall back
+        // to the video's headers for every subtitle/audio track. This matches the
+        // streaming-side SubtitleEngine behavior (which also uses the video's headers
+        // when per-track headers aren't available). Per-track headers can be added
+        // later if a source needs different headers per subtitle.
+        val fallbackHeaders = video.videoHeaders
+
+        val subtitleTracks = video.subtitleTracks.map { track ->
+            DownloadTrack(
+                url = track.url,
+                lang = track.lang,
+                kind = TrackKind.SUBTITLE,
+                headers = fallbackHeaders,
+            )
+        }
+        val audioTracks = video.audioTracks.map { track ->
+            DownloadTrack(
+                url = track.url,
+                lang = track.lang,
+                kind = TrackKind.AUDIO,
+                headers = fallbackHeaders,
+            )
+        }
         val resolveContext = if (downloadUrl.startsWith("http://localhost") ||
             downloadUrl.startsWith("http://127.0.0.1")
         ) {
@@ -216,13 +239,7 @@ class DownloadOrchestrator(
             null
         }
 
-        // Convert subtitle/audio tracks.
-        val subtitleTracks = video.subtitleTracks.map { track ->
-            DownloadTrack(url = track.url, lang = track.lang, kind = TrackKind.SUBTITLE)
-        }
-        val audioTracks = video.audioTracks.map { track ->
-            DownloadTrack(url = track.url, lang = track.lang, kind = TrackKind.AUDIO)
-        }
+        // (subtitleTracks + audioTracks built above with fallbackHeaders — D-FIX-SUB.)
 
         return DownloadRequest(
             content = content,

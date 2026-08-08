@@ -76,10 +76,10 @@ Phases 0-4, 5a/5b/5c (watch screen), Phase B (auto-link), Phase C (content ident
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: analysis-and-doc-update (Z.ai Code sandbox) — full project re-analysis + download-system doc update.
-- By: main agent (analysis + AGENT-CONTEXT updates; sub-agents used for read-only deep analysis only, per CORE_RULES §14).
-- Branch: `download-system-plan` (41 commits ahead of `main`).
-- Note: Cloned the branch, performed deep analysis (AGENT-CONTEXT + APP/ani-kuta — 38 Gradle modules, 247 .kt, 22 DB tables), documented 6 discrepancies (D001-D006) in sandbox `ani-kuta-analysis/`. Updated progress.md (this file), master.md, navigation.md, changelog.md (Phase DL), decisions.md (D-148, D-149), download-research/13-implementation-plan.md (status table) to reflect the implemented download system. Deferred: proxy-churn wiring (D-149), Nav3 decision (D004), full knowledge/* + decisions.md doc-debt sweep (D005).
+- Session: analysis-and-doc-update (Z.ai Code sandbox) — full project re-analysis + download-system doc update + Nav3 decision + proxy-churn/retry future-phase plan + D-FIX-SUB subtitle fixes + DASHBOARD analysis + device testing checklist.
+- By: main agent (analysis + AGENT-CONTEXT updates + subtitle code fixes; sub-agents used for read-only deep analysis + code review only, per CORE_RULES §14).
+- Branch: `download-system-plan` (44 commits ahead of `main` after this session's pushes).
+- Note: (1) Cloned the branch, deep analysis (AGENT-CONTEXT + APP/ani-kuta + DASHBOARD — 38 Gradle modules, 247 .kt, 22 DB tables). (2) Documented 6 discrepancies (D001-D006) in sandbox `ani-kuta-analysis/`. (3) Synced AGENT-CONTEXT docs with the implemented download system (D-148). (4) Recorded Nav3 decision — keep hand-rolled (D-150). (5) Saved download future-phase gaps plan (D-149/D-151, `FUTURE-PHASE-DL-GAPS.md`). (6) Fixed 5 subtitle issues D-FIX-SUB (D-152). (7) DASHBOARD analysis report (`05-dashboard-analysis.md`) — dashboard is massively stale (31 vs 38 modules, 18 vs 150 decisions, download system marked "planned"). (8) Device testing checklist at `APP/ani-kuta/DOCUMENTATION/download-device-testing-checklist.md`. Deferred: proxy-churn wiring + outer retry loop (D-151 future phase), DASHBOARD data refresh, full knowledge/* doc-debt sweep (D005).
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 
@@ -616,7 +616,18 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 - ⚠️ `DownloadVideoPickerSheet` (235 LOC) exists but is NOT wired — `MainActivity.handleDownloadEpisode()` handles `EnqueueResult.ShowPicker` with a `// TODO: show the DownloadVideoPickerSheet (Phase D.6 follow-up). For now, log only`.
 
 ### What's next (download system)
-1. Device testing (enqueue / pause-resume / offline playback / auto-download / notifications / foreground-service survival).
+1. Device testing (enqueue / pause-resume / offline playback / auto-download / notifications / foreground-service survival). **Checklist:** `APP/ani-kuta/DOCUMENTATION/download-device-testing-checklist.md`.
 2. Wire proxy-churn re-resolve (D-149, deferred per user) + fix the two bugs above in the same change.
 3. Wire `DownloadVideoPickerSheet` (the multi-quality picker for downloads).
 4. Implement outer retry loop (`RETRYING` state + `RetryPolicy`) — currently max attempts = 2, spec says 6.
+5. **D-FIX-SUB device verification (section C of the checklist)** — confirm the 5 subtitle fixes work on a real device (especially C5: subtitles survive reinstall).
+
+### D-FIX-SUB — Downloaded-episode subtitle fixes (this session)
+- **5 issues fixed** (see `decisions.md` D-152 + `changelog.md` D-FIX-SUB section):
+  1. `subtitleUris` was never populated on task completion → offline playback had NO subtitles (CRITICAL). Fixed via `PublishResult` return type.
+  2. Subtitle fetch sent no headers → 403 on protected CDNs. Fixed via `applyTrackHeaders` (MPV comma-format) + UA fallback.
+  3. `DownloadTrack` had no `headers` field. Fixed: added field; `DownloadOrchestrator` passes video headers as fallback.
+  4. Subtitle naming was index-based → picker showed "Subtitle 1". Fixed: lang-based naming + `extractSubtitleLangFromUri` → "English" / "Japanese".
+  5. `DownloadScanner` set `subtitleUris = emptyList()` on reinstall → subtitles lost. Fixed: `findSubtitleUrisForEpisode` re-discovers them.
+- **Sub-agent reviewed (SUB-REVIEW):** COMPILES. Reviewer caught a header-format logic bug (JSON vs MPV-comma) — fixed.
+- **Awaiting device verification** (checklist section C, esp. C5 reinstall test).

@@ -120,24 +120,40 @@ class HttpDownloader(
             val subtitleFiles = downloadSubtitlesToCache(task)
             emitPhaseProgress(onProgress, downloadedBytes, 97)
 
-            // 5. Publish to SAF (atomic). Returns the content:// URI.
-            val videoUri = storage.publishVideoFile(
+            // 5. Publish to SAF (atomic). Returns the content:// URI + subtitle URIs.
+            // D-FIX-SUB: pass the per-track language labels so the on-disk subtitle
+            // filenames include the language (e.g. `.subtitle_E00001_english_0.srt`),
+            // and capture the returned subtitle URIs so they land on the task + DB.
+            val subtitleLangs = task.subtitleTracks.map { it.lang }
+            val publishResult = storage.publishVideoFile(
                 downloadId = task.id,
                 tempFile = tempVideo,
                 content = task.content,
                 episode = task.episode,
                 videoExtension = ext,
                 subtitleFiles = subtitleFiles,
+                subtitleLangs = subtitleLangs,
             )
             emitPhaseProgress(onProgress, downloadedBytes, 99)
 
             // 6. SUCCESS — clean up temp dir (preserveForResume = false).
             tempCache.cleanupTask(task.id, preserveForResume = false)
 
+            // D-FIX-SUB: serialize the subtitle content:// URIs to JSON so the task
+            // (and the DB row) carries them. Previously this was always null →
+            // offline playback had no subtitles. decodeSubtitleUris() in DownloadQueue
+            // parses this back to List<String>.
+            val subtitleUrisJson = if (publishResult.subtitleUris.isEmpty()) null
+                else kotlinx.serialization.json.Json.encodeToString(
+                    kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.builtins.serializer<String>()),
+                    publishResult.subtitleUris,
+                )
+
             task.copy(
                 status = DownloadStatus.COMPLETED,
                 progress = 99, // The queue bumps to 100 via DynamicProgressTracker.complete().
-                videoUri = videoUri,
+                videoUri = publishResult.videoUri,
+                subtitleUris = subtitleUrisJson,
                 downloadedBytes = downloadedBytes,
                 totalBytes = downloadedBytes,
                 completedAt = System.currentTimeMillis(),
@@ -342,6 +358,13 @@ class HttpDownloader(
     /**
      * Downloads each subtitle track to the temp cache. Best-effort — failures are
      * logged + skipped (one bad subtitle doesn't fail the download).
+     *
+     * D-FIX-SUB: now sends the per-track HTTP headers ([DownloadTrack.headers], JSON
+     * `Map<String,String>`) + a User-Agent fallback. Previously the request was built
+     * with NO headers → subtitle fetches 403'd on protected CDNs (same Referer/UA
+     * requirement as the video URL) and were silently skipped. The streaming-side
+     * [com.confused.anikuta.core.player.subtitles.SubtitleEngine] already handled
+     * headers; the download side now matches it.
      */
     private suspend fun downloadSubtitlesToCache(task: DownloadTask): List<File> =
         withContext(Dispatchers.IO) {
@@ -350,8 +373,20 @@ class HttpDownloader(
                 val ext = subtitleExtension(track.url)
                 val tempFile = tempCache.getTempSubtitleFile(task.id, index, ext)
                 try {
-                    val request = Request.Builder().url(track.url).build()
-                    client.newCall(request).execute().use { response ->
+                    val requestBuilder = Request.Builder().url(track.url)
+                    // D-FIX-SUB: apply per-track headers (JSON Map<String,String>).
+                    applyTrackHeaders(requestBuilder, track.headers)
+                    // Always add a User-Agent if not already set (matches SubtitleEngine).
+                    if (track.headers.isNullOrBlank() ||
+                        !track.headers.contains("User-Agent", ignoreCase = true)
+                    ) {
+                        requestBuilder.addHeader(
+                            "User-Agent",
+                            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
+                                "(KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
+                        )
+                    }
+                    client.newCall(requestBuilder.build()).execute().use { response ->
                         if (!response.isSuccessful) {
                             DownloadLogger.w { "Subtitle $index fetch failed (${response.code}) — skipping" }
                             return@use
@@ -367,6 +402,35 @@ class HttpDownloader(
             }
             results
         }
+
+    /**
+     * Parses the track's `headers` string (MPV `http-header-fields` format:
+     * comma-separated `"Key: Value,Key2: Value2"`) + applies each entry to the
+     * request builder. No-op if [headers] is null/blank (best-effort — a parse
+     * failure logs a warning + falls back to no headers).
+     *
+     * D-FIX-SUB: this mirrors the format produced by `VideoResolver.formatHeaders`
+     * (comma-joined `"name: value"` pairs) + the format the streaming-side
+     * `SubtitleEngine` hands to MPV. Keeping the download side on the SAME format
+     * means the `video.videoHeaders` passed through `DownloadOrchestrator` works
+     * unchanged for both video + subtitle fetches.
+     */
+    private fun applyTrackHeaders(
+        requestBuilder: Request.Builder,
+        headers: String?,
+    ) {
+        if (headers.isNullOrBlank()) return
+        // Format: "Key1: Value1,Key2: Value2" (comma-separated, colon between name+value).
+        for (pair in headers.split(',')) {
+            val colonIdx = pair.indexOf(':')
+            if (colonIdx <= 0) continue
+            val name = pair.substring(0, colonIdx).trim()
+            val value = pair.substring(colonIdx + 1).trim()
+            if (name.isNotEmpty() && value.isNotEmpty()) {
+                requestBuilder.addHeader(name, value)
+            }
+        }
+    }
 
     // ── Misc helpers ─────────────────────────────────────────────────────────
 

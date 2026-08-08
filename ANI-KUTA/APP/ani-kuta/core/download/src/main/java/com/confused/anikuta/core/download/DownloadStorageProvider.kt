@@ -89,8 +89,18 @@ class DownloadStorageProvider(
 
     /**
      * Publishes the temp video file (and any temp subtitle files) to the user's SAF
-     * folder. Returns the content:// URI of the published video file, or throws on
-     * failure.
+     * folder. Returns a [PublishResult] containing the video `content://` URI AND the
+     * subtitle `content://` URIs (in track order), or throws on failure.
+     *
+     * D-FIX-SUB: previously returned ONLY the video URI string. The subtitle files
+     * were written to disk but their URIs were lost → `task.subtitleUris` was never
+     * set → offline playback had no subtitles. Now returns both via [PublishResult].
+     *
+     * D-FIX-SUB (naming): subtitle files are now named with the language label so the
+     * offline subtitle picker can show "English" / "Japanese" instead of "Subtitle 1".
+     * Format: `.subtitle_E{00001}_{lang}_{index}.{ext}` (lang sanitized to [a-z0-9-],
+     * `unknown` if blank). The `_index` suffix is kept for uniqueness when two tracks
+     * share a language.
      *
      * REVIEW-5 M35: this is the final phase of the download pipeline — the caller
      * (HttpDownloader) emits an intermediate `99%` progress tick before calling.
@@ -100,7 +110,15 @@ class DownloadStorageProvider(
      * @param content The content identity (drives the folder location).
      * @param episode The episode identity (drives the file name).
      * @param videoExtension The video file extension (e.g. `"mp4"`, `"mkv"`, `"ts"`).
-     * @return The content:// URI of the published video file.
+     * @param subtitleFiles The temp subtitle files to publish alongside the video.
+     *   Order MUST match [DownloadTask.subtitleTracks] (the caller passes them in
+     *   track order). Files whose corresponding track had no language still publish
+     *   (lang = `unknown`).
+     * @param subtitleLangs The language label per subtitle file (same length as
+     *   [subtitleFiles]). D-FIX-SUB: used for the on-disk filename so the offline
+     *   subtitle picker can show the language. Defaults to empty (legacy callers) —
+     *   in that case all subtitles get `unknown`.
+     * @return [PublishResult] with the video URI + subtitle URIs.
      */
     suspend fun publishVideoFile(
         downloadId: Long,
@@ -109,7 +127,8 @@ class DownloadStorageProvider(
         episode: DownloadEpisodeInfo,
         videoExtension: String,
         subtitleFiles: List<File> = emptyList(),
-    ): String = withContext(Dispatchers.IO) {
+        subtitleLangs: List<String> = emptyList(),
+    ): PublishResult = withContext(Dispatchers.IO) {
         val contentDir = getContentFolder(content.mainId, content.title)
             ?: throw DownloadException("Failed to create content folder for ${content.title}")
 
@@ -140,24 +159,44 @@ class DownloadStorageProvider(
         copyFile(tempFile, videoTarget.uri)
 
         // 5. Write subtitle files alongside the video.
-        // D.FIX: Name subtitles per-episode + per-track-index so they don't
-        // overwrite each other when multiple episodes are downloaded.
-        // Format: .subtitle_E{00001}_{index}.{ext} (hidden file).
+        // D-FIX-SUB: name includes the language so the offline subtitle picker can
+        // show "English" / "Japanese". Format: .subtitle_E{00001}_{lang}_{index}.{ext}
+        // (hidden file). The _index guarantees uniqueness when two tracks share a lang.
+        // Older format (.subtitle_E{00001}_{index}.{ext}) is still recognized by
+        // DownloadScanner for backward compat with pre-fix downloads.
+        val publishedSubtitleUris = mutableListOf<String>()
         for ((subIndex, subFile) in subtitleFiles.withIndex()) {
             val ext = subFile.extension.ifBlank { "vtt" }
             val epNum = String.format("%05d", episode.episodeNumber.toInt())
-            val subName = ".subtitle_E${epNum}_$subIndex.$ext"
+            val rawLang = subtitleLangs.getOrNull(subIndex) ?: ""
+            val safeLang = sanitizeLangForFileName(rawLang)
+            val subName = ".subtitle_E${epNum}_${safeLang}_${subIndex}.$ext"
             index[subName]?.delete()
             val subTarget = contentDir.createFile("application/octet-stream", subName)
             if (subTarget != null) {
                 copyFile(subFile, subTarget.uri)
+                publishedSubtitleUris.add(subTarget.uri.toString())
             }
         }
 
         DownloadLogger.i {
-            "publishVideoFile($downloadId) — published $videoName (${tempFile.length()} bytes) to ${contentDir.name}"
+            "publishVideoFile($downloadId) — published $videoName (${tempFile.length()} bytes) " +
+                "to ${contentDir.name} + ${publishedSubtitleUris.size} subtitle(s)"
         }
-        videoTarget.uri.toString()
+        PublishResult(videoUri = videoTarget.uri.toString(), subtitleUris = publishedSubtitleUris)
+    }
+
+    /**
+     * Sanitizes a language label for use in a filename. Lowercases, replaces
+     * non-alphanumeric runs with a single hyphen, trims leading/trailing hyphens.
+     * Returns `"unknown"` if blank. Examples: "English" → "english",
+     * "Español (Latino)" → "espanol-latino", "" → "unknown".
+     */
+    private fun sanitizeLangForFileName(lang: String): String {
+        val sanitized = lang.lowercase()
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+        return sanitized.ifBlank { "unknown" }
     }
 
     /**

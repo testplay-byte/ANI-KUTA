@@ -80,6 +80,21 @@ data class DownloadTrack(
     val url: String,
     val lang: String = "",
     val kind: TrackKind = TrackKind.SUBTITLE,
+    /**
+     * HTTP headers required by the subtitle URL, in **MPV `http-header-fields`
+     * format**: comma-separated `"Key: Value,Key2: Value2"` (same format as
+     * [DownloadRequest.videoHeaders] + what `VideoResolver.formatHeaders` produces).
+     *
+     * D-FIX-SUB: subtitles often need a Referer / User-Agent to avoid 403 (same as the
+     * video URL). Previously the downloader sent NO headers → subtitle fetches 403'd on
+     * protected CDNs and were silently skipped. The streaming-side [SubtitleEngine]
+     * already handled headers; the download side now matches it.
+     *
+     * `DownloadOrchestrator.buildRequest` populates this with the video's
+     * `videoHeaders` as a fallback (subtitles from the same source usually need the
+     * same headers). `null` or blank = no headers.
+     */
+    val headers: String? = null,
 )
 
 @Serializable
@@ -214,4 +229,22 @@ data class DownloadedEpisode(
     val sizeBytes: Long,
     val quality: String?,
     val completedAt: Long,
+)
+
+/**
+ * The result of publishing a download to the SAF folder.
+ *
+ * D-FIX-SUB: `publishVideoFile` previously returned ONLY the video `content://` URI.
+ * The subtitle files it wrote to disk were not returned → `HttpDownloader` couldn't
+ * set `task.subtitleUris` → the DB stored `null` → offline playback had no subtitles
+ * (the files existed on disk but nobody knew their URIs). This class fixes that by
+ * returning both.
+ *
+ * @param videoUri The `content://` URI of the published video file.
+ * @param subtitleUris The `content://` URIs of any published subtitle files (in
+ *   track order). Empty if the episode had no subtitles.
+ */
+data class PublishResult(
+    val videoUri: String,
+    val subtitleUris: List<String> = emptyList(),
 )
