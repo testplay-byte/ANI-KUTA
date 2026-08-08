@@ -28,6 +28,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,12 +64,15 @@ fun UpdatesScreen(
     onBack: () -> Unit,
     onNavigateToDetails: (String) -> Unit = {},
     viewModel: UpdatesViewModel = koinViewModel(),
+    scheduleViewModel: ScheduleViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val checking by viewModel.checking.collectAsStateWithLifecycle()
+    val fetching by scheduleViewModel.fetching.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
+    var selectedTab by remember { androidx.compose.runtime.mutableStateOf(0) } // 0 = Updates, 1 = Schedule
 
     Box(
         modifier = Modifier
@@ -75,11 +81,14 @@ fun UpdatesScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
-                title = "Updates",
+                title = if (selectedTab == 0) "Updates" else "Schedule",
                 collapsed = collapsed,
                 actions = {
-                    IconButton(onClick = { viewModel.checkForUpdates() }) {
-                        if (checking) {
+                    IconButton(onClick = {
+                        if (selectedTab == 0) viewModel.checkForUpdates()
+                        else scheduleViewModel.fetchSchedule()
+                    }) {
+                        if (checking || fetching) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 strokeWidth = 2.dp,
@@ -87,7 +96,7 @@ fun UpdatesScreen(
                         } else {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
-                                contentDescription = "Check for updates",
+                                contentDescription = "Refresh",
                                 tint = MaterialTheme.colorScheme.onSurface,
                             )
                         }
@@ -95,8 +104,29 @@ fun UpdatesScreen(
                 },
             )
 
-            when (val s = state) {
-                is UpdatesUiState.Loading -> {
+            // ── Phase SC: Updates | Schedule tab strip ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                UpdatesTabPill(
+                    label = "Updates",
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                )
+                Spacer(Modifier.width(8.dp))
+                UpdatesTabPill(
+                    label = "Schedule",
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                )
+            }
+
+            if (selectedTab == 0) {
+                when (val s = state) {
+                    is UpdatesUiState.Loading -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
@@ -161,8 +191,34 @@ fun UpdatesScreen(
                         }
                     }
                 }
+            } else {
+                ScheduleListContent(onNavigateToDetails = onNavigateToDetails)
             }
         }
+    }
+}
+
+@Composable
+private fun UpdatesTabPill(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (selected) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+        )
     }
 }
 

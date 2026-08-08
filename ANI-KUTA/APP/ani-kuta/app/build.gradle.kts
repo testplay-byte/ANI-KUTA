@@ -77,6 +77,7 @@ dependencies {
     implementation(project(":feature:updates:api"))
     implementation(project(":feature:updates:impl"))
     implementation(project(":core:updates"))
+    implementation(project(":core:schedule"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)

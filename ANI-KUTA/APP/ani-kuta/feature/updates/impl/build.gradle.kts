@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:content"))
     implementation(project(":core:updates"))
+    implementation(project(":core:schedule"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

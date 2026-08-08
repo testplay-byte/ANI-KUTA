@@ -1,0 +1,59 @@
+-- Episode schedule (Phase SC — PLAN §1.5)
+-- Schedule data for upcoming episode airings (AniList airing schedule).
+-- scheduled_at = AniList airingAt (the PLANNED time).
+-- actual_at = the ACTUAL release time (null until detected by UpdateEngine).
+
+CREATE TABLE IF NOT EXISTS episode_schedule (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    main_id TEXT NOT NULL,               -- FK → content(main_id)
+    anilist_id INTEGER,                  -- for the AniList airing API
+    episode_number INTEGER NOT NULL,
+    scheduled_at INTEGER NOT NULL,       -- AniList airingAt (epoch millis) — the PLANNED time
+    actual_at INTEGER,                   -- the ACTUAL release time (null until detected; IM11: uses source dateUpload)
+    audio_variant TEXT NOT NULL DEFAULT 'unknown',  -- CF7: NOT NULL (nullable breaks UNIQUE dedup)
+    source TEXT NOT NULL DEFAULT 'anilist',  -- 'anilist' | 'extension' | 'manual' (IM5: dropped confidence)
+    fetched_at INTEGER NOT NULL,
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_unique ON episode_schedule(main_id, episode_number, audio_variant);
+CREATE INDEX IF NOT EXISTS idx_schedule_at ON episode_schedule(scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_schedule_main ON episode_schedule(main_id);
+
+-- Upsert a schedule entry.
+upsertEpisodeSchedule:
+INSERT OR REPLACE INTO episode_schedule(
+    main_id, anilist_id, episode_number, scheduled_at, actual_at, audio_variant, source, fetched_at
+) VALUES (
+    :main_id, :anilist_id, :episode_number, :scheduled_at, :actual_at, :audio_variant, :source, :fetched_at
+);
+
+-- Get upcoming schedule entries (scheduled_at >= now), ordered ascending.
+getUpcomingSchedule:
+SELECT * FROM episode_schedule
+WHERE scheduled_at >= :from AND scheduled_at <= :to
+ORDER BY scheduled_at ASC;
+
+-- Get schedule entries for a specific day (for the calendar day-detail sheet).
+getScheduleForDay:
+SELECT * FROM episode_schedule
+WHERE scheduled_at >= :dayStart AND scheduled_at < :dayEnd
+ORDER BY scheduled_at ASC;
+
+-- Get schedule entries for a specific anime.
+getScheduleByMainId:
+SELECT * FROM episode_schedule WHERE main_id = ? ORDER BY scheduled_at ASC;
+
+-- Update the actual_at (when UpdateEngine finds the episode on a source — Phase SC-2).
+updateActualAt:
+UPDATE episode_schedule
+SET actual_at = :actual_at
+WHERE main_id = :main_id AND episode_number = :episode_number;
+
+-- Delete old schedule entries (cleanup).
+deleteOldSchedule:
+DELETE FROM episode_schedule WHERE scheduled_at < :cutoff;
+
+-- Get all schedule entries (for backup).
+getAllSchedule:
+SELECT * FROM episode_schedule;

@@ -175,6 +175,34 @@ class AniListApi(
         return executeRequest(requestBody)
     }
 
+    /**
+     * Phase SC: Fetch the airing schedule for a batch of anime (up to 50 IDs).
+     * Returns the status, nextAiringEpisode, + airingSchedule nodes for each anime.
+     * AniList returns airingAt as Unix SECONDS — convert to millis (* 1000) when storing.
+     */
+    suspend fun fetchAiringSchedule(ids: List<Int>): List<AiringMedia> =
+        withContext(dispatchers.io) {
+            if (ids.isEmpty()) return@withContext emptyList()
+            val idsStr = ids.joinToString(",")
+            val query = """
+                {
+                    Page(perPage: 50) {
+                        media(id_in: [$idsStr], type: ANIME) {
+                            id
+                            status
+                            nextAiringEpisode { airingAt episode }
+                            airingSchedule(notYetAired: true) { nodes { episode airingAt } }
+                        }
+                    }
+                }
+            """.trimIndent()
+
+            Logger.d("Anikuta:Core:AniList") { "fetchAiringSchedule(ids.size=${ids.size})" }
+
+            val response = executeQuery(query)
+            json.decodeFromString<AiringResponse>(response).data.Page.media
+        }
+
     private fun executeRequest(requestBody: okhttp3.RequestBody): String {
         val request = Request.Builder()
             .url(endpoint)
@@ -193,3 +221,28 @@ class AniListApi(
         }
     }
 }
+
+// ── Phase SC: Airing schedule response models ──
+
+@kotlinx.serialization.Serializable
+data class AiringResponse(val data: AiringData)
+
+@kotlinx.serialization.Serializable
+data class AiringData(val Page: AiringPage)
+
+@kotlinx.serialization.Serializable
+data class AiringPage(val media: List<AiringMedia>)
+
+@kotlinx.serialization.Serializable
+data class AiringMedia(
+    val id: Int,
+    val status: String? = null,
+    val nextAiringEpisode: AiringEpisode? = null,
+    val airingSchedule: AiringScheduleNodes? = null,
+)
+
+@kotlinx.serialization.Serializable
+data class AiringEpisode(val airingAt: Long, val episode: Int)
+
+@kotlinx.serialization.Serializable
+data class AiringScheduleNodes(val nodes: List<AiringEpisode> = emptyList())

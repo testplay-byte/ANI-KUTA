@@ -44,6 +44,7 @@ include(":core:smart-matcher")
 include(":core:content")
 include(":core:data-cache")
 include(":core:updates")
+include(":core:schedule")
 
 // ── :data ──
 include(":data:extension")
