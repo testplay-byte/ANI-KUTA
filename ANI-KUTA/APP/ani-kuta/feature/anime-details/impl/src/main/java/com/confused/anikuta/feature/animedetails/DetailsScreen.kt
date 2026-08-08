@@ -85,7 +85,6 @@ import androidx.compose.ui.graphics.graphicsLayer  // Phase WP: for watched alph
 import androidx.compose.runtime.rememberCoroutineScope  // Phase WP: for swipe coroutine
 import androidx.compose.ui.input.pointer.pointerInput  // Phase WP: for swipe gesture
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures  // Phase WP
-import androidx.compose.material.icons.Icons  // Phase WP: swipe background icon
 import androidx.compose.material.icons.filled.CheckCircle  // Phase WP
 import androidx.compose.material.icons.filled.VisibilityOff  // Phase WP
 import androidx.compose.ui.graphics.ColorFilter  // Phase WP: grayscale
@@ -1450,23 +1449,25 @@ private fun EpisodeRow(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val swipeThresholdPx = with(density) { 120.dp.toPx() } // ~40% of a typical row width
 
-    // ── Phase WP: watched styling (IM4: grayscale + alpha, NO blur) ──
-    // Animate the saturation + alpha for a smooth transition (CORE_RULES §22).
+    // ── Phase WP: watched styling (IM4: alpha fade + grayscale on the thumbnail) ──
+    // Animate the alpha for a smooth transition (CORE_RULES §22). The grayscale
+    // uses a precomputed saturation=0 ColorMatrix (Compose's ColorMatrix doesn't
+    // have setSaturation, so we construct it from the known grayscale values).
     val targetAlpha = if (isWatched) 0.5f else 1.0f
     val alpha by androidx.compose.animation.core.animateFloatAsState(
         targetValue = targetAlpha,
         label = "watched_alpha",
     )
-    val targetSaturation = if (isWatched) 0f else 1f
-    val saturation by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = targetSaturation,
-        label = "watched_saturation",
-    )
-    val colorMatrix = remember(saturation) {
-        ColorMatrix().apply { setSaturation(saturation) }
-    }
-    val colorFilter = remember(colorMatrix) {
-        ColorFilter.colorMatrix(colorMatrix)
+    val colorFilter = remember(isWatched) {
+        if (isWatched) {
+            // Grayscale matrix (saturation=0): standard BT.601 luma weights.
+            ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+                0.299f, 0.587f, 0.114f, 0f, 0f,
+                0.299f, 0.587f, 0.114f, 0f, 0f,
+                0.299f, 0.587f, 0.114f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f,
+            )))
+        } else null
     }
 
     // ── Card ── (wrapped in a Box for the swipe gesture + background icon)
