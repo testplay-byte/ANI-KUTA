@@ -42,6 +42,12 @@ enum class TriggerState(val dbValue: Long) {
 enum class AudioPref {
     SUB, DUB, BOTH;
 
+    /** The sub boolean for this pref (SUB + BOTH notify for sub; DUB doesn't). */
+    fun subBoolean(): Boolean = this != DUB
+
+    /** The dub boolean for this pref (DUB + BOTH notify for dub; SUB doesn't). */
+    fun dubBoolean(): Boolean = this != SUB
+
     companion object {
         /** Derive the audio pref from the two stored booleans. (0,0) → BOTH. */
         fun fromBooleans(notifySub: Boolean, notifyDub: Boolean): AudioPref = when {
@@ -49,12 +55,6 @@ enum class AudioPref {
             notifyDub -> DUB
             else -> SUB
         }
-
-        /** The sub boolean for this pref. */
-        fun subBoolean(): Boolean = this != DUB
-
-        /** The dub boolean for this pref. */
-        fun dubBoolean(): Boolean = this != SUB
     }
 }
 
