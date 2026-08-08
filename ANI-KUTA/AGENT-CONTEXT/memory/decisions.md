@@ -1042,3 +1042,40 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
   2. Offline extension fallback: `loadFromExtension()` catches network failures → calls `tryCachedExtensionData()` → loads from content DB (extension_detail, anime_metadata_cache, data_cache_episode). Extension-only anime now shows full details + episodes when offline.
 - **Status:** ✅ Implemented. CI #224 green.
 - **Date:** Phase D (session web-f53f0459).
+
+### D-148 — Download System architecture (Phase DL.0-DL.8) — substantially implemented
+- **What:** The download system is implemented on the `download-system-plan` branch (41 commits ahead of `main`). Key architecture decisions (confirming the `download-research/` plan):
+  1. **`DownloadStatus` is an enum** (not a sealed interface) — REVIEW-5 §2.1 settled the 3 competing doc definitions; the enum is the implemented one.
+  2. **Storage: SAF + `.data.json`** — downloads go to a user-selected SAF tree under `<root>/{video,images,text}/<Title>/{data.json, <Title> - E00001.mp4}`. The `data.json` file is the durable source of truth for reinstall recognition; the `downloaded_episode` SQLDelight table is a cache/index reconciled by `DownloadScanner` on startup. 5-digit zero-padded episode keys. Same-title collision handling via content FORMAT folders.
+  3. **DB re-keyed by `main_id` + `episode_key`** — the `downloaded_episode` table uses the content-identity keys (not the old project's extension-specific keys), so a download survives an extension swap.
+  4. **Offline playback via `content://` → `fd://`** — MPV cannot read SAF `content://` URIs directly. `DownloadStorageProvider` opens a `ParcelFileDescriptor` and passes `fd://<n>` to MPV, with a 500ms surface-readiness delay to avoid SIGABRT (DL-CRITICAL-FIX3, `1f85339`).
+  5. **`AutoDownloadEngine` is a 5-step pure-function pipeline** — `flatten → rank → applyFallbacks → pick → globalFallback`, with user-configurable `dimensionPriority` (server / quality / audio). Pure functions for testability.
+  6. **Foreground service: `foregroundServiceType="dataSync"`** + 2 notification channels (download progress + download complete). `NetworkCallback` auto-pause on lost connectivity + resume on restore. `onTimeout` (API 35+) + `onTaskRemoved` restart.
+  7. **`HttpDownloader`** — Range-request resume, validation, HLS re-detection. `HlsDownloader` — pure Kotlin (no encrypted HLS support).
+  8. **Schema evolution via `DatabaseDriverFactory.onOpen`** — idempotent `ALTER TABLE` overrides, no `.sqm` migration files (existing dev installs must wipe app data once per REVIEW-5 M1+M2).
+- **Status:** ✅ Substantially implemented (DL.0-DL.8). ⚠️ Known gaps: proxy-churn not wired (D-149); `DownloadVideoPickerSheet` not wired; outer retry loop not implemented (max 2 attempts, spec 6); `127.0.0.1` guard missing; `video_uri`/`video_url` column bug.
+- **Why:** The download system is the app's headline missing feature; implemented per the 5-round-reviewed `download-research/` plan.
+- **Date:** `download-system-plan` branch (DL-D0 `5849e13` → METADATA-FIX-v2 `234ea15`). Documented retroactively in the analysis-and-doc-update session (the implementation commits never recorded their own decision entries — this closes that gap).
+
+### D-149 — Proxy-churn re-resolve: BUILT but NOT WIRED (known gap, deferred)
+- **What:** The proxy-churn re-resolve fix (Phase DL.2) is implemented in code but is **silently disabled**:
+  1. `HttpDownloader` (`core/download/.../HttpDownloader.kt:59`) has a `private val reResolver: ReResolver? = null` constructor param.
+  2. `DownloadModule.kt:92` constructs `HttpDownloader` with `reResolver = null`, with a comment: "wired in D.2 via the :app module's downloadAppModule".
+  3. **No such `downloadAppModule` exists** (grep returns 0 matches — only the comment itself).
+  4. The `:app` `ReResolver` class (`app/.../download/ReResolver.kt`) IS registered in Koin (`AnikutaApp.kt:154`) but is never injected into `HttpDownloader`.
+  5. The retry path (`HttpDownloader.kt:261-268`) is gated by `reResolver != null` → currently **dead code**.
+  6. **Signature incompatibility**: `HttpDownloader.ReResolver` (fun interface, `:core:download`) takes `resolveContextJson: String` → `ReResolvedVideo?`; the `:app` `ReResolver` takes typed `(ResolveContext, AnimeHttpSource, SEpisode)` → `ResolverVideo?`. An adapter is required, not just a Koin binding.
+- **Impact:** Downloads of episodes whose video URL is a `http://localhost` proxy URL (AniKotoS and similar extensions spin up a local NanoHTTPD proxy per `getHosterList()` call — see D-066) will **fail when the proxy URL churns**, instead of re-resolving + retrying. The user sees a download error.
+- **Two related bugs found during analysis** (fix alongside wiring):
+  1. `HttpDownloader.kt:261` only checks `url.startsWith("http://localhost")` — but AniKotoS uses `127.0.0.1` (D-092). Add `127.0.0.1` to the guard.
+  2. `HttpDownloader.kt:271` writes the fresh URL to the `video_uri` column, but the download read path uses `video_url`. A `DownloadStore.updateDownloadVideoUrl` query must be added.
+- **Wiring plan** (deferred per user — full detail in sandbox `ani-kuta-analysis/04-proxy-churn-explanation.md`):
+  1. Create a ~50-line adapter class in `:app` implementing `HttpDownloader.ReResolver`: deserialize `resolveContextJson` → `ResolveContext`, look up `AnimeHttpSource` via `ExtensionManager.getSource(sourceId)`, reconstruct a minimal `SEpisodeImpl` (only `url` needed), call the `:app` `ReResolver.reResolve(...)`, map `ResolverVideo` → `ReResolvedVideo`.
+  2. Register via Koin: `single<HttpDownloader.ReResolver> { ReResolverAdapter(get(), get()) }` (in `:app`'s `appModule`, NOT a new `downloadAppModule` — minimal change).
+  3. Change `DownloadModule.kt:92` from `reResolver = null` to `reResolver = getOrNull<HttpDownloader.ReResolver>()` (optional/lazy — keeps `:core:download` independent of `:app`).
+  4. Fix the two bugs above.
+  5. Logging per CORE_RULES §20 (`Anikuta:Core:Download` tag).
+  6. Verify on device: trigger a localhost-URL download, kill the proxy, confirm re-resolve fires + download recovers.
+- **Status:** ⚠️ NOT WIRED. Deferred per user (awaiting go-ahead). Inner cap (`MAX_RE_RESOLVE_ATTEMPTS = 1`) IS implemented; outer retry loop is NOT (`setRetryingStatus` is dead code, `RetryPolicy` class doesn't exist — actual max attempts = 2, spec says 6).
+- **Why:** The DL.2 commit (`6382dbe`) built the types + the `:app` ReResolver, but the adapter wiring was never completed. The code comments are honest about this ("wired in D.2") but `progress.md` didn't capture the gap until this session.
+- **Date:** Discovered + documented in the analysis-and-doc-update session.

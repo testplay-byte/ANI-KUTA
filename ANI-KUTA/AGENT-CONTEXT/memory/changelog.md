@@ -299,3 +299,64 @@
 - Remaining dead fullscreen buttons (audio, server, more, PiP, rotate)
 - Auto-play-next, skip OP/ED
 - Full doc-drift sweep
+
+## Phase DL — Download System (`download-system-plan` branch, 41 commits)
+
+> Consolidated entry. The download-system commits were never logged here as they
+> were made — this closes that gap. Commit SHAs from `git log download-system-plan`.
+> See `progress.md` → "Session — Download System" for the full narrative +
+> `download-research/13-implementation-plan.md` for the status table.
+>
+> **Naming:** "Phase DL.0-DL.8" = the download-system phases (this section).
+> Distinct from data-management "Phase D.1-D.5" (decisions D-144..D-147).
+
+### DL.0 — Foundations
+- `ba2141f` (DL-RESEARCH): 14 download-system research docs + dashboard webpage.
+- `8cb8177` (DL-PLAN-FIX): plan v2 — 5 review rounds (REVIEW-1..5) + 72 MUST-FIX items applied.
+- `5849e13` (DL-D0): download data models, preferences, `downloaded_episode` DB schema (re-keyed by `main_id` + `episode_key`; `.data.json` as source of truth; FORMAT folders video/images/text).
+- `379f3a6` (DL-D0-FIX): REVIEW-D0 fixes.
+
+### DL.1 — Engine + Storage
+- `9b4c5d7` (DL-D1-1): download data models + preferences.
+- `b8b5d7b` (DL-D1-2): progress tracker + cache + logger + `DownloadManager` interface.
+- `65fe7a4`/`baa7628`/`cebafb0`/`c558beb` (DL-D1-FIX1-4): interface alignment, 30+ compile errors, TempDownloadCache API, FileOutputStream param.
+- Delivered: `DefaultDownloadManager`, `HttpDownloader` (Range-resume + validation + HLS re-detection), `HlsDownloader` (pure Kotlin), `DownloadStorageProvider` (SAF + `.data.json` + same-title collision), `DownloadScanner`, `TempDownloadCache`, `DownloadLogger`.
+
+### DL.2 — Orchestrator + AutoDownload + proxy-churn
+- `6382dbe` (DL-D2-1): `DownloadOrchestrator`, `AutoDownloadEngine` (5-step: flatten → rank → applyFallbacks → pick → globalFallback), `ReResolver` types.
+- `8ad6899`/`add3932`/`5bbb5be`/`e633d81`/`30ed37a` (DL-D2-FIX1-5): video-resolver dep, List<Int> Comparable, ResolverState serialization, ReResolver return-in-collect, missing import.
+- ⚠️ **Proxy-churn re-resolve BUILT but NOT WIRED** (D-149, discrepancy D003): `HttpDownloader.reResolver = null` (`DownloadModule.kt:92`); no `downloadAppModule` adapter; interfaces signature-incompatible. Wiring deferred per user.
+
+### DL.3-DL.8 — Queue + Service + Notifications + Settings UI + Downloads UI + Player + QoL (batch)
+- `4298cb3` (DL-D3-D8-1): settings UI + downloads page + episode download control + player integration + QoL (single batch commit).
+- `e29d616` (DL-D3-D8): wired download states into `DetailsViewModel` + verified all UI files.
+- `a926b08`/`d5a8a00`/`e9d5592` (DL-D3-D8-FIX1-3): duplicate `downloadStates`, DownloadNavKeys package, duplicate imports.
+- Delivered: `DownloadQueue` (Mutex + Semaphore, REVIEW-5 fixes M6/M11/M15/M31/M34/M36/M37/M38/M41/M42/M43), foreground `DownloadService` (NetworkCallback auto-pause/resume, `onTimeout` API 35+, `onTaskRemoved` restart), `DownloadNotificationManager` (2 channels), 7-section settings UI (drag-reorderable priority/quality/audio/server), downloads page (live queue + bulk actions + downloaded files page), episode download controls on details, player offline integration.
+
+### Offline playback
+- `d83915d` (DL-OFFLINE): offline playback + downloaded episode UI + Play/Delete menu.
+- `de7c0bc` (DL-PLAYBACK-FIX): `content://` → `fd://` ParcelFileDescriptor conversion.
+- `1f85339` (DL-CRITICAL-FIX3): MPV SIGABRT — 500ms surface-readiness delay for `fd://`.
+- `66947ea`/`be4d1ea` (DL-REMAINING + FIX): subtitle naming, quality switcher, compile fix.
+
+### Stability / migration / flow fixes
+- `616a57f`/`1e34c33`/`5949521` (DL-CRASH-FIX 1-3): DB schema migration crash (drop+recreate download tables; `onOpen` migration; first-run setup dialog).
+- `f30b290`/`336f264` (DL-UI-FIX 1-2): download button resolver sheet + 360p/HSUB defaults; `ResolvedVideo` type.
+- `6717e02` (DL-FLOW-FIX): download flow logging + 360p/HSUB preference migration.
+- `d60bd83`/`2c4c81f` (DL-DOWNLOAD-FIX 1-2): `effectiveLinkedSource` null in resolver sheet; moved to top-level scope.
+- `ab86b26` (DL-CRASH-FIX3): Toast on main thread + localhost proxy connection failure handling.
+- `8b9d1ab`/`cf01023` (DL-IMPROVE 1-2): downloaded episodes show as downloaded + `data.json` populated + hidden files; `downloaded_episode` DB insert + FK fields.
+- `9812814`/`d6f0d21` (DL-IMPROVE 3 + FIX): stale data cache + `DownloadedFilesScreen` navigation + `WatchKey` metadata; `upsertEpisodeMetadataBatch`.
+- `454fe86`/`c359aff` (DL-CRITICAL-FIX 1-2): offline playback crash + stale data + episodeUrl caching; `SQLiteException` — `data_cache_episode.episode_url` column missing.
+- `234ea15` (METADATA-FIX-v2, branch HEAD): metadata disappearing + episode list + local subtitles.
+
+### Status
+- Download system substantially complete. Branch 41 commits ahead of `main`.
+- ⚠️ Known gaps: (1) proxy-churn re-resolve not wired (D-149); (2) `127.0.0.1` guard missing in `HttpDownloader.kt:261`; (3) `video_uri` vs `video_url` column bug at `HttpDownloader.kt:271`; (4) `DownloadVideoPickerSheet` built but not wired; (5) outer retry loop not implemented (max 2 attempts, spec 6).
+- Deferred: device testing, proxy-churn wiring, Nav3 decision, full doc-debt sweep.
+
+> **Note:** changelog entries for D-087 → D-147 (Phase 5c player polish, Phase B
+> auto-link, Phase C content identity, Phase D data-management caching) are
+> MISSING from this file — that backfill is part of the deferred doc-debt sweep
+> (discrepancy D005). Their decisions ARE recorded in `decisions.md`; their
+> progress detail IS in `progress.md`. Only this changelog file lacks them.

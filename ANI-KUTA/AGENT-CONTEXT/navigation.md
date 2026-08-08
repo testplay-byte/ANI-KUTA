@@ -7,7 +7,7 @@
 |------|---------|
 | `SESSION.md` | 60-second session bootstrap: key rules + the loop + end-of-session checklist. **Read first.** |
 | `master.md` | Project orientation: what ANI-KUTA is, folder layout, what to read. |
-| `CORE_RULES.md` | Non-negotiable rules (21 sections). Wins over everything. |
+| `CORE_RULES.md` | Non-negotiable rules (**29 sections**). Wins over everything. |
 | `workflow.md` | The task execution loop (Understand→Verify→Implement→Verify→Move On) + project phases. |
 
 ## 🌐 Workspace-Level
@@ -29,7 +29,7 @@
 | `knowledge/project-overview.md` | What ANI-KUTA is, goals, scope. |
 | `knowledge/tech-stack.md` | Chosen technologies + versions. |
 | `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, module graph, UI/backend separation. |
-| `knowledge/app-design-language.md` | App UI design language summary → points to `APP/ani-kuta/DESIGN-LANGUAGE.md`. |
+| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's UI design language (canonical, ~140 lines — colors, typography, floating pill nav, translucent cards, scroll blur). NOTE: an older 1882-line version was deleted + rebuilt fresh; references to `knowledge/app-design-language.md` are stale (that file does not exist). |
 | `knowledge/module-map.md` | Every module: name, job, dependencies. |
 | `knowledge/ui-customization.md` | How UI customization works. |
 | `knowledge/dashboard.md` | Dashboard approach: purpose, content, deployment, update process, sub-agent rules. |
@@ -44,8 +44,8 @@
 ## 📁 APP/ani-kuta/ (new project)
 | Path | Purpose |
 |------|---------|
-| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's design language (canonical, 1882 lines). |
-| `APP/ani-kuta/DOCUMENTATION/` | New project architecture/research docs (`10-16` + README). |
+| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's design language (canonical, ~140 lines — see note above). |
+| `APP/ani-kuta/DOCUMENTATION/` | New project architecture/research docs (`10-20` + README + `planning/` subfolders). Includes phase plans (Phase 1, 3, 5, 5c-watch, PHASE-D), research (db/di/nav/ads/backup), + database schema docs. |
 
 ## 🛠️ skills/
 | File | Purpose |

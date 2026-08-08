@@ -3,7 +3,13 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**Phase 5c — WATCH SCREEN (mostly complete).** Phase 4 feature screens + Phase 5a (extensions) + Phase 5b (details) done. Phase 5c player overhaul done this session: video playback fixed (initOptions ported), top-padding bug fixed, loading overlay fixed, QualitySheet ported (3-tier server→audio→video), SubtitleSettingsSheet ported (typography/colors/position + NumericEntrySheet + ColorPickerSheet), SubtitleTracksSheet wired, PlayerInitializer simplified, configChanges uiMode added. Next: device testing, episode switching, resume position, top-nav polish.
+**Phase DL — Download System (substantially complete on `download-system-plan` branch).**
+
+Phases 0-4, 5a/5b/5c (watch screen), Phase B (auto-link), Phase C (content identity + library), and Phase D (data-management caching) are all done. The **download system (Phase DL.0-DL.8)** is now substantially implemented across 41 commits on the `download-system-plan` branch (41 ahead of `main`, 0 behind): download engine (HttpDownloader + HlsDownloader), SAF storage with `.data.json` reinstall recognition, DownloadQueue + state machine, foreground DownloadService with NetworkCallback auto-pause/resume, DownloadNotificationManager (2 channels), AutoDownloadEngine (5-step priority pipeline), offline playback (content:// → fd://), downloads UI (queue + files + 7-section settings), and episode download controls on the details page.
+
+⚠️ **Known gap:** the proxy-churn re-resolve fix (Phase DL.2) is BUILT but NOT WIRED — `HttpDownloader.reResolver = null` in `DownloadModule.kt:92`; the promised `downloadAppModule` adapter was never created, and the two `ReResolver` interfaces are signature-incompatible. See D-149 + sandbox discrepancy D003 + `ani-kuta-analysis/04-proxy-churn-explanation.md`. Wiring deferred per user (awaiting go-ahead).
+
+**Next:** download-system device testing → wire proxy-churn (deferred) → Nav3 vs hand-rolled nav decision (D004) → doc-debt sweep (D005) → Phase 5e (watch-progress persistence).
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -31,35 +37,49 @@
   - **SubtitleTracksSheet** — wired `onOpenSettings` callback to swap to `SubtitleSettingsSheet`.
   - **PlayerInitializer** — simplified mpv.conf (removed `cache=yes`, `hwdec=auto-copy`, `hwdec-codecs`, `sub-ass-force-margins` from conf — now set via `setOptionString` in `initOptions`).
   - **configChanges** — added `uiMode` (theme toggle no longer recreates Activity).
+- [x] **Phase DL — Download System (substantially complete, `download-system-plan` branch)** ✅ — implemented across 41 commits (see "Session — Download System" entry below + `download-research/13-implementation-plan.md` status table):
+  - **DL.0 Foundations** (5849e13, 379f3a6): download data models, preferences, DB schema (`downloaded_episode` table re-keyed by mainId + episodeKey, `.data.json` as source of truth).
+  - **DL.1 Engine + Storage** (9b4c5d7, b8b5d7b, +4 fixes): DownloadManager interface, DefaultDownloadManager, HttpDownloader (Range-resume + validation), HlsDownloader (pure Kotlin), DownloadStorageProvider (SAF + `.data.json` + same-title collision handling), DownloadScanner (scan-on-startup), TempDownloadCache, DownloadLogger.
+  - **DL.2 Orchestrator + AutoDownload + proxy-churn** (6382dbe, +5 fixes): DownloadOrchestrator, AutoDownloadEngine (5-step: flatten → rank → applyFallbacks → pick → globalFallback), `ReResolver` types. ⚠️ Proxy-churn re-resolve is BUILT but NOT WIRED (D-149, D003).
+  - **DL.3-DL.8** (4298cb3, e29d616, +3 fixes): queue management + dynamic progress, foreground DownloadService (NetworkCallback auto-pause/resume, onTimeout API 35+, onTaskRemoved restart), DownloadNotificationManager (2 channels), 7-section settings UI (drag-reorderable priority/quality/audio/server), downloads page (live queue + bulk actions + downloaded files page), episode download controls on details, player offline integration.
+  - **Offline playback** (d83915d, de7c0bc, 1f85339): content:// → fd:// ParcelFileDescriptor conversion + 500ms surface-readiness delay; MPV SIGABRT fixed.
+  - **Stability fixes** (DL-CRASH-FIX 1-3, DL-CRITICAL-FIX 1-3, DL-IMPROVE 1-3, DL-REMAINING, METADATA-FIX-v2): DB schema migration via `onOpen` + first-run setup dialog, stale data cache, episodeUrl caching, metadata disappearing, local subtitles.
 
 ## What's Next
-1. **Phase 5c device testing + loose ends** (verify in next CI build):
-   - On-device test: video actually renders (initOptions fix), no top padding after exiting player, loading overlay clears on FILE_LOADED, quality switching works, subtitle settings apply live.
-   - Episode switching inside WatchScreen (next/previous episode from minimized list — needs `PlayerStateHolder` fields: `episodeList`, `currentEpisodeIndex`, `isSwitchingEpisode`).
-   - Resume position (wire `WatchProgressStore` — save on pause/exit, restore on loadfile).
-   - Top-nav bar polish (minimized mode pill header — verify collapse-on-scroll).
-2. **Phase 5 — Functional App** (plan in D-054, `APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md`):
-   - **5a Extension Management** — ✅ DONE (data + UI + installer + repos + nav).
-   - **5b Details Page Overhaul** — ✅ DONE (DetailsViewModel + ManualSearchSheet + ResolverSheet + WatchKey).
-   - **5c Watch Screen** — ✅ MOSTLY DONE (player overhaul done this session; episode switching + resume pending).
-   - **5d** Identity System → **5e** History/Updates → **5f** Backup/Color-picker.
-   - Decisions D-055..D-065 confirmed.
-3. **Phase 6+**: Ad system + activity-tracker UI (D-033), notifications (D-029, needs 5e), manga reader (D-030), novels.
+1. **Download system device testing** (verify on real device): enqueue a download, pause/resume, offline playback of a downloaded episode, auto-download trigger, notification channels, foreground service survival across screen-off/task-removal.
+2. **Wire proxy-churn re-resolve (DL.2 gap)** — DEFERRED per user. Full plan in sandbox `ani-kuta-analysis/04-proxy-churn-explanation.md`: ~50-line adapter in `:app` implementing `HttpDownloader.ReResolver` (deserialize `resolveContextJson` → look up `AnimeHttpSource` via `ExtensionManager.getSource(sourceId)` → call `:app` `ReResolver` → map `ResolverVideo`→`ReResolvedVideo`), register via Koin, change `DownloadModule.kt:92` from `null` to `getOrNull()`. ⚠️ Also fix the `127.0.0.1` guard (HttpDownloader.kt:261 only checks `localhost` — AniKotoS uses `127.0.0.1`) + the `video_uri` vs `video_url` column bug (HttpDownloader.kt:271). Not started — awaiting user go-ahead.
+3. **Nav3 vs hand-rolled nav decision** (discrepancy D004). Docs claim "Nav3 backstack"; code uses `mutableStateListOf<NavKey>` + `when(currentKey)`. Nav3 1.1.5 is on the classpath but UNUSED (0 `androidx.navigation3` imports). Loses R7 (process-death backstack recreation — the explicit reason Nav3 was chosen). See sandbox `ani-kuta-analysis/03-nav3-comparison.md` for options (A: keep hand-rolled + update docs; B: full Nav3 migration; C.1: hybrid `rememberSaveable` fix for R7 only). Awaiting user decision.
+4. **Doc-debt sweep** (discrepancy D005): master.md [DONE this session], navigation.md [DONE this session], knowledge/* + decisions.md numbering [DEFERRED until Nav3 + proxy-churn decisions settle, so docs reflect final state].
+5. **Phase 5e**: watch-progress persistence (swap `InMemoryWatchProgressStore` → SQLDelight impl; wire restore on loadfile). Currently capture-only (D-072) — progress lost on process death.
+6. **Episode switching inside WatchScreen** (needs PlayerStateHolder fields: `episodeList`, `currentEpisodeIndex`, `isSwitchingEpisode`) + resume position.
+7. **Phase 6+**: ads (D-033), activity-tracker UI, manga reader (D-030), novels, backup/restore (`15-backup-research.md`), identity system (Phase 5d).
 
 ## Blockers / Open Questions
-- Nothing blocking. Phase 5c player overhaul needs device verification (CI builds APK; user tests on real device — verify video renders, no top-padding bug, quality switch, subtitle settings apply live).
-- Episode switching inside WatchScreen pending (needs PlayerStateHolder fields).
-- Resume position pending (WatchProgressStore wiring).
+- Download system implemented but NOT device-tested yet. Proxy-churn re-resolve built but not wired (D-149, D003) — deferred per user.
+- Nav3 claimed in docs but hand-rolled nav in code — decision needed (D004). Nav3 1.1.5 dep is dead weight until decided.
+- AGENT-CONTEXT knowledge/* + decisions.md numbering stale — doc-debt sweep deferred (D005) until Nav3 + proxy-churn settle.
+- Watch progress is capture-only (in-memory) — Phase 5e will persist (D-072).
 - Custom color picker (palette editor) deferred to Phase 5f.
-- Q-056..Q-061 (Phase 5 plan §9) all answered (D-055..D-060).
 
 ## Known doc debt
-- None currently (caught up this session). CORE_RULES §26 now enforces continuous verification.
+- **master.md** — ✅ UPDATED this session (was: "Phase 1 blocked" false, nonexistent `knowledge/app-design-language.md` ref, "16 sections" wrong, `ANIKUTA-PROJECT/` path wrong).
+- **navigation.md** — ✅ UPDATED this session (was: nonexistent `knowledge/app-design-language.md` ref, "1882 lines" wrong, "21 sections" wrong, "10-16" doc range wrong).
+- **progress.md top header** — ✅ UPDATED this session (was stale "Phase 5c"; now reflects Phase DL + the download system).
+- **download-research/13-implementation-plan.md** — ✅ UPDATED this session (added status table marking DL.0-DL.8 as implemented + Phase-D disambiguation note).
+- **changelog.md** — ✅ UPDATED this session (added Phase DL download-system entries).
+- **decisions.md** — ✅ ADDED D-148 (download system) + D-149 (proxy-churn gap) this session. STILL DEFERRED: D-121 missing, D-037/D-038 out of order, D-008 compileSdk 35 (actual 36), D-009 should be superseded by D-034/D-035.
+- **knowledge/module-map.md + architecture.md** — DEFERRED. Describe "proposed" 8 core modules (actual 38 Gradle modules). Marked "Draft (finalized in Phase 1)" — never finalized. Big rewrite; do after Nav3 decision.
+- **knowledge/tech-stack.md** — DEFERRED. Says compileSdk/targetSdk = 35 (actual 36); OkHttp "TBD" (actual 5.0.0-alpha.14); missing Koin 4.2.2, SQLDelight 2.0.2, Nav3 1.1.5, aniyomi-mpv-lib 1.18.n, Coil 3.0.4.
+- **knowledge/old-vs-new.md** — DEFERRED. Says old project location "unknown" (actual: `REFERENCES/old-kuta/ANIKUTA/`, 36 modules, 631 files, 10-file docs).
+- **knowledge/dashboard.md** — DEFERRED. Says "5 pages" (recount from actual dashboard).
+- **Two "Phase D" tracks collide** — ✅ ADDRESSED this session: data-management Phase D (D-141..D-147) vs download-system Phase D.0-D.8. Going forward, download-system phases are written **"Phase DL.0-DL.8"** to disambiguate. The `download-research/` docs retain "Phase D.0-D.8" historically (with a disambiguation note at the top of 13-implementation-plan.md). Historical REVIEW files unchanged.
+- **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: web-3a43f99b (eleventh pass) — Phase 5c player overhaul
-- By: main agent (player overhaul) + documentation subagent (DOCS-UPDATE)
-- Note: Phase 5c player overhaul complete — initOptions ported (D-061), top-padding bug fixed (D-062), ResolvedVideosRegistry (D-063), SubtitleSettingsSheet with non-reactive prefs (D-064), Animiru repo cloned as read-only reference (D-065). Next: device testing + episode switching + resume position.
+- Session: analysis-and-doc-update (Z.ai Code sandbox) — full project re-analysis + download-system doc update.
+- By: main agent (analysis + AGENT-CONTEXT updates; sub-agents used for read-only deep analysis only, per CORE_RULES §14).
+- Branch: `download-system-plan` (41 commits ahead of `main`).
+- Note: Cloned the branch, performed deep analysis (AGENT-CONTEXT + APP/ani-kuta — 38 Gradle modules, 247 .kt, 22 DB tables), documented 6 discrepancies (D001-D006) in sandbox `ani-kuta-analysis/`. Updated progress.md (this file), master.md, navigation.md, changelog.md (Phase DL), decisions.md (D-148, D-149), download-research/13-implementation-plan.md (status table) to reflect the implemented download system. Deferred: proxy-churn wiring (D-149), Nav3 decision (D004), full knowledge/* + decisions.md doc-debt sweep (D005).
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 
@@ -534,3 +554,69 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
 - Library 3-stage pull-to-refresh.
 - Search page AniList caching (12-hour refresh).
 - Library selection mode UI (fade unselected covers).
+
+## Session — Download System (Phase DL.0-DL.8) — `download-system-plan` branch
+
+> **Consolidated entry** for the 41 download-system commits on the
+> `download-system-plan` branch (41 ahead of `main`, 0 behind). These commits
+> were made across multiple working sessions but were never logged in
+> `progress.md` — this entry closes that doc-drift gap (discrepancy D002,
+> discovered during the analysis-and-doc-update session).
+
+### What was done (by phase — commit SHAs from `git log`)
+
+**Research + planning**
+- `ba2141f` (DL-RESEARCH): 14 download-system research docs (`download-research/00-16`) + dashboard webpage.
+- `8cb8177` (DL-PLAN-FIX): plan v2 — 5 review rounds (REVIEW-1..5) + 72 MUST-FIX items (M1-M72) applied.
+
+**Phase DL.0 — Foundations**
+- `5849e13` (DL-D0): download data models, preferences, `downloaded_episode` DB schema (re-keyed by `main_id` + `episode_key`, 5-digit padded; `.data.json` as durable source of truth; content FORMAT folders `video`/`images`/`text`).
+- `379f3a6` (DL-D0-FIX): REVIEW-D0 fixes.
+
+**Phase DL.1 — Engine + Storage**
+- `9b4c5d7` (DL-D1-1): download data models + preferences.
+- `b8b5d7b` (DL-D1-2): progress tracker + cache + logger + `DownloadManager` interface.
+- `65fe7a4`, `baa7628`, `cebafb0`, `c558beb` (DL-D1-FIX1-4): interface alignment, 30+ compile errors, TempDownloadCache API, FileOutputStream param.
+- Delivered: `DefaultDownloadManager`, `HttpDownloader` (Range-resume + validation + HLS re-detection), `HlsDownloader` (pure Kotlin, no encrypted HLS), `DownloadStorageProvider` (SAF + `.data.json` reinstall recognition + same-title collision handling), `DownloadScanner` (scan-on-startup), `TempDownloadCache`, `DownloadLogger`.
+
+**Phase DL.2 — Orchestrator + AutoDownload + proxy-churn**
+- `6382dbe` (DL-D2-1): `DownloadOrchestrator`, `AutoDownloadEngine` (5-step pure-function pipeline: flatten → rank → applyFallbacks → pick → globalFallback), `ReResolver` types.
+- `8ad6899`, `add3932`, `5bbb5be`, `e633d81`, `30ed37a` (DL-D2-FIX1-5): video-resolver dep, List<Int> Comparable, ResolverState serialization, ReResolver return-in-collect, missing import.
+- ⚠️ **Proxy-churn re-resolve is BUILT but NOT WIRED** (D-149, discrepancy D003): `HttpDownloader.reResolver = null` (`DownloadModule.kt:92`); the promised `:app` `downloadAppModule` was never created; the two `ReResolver` interfaces are signature-incompatible. Wiring deferred per user — see `ani-kuta-analysis/04-proxy-churn-explanation.md` for the full plan.
+
+**Phase DL.3-DL.8 — Queue + Service + Notifications + Settings UI + Downloads UI + Player + QoL**
+- `4298cb3` (DL-D3-D8-1): settings UI + downloads page + episode download control + player integration + QoL (one batch commit).
+- `e29d616` (DL-D3-D8): wired download states into `DetailsViewModel` + verified all UI files.
+- `a926b08`, `d5a8a00`, `e9d5592` (DL-D3-D8-FIX1-3): duplicate `downloadStates`, `DownloadNavKeys` package + MainActivity imports, duplicate download imports.
+- Delivered: `DownloadQueue` (Mutex + Semaphore, all REVIEW-5 fixes M6/M11/M15/M31/M34/M36/M37/M38/M41/M42/M43 wired), foreground `DownloadService` (NetworkCallback auto-pause/resume, `onTimeout` API 35+, `onTaskRemoved` restart), `DownloadNotificationManager` (2 channels), 7-section settings UI (drag-reorderable priority/quality/audio/server lists), downloads page (live queue + bulk actions + 10s auto-clear of COMPLETED + downloaded files page grouped by anime), episode download controls on details page, player offline integration.
+
+**Offline playback**
+- `d83915d` (DL-OFFLINE): offline playback + downloaded episode UI + Play/Delete menu.
+- `de7c0bc` (DL-PLAYBACK-FIX): MPV offline playback — `content://` → `fd://` ParcelFileDescriptor conversion.
+- `1f85339` (DL-CRITICAL-FIX3): MPV SIGABRT — 500ms surface-readiness delay for `fd://` + episode metadata disappearing.
+- `66947ea`, `be4d1ea` (DL-REMAINING + FIX): subtitle naming, quality switcher, compile fix.
+
+**Stability / migration / flow fixes**
+- `616a57f`, `1e34c33`, `5949521` (DL-CRASH-FIX 1-3): DB schema migration crash — drop+recreate download tables on upgrade; migration via `onOpen`; first-run setup dialog.
+- `f30b290`, `336f264` (DL-UI-FIX 1-2): download button shows resolver sheet in download mode + 360p/HSUB defaults; `ResolvedVideo` type for download.
+- `6717e02` (DL-FLOW-FIX): extensive download flow logging + 360p/HSUB preference migration.
+- `d60bd83`, `2c4c81f` (DL-DOWNLOAD-FIX 1-2): `effectiveLinkedSource` null in resolver sheet; moved to top-level scope.
+- `ab86b26` (DL-CRASH-FIX3): Toast on main thread + localhost proxy connection failure handling.
+- `8b9d1ab`, `cf01023` (DL-IMPROVE 1-2): downloaded episodes show as downloaded + `data.json` populated + hidden files; `downloaded_episode` DB insert + `data.json` FK fields + always-show Downloaded button.
+- `9812814`, `d6f0d21` (DL-IMPROVE 3 + FIX): stale data cache + `DownloadedFilesScreen` navigation + `WatchKey` metadata; `upsertEpisodeMetadataBatch` method name.
+- `454fe86`, `c359aff` (DL-CRITICAL-FIX 1-2): offline playback crash + stale data + episodeUrl caching; `SQLiteException` — `data_cache_episode.episode_url` column missing.
+- `234ea15` (METADATA-FIX-v2, branch HEAD): metadata disappearing + episode list + local subtitles.
+
+### Status
+- Download system substantially complete. Branch is 41 commits ahead of `main`.
+- CI status: green on recent commits (per prior session logs; verify on next push).
+- ⚠️ **Two known code bugs found during analysis** (beyond the unwired proxy-churn):
+  1. `HttpDownloader.kt:261` only checks `url.startsWith("http://localhost")` — but AniKotoS uses `127.0.0.1` (per `lessons-learned.md` D-092). The re-resolve guard misses `127.0.0.1` URLs.
+  2. `HttpDownloader.kt:271` writes the fresh URL to the `video_uri` column, but the download read path uses `video_url` — a `DownloadStore.updateDownloadVideoUrl` query is missing. (Found by proxy-churn research subagent.)
+- ⚠️ `DownloadVideoPickerSheet` (235 LOC) exists but is NOT wired — `MainActivity.handleDownloadEpisode()` handles `EnqueueResult.ShowPicker` with a `// TODO: show the DownloadVideoPickerSheet (Phase D.6 follow-up). For now, log only`.
+
+### What's next (download system)
+1. Device testing (enqueue / pause-resume / offline playback / auto-download / notifications / foreground-service survival).
+2. Wire proxy-churn re-resolve (D-149, deferred per user) + fix the two bugs above in the same change.
+3. Wire `DownloadVideoPickerSheet` (the multi-quality picker for downloads).
+4. Implement outer retry loop (`RETRYING` state + `RetryPolicy`) — currently max attempts = 2, spec says 6.

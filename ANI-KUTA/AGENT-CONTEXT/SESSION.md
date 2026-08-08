@@ -7,12 +7,12 @@
 
 ## ⚡ Who You Are
 You are the AI agent for **ANI-KUTA** (Android app rebuild + companion web dashboard).
-GitHub: `testplay-byte/ANI-KUTA`. Project root: `ANIKUTA-PROJECT/`.
+GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active branch: `download-system-plan`.
 
 ## 📂 If The Environment Was Just Cloned
-1. `cd /home/z/my-project/ANIKUTA-PROJECT` (if missing → re-clone from GitHub).
-2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers.
-3. Read `AGENT-CONTEXT/memory/decisions.md` → "Pending Decisions" section.
+1. `cd /home/z/my-project/ANI-KUTA` (if missing → re-clone from GitHub; the wrapper folder is `ANI-KUTA/ANI-KUTA/` inside).
+2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers (read the top "Current Phase" + "Known doc debt" sections first).
+3. Read `AGENT-CONTEXT/memory/decisions.md` → "Pending Decisions" section (latest = D-149).
 4. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task.
 
 ## 🔑 Key Rules (full detail in `CORE_RULES.md`)
@@ -50,16 +50,22 @@ UNDERSTAND → VERIFY → IMPLEMENT → VERIFY → MOVE ON
 
 ## 📦 Project Folders
 ```
-ANIKUTA-PROJECT/
-├── AGENT-CONTEXT/      # YOUR memory + rules (you maintain this)
-├── APP/ani-kuta/       # Android app (Gradle + Kotlin + Compose)
-├── DASHBOARD/webpage/  # Next.js dashboard → GitHub Pages (sub-agents build this)
-└── .github/workflows/  # CI
+ANI-KUTA/                        ← repo root (git)
+├── ANI-KUTA/                    ← wrapper folder (all zones inside)
+│   ├── AGENT-CONTEXT/           # YOUR memory + rules (you maintain this)
+│   ├── APP/ani-kuta/            # Android app (38 Gradle modules)
+│   ├── DASHBOARD/webpage/       # Next.js dashboard → GitHub Pages (sub-agents build this)
+│   └── REFERENCES/              # old-kuta + animiru (read-only)
+└── .github/workflows/          # CI
 ```
 
-## ❓ Currently Blocked On
-- Nothing. Phase 5c (Watch Screen) player overhaul done this session — video playback fixed (initOptions ported, D-061), top-padding bug fixed (D-062), loading overlay fixed, QualitySheet ported (3-tier + ResolvedVideosRegistry, D-063), SubtitleSettingsSheet ported (D-064), Animiru repo cloned as read-only reference (D-065), configChanges uiMode added.
-- Next: **device testing** (verify all 5 fixes on a real device via CI APK) → episode switching inside WatchScreen (next/prev) → resume position (wire `WatchProgressStore`) → top-nav pill polish → Phase 5d (Identity System).
+## ❓ Currently Blocked On / Open Items
+- **Download system device testing** (Phase DL.0-DL.8 substantially implemented on `download-system-plan`; needs on-device verification).
+- **Proxy-churn re-resolve (DL.2)** — built but NOT wired (D-149, discrepancy D003). Deferred per user — awaiting go-ahead. Full plan in sandbox `ani-kuta-analysis/04-proxy-churn-explanation.md`.
+- **Nav3 vs hand-rolled nav** (discrepancy D004) — docs claim Nav3, code is hand-rolled `mutableStateListOf<NavKey>`. Awaiting user decision. See sandbox `ani-kuta-analysis/03-nav3-comparison.md`.
+- **Doc-debt sweep** (discrepancy D005) — `knowledge/*` + `decisions.md` numbering stale. Deferred until Nav3 + proxy-churn settle.
+- **Phase 5e** — watch-progress persistence (currently in-memory, D-072).
+- See `memory/progress.md` → "What's Next" for the full list.
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*

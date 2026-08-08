@@ -5,6 +5,54 @@
 > Old project root (reference ONLY — do NOT copy its storage path or DI wiring): `/home/z/my-project/ANI-KUTA/ANI-KUTA/REFERENCES/old-kuta/ANIKUTA/`
 > **This doc is the post-rewrite version.** It supersedes the prior old-project-mirroring plan with a NEW design that incorporates: (1) the new SAF + `data.json` storage system (`04-storage-paths.md`), (2) the new 3-dimensional priority auto-download engine (`14-auto-download-engine.md` §6), (3) the proxy-churn bug fix (`15-ui-and-bug-analysis.md` Part B), (4) the foreground service + new notification design (`06-notifications-foreground-service.md`), (5) the QoL features (`16-quality-of-life.md`).
 
+---
+
+> ## ⚙️ STATUS UPDATE (analysis-and-doc-update session)
+>
+> **The download system (Phase D.0-D.8 below) is now SUBSTANTIALLY IMPLEMENTED**
+> on the `download-system-plan` branch (41 commits ahead of `main`). This doc's
+> phase descriptions below are the ORIGINAL PLAN; the status table here is the
+> CURRENT REALITY.
+>
+> ### Naming disambiguation
+> There are TWO unrelated "Phase D" tracks in this project:
+> - **Data-management Phase D** (decisions D-141..D-147) — local metadata cache, browse/details/library caching, Coil disk cache. ✅ Done.
+> - **Download-system Phase D.0-D.8** (THIS doc) — the download engine/storage/queue/service/UI.
+>
+> To avoid confusion going forward, download-system phases are written
+> **"Phase DL.0-DL.8"** in `progress.md` / `changelog.md` / `decisions.md`. This
+> doc retains the original "Phase D.0-D.8" section headers (historical), but they
+> mean the same thing as "Phase DL.0-DL.8".
+>
+> ### Implementation status (commit SHAs from `git log download-system-plan`)
+>
+> | Phase | Name | Status | Commits |
+> |-------|------|--------|---------|
+> | DL.0 | Foundations | ✅ Implemented | `5849e13` (DL-D0), `379f3a6` (DL-D0-FIX) |
+> | DL.1 | Engine + Storage | ✅ Implemented | `9b4c5d7` (DL-D1-1), `b8b5d7b` (DL-D1-2), `65fe7a4`/`baa7628`/`cebafb0`/`c558beb` (DL-D1-FIX1-4) |
+> | DL.2 | Orchestrator + AutoDownload + proxy-churn | ⚠️ Partially — proxy-churn re-resolve BUILT but NOT WIRED (`HttpDownloader.reResolver = null`; no `downloadAppModule` adapter; interfaces signature-incompatible). See D-149 + discrepancy D003 + `ani-kuta-analysis/04-proxy-churn-explanation.md`. | `6382dbe` (DL-D2-1), `8ad6899`/`add3932`/`5bbb5be`/`e633d81`/`30ed37a` (DL-D2-FIX1-5) |
+> | DL.3 | Queue + Dynamic progress | ✅ Implemented (batch) | `4298cb3` (DL-D3-D8-1), `e29d616` (DL-D3-D8) |
+> | DL.4 | Foreground service + Notifications | ✅ Implemented (batch) | (same batch as DL.3) |
+> | DL.5 | Settings page UI | ✅ Implemented (batch) | (same batch as DL.3) |
+> | DL.6 | Downloads page UI + Episode download controls + Player integration | ✅ Implemented (batch) + offline playback (`d83915d`, `de7c0bc`, `1f85339`) + many DL-IMPROVE/DL-CRITICAL-FIX stability fixes | `4298cb3`, `e29d616`, `d83915d` (DL-OFFLINE), `de7c0bc` (DL-PLAYBACK-FIX), `8b9d1ab`/`cf01023`/`9812814` (DL-IMPROVE 1-3), `66947ea` (DL-REMAINING), `454fe86`/`c359aff`/`1f85339` (DL-CRITICAL-FIX 1-3), `234ea15` (METADATA-FIX-v2, branch HEAD) |
+> | DL.7 | Quality-of-life features | ✅ Implemented (batch) | (same batch as DL.3) |
+> | DL.8 | Polish + testing | ⚠️ Partially — `DownloadVideoPickerSheet` built but NOT wired (TODO in `MainActivity.handleDownloadEpisode`); outer retry loop (`RETRYING` + `RetryPolicy`) not implemented (max attempts = 2, spec says 6). | (stability fixes above) |
+>
+> **Note on DL.3-DL.8:** these six phases were implemented in ONE batch commit
+> (`4298cb3`) rather than as separately verifiable phases. The batch was then
+> stabilized by ~20 follow-up fix commits (DL-CRASH-FIX, DL-IMPROVE,
+> DL-CRITICAL-FIX, DL-REMAINING, METADATA-FIX-v2).
+>
+> **Two additional code bugs found during analysis** (fix alongside proxy-churn wiring):
+> 1. `HttpDownloader.kt:261` only checks `http://localhost` — AniKotoS uses `127.0.0.1` (D-092). Add `127.0.0.1` to the guard.
+> 2. `HttpDownloader.kt:271` writes the fresh URL to `video_uri`, but the read path uses `video_url`. A `DownloadStore.updateDownloadVideoUrl` query is missing.
+>
+> See `memory/progress.md` → "Session — Download System (Phase DL.0-DL.8)" for the
+> full commit-by-commit narrative. See `memory/decisions.md` D-148 (download
+> system architecture) + D-149 (proxy-churn gap).
+
+---
+
 ## 1. Current state of the new project
 
 ### What already exists
