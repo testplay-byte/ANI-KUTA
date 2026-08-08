@@ -3,13 +3,34 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**Phase DL — Download System (substantially complete on `download-system-plan` branch).**
+**ALL MAJOR PHASES COMPLETE — on `main` branch (merged from `download-system-plan` + `feature/watch-progress-history-updates`).**
 
-Phases 0-4, 5a/5b/5c (watch screen), Phase B (auto-link), Phase C (content identity + library), and Phase D (data-management caching) are all done. The **download system (Phase DL.0-DL.8)** is now substantially implemented across 41 commits on the `download-system-plan` branch (41 ahead of `main`, 0 behind): download engine (HttpDownloader + HlsDownloader), SAF storage with `.data.json` reinstall recognition, DownloadQueue + state machine, foreground DownloadService with NetworkCallback auto-pause/resume, DownloadNotificationManager (2 channels), AutoDownloadEngine (5-step priority pipeline), offline playback (content:// → fd://), downloads UI (queue + files + 7-section settings), and episode download controls on the details page.
+Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (per-anime + per-episode ratings), Phase NOTIF (notification system), and Phase CW (continue watching logic) are ALL DONE.
 
-⚠️ **Known gap:** the proxy-churn re-resolve fix (Phase DL.2) is BUILT but NOT WIRED — `HttpDownloader.reResolver = null` in `DownloadModule.kt:92`; the promised `downloadAppModule` adapter was never created, and the two `ReResolver` interfaces are signature-incompatible. See D-149 + sandbox discrepancy D003 + `ani-kuta-analysis/04-proxy-churn-explanation.md`. Wiring deferred per user (awaiting go-ahead).
+The `download-system-plan` branch has been merged to `main` + deleted. The `feature/watch-progress-history-updates` branch has been merged to `main`. All work is now on `main`.
 
-**Next:** download-system device testing → wire proxy-churn (deferred) → Nav3 vs hand-rolled nav decision (D004) → doc-debt sweep (D005) → Phase 5e (watch-progress persistence).
+**Key recent work (this session):**
+- Swipe-to-toggle UI: background icon fade-in, haptic feedback, bidirectional swipe, smooth animation.
+- History page: day-grouped list, swipe-to-delete, clear all, ScrollBlurOverlay, layout improvements.
+- Updates page: combined-pill tab strip, ScrollBlurOverlay, smart update engine with backoff.
+- Schedule page: list view + calendar view (HorizontalPager, 1mo/1yr limits, day-detail sheet).
+- Download folder structure: episodes/ + subtitles/ subfolders. Subtitle naming without dot prefix.
+- Subtitle loading: disk-scan fallback when DB subtitleUris is empty.
+- Download state: episodeDownloadStates now combines queue + downloaded_episodes cache.
+- Nav3 completely removed (D-150). Hand-rolled navigation is the only nav.
+- Repo root cleanup: skills/ + worklog.md removed + gitignored.
+- Notification system: :core:notifications module, per-content config, AniList-based release triggers, dedup.
+- Calendar view: custom HorizontalPager with day cells, multi-dot indicators, day-detail bottom sheet.
+- Dashboard data refreshed: 44 modules, D-001..D-152, 28 DB tables, all phases marked done.
+
+⚠️ **Known gaps (deferred per user):**
+- Proxy-churn re-resolve NOT wired (D-149) — deferred to future phase.
+- Outer retry loop not implemented — deferred.
+- Notification settings UI not built — store + manager ready, UI pending.
+- Rating UI not built — store + schema ready, UI pending.
+- Continue Watching UI not placed — logic ready, UI deferred.
+
+**Next:** Notification settings UI → Rating UI → Continue Watching UI → Debug bubble (next session).
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -76,10 +97,10 @@ Phases 0-4, 5a/5b/5c (watch screen), Phase B (auto-link), Phase C (content ident
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: analysis-and-doc-update (Z.ai Code sandbox) — full project re-analysis + download-system doc update + Nav3 decision + proxy-churn/retry future-phase plan + D-FIX-SUB subtitle fixes + DASHBOARD analysis + device testing checklist.
-- By: main agent (analysis + AGENT-CONTEXT updates + subtitle code fixes; sub-agents used for read-only deep analysis + code review only, per CORE_RULES §14).
-- Branch: `download-system-plan` (44 commits ahead of `main` after this session's pushes).
-- Note: (1) Cloned the branch, deep analysis (AGENT-CONTEXT + APP/ani-kuta + DASHBOARD — 38 Gradle modules, 247 .kt, 22 DB tables). (2) Documented 6 discrepancies (D001-D006) in sandbox `ani-kuta-analysis/`. (3) Synced AGENT-CONTEXT docs with the implemented download system (D-148). (4) Recorded Nav3 decision — keep hand-rolled (D-150). (5) Saved download future-phase gaps plan (D-149/D-151, `FUTURE-PHASE-DL-GAPS.md`). (6) Fixed 5 subtitle issues D-FIX-SUB (D-152). (7) DASHBOARD analysis report (`05-dashboard-analysis.md`) — dashboard is massively stale (31 vs 38 modules, 18 vs 150 decisions, download system marked "planned"). (8) Device testing checklist at `APP/ani-kuta/DOCUMENTATION/download-device-testing-checklist.md`. Deferred: proxy-churn wiring + outer retry loop (D-151 future phase), DASHBOARD data refresh, full knowledge/* doc-debt sweep (D005).
+- Session: multi-session (Z.ai Code sandbox) — ALL major phases complete.
+- By: main agent (implementation + CI verification; sub-agents for dashboard data refresh).
+- Branch: `main` (all feature branches merged + deleted).
+- Note: 44 Gradle modules, 28 DB tables, D-001..D-152+ decisions. Nav3 removed (D-150). Repo root cleaned. Dashboard data refreshed. CI green. All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF, CW, DL.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 
