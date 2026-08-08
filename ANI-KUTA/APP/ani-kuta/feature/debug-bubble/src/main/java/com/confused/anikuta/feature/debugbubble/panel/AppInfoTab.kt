@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.feature.debugbubble.DebugBuildInfo
 import com.confused.anikuta.feature.debugbubble.data.DebugDatabaseBrowser
 import org.koin.compose.koinInject
 
