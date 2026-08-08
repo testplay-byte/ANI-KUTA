@@ -74,6 +74,8 @@ dependencies {
     implementation(project(":feature:watch:impl"))
     implementation(project(":feature:anime-history:api"))
     implementation(project(":feature:anime-history:impl"))
+    implementation(project(":feature:updates:api"))
+    implementation(project(":feature:updates:impl"))
     implementation(project(":core:updates"))
 
     // AndroidX

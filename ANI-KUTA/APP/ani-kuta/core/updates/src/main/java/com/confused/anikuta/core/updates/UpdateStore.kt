@@ -2,6 +2,11 @@ package com.confused.anikuta.core.updates
 
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.database.AnikutaDatabase
+import app.cash.sqldelight.coroutines.asFlow
+import app.cash.sqldelight.coroutines.mapToList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /**
  * SQLDelight wrapper for the episode_update + anime_update_state tables.
@@ -68,6 +73,15 @@ class UpdateStore(
     /** Count unacknowledged updates (for a badge). */
     fun countUnacknowledged(): Long =
         database.episodeUpdateQueries.countUnacknowledged().executeAsOne()
+
+    // ── Reactive (Phase UP — for the UpdatesViewModel) ──
+
+    /** Observe all updates (New + Earlier), reactive. */
+    fun observeAllUpdates(limit: Long = 100): Flow<List<EpisodeUpdate>> =
+        database.episodeUpdateQueries.getAllUpdates(limit)
+            .asFlow()
+            .mapToList(Dispatchers.IO)
+            .map { list -> list.map { it.toEpisodeUpdate() } }
 
     // ── anime_update_state ──
 

@@ -43,6 +43,7 @@ fun MoreScreen(
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onOpenUpdates: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -95,7 +96,7 @@ fun MoreScreen(
                             icon = Icons.Filled.Schedule,
                             title = "Updates",
                             subtitle = "New episodes",
-                            onClick = { /* Phase 4c: navigate to Updates */ },
+                            onClick = onOpenUpdates,
                         )
                     }
 

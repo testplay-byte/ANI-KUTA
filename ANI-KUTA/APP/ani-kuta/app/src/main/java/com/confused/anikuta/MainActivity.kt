@@ -299,6 +299,7 @@ fun AppRoot() {
                 onOpenSettings = { backstack.add(SettingsKey) },
                 onOpenDownloads = { backstack.add(DownloadsKey) },
                 onOpenHistory = { backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey) },
+                onOpenUpdates = { backstack.add(com.confused.anikuta.feature.updates.UpdatesKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
@@ -467,6 +468,30 @@ fun AppRoot() {
                 watchKey = currentKey,
                 onBack = pop,
             )
+            is com.confused.anikuta.feature.updates.UpdatesKey -> {
+                com.confused.anikuta.feature.updates.UpdatesScreen(
+                    onBack = pop,
+                    onNavigateToDetails = { mainId ->
+                        val content = contentRepository.getContentByMainId(mainId)
+                        if (content != null) {
+                            val anilistDetail = contentRepository.getAniListDetail(mainId)
+                            if (anilistDetail != null) {
+                                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                            } else {
+                                val extDetail = contentRepository.getExtensionDetail(mainId)
+                                if (extDetail != null) {
+                                    backstack.add(AnimeDetailsKey.Extension(
+                                        extDetail.sourceId ?: 0L,
+                                        content.animeUrl ?: "",
+                                        content.title,
+                                        null,
+                                    ))
+                                }
+                            }
+                        }
+                    },
+                )
+            }
             is com.confused.anikuta.feature.animehistory.HistoryKey -> {
                 com.confused.anikuta.feature.animehistory.HistoryScreen(
                     onBack = pop,
