@@ -11,7 +11,6 @@ lifecycle = "2.8.7"
 composeBom = "2025.03.00"
 
 # Navigation 3 (Nav3 — stable since Nov 2025)
-navigation3 = "1.1.5"
 
 # DI
 koin = "4.2.2"
@@ -76,8 +75,6 @@ androidx-material3 = { group = "androidx.compose.material3", name = "material3" 
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 
 # Navigation 3
-androidx-navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "navigation3" }
-androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
 
 # Koin
 koin-bom = { group = "io.insert-koin", name = "koin-bom", version.ref = "koin" }

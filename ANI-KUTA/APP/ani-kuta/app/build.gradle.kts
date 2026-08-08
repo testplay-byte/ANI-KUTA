@@ -97,8 +97,6 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
 
     // Navigation 3
-    implementation(libs.androidx.navigation3.runtime)
-    implementation(libs.androidx.navigation3.ui)
 
     // Koin
     implementation(platform(libs.koin.bom))

@@ -69,16 +69,29 @@ class DefaultDownloadManager(
         refreshDownloadedEpisodes()
 
         // Refresh the per-episode download state flow on every queue change.
+        // FIX: combine queue states + downloaded_episodes cache so completed+
+        // auto-cleared episodes still show as Downloaded on the details page.
         scope.launch {
             queue.tasks.collect { tasks ->
-                val map = tasks.associate {
-                    val key = "${it.content.mainId}|${it.episode.episodeKey}"
-                    key to EpisodeDownloadState(it.status, it.progress)
+                val map = mutableMapOf<String, Pair<DownloadStatus, Int>>()
+                // 1. Active queue tasks.
+                for (task in tasks) {
+                    val key = "${task.content.mainId}|${task.episode.episodeKey}"
+                    map[key] = task.status to task.progress
                 }
-                _episodeDownloadStates.value = map
+                // 2. Downloaded episodes (completed + auto-cleared — not in the queue).
+                val downloaded = store.getDownloadedEpisodes()
+                for (ep in downloaded) {
+                    val key = "${ep.content.mainId}|${ep.episode.episodeKey}"
+                    if (key !in map) {
+                        map[key] = DownloadStatus.COMPLETED to 100
+                    }
+                }
+                _episodeDownloadStates.value = map.mapValues { (_, pair) ->
+                    EpisodeDownloadState(pair.first, pair.second)
+                }
 
-                // Best-effort: refresh the downloaded-episodes cache too (a task
-                // may have just transitioned to COMPLETED). The store handles dedup.
+                // Best-effort: refresh the downloaded-episodes cache too.
                 refreshDownloadedEpisodes()
 
                 // Notify the foreground service of the active task count (so it can
@@ -87,6 +100,22 @@ class DefaultDownloadManager(
                 if (active.isEmpty()) {
                     DownloadService.stop(context)
                 }
+            }
+        }
+
+        // FIX: Also refresh episodeDownloadStates when _downloadedEpisodes changes
+        // (covers the case where a download completes + auto-clears from the queue
+        // — the downloaded_episode table is the source of truth).
+        scope.launch {
+            _downloadedEpisodes.collect { downloaded ->
+                val current = _episodeDownloadStates.value.toMutableMap()
+                for (ep in downloaded) {
+                    val key = "${ep.content.mainId}|${ep.episode.episodeKey}"
+                    if (key !in current || current[key]?.status != DownloadStatus.DOWNLOADING) {
+                        current[key] = EpisodeDownloadState(DownloadStatus.COMPLETED, 100)
+                    }
+                }
+                _episodeDownloadStates.value = current
             }
         }
     }
