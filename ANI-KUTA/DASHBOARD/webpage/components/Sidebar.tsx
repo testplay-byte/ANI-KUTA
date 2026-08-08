@@ -414,6 +414,14 @@ function NavIcon({ name, className = "" }: { name: string; className?: string })
         <path d="M4 11v6c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-6" />
       </>
     ),
+    testing: (
+      <>
+        {/* Clipboard + check — "device testing checklist" */}
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <rect x="9" y="2.5" width="6" height="3" rx="1" />
+        <path d="M8.5 13l2.2 2.2L15.5 10.5" />
+      </>
+    ),
   };
 
   return (
