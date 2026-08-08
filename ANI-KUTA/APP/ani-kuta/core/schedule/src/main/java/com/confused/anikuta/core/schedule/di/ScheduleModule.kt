@@ -6,5 +6,5 @@ import org.koin.dsl.module
 
 val scheduleModule = module {
     single { ScheduleStore(get()) }
-    single { ScheduleEngine(get(), get(), get(), get()) }
+    single { ScheduleEngine(get(), get(), get(), get(), getOrNull()) }
 }

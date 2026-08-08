@@ -94,6 +94,11 @@ class DatabaseDriverFactory(private val context: Context) {
                     if (!hasColumn(db, "user_rating", "main_id")) {
                         onCreate(db)
                     }
+
+                    // ── Phase NOTIF: create notifications tables if they don't exist ──
+                    if (!hasColumn(db, "notification_config", "main_id")) {
+                        onCreate(db)
+                    }
                 }
 
                 /**

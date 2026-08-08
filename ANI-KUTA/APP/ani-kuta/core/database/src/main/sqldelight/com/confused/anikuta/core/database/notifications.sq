@@ -1,0 +1,59 @@
+-- Notification configuration (Phase NOTIF)
+-- Per-content + per-episode notification settings.
+-- Keyed off main_id (stable UUID for backup/restore).
+
+-- ── Per-content notification config ──
+CREATE TABLE IF NOT EXISTS notification_config (
+    main_id TEXT NOT NULL PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,                    -- master toggle for this anime
+    notify_on_schedule INTEGER NOT NULL DEFAULT 0,          -- notify when airing time is reached
+    notify_on_watchable INTEGER NOT NULL DEFAULT 1,         -- notify when episode is found on a source
+    notify_on_immediate INTEGER NOT NULL DEFAULT 0,         -- notify immediately when schedule says released
+    notify_sub INTEGER NOT NULL DEFAULT 1,                  -- notify for sub releases
+    notify_dub INTEGER NOT NULL DEFAULT 0,                  -- notify for dub releases
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+-- Upsert per-content config.
+upsertNotificationConfig:
+INSERT OR REPLACE INTO notification_config(
+    main_id, enabled, notify_on_schedule, notify_on_watchable, notify_on_immediate, notify_sub, notify_dub
+) VALUES (
+    :main_id, :enabled, :notify_on_schedule, :notify_on_watchable, :notify_on_immediate, :notify_sub, :notify_dub
+);
+
+-- Get per-content config (null = use defaults).
+getNotificationConfig:
+SELECT * FROM notification_config WHERE main_id = ?;
+
+-- Get all enabled configs (for the Schedule engine to know which anime to schedule notifications for).
+getEnabledNotificationConfigs:
+SELECT * FROM notification_config WHERE enabled = 1;
+
+-- Delete per-content config (when anime is removed from library — FK CASCADE handles this).
+deleteNotificationConfig:
+DELETE FROM notification_config WHERE main_id = ?;
+
+-- ── Notification sent log (dedup — NOT backup-eligible, ephemeral) ──
+CREATE TABLE IF NOT EXISTS notification_sent (
+    main_id TEXT NOT NULL,
+    episode_number INTEGER NOT NULL,
+    audio_variant TEXT NOT NULL DEFAULT 'unknown',
+    trigger_type TEXT NOT NULL,          -- 'schedule' | 'watchable' | 'immediate'
+    sent_at INTEGER NOT NULL,
+    PRIMARY KEY (main_id, episode_number, audio_variant, trigger_type)
+);
+
+-- Record a sent notification (for dedup).
+recordNotificationSent:
+INSERT OR REPLACE INTO notification_sent(main_id, episode_number, audio_variant, trigger_type, sent_at)
+VALUES (:main_id, :episode_number, :audio_variant, :trigger_type, :sent_at);
+
+-- Check if a notification was already sent (for dedup).
+isNotificationSent:
+SELECT EXISTS(SELECT 1 FROM notification_sent
+    WHERE main_id = ? AND episode_number = ? AND audio_variant = ? AND trigger_type = ?);
+
+-- Delete old sent records (retention — 90 days).
+deleteOldSentNotifications:
+DELETE FROM notification_sent WHERE sent_at < ?;

@@ -46,6 +46,7 @@ include(":core:data-cache")
 include(":core:updates")
 include(":core:schedule")
 include(":core:ratings")
+include(":core:notifications")
 
 // ── :data ──
 include(":data:extension")

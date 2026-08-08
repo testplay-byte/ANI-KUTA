@@ -22,6 +22,7 @@ class ScheduleEngine(
     private val contentRepository: ContentRepository,
     private val scheduleStore: ScheduleStore,
     private val updateStore: UpdateStore,
+    private val notificationManager: com.confused.anikuta.core.notifications.NotificationManager?,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Schedule"
@@ -113,17 +114,29 @@ class ScheduleEngine(
                     // Write episode_schedule entries from the airingSchedule nodes.
                     val nodes = media.airingSchedule?.nodes ?: emptyList()
                     for (node in nodes) {
+                        val airingAtMs = node.airingAt.times(1000)
                         scheduleStore.upsertScheduleEntry(
                             mainId = mainId,
                             anilistId = media.id.toLong(),
                             episodeNumber = node.episode.toLong(),
-                            scheduledAt = node.airingAt.times(1000), // seconds → millis
-                            actualAt = null, // Phase SC-2: set when UpdateEngine finds the episode
-                            audioVariant = "unknown", // AniList doesn't distinguish sub/dub airing
+                            scheduledAt = airingAtMs,
+                            actualAt = null,
+                            audioVariant = "unknown",
                             source = "anilist",
                             fetchedAt = now,
                         )
                         totalEntries++
+
+                        // Phase NOTIF: if the airing time has passed (scheduled_at <= now),
+                        // fire an "immediate" notification for this episode.
+                        if (airingAtMs <= now && notificationManager != null) {
+                            notificationManager.postNotification(
+                                mainId = mainId,
+                                episodeNumber = node.episode.toLong(),
+                                audioVariant = "unknown",
+                                triggerType = "immediate",
+                            )
+                        }
                     }
                 }
                 Logger.d(TAG) { "fetchSchedule — batch of ${batch.size} fetched (${results.size} results)" }

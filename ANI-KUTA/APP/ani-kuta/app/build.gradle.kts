@@ -79,6 +79,7 @@ dependencies {
     implementation(project(":core:updates"))
     implementation(project(":core:schedule"))
     implementation(project(":core:ratings"))
+    implementation(project(":core:notifications"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
