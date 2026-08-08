@@ -72,6 +72,8 @@ dependencies {
     implementation(project(":feature:download"))
     implementation(project(":feature:watch:api"))
     implementation(project(":feature:watch:impl"))
+    implementation(project(":feature:anime-history:api"))
+    implementation(project(":feature:anime-history:impl"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)

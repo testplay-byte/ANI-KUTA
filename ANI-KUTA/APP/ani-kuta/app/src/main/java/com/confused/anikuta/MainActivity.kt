@@ -298,6 +298,7 @@ fun AppRoot() {
             is MoreKey -> MoreScreen(
                 onOpenSettings = { backstack.add(SettingsKey) },
                 onOpenDownloads = { backstack.add(DownloadsKey) },
+                onOpenHistory = { backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
@@ -466,6 +467,32 @@ fun AppRoot() {
                 watchKey = currentKey,
                 onBack = pop,
             )
+            is com.confused.anikuta.feature.animehistory.HistoryKey -> {
+                com.confused.anikuta.feature.animehistory.HistoryScreen(
+                    onBack = pop,
+                    onNavigateToDetails = { mainId ->
+                        // Navigate to the anime's details page (AniList or Extension based on content).
+                        val content = contentRepository.getContentByMainId(mainId)
+                        if (content != null) {
+                            val anilistDetail = contentRepository.getAniListDetail(mainId)
+                            if (anilistDetail != null) {
+                                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                            } else {
+                                // Extension-only content — use the source ID + URL.
+                                val extDetail = contentRepository.getExtensionDetail(mainId)
+                                if (extDetail != null) {
+                                    backstack.add(AnimeDetailsKey.Extension(
+                                        extDetail.sourceId ?: 0L,
+                                        content.animeUrl ?: "",
+                                        content.title,
+                                        null,
+                                    ))
+                                }
+                            }
+                        }
+                    },
+                )
+            }
             // Safety net — should never be reached (all NavKey subtypes are handled above).
             // Non-silent: logs a warning so a missing route is visible in logcat instead of
             // rendering a blank screen with no clue why. Filter: tag:MainActivity.

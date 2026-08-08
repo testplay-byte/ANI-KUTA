@@ -42,6 +42,7 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 fun MoreScreen(
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -86,7 +87,7 @@ fun MoreScreen(
                             icon = Icons.Filled.History,
                             title = "History",
                             subtitle = "Recently watched",
-                            onClick = { /* Phase 4c: navigate to History */ },
+                            onClick = onOpenHistory,
                         )
                     }
                     item {
