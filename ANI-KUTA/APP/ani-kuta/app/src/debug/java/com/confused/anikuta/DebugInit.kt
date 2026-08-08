@@ -1,11 +1,13 @@
 package com.confused.anikuta
 
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.feature.debugbubble.DebugBuildInfo
 import com.confused.anikuta.feature.debugbubble.data.DebugLogBuffer
 import com.confused.anikuta.feature.debugbubble.data.DebugNetworkStats
 import com.confused.anikuta.feature.debugbubble.di.debugBubbleModule
 import okhttp3.OkHttpClient
 import org.koin.core.module.Module
+import org.koin.dsl.module
 
 /**
  * Debug-only wiring (Phase DB). Lives in `:app/src/debug` — NOT compiled into
@@ -14,10 +16,22 @@ import org.koin.core.module.Module
  *
  * DB-4: registers the debug-bubble Koin module + wires the Logger appender.
  * DB-5: wrapDebugOkHttp adds the DebugNetworkStats interceptor to OkHttpClients.
+ * DB-6: buildInfoModule provides DebugBuildInfo (BuildConfig values).
  */
 
 /** Koin modules to register in debug builds. */
-fun debugKoinModules(): List<Module> = listOf(debugBubbleModule)
+fun debugKoinModules(): List<Module> = listOf(
+    debugBubbleModule,
+    module {
+        single {
+            DebugBuildInfo(
+                buildType = "debug",
+                versionName = BuildConfig.VERSION_NAME,
+                versionCode = BuildConfig.VERSION_CODE.toString(),
+            )
+        }
+    },
+)
 
 /**
  * Wire debug-only integrations that need Koin to be started first.

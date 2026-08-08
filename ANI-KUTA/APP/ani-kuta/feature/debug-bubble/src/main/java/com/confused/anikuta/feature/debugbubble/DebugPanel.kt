@@ -161,7 +161,7 @@ fun DebugPanel(
                             DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab()
                             DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
                             DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab()
-                            DebugTab.APP_INFO -> PlaceholderContent("App Info", "DB-6")
+                            DebugTab.APP_INFO -> com.confused.anikuta.feature.debugbubble.panel.AppInfoTab()
                         }
                     }
                 }
