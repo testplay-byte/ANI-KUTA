@@ -21,7 +21,7 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - Repo root cleanup: skills/ + worklog.md removed + gitignored.
 - Notification system: :core:notifications module, per-content config, AniList-based release triggers, dedup.
 - Calendar view: custom HorizontalPager with day cells, multi-dot indicators, day-detail bottom sheet.
-- Dashboard data refreshed: 44 modules, D-001..D-160, 28 DB tables, all phases marked done.
+- Dashboard data refreshed: 44 modules, D-001..D-161, 28 DB tables, all phases marked done.
 
 **Latest session (calendar UX + notifications tri-state + library page):**
 - **Swipe + calendar toggle confirmed working** on device (user feedback).
@@ -114,11 +114,11 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: calendar UX + notifications tri-state + library page (Z.ai Code sandbox).
+- Session: calendar UX + notifications tri-state + library page + crash fix (Z.ai Code sandbox).
 - By: main agent (implementation + CI verification).
 - Branch: `main` (ONLY branch).
-- CI: ✅ green (run 31277015651, commit b55da53, artifact `anikuta-apk` 53 MB). 3 iterations this session (enum companion `this`, getInt Long/Int default, var-by setValue import + AnimatedVisibility ColumnScope).
-- Note: 44 Gradle modules, 28 DB tables, D-001..D-160 decisions. Nav3 removed (D-150). Repo root cleaned. Notification settings: tri-state triggers+audio (D-158), master-off hide (D-159), dedicated library page (D-160). Calendar: toggle restyle + icons + Today button + smooth height anim (D-157). All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF (store+manager+UI+tri-state+library), CW, DL.
+- CI: ✅ green (run 31277812616, commit 87c4d1e, artifact `anikuta-apk` 53 MB). Crash-fix pass for the Notifications page ClassCastException (D-161 — SharedPreferences Boolean→Int migration).
+- Note: 44 Gradle modules, 28 DB tables, D-001..D-161 decisions. Nav3 removed (D-150). Repo root cleaned. Notification settings: tri-state triggers+audio (D-158), master-off hide (D-159), dedicated library page (D-160), legacy-pref migration (D-161). Calendar: toggle restyle + icons + Today button + smooth height anim (D-157) — confirmed working on device. All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF (store+manager+UI+tri-state+library), CW, DL.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 

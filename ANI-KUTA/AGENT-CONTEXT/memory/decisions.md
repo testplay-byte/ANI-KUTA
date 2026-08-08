@@ -1181,3 +1181,10 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Nav:** `NotificationsLibraryKey` wired in `MainActivity`; the settings screen passes `onOpenLibrary = { backstack.add(NotificationsLibraryKey) }`.
 - **Status:** ✅ Implemented + CI green.
 - **Date:** calendar/notifications-3way session.
+
+### D-161 — Crash fix: migrate legacy Boolean notification trigger prefs to Int
+- **What:** Fixed the `ClassCastException: java.lang.Boolean cannot be cast to java.lang.Integer` crash that occurred ~1s after opening the Notifications settings page. ROOT CAUSE: D-158 upgraded the 3 trigger defaults (`notif_def_schedule` / `_watchable` / `_immediate`) from Boolean to Int storage but kept the **same SharedPreferences keys**. The user's device had those keys stored as Booleans from the previous build. `SharedPreferences.getInt(key)` throws `ClassCastException` when the key holds a Boolean (SharedPreferences does NOT auto-convert types) — the crash fired when the `defaults` StateFlow was collected and called `intFlow` → `prefs.getInt`.
+- **Fix:** one-time migration in `NotificationPreferences.init` — for each of the 3 trigger keys, `try { store.getInt(key, 0) }`; on `ClassCastException`, read the legacy Boolean (`store.getBoolean(key, false)`), map `true→1 (ON)` / `false→0 (OFF)`, write it as Int (`store.putInt`). Idempotent: absent or already-Int keys are untouched. Runs at singleton construction (before any flow is collected). `SharedPreferences.apply()` updates the in-memory cache synchronously, so the subsequent flow reads see the migrated Int values — no race.
+- **Lesson:** when changing a SharedPreferences key's storage type (Boolean→Int, etc.), you MUST migrate existing values — SharedPreferences stores values with their type and won't auto-convert. Either use new keys (simplest, loses old data) or migrate defensively (try new-type read, catch ClassCastException, read old type, write new type). See `lessons-learned.md`.
+- **Status:** ✅ Fixed + CI green (run 31277812616, commit 87c4d1e, artifact 53 MB).
+- **Date:** calendar/notifications-3way session (crash-fix pass).

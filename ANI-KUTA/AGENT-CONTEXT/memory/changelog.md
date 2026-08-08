@@ -444,3 +444,14 @@
 ### Status
 - ✅ CI green (run 31277015651, commit b55da53, artifact 53 MB). 3 iterations (enum companion `this` → instance methods; `getInt` default Long→Int; `var by` setValue import + AnimatedVisibility ColumnScope).
 - Swipe + calendar toggle confirmed working on device (user feedback this session). Calendar UX + notifications tri-state + library page awaiting device verification.
+
+## Session — Notifications crash fix (SharedPreferences Boolean→Int migration, D-161)
+
+### Crash
+- `ClassCastException: java.lang.Boolean cannot be cast to java.lang.Integer` ~1s after opening the Notifications settings page. The UI rendered for a split second (initial StateFlow placeholder), then crashed when the `defaults` flow collected and called `prefs.getInt` on keys that held Booleans from the previous build (D-158 changed the trigger defaults from Boolean to Int but kept the same SharedPreferences keys).
+
+### Fix
+- One-time migration in `NotificationPreferences.init`: for each of the 3 trigger keys, `try { store.getInt(key, 0) }`; on `ClassCastException`, read the legacy Boolean, map `true→1 (ON)` / `false→0 (OFF)`, write as Int. Idempotent (absent / already-Int keys untouched). Runs at singleton construction before any flow collection; `SharedPreferences.apply()` updates the in-memory cache synchronously so there's no race.
+
+### Status
+- ✅ CI green (run 31277812616, commit 87c4d1e, artifact 53 MB). Calendar UX (toggle/icons/today/height-anim) confirmed working on device. Awaiting verification that the Notifications page no longer crashes.
