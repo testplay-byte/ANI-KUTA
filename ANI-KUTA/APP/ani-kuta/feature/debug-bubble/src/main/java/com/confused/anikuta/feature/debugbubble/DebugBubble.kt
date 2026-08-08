@@ -126,9 +126,16 @@ fun DebugBubble(
             }
         }
 
-        // Panel placeholder — DB-2 will replace this with the full tabbed panel.
-        // For DB-1, tapping the bubble just toggles a (no-op) expanded state so
-        // the drag/tap mechanics can be tested on device.
+        // ── The debug panel (DB-2) ──
+        // Renders on top of the bubble when expanded. Has a scrim
+        // (tap-outside-to-dismiss) + the tabbed panel anchored to the bubble.
+        // The panel is a sibling of the bubble Surface in this Box, so it
+        // overlays the bubble when open (the bubble's drag/tap are intercepted
+        // by the scrim while the panel is open — acceptable UX: dismiss first).
+        DebugPanel(
+            state = state,
+            onDismiss = { state.collapse() },
+        )
     }
 }
 
