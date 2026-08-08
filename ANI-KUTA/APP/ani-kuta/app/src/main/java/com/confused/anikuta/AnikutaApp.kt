@@ -31,6 +31,7 @@ import com.confused.anikuta.feature.animesearch.di.searchModule
 import com.confused.anikuta.feature.animehistory.di.historyModule
 import com.confused.anikuta.core.updates.di.updatesModule
 import com.confused.anikuta.core.schedule.di.scheduleModule
+import com.confused.anikuta.core.ratings.di.ratingsModule
 import com.confused.anikuta.feature.updates.di.updatesFeatureModule
 import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
@@ -97,6 +98,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 updatesModule,
                 updatesFeatureModule,
                 scheduleModule,
+                ratingsModule,
                 activityTrackerModule,
                 extensionModule,
                 playerModule,

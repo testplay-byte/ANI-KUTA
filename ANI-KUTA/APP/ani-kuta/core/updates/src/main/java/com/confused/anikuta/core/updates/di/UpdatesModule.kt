@@ -6,5 +6,5 @@ import org.koin.dsl.module
 
 val updatesModule = module {
     single { UpdateStore(get()) }
-    single { UpdateEngine(get(), get(), get(), get()) }
+    single { UpdateEngine(get(), get(), get(), get(), get()) }
 }

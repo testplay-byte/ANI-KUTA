@@ -78,6 +78,7 @@ dependencies {
     implementation(project(":feature:updates:impl"))
     implementation(project(":core:updates"))
     implementation(project(":core:schedule"))
+    implementation(project(":core:ratings"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)

@@ -89,6 +89,11 @@ class DatabaseDriverFactory(private val context: Context) {
                     if (!hasColumn(db, "episode_update", "id")) {
                         onCreate(db)
                     }
+
+                    // ── Phase TR: create ratings tables if they don't exist ──
+                    if (!hasColumn(db, "user_rating", "main_id")) {
+                        onCreate(db)
+                    }
                 }
 
                 /**
