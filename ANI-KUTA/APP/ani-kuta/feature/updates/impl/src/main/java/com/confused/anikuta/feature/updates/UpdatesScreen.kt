@@ -225,6 +225,15 @@ fun UpdatesScreen(
                 ScheduleListContent(onNavigateToDetails = onNavigateToDetails)
             }
         }
+        // ScrollBlurOverlay — the gradient blur at the top.
+        com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay(
+            scrollOffset = {
+                if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                else listState.firstVisibleItemScrollOffset.toFloat()
+            },
+            backgroundColor = MaterialTheme.colorScheme.background,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
     }
 }
 

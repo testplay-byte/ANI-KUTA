@@ -125,7 +125,6 @@ fun HistoryScreen(
                 }
                 is HistoryUiState.Loaded -> {
                     if (s.groups.isEmpty()) {
-                        // Empty state
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
@@ -148,32 +147,43 @@ fun HistoryScreen(
                             }
                         }
                     } else {
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = PaddingValues(
-                                start = 12.dp,
-                                end = 12.dp,
-                                top = 8.dp,
-                                bottom = 110.dp,
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            s.groups.forEach { group ->
-                                item(key = "header_${group.label}") {
-                                    HistorySectionHeader(group.label)
-                                }
-                                items(
-                                    items = group.entries,
-                                    key = { it.episodeKey },
-                                ) { entry ->
-                                    HistoryRow(
-                                        entry = entry,
-                                        onClick = { onNavigateToDetails(entry.mainId) },
-                                        onDelete = { viewModel.deleteEntry(entry.episodeKey) },
-                                    )
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LazyColumn(
+                                state = listState,
+                                contentPadding = PaddingValues(
+                                    start = 12.dp,
+                                    end = 12.dp,
+                                    top = 8.dp,
+                                    bottom = 110.dp,
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                s.groups.forEach { group ->
+                                    item(key = "header_${group.label}") {
+                                        HistorySectionHeader(group.label)
+                                    }
+                                    items(
+                                        items = group.entries,
+                                        key = { it.episodeKey },
+                                    ) { entry ->
+                                        HistoryRow(
+                                            entry = entry,
+                                            onClick = { onNavigateToDetails(entry.mainId) },
+                                            onDelete = { viewModel.deleteEntry(entry.episodeKey) },
+                                        )
+                                    }
                                 }
                             }
+                            // ScrollBlurOverlay — the gradient blur at the top.
+                            com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay(
+                                scrollOffset = {
+                                    if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                                    else listState.firstVisibleItemScrollOffset.toFloat()
+                                },
+                                backgroundColor = MaterialTheme.colorScheme.background,
+                                modifier = Modifier.align(Alignment.TopCenter),
+                            )
                         }
                     }
                 }
@@ -369,28 +379,51 @@ private fun HistoryRow(
                 }
                 Spacer(Modifier.width(12.dp))
 
-                // ── Right column: title + episode info + progress bar ──
+                // ── Right column: ALL content here (nothing below the cover) ──
                 Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f).height(80.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
+                    // Top row: title (1 line) + episode number pill (right)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = entry.animeTitle,
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        // Episode number pill
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(6.dp),
+                        ) {
+                            Text(
+                                text = "EP ${entry.episodeNumber}",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                    // Middle: watched time ago
                     Text(
-                        text = entry.animeTitle,
+                        text = formatTimeAgo(entry.lastWatchedAt),
                         fontFamily = RobotoFamily,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "EP ${entry.episodeNumber} · ${formatTimeAgo(entry.lastWatchedAt)}",
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
-                    // Duration on the top-right of the progress bar (user request).
+                    // Bottom: duration (right-aligned) + progress bar (full width)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
@@ -398,11 +431,10 @@ private fun HistoryRow(
                         Text(
                             text = "${formatDuration(entry.position)} / ${formatDuration(entry.duration)}",
                             fontFamily = RobotoFamily,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    // Progress bar
                     LinearProgressIndicator(
                         progress = { entry.progressFraction },
                         modifier = Modifier
@@ -411,7 +443,7 @@ private fun HistoryRow(
                             .clip(RoundedCornerShape(2.dp)),
                         color = if (entry.completed) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        trackColor = MaterialTheme.colorScheme.surface,
                     )
                 }
             }

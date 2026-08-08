@@ -115,7 +115,7 @@ private fun ScheduleRow(
     onClick: () -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
@@ -140,46 +140,61 @@ private fun ScheduleRow(
                 }
             }
             Spacer(Modifier.width(12.dp))
-            // Right column
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Right column — content fills the full height of the cover (80dp).
+            // Title at top, EP pill + countdown at the bottom.
+            Column(
+                modifier = Modifier.weight(1f).height(80.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                // Title (1 line)
                 Text(
                     text = entry.animeTitle,
                     fontFamily = RobotoFamily,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // Bottom row: EP pill (left) + countdown with subtle background (right)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // "EP N" pill
+                    // "EP N" pill — improved look
                     Surface(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(8.dp),
                     ) {
                         Text(
                             text = "EP ${entry.episodeNumber}",
                             fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
-                    // Countdown
+                    // Countdown with subtle background
                     val displayTime = entry.actualAt ?: entry.scheduledAt
                     val diff = displayTime - now
                     val countdown = if (diff > 0) formatCountdown(diff) else "Released"
-                    Text(
-                        text = countdown,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        color = if (diff > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                    )
+                    Surface(
+                        color = if (diff > 0) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(
+                            text = countdown,
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (diff > 0) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
                 }
             }
         }

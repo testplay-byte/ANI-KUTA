@@ -1480,14 +1480,21 @@ private fun EpisodeRow(
             .fillMaxWidth()
             .graphicsLayer { this.alpha = alpha },
     ) {
-        // Background icon — ONLY visible during active swipe (not always).
-        // Uses the same rounded shape as the card so it looks clean.
-        if (kotlin.math.abs(swipeOffset.value) > 1f) {
+        // Background icon — fades in gradually as the user swipes, then snaps to
+        // full visibility when the threshold is crossed. Before ~20% of the threshold,
+        // it's invisible. From 20% to 100%, it fades in linearly. At 100%+, it's full.
+        val swipeProgress = (kotlin.math.abs(swipeOffset.value) / swipeThresholdPx).coerceIn(0f, 1f)
+        val iconAlpha = if (thresholdCrossed) 1f
+            else if (swipeProgress < 0.2f) 0f
+            else ((swipeProgress - 0.2f) / 0.8f).coerceIn(0f, 1f)
+        if (iconAlpha > 0f) {
             Surface(
-                color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
-                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.15f * iconAlpha)
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * iconAlpha),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { this.alpha = iconAlpha },
             ) {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
