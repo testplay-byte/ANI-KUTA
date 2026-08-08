@@ -1188,3 +1188,18 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Lesson:** when changing a SharedPreferences key's storage type (Boolean→Int, etc.), you MUST migrate existing values — SharedPreferences stores values with their type and won't auto-convert. Either use new keys (simplest, loses old data) or migrate defensively (try new-type read, catch ClassCastException, read old type, write new type). See `lessons-learned.md`.
 - **Status:** ✅ Fixed + CI green (run 31277812616, commit 87c4d1e, artifact 53 MB).
 - **Date:** calendar/notifications-3way session (crash-fix pass).
+
+### D-162 — Debug Bubble plan + sub-agent review (5 CRITICAL + 8 IMPORTANT issues caught)
+- **What:** Planned the Debug Bubble feature (a floating, draggable debug overlay on every screen) and had the plan reviewed by a sub-agent. The main agent critically evaluated each finding — all 5 CRITICAL + 8 IMPORTANT issues were verified as real and incorporated into the plan before publishing it on the dashboard.
+- **Plan location:** `APP/ani-kuta/DOCUMENTATION/planning/debug-bubble/PLAN.md` (753 lines).
+- **Dashboard page:** `/debug-bubble` (deployed from `feature/debug-bubble` branch).
+- **Sub-agent review findings (all verified real):**
+  - **C1:** CompositionLocal values don't flow across siblings — the bubble (sibling of screen content in AppRoot's Box) can't read a context that screens provide via their own `CompositionLocalProvider`. **Fix:** hoist `MutableState<DebugContext?>` to AppRoot + two CompositionLocals (reader + writer); the provider wraps BOTH nav content + bubble.
+  - **C2:** `Logger` (`:core:common`, always on classpath) can't reference `DebugLogBuffer` (`:feature:debug-bubble`, debug-only) — would break release builds. **Fix:** `LogAppender` interface in `:core:debug-api`; `Logger` holds the interface; wiring in `:app/src/debug/DebugInit.kt`.
+  - **C3:** Koin module can't be imported in `:app/src/main` (debug-only dep). **Fix:** debug-only source set.
+  - **C4:** Feature modules can't import from `debugImplementation`. **Fix:** split into `:core:debug-api` (always available) + `:feature:debug-bubble` (debug-only).
+  - **C5:** WatchScreen carve-out unaddressed (player gestures, immersive mode, rotation). **Fix:** auto-hide on Watch + rotation re-clamp + IME padding.
+  - **I1-I8:** network interceptor placement, SqlDriver injection, SQL injection in search, BLOB handling, DebugContext cleanup (VM leak), rotation/IME, Animatable vs mutableStateOf, honest removal edit list.
+- **Main agent's assessment:** the sub-agent's review was thorough and technically accurate. No false positives in CRITICAL/IMPORTANT categories. Every issue was a real compile-time or semantic blocker. The plan is now sound.
+- **Status:** ✅ Plan complete + sub-agent reviewed + dashboard deployed. Branch `feature/debug-bubble` CI green (run 31278786368). No app code changed — planning only. Implementation (DB-1..DB-8) begins after user approval.
+- **Date:** debug-bubble planning session.

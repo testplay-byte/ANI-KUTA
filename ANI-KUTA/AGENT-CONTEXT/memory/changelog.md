@@ -455,3 +455,35 @@
 
 ### Status
 - ✅ CI green (run 31277812616, commit 87c4d1e, artifact 53 MB). Calendar UX (toggle/icons/today/height-anim) confirmed working on device. Awaiting verification that the Notifications page no longer crashes.
+
+## Session — Debug Bubble planning + dashboard page (feature/debug-bubble branch)
+
+### Branch
+- Created `feature/debug-bubble` from main. All work happens here; main is untouched.
+- Added `feature/debug-bubble` to build-apk.yml push triggers (temporary — verifies every push builds).
+
+### CI verification
+- Feature branch builds cleanly: run 31278277860 (4e05152), artifact 53 MB. ✅
+- Run 31278786368 (13ca829, with plan + dashboard) also green. ✅
+
+### Plan (PLAN.md — 753 lines)
+- Full implementation plan for the Debug Bubble: a floating, draggable debug overlay on every screen. Tap to expand a panel with 5 tabs (Current Screen, Database, Console, Network, App Info). Debug-only (`debugImplementation`), trivially removable (~5 edits), zero impact on app code when off.
+- Architecture: two-module split (`:core:debug-api` always available + `:feature:debug-bubble` debug-only). Integration: one `DebugBubble()` call in AppRoot. Data sources: hoisted CompositionLocal state, SqlDriver injection, LogAppender interface, OkHttp interceptor.
+- 8 implementation phases (DB-1..DB-8, 14-21h total).
+
+### Sub-agent review (D-162)
+- A general-purpose sub-agent reviewed the plan. Found 5 CRITICAL + 8 IMPORTANT issues — all verified real by the main agent and incorporated into the plan:
+  - C1: CompositionLocal siblings (bubble can't read screen-provided context) → hoisted state.
+  - C2/C3/C4: module dependency direction (debugImplementation can't be imported by release-code modules) → two-module split + LogAppender interface + debug-only source set.
+  - C5: WatchScreen carve-out → auto-hide + rotation/IME.
+  - I1-I8: network interceptor placement, SqlDriver injection, SQL injection, BLOB handling, VM leak cleanup, Animatable consistency, honest removal edit list.
+- Main agent's assessment: no false positives. The review was thorough and technically accurate.
+
+### Dashboard
+- New page `/debug-bubble` with visual mockup, goals/non-goals, two-module architecture, integration point, removal strategy, bubble/panel specs, 5 tab cards, data sources, sub-agent review summary, implementation phases, open questions.
+- New "debug" (bug) icon in Sidebar nav.
+- Deployed from `feature/debug-bubble` (Pages source branch + environment branch policy updated to allow the feature branch).
+- Live: https://testplay-byte.github.io/ANI-KUTA/debug-bubble/
+
+### Status
+- ✅ Planning complete + sub-agent reviewed + dashboard deployed. No app code changed. Implementation (DB-1..DB-8) begins after user reviews + approves the plan.

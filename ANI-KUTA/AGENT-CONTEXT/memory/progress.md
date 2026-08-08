@@ -47,7 +47,7 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - Rating UI not built — store + schema ready, UI pending.
 - Continue Watching UI not placed — logic ready, UI deferred.
 
-**Next:** Debug bubble (next, per user) → Rating UI → Continue Watching UI → Subtitle loading investigation.
+**Next:** Debug bubble — plan done (D-162, on `feature/debug-bubble` branch, dashboard live). Awaiting user approval → implement DB-1..DB-8 → Rating UI → Continue Watching UI → Subtitle loading investigation.
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -114,11 +114,11 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: calendar UX + notifications tri-state + library page + crash fix (Z.ai Code sandbox).
-- By: main agent (implementation + CI verification).
-- Branch: `main` (ONLY branch).
-- CI: ✅ green (run 31277812616, commit 87c4d1e, artifact `anikuta-apk` 53 MB). Crash-fix pass for the Notifications page ClassCastException (D-161 — SharedPreferences Boolean→Int migration).
-- Note: 44 Gradle modules, 28 DB tables, D-001..D-161 decisions. Nav3 removed (D-150). Repo root cleaned. Notification settings: tri-state triggers+audio (D-158), master-off hide (D-159), dedicated library page (D-160), legacy-pref migration (D-161). Calendar: toggle restyle + icons + Today button + smooth height anim (D-157) — confirmed working on device. All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF (store+manager+UI+tri-state+library), CW, DL.
+- Session: debug-bubble planning (Z.ai Code sandbox) — on `feature/debug-bubble` branch.
+- By: main agent (planning + sub-agent review + dashboard).
+- Branch: `feature/debug-bubble` (all debug-bubble work here; main untouched). `main` is at 73b16ba (D-161 crash fix).
+- CI: ✅ feature branch builds green (run 31278786368, commit 13ca829, artifact 53 MB). Dashboard deployed from the feature branch (live at /debug-bubble/).
+- Note: D-001..D-162 decisions. Debug bubble plan complete + sub-agent reviewed (D-162) — 5 CRITICAL + 8 IMPORTANT issues caught + fixed. Plan at APP/ani-kuta/DOCUMENTATION/planning/debug-bubble/PLAN.md. Dashboard page live. No app code changed — planning only. Implementation (DB-1..DB-8) awaits user approval.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 
