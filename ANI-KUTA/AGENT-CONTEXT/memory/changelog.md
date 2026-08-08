@@ -391,3 +391,28 @@
 - Sub-agent reviewed (SUB-REVIEW): COMPILES. Reviewer caught a header-format
   logic bug (JSON vs MPV-comma) — fixed before push.
 - Awaiting device verification (checklist section C).
+
+## Session — Swipe background / Calendar toggle / Notifications settings UI / CI fix
+
+### Swipe-to-reveal background (D-153)
+- **Bug:** the reveal background (tinted Surface + icon) in `DetailsScreen.EpisodeRow` + `HistoryScreen.HistoryRow` was completely invisible. ROOT CAUSE: it used `Modifier.fillMaxSize()` inside a wrap-content-height `Box` — Compose resolves `fillMaxSize` to **0 height** when the incoming max-height constraint is unbounded. The previous session's `matchParentSize → fillMaxSize` "fix" (commit `db26c47`) was the regression (based on the false theory that matchParentSize fails for siblings).
+- **Fix:** `matchParentSize()` (BoxScope — designed for siblings; sizes to the card's footprint after the card is measured). Always compose the background; drive visibility via `graphicsLayer { alpha }` fading in linearly with swipe progress. Bumped tint 0.15 → 0.18.
+
+### Calendar toggle (D-154)
+- **Bug:** "can't click the calendar button." ROOT CAUSE: `ScheduleListContent` emitted the List/Calendar toggle `Row` + the list/calendar content as **bare siblings** into the parent `Box`. A Box stacks later children on top → the `fillMaxSize` list drew ON TOP of the toggle, hiding it.
+- **Fix:** wrap toggle + content in a `Column`. Also: auto-fetch schedule once on first open if DB empty; calendar `verticalScroll`; empty-state hint; gate the Updates-driven `ScrollBlurOverlay` to the Updates tab (it read the Updates `listState` on the Schedule tab → stale scrim).
+
+### Notifications settings UI (D-155 — Phase NOTIF UI completion)
+- `NotificationPreferences` (`:core:preferences`, new) — global master kill switch + default trigger/audio prefs. Reactive flows.
+- `NotificationManager` now checks the global master toggle first (`:core:notifications` gains `:core:preferences` dep).
+- `NotificationsSettingsScreen` + `NotificationsSettingsViewModel` (`:app`, new) — master toggle, "New anime defaults" (5 toggles via `SettingsGroupCard`), per-anime library list with Switch + detail bottom sheet (per-trigger + sub/dub). Notifications nav row in `SettingsScreen` + `NotificationsKey` in `MainActivity`. ViewModel via `viewModelOf` in `appModule`.
+
+### CI false-green fix (D-156)
+- Previous commits `db26c47`/`fd1a9a5` FAILED CI (`:app:compileDebugKotlin` — "Cannot access class 'DocumentFile'") but progress.md claimed "CI green". The `scanSubtitleFilesOnDisk` function uses `DocumentFile` directly in `:app`, but `:core:download` declares it as `implementation` (not transitively visible). **Fix:** added `implementation(libs.androidx.documentfile)` to `:app`.
+
+### Branch cleanup
+- `feature/watch-progress-history-updates` deleted (local + remote). It was fully merged into main (0 unique commits). Main verified green (run 31275021179, artifact `anikuta-apk` 53 MB). Only `main` remains.
+
+### Status
+- ✅ CI genuinely green (run 31275021179, commit 25e5637). Awaiting device verification of swipe background, calendar toggle, + notifications settings screen.
+- Subtitles intentionally deferred per user (separate session).

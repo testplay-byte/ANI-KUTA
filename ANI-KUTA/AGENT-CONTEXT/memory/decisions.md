@@ -1118,3 +1118,30 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Status:** ✅ Implemented. Sub-agent reviewed. Awaiting device verification (see `APP/ani-kuta/DOCUMENTATION/download-device-testing-checklist.md` section C).
 - **Note:** existing downloads (made before this fix) will have the OLD subtitle naming + null `subtitleUris` in the DB. They'll show "Subtitle N" labels. Re-downloading fixes them. The scanner's backward-compat means the subtitle FILES are still found after reinstall, but the labels will be "Subtitle N" for old-named files.
 - **Date:** analysis-and-doc-update session (subtitle investigation task).
+
+### D-153 — Swipe-to-reveal background uses matchParentSize (NOT fillMaxSize)
+- **What:** Fixed the "swipe background completely gone" bug in `DetailsScreen.EpisodeRow` + `HistoryScreen.HistoryRow`. The reveal background (tinted Surface + icon) was invisible because it used `Modifier.fillMaxSize()` inside the swipe-wrapper `Box`, which only declares `fillMaxWidth()` and wraps its content height (no bounded height constraint). In Compose, `fillMaxSize()` with an unbounded max-height constraint resolves to **0 height** → the background was never visible. **Fix:** use `matchParentSize()` (a `BoxScope` modifier) — it sizes the background to the wrapper Box's footprint *after* the card (the size-defining sibling) is measured. Also: always compose the background (removed the `if (iconAlpha > 0f)` guard) and drive visibility purely via `graphicsLayer { alpha }`, fading in linearly with swipe progress.
+- **Why the previous "fix" made it worse:** the prior session changed `matchParentSize` → `fillMaxSize` (commit `db26c47`, "fix: swipe bg fillMaxSize") based on the wrong theory that "matchParentSize fails because the background is a sibling, not a parent." That theory is **false** — `matchParentSize` is *designed* for siblings within a Box (it's a `BoxScope` member). The change from matchParentSize → fillMaxSize is exactly what broke it (0 height).
+- **Status:** ✅ Implemented + CI green (run 31275021179). Both Details + History screens.
+- **Date:** swipe/calendar/notifications session.
+
+### D-154 — ScheduleListContent: toggle + content must be in a Column (Box stacks siblings)
+- **What:** Fixed the "can't click the calendar button" bug. `ScheduleListContent` emitted the List/Calendar toggle `Row` and the list/calendar content as **sibling composables** directly into the parent `Box` (from `UpdatesScreen`). A `Box` stacks children in declaration order — later children draw *on top* of earlier ones. The list/calendar content (with `fillMaxSize`) was declared *after* the toggle, so it drew **on top of the toggle**, fully covering it. The toggle was rendered but invisible and untappable. **Fix:** wrap the toggle `Row` + the content in a `Column` so the toggle sits *above* the content (vertical stacking, not z-stacking).
+- **Also:** (a) auto-fetch schedule data once on first open if the DB is empty (otherwise the calendar renders empty until manual refresh — looked like "nothing happened"); (b) wrap the calendar in `verticalScroll` so it's never cut off on short screens; (c) add an empty-state hint; (d) gate the Updates-driven `ScrollBlurOverlay` to the Updates tab (it read the Updates `listState` even on the Schedule tab, producing a stale scrim over the toggle).
+- **Status:** ✅ Implemented + CI green. Calendar toggle now visible + clickable; calendar auto-populates.
+- **Date:** swipe/calendar/notifications session.
+
+### D-155 — Notification settings UI (Phase NOTIF — UI completion)
+- **What:** Built the notification settings screen + supporting preferences, completing the NOTIF phase (store + manager were already done; UI was the known gap). Three layers:
+  1. **`NotificationPreferences`** (`:core:preferences`, new) — global master kill switch + default trigger/audio prefs (seeded into per-anime config on enable). Reactive via `*Flow()` accessors.
+  2. **`NotificationManager`** now respects the global master toggle (`:core:notifications` gains a `:core:preferences` dep; checks `preferences.notificationsEnabled` first in `postNotification`).
+  3. **`NotificationsSettingsScreen` + `NotificationsSettingsViewModel`** (`:app`, new) — master toggle, "New anime defaults" section (5 toggles via `SettingsGroupCard`), and a per-anime library list: each row has a Switch + a tappable detail bottom sheet (per-trigger + sub/dub toggles). Reached via a new "Notifications" nav row in `SettingsScreen` + `NotificationsKey` in `MainActivity`.
+- **Why per-anime + defaults:** the existing `NotificationConfigStore` is per-content (DB-backed). The defaults let the user set a baseline; enabling a specific anime seeds from defaults, then per-anime overrides are tweakable. The master toggle is the hard kill switch (checked before any per-anime config).
+- **Status:** ✅ Implemented + CI green. ViewModel registered via `viewModelOf` in `appModule`.
+- **Date:** swipe/calendar/notifications session.
+
+### D-156 — CI was falsely reported green (DocumentFile dep missing in :app)
+- **What:** Discovered that the previous session's commits (`db26c47`, `fd1a9a5`) **failed CI** (`:app:compileDebugKotlin` — "Cannot access class 'DocumentFile'"), but `progress.md` claimed "CI green". The `scanSubtitleFilesOnDisk` function (added in `db26c47`, the subtitle disk-scan fallback) uses `DocumentFile` directly in `:app`, but `:core:download` declares `androidx.documentfile` as `implementation` (not `api`), so it isn't transitively visible to `:app`. **Fix:** added `implementation(libs.androidx.documentfile)` to `:app/build.gradle.kts`.
+- **Lesson:** always verify CI *actually* passed (poll the run + check conclusion), never trust a self-reported "green" in docs. The false claim meant the user downloaded a build from *before* the failing commits (or no build at all for the latest).
+- **Status:** ✅ Fixed + CI green (run 31275021179, artifact `anikuta-apk` 53 MB). Feature branch `feature/watch-progress-history-updates` deleted (was fully merged into main; main now verified green).
+- **Date:** swipe/calendar/notifications session.

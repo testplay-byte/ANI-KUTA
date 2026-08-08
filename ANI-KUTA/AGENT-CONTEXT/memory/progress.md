@@ -21,16 +21,24 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - Repo root cleanup: skills/ + worklog.md removed + gitignored.
 - Notification system: :core:notifications module, per-content config, AniList-based release triggers, dedup.
 - Calendar view: custom HorizontalPager with day cells, multi-dot indicators, day-detail bottom sheet.
-- Dashboard data refreshed: 44 modules, D-001..D-152, 28 DB tables, all phases marked done.
+- Dashboard data refreshed: 44 modules, D-001..D-156, 28 DB tables, all phases marked done.
+
+**Latest session (swipe / calendar / notifications):**
+- **Swipe background fixed (D-153):** the reveal background in `DetailsScreen.EpisodeRow` + `HistoryScreen.HistoryRow` was invisible because it used `fillMaxSize()` inside a wrap-content-height Box (resolves to 0 height). Switched to `matchParentSize()` (BoxScope) + always-compose with `graphicsLayer` alpha fade. The previous session's `fillMaxSize` "fix" was the regression.
+- **Calendar toggle fixed (D-154):** the List/Calendar toggle was hidden because `ScheduleListContent` emitted the toggle + content as bare siblings into a parent Box (later siblings draw on top → list covered the toggle). Wrapped in a `Column`. Also: auto-fetch schedule on first open if empty, calendar `verticalScroll`, empty-state hint, gate the Updates-driven `ScrollBlurOverlay` to the Updates tab.
+- **Notification settings UI built (D-155):** `NotificationPreferences` (master toggle + defaults) in `:core:preferences`; `NotificationManager` now respects the global kill switch; `NotificationsSettingsScreen` + ViewModel in `:app` (master toggle, defaults, per-anime library list + detail bottom sheet); Notifications nav row in Settings + `NotificationsKey` wired.
+- **CI false-green fixed (D-156):** previous commits `db26c47`/`fd1a9a5` actually FAILED CI (`:app:compileDebugKotlin` — DocumentFile unresolved from the subtitle disk-scan code) but progress.md claimed green. Added `implementation(libs.androidx.documentfile)` to `:app`. CI now genuinely green (run 31275021179, artifact 53 MB).
+- **Branch cleanup:** `feature/watch-progress-history-updates` deleted (was fully merged into main; main verified green). Only `main` remains.
+- Subtitles intentionally deferred per user (separate session).
 
 ⚠️ **Known gaps (deferred per user):**
 - Proxy-churn re-resolve NOT wired (D-149) — deferred to future phase.
 - Outer retry loop not implemented — deferred.
-- Notification settings UI not built — store + manager ready, UI pending.
+- Subtitle loading for downloaded episodes still not working on device (D-152 fixes are in but unverified; user deferred to a later session).
 - Rating UI not built — store + schema ready, UI pending.
 - Continue Watching UI not placed — logic ready, UI deferred.
 
-**Next:** Notification settings UI → Rating UI → Continue Watching UI → Debug bubble (next session).
+**Next:** Rating UI → Continue Watching UI → Subtitle loading investigation → Debug bubble.
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -97,10 +105,11 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: multi-session (Z.ai Code sandbox) — ALL major phases complete.
-- By: main agent (implementation + CI verification; sub-agents for dashboard data refresh).
-- Branch: `main` (all feature branches merged + deleted).
-- Note: 44 Gradle modules, 28 DB tables, D-001..D-152+ decisions. Nav3 removed (D-150). Repo root cleaned. Dashboard data refreshed. CI green. All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF, CW, DL.
+- Session: swipe / calendar / notifications session (Z.ai Code sandbox).
+- By: main agent (implementation + CI verification).
+- Branch: `main` (ONLY branch — `feature/watch-progress-history-updates` deleted after verifying main builds green).
+- CI: ✅ genuinely green (run 31275021179, commit 25e5637, artifact `anikuta-apk` 53 MB). Previous 2 runs had failed (DocumentFile — now fixed, D-156).
+- Note: 44 Gradle modules, 28 DB tables, D-001..D-156 decisions. Nav3 removed (D-150). Repo root cleaned. Notification settings UI done (D-155). Calendar toggle fixed (D-154). Swipe bg fixed (D-153). All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF (store+manager+UI), CW, DL.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 
