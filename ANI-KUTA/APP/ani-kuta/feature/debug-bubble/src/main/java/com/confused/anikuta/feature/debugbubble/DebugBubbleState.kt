@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.debugbubble
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,19 +12,24 @@ import androidx.compose.ui.geometry.Offset
  * process restart). The drag position is NOT persisted (D-163) — the bubble
  * returns to its default (bottom-end) every time the app reopens.
  *
- * @property offset The bubble's position in px, backed by [Animatable] for
- *           smooth spring-back. Initialized to the default position by
- *           [DebugBubble] on first composition.
+ * @property offset The bubble's position in px. Plain [mutableStateOf] — drag
+ *           writes are direct (no spring animation in DB-1; the bubble follows
+ *           the finger 1:1). A future phase can swap to Animatable with
+ *           Offset.VectorConverter if spring-back fling is wanted.
  * @property expanded Whether the panel is open.
  * @property dragged Tracks whether the current gesture is a drag (vs a tap).
  *           Used for tap-vs-drag disambiguation (< 8px = tap).
  */
 class DebugBubbleState(initialOffset: Offset = Offset.Zero) {
-    val offset = Animatable(initialOffset)
+    var offset by mutableStateOf(initialOffset)
+        private set
     var expanded by mutableStateOf(false)
         private set
     var dragged by mutableStateOf(false)
         private set
+
+    fun snapOffsetTo(value: Offset) { offset = value }
+    fun setOffset(value: Offset) { offset = value }
 
     fun toggleExpanded() { expanded = !expanded }
     fun collapse() { expanded = false }
@@ -36,6 +40,9 @@ class DebugBubbleState(initialOffset: Offset = Offset.Zero) {
 
     /** Mark that a drag actually moved (distinguishes tap from drag). */
     fun onDragMoved() { dragged = true }
+
+    /** Reset the dragged flag (used on drag cancel — no tap toggle). */
+    fun resetDragged() { dragged = false }
 
     /** End of a drag gesture. If it didn't actually drag, treat as a tap. */
     fun onDragEnd() {

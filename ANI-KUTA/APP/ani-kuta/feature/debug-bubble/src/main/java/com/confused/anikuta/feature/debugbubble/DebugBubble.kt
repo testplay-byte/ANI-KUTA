@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.debugbubble
 
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -19,16 +18,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toIntOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -56,7 +54,6 @@ fun DebugBubble(
     val visible by preferences.visibleFlow().collectAsStateWithLifecycle(initialValue = preferences.visible)
     if (!visible) return
 
-    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
 
@@ -81,13 +78,13 @@ fun DebugBubble(
     val state = remember(defaultOffset) { DebugBubbleState(defaultOffset) }
 
     // Re-clamp on rotation (configChanges means Activity isn't recreated, but
-    // LocalConfiguration changes → Compose recomposes). Animate to the clamped
-    // position so the bubble doesn't jump off-screen. (D-162 I6)
+    // LocalConfiguration changes → Compose recomposes). Set the clamped position
+    // directly so the bubble stays on-screen. (D-162 I6)
     LaunchedEffect(configuration.orientation) {
-        val current = state.offset.value
+        val current = state.offset
         val clamped = clampOffset(current, screenWidthPx, screenHeightPx, bubbleSizePx, statusBarPx, navBarPx)
         if (clamped != current) {
-            state.offset.animateTo(clamped, spring())
+            state.setOffset(clamped)
         }
     }
 
@@ -99,27 +96,27 @@ fun DebugBubble(
             modifier = Modifier
                 .size(BUBBLE_SIZE)
                 .offset {
-                    state.offset.value.toIntOffset()
+                    IntOffset(state.offset.x.toInt(), state.offset.y.toInt())
                 }
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { state.onDragStart() },
                         onDragEnd = { state.onDragEnd() },
-                        onDragCancel = { state.dragged = false },
+                        onDragCancel = { state.resetDragged() },
                     ) { change, dragAmount ->
                         change.consume()
                         if (abs(dragAmount.x) > 0.5f || abs(dragAmount.y) > 0.5f) {
                             state.onDragMoved()
                         }
                         val newValue = clampOffset(
-                            state.offset.value + dragAmount,
+                            state.offset + dragAmount,
                             screenWidthPx, screenHeightPx, bubbleSizePx, statusBarPx, navBarPx,
                         )
-                        scope.launch { state.offset.snapTo(newValue) }
+                        state.setOffset(newValue)
                     }
                 },
         ) {
-            Box(contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Filled.BugReport,
                     contentDescription = "Debug bubble",
