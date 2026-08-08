@@ -36,6 +36,7 @@ import com.confused.anikuta.core.notifications.di.notificationsModule
 import com.confused.anikuta.feature.updates.di.updatesFeatureModule
 import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
+import com.confused.anikuta.settings.NotificationsSettingsViewModel
 import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
 import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.serialization.json.Json
@@ -43,6 +44,7 @@ import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
+import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.addSingleton
@@ -193,6 +195,10 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { AutoLinkPreferences(get()) }
             single { PlayerPreferences(get()) }
             single { ThemePreferences(get()) }
+            single { com.confused.anikuta.core.preferences.NotificationPreferences(get()) }
+
+            // ViewModels (app-level)
+            viewModelOf(::NotificationsSettingsViewModel)
 
             // D.2: Download orchestrator + re-resolver (bridges :core:video-resolver + :core:download)
             single { com.confused.anikuta.download.ReResolver(get<com.confused.anikuta.core.videoresolver.VideoResolver>()) }

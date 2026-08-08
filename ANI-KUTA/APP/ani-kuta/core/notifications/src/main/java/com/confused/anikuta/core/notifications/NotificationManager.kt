@@ -6,6 +6,7 @@ import android.content.Context
 import androidx.core.app.NotificationCompat
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.preferences.NotificationPreferences
 
 /**
  * Posts system notifications for new episode releases (Phase NOTIF).
@@ -24,6 +25,7 @@ class NotificationManager(
     private val context: Context,
     private val configStore: NotificationConfigStore,
     private val contentRepository: ContentRepository,
+    private val preferences: NotificationPreferences,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Notifications"
@@ -51,6 +53,12 @@ class NotificationManager(
         audioVariant: String,
         triggerType: String,
     ): Boolean {
+        // 0. Global master toggle — the kill switch. When off, suppress everything.
+        if (!preferences.notificationsEnabled) {
+            Logger.d(TAG) { "postNotification — suppressed (global master off)" }
+            return false
+        }
+
         // 1. Check config.
         val config = configStore.getConfig(mainId)
         if (config == null || !config.enabled) {

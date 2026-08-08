@@ -282,24 +282,29 @@ private fun HistoryRow(
             .fillMaxWidth()
             .graphicsLayer { this.alpha = alpha },
     ) {
-        // Background delete icon — match the card's height (not just the icon).
-        if (kotlin.math.abs(swipeOffset.value) > 1f) {
-            Surface(
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxSize(),
+        // Background delete icon — fades in linearly as the user swipes.
+        // matchParentSize (BoxScope) sizes the background to the card's footprint.
+        // (fillMaxSize resolves to 0 height here — the wrapper Box wraps content height,
+        //  no bounded height constraint. That was the "background gone" bug.)
+        val swipeProgress = (kotlin.math.abs(swipeOffset.value) / swipeThresholdPx).coerceIn(0f, 1f)
+        val bgAlpha = if (thresholdCrossed) 1f else swipeProgress
+        Surface(
+            color = MaterialTheme.colorScheme.error.copy(alpha = 0.18f),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer { this.alpha = bgAlpha },
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                contentAlignment = if (swipeOffset.value < 0) Alignment.CenterEnd
+                else Alignment.CenterStart,
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-                    contentAlignment = if (swipeOffset.value < 0) Alignment.CenterEnd
-                    else Alignment.CenterStart,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete from history",
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "Delete from history",
+                    tint = MaterialTheme.colorScheme.error,
+                )
             }
         }
 

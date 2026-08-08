@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,8 +49,10 @@ import java.util.concurrent.TimeUnit
  * Row: cover + title + "EP N" pill + countdown ("in 14h 36m" for Today/Tomorrow).
  * Live-ticking countdown via 1s LaunchedEffect.
  *
- * This is the list content — embedded in the UpdatesScreen via the Updates | Schedule tab strip.
- * The calendar view is deferred (Phase SC-1b — complex custom HorizontalPager).
+ * This is the schedule content — embedded in the UpdatesScreen via the Updates | Schedule
+ * tab strip. A List / Calendar toggle switches between this list view and the monthly
+ * calendar ([ScheduleCalendarContent] — HorizontalPager, day cells, day-detail sheet).
+ * Auto-fetches airing data once on first open if the DB is empty.
  */
 @Composable
 fun ScheduleListContent(
@@ -67,102 +71,141 @@ fun ScheduleListContent(
         }
     }
 
-    // View toggle: List / Calendar
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        listOf("List" to false, "Calendar" to true).forEach { (label, isCal) ->
-            val isSelected = calendarView == isCal
-            val bgColor by androidx.compose.animation.animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.primary
-                else androidx.compose.ui.graphics.Color.Transparent,
-                animationSpec = androidx.compose.animation.core.tween(200),
-                label = "schedView_$isCal",
-            )
-            val textColor by androidx.compose.animation.animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                animationSpec = androidx.compose.animation.core.tween(200),
-                label = "schedText_$isCal",
-            )
-            Surface(
-                color = bgColor,
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(1f).clickable { calendarView = isCal },
-            ) {
-                Text(
-                    text = label,
-                    color = textColor,
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                )
-            }
-            if (!isCal) Spacer(Modifier.width(4.dp))
+    // Auto-fetch schedule data once if the DB is empty on first open — otherwise
+    // the list/calendar stays empty until the user manually taps refresh.
+    var autoFetched by remember { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(state) {
+        if (!autoFetched && state is ScheduleUiState.Loaded &&
+            (state as ScheduleUiState.Loaded).groups.isEmpty() && !fetching
+        ) {
+            autoFetched = true
+            viewModel.fetchSchedule()
         }
     }
 
-    if (calendarView) {
-        // Calendar view
-        when (val s = state) {
-            is ScheduleUiState.Loading -> {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            is ScheduleUiState.Loaded -> {
-                val allEntries = s.groups.flatMap { it.entries }
-                ScheduleCalendarContent(
-                    entries = allEntries,
-                    onNavigateToDetails = onNavigateToDetails,
+    // Toggle + content wrapped in a Column so the toggle sits ABOVE the content.
+    // Previously these were siblings emitted into the parent Box — the fillMaxSize
+    // list/calendar drew ON TOP of the toggle (a Box stacks later children above
+    // earlier ones), hiding it. That was the "can't click the calendar button" bug.
+    Column(modifier = Modifier.fillMaxSize()) {
+        // View toggle: List / Calendar
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            listOf("List" to false, "Calendar" to true).forEach { (label, isCal) ->
+                val isSelected = calendarView == isCal
+                val bgColor by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+                    else androidx.compose.ui.graphics.Color.Transparent,
+                    animationSpec = androidx.compose.animation.core.tween(200),
+                    label = "schedView_$isCal",
                 )
+                val textColor by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = androidx.compose.animation.core.tween(200),
+                    label = "schedText_$isCal",
+                )
+                Surface(
+                    color = bgColor,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).clickable { calendarView = isCal },
+                ) {
+                    Text(
+                        text = label,
+                        color = textColor,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    )
+                }
+                if (!isCal) Spacer(Modifier.width(4.dp))
             }
         }
-    } else {
-        // List view (existing)
-        when (val s = state) {
-        is ScheduleUiState.Loading -> {
-            Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        is ScheduleUiState.Loaded -> {
-            if (s.groups.isEmpty()) {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("No upcoming episodes", fontFamily = RobotoFamily, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(Modifier.height(8.dp))
-                        Text("Check back later or refresh to fetch airing data.", fontFamily = RobotoFamily, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // Content fills the remaining space below the toggle.
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (calendarView) {
+                // Calendar view
+                when (val s = state) {
+                    is ScheduleUiState.Loading -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    is ScheduleUiState.Loaded -> {
+                        val allEntries = s.groups.flatMap { it.entries }
+                        // verticalScroll so the calendar + hint are never cut off on short screens.
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            ScheduleCalendarContent(
+                                entries = allEntries,
+                                onNavigateToDetails = onNavigateToDetails,
+                            )
+                            if (allEntries.isEmpty()) {
+                                Spacer(Modifier.height(16.dp))
+                                Text(
+                                    text = "No upcoming episodes scheduled yet.\nTap refresh to fetch airing data from AniList.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                                )
+                            }
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    s.groups.forEach { group ->
-                        item(key = "header_${group.label}") {
-                            Text(
-                                text = group.label,
-                                fontFamily = RobotoFamily,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
-                            )
+                // List view
+                when (val s = state) {
+                    is ScheduleUiState.Loading -> {
+                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                            Text("Loading…", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        items(group.entries, key = { "${it.mainId}_${it.episodeNumber}" }) { entry ->
-                            ScheduleRow(entry = entry, now = now, onClick = { onNavigateToDetails(entry.mainId) })
+                    }
+                    is ScheduleUiState.Loaded -> {
+                        if (s.groups.isEmpty()) {
+                            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("No upcoming episodes", fontFamily = RobotoFamily, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("Tap the refresh button to fetch airing data from AniList.", fontFamily = RobotoFamily, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                s.groups.forEach { group ->
+                                    item(key = "header_${group.label}") {
+                                        Text(
+                                            text = group.label,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
+                                        )
+                                    }
+                                    items(group.entries, key = { "${it.mainId}_${it.episodeNumber}" }) { entry ->
+                                        ScheduleRow(entry = entry, now = now, onClick = { onNavigateToDetails(entry.mainId) })
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-    }
     }
 }
 

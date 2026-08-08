@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +50,7 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenExtensions: () -> Unit,
     onOpenAutoLink: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onBack: () -> Unit,
 ) {
     val lazyListState = rememberLazyListState()
@@ -98,6 +100,17 @@ fun SettingsScreen(
                             title = "Auto-Link",
                             subtitle = "Link extension anime to AniList metadata",
                             onClick = onOpenAutoLink,
+                        )
+                    }
+
+                    // ── Notifications (Phase NOTIF) ──
+                    item {
+                        SettingsSectionLabel("Notifications")
+                        SettingsNavRow(
+                            icon = Icons.Filled.Notifications,
+                            title = "Notifications",
+                            subtitle = "New-episode alerts, per-anime config",
+                            onClick = onOpenNotifications,
                         )
                     }
                 }

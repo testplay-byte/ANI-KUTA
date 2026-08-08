@@ -10,6 +10,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:database"))
     implementation(project(":core:content"))
+    implementation(project(":core:preferences"))
     implementation("androidx.core:core-ktx:1.15.0")
     implementation(libs.sqldelight.coroutines.extensions)
     implementation(libs.kotlinx.coroutines.core)

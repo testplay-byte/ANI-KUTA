@@ -1480,37 +1480,33 @@ private fun EpisodeRow(
             .fillMaxWidth()
             .graphicsLayer { this.alpha = alpha },
     ) {
-        // Background icon — fades in gradually as the user swipes, then snaps to
-        // full visibility when the threshold is crossed. Before ~20% of the threshold,
-        // it's invisible. From 20% to 100%, it fades in linearly. At 100%+, it's full.
+        // Background icon — fades in linearly as the user swipes, full opacity past
+        // the threshold. matchParentSize (BoxScope) sizes the background to the card's
+        // footprint: the wrapper Box wraps its content height (no bounded height), so
+        // fillMaxSize() resolves to 0 height here — that was the "background gone" bug.
+        // matchParentSize measures the card first, then fills the same space behind it.
         val swipeProgress = (kotlin.math.abs(swipeOffset.value) / swipeThresholdPx).coerceIn(0f, 1f)
-        val iconAlpha = if (thresholdCrossed) 1f
-            else if (swipeProgress < 0.2f) 0f
-            else ((swipeProgress - 0.2f) / 0.8f).coerceIn(0f, 1f)
-        if (iconAlpha > 0f) {
-            // Background: fill the same space as the card.
-            // Use fillMaxSize so the background matches the card's height exactly.
-            Surface(
-                color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
-                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { this.alpha = iconAlpha },
+        val iconAlpha = if (thresholdCrossed) 1f else swipeProgress
+        Surface(
+            color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
+            else MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer { this.alpha = iconAlpha },
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                contentAlignment = if (swipeOffset.value > 0) androidx.compose.ui.Alignment.CenterStart
+                else androidx.compose.ui.Alignment.CenterEnd,
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-                    contentAlignment = if (swipeOffset.value > 0) androidx.compose.ui.Alignment.CenterStart
-                    else androidx.compose.ui.Alignment.CenterEnd,
-                ) {
-                    Icon(
-                        imageVector = if (isWatched) Icons.Filled.VisibilityOff
-                        else Icons.Filled.CheckCircle,
-                        contentDescription = if (isWatched) "Mark as unwatched" else "Mark as watched",
-                        tint = if (isWatched) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.primary,
-                    )
-                }
+                Icon(
+                    imageVector = if (isWatched) Icons.Filled.VisibilityOff
+                    else Icons.Filled.CheckCircle,
+                    contentDescription = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                    tint = if (isWatched) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary,
+                )
             }
         }
 

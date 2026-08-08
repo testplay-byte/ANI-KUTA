@@ -228,12 +228,17 @@ fun UpdatesScreen(
                     ScheduleListContent(onNavigateToDetails = onNavigateToDetails)
                 }
                 // ScrollBlurOverlay — at the top of the content area (below the tab strip).
+                // Gated to the Updates tab: the scroll offset is read from the Updates
+                // LazyColumn's listState, which is meaningless on the Schedule tab (the
+                // Schedule content has its own scroll). Showing a stale scrim there would
+                // visually obscure the List/Calendar toggle.
                 com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay(
                     scrollOffset = {
                         if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
                         else listState.firstVisibleItemScrollOffset.toFloat()
                     },
                     backgroundColor = MaterialTheme.colorScheme.background,
+                    enabled = selectedTab == 0,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
             }
