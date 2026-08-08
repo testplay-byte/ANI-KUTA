@@ -143,11 +143,11 @@ class HttpDownloader(
             // (and the DB row) carries them. Previously this was always null →
             // offline playback had no subtitles. decodeSubtitleUris() in DownloadQueue
             // parses this back to List<String>.
+            // D.FIX: Use the reified encodeToString extension — the previous call to
+            // kotlinx.serialization.builtins.serializer<String>() was an unresolved
+            // reference (serializer() is a top-level reified function, not in builtins).
             val subtitleUrisJson = if (publishResult.subtitleUris.isEmpty()) null
-                else kotlinx.serialization.json.Json.encodeToString(
-                    kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.builtins.serializer<String>()),
-                    publishResult.subtitleUris,
-                )
+                else kotlinx.serialization.json.Json.encodeToString(publishResult.subtitleUris)
 
             task.copy(
                 status = DownloadStatus.COMPLETED,
