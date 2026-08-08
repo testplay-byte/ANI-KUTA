@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -69,6 +71,7 @@ class DetailsViewModel(
     private val contentRepository: com.confused.anikuta.core.content.ContentRepository,
     private val dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
     private val downloadManager: com.confused.anikuta.core.download.DownloadManager,
+    private val watchProgressStore: com.confused.anikuta.core.watchprogress.WatchProgressStore,
 ) : ViewModel() {
 
     companion object {
@@ -196,6 +199,36 @@ class DetailsViewModel(
     // D.FIX: Made internal (was private) so DetailsScreen can read it for offline playback.
     internal var currentMainId: String? = null
 
+    // ── Phase WP: Watch progress for the current anime's episodes ──
+    // Observe watch_progress by mainId. Emits a map keyed by episode_key for O(1) lookup
+    // in the episode list. Reactive — updates live when the player saves progress.
+    private val _mainIdFlow = MutableStateFlow<String?>(null)
+    val watchProgress: StateFlow<Map<String, com.confused.anikuta.core.watchprogress.WatchProgress>> =
+        _mainIdFlow
+            .flatMapLatest { mainId ->
+                if (mainId != null) {
+                    watchProgressStore.observeByMainId(mainId)
+                } else {
+                    kotlinx.coroutines.flow.flowOf(emptyList())
+                }
+            }
+            .map { list: List<com.confused.anikuta.core.watchprogress.WatchProgress> ->
+                list.associateBy { it.episodeKey }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** Phase WP: Toggle the watched state of an episode (swipe-to-toggle). */
+    fun toggleWatched(episodeKey: String) {
+        viewModelScope.launch {
+            runCatching {
+                watchProgressStore.toggleWatched(episodeKey)
+                Logger.i(TAG) { "toggleWatched: episodeKey=$episodeKey" }
+            }.onFailure { e ->
+                Logger.e(TAG, e) { "toggleWatched failed: ${e.message}" }
+            }
+        }
+    }
+
     // ── D-134: Original data bases (for data-source switching) ──
     // The bug: merging with ANILIST priority overwrites extension fields.
     // Switching back to EXTENSION priority can't recover the original extension
@@ -292,7 +325,7 @@ class DetailsViewModel(
         _manualSearchState.value = ManualSearchState.Idle
         _isInLibrary.value = false
         _contentId.value = ""
-        currentMainId = null
+        currentMainId = null; _mainIdFlow.value = null
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
@@ -320,7 +353,7 @@ class DetailsViewModel(
                             entryMode = com.confused.anikuta.core.common.model.EntryMode.ANILIST,
                         )
                         remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
-                        currentMainId = cachedMainId
+                        currentMainId = cachedMainId; _mainIdFlow.value = cachedMainId
                         refreshContentAndLibraryStatus(cachedMainId)
                         loadLinkedSource(animeId)
                     }
@@ -639,7 +672,7 @@ class DetailsViewModel(
         _manualSearchState.value = ManualSearchState.Idle
         _isInLibrary.value = false
         _contentId.value = ""
-        currentMainId = null
+        currentMainId = null; _mainIdFlow.value = null
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
@@ -688,7 +721,7 @@ class DetailsViewModel(
         val existingContent = contentRepository.getContentByExtension(sourceId, animeUrl)
         if (existingContent != null) {
             Logger.i(TAG) { "Found cached content for extension: ${existingContent.title}" }
-            currentMainId = existingContent.mainId
+            currentMainId = existingContent.mainId; _mainIdFlow.value = existingContent.mainId
 
             // Restore extension detail from DB.
             val extDetail = contentRepository.getExtensionDetail(existingContent.mainId)
@@ -804,7 +837,7 @@ class DetailsViewModel(
                 updatedAt = System.currentTimeMillis(),
             )
             val mainId = contentResolver.resolveOrCreateForAniList(anilistId, title, detail)
-            currentMainId = mainId
+            currentMainId = mainId; _mainIdFlow.value = mainId
             refreshContentAndLibraryStatus(mainId)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "resolveContentForAniList failed: ${e.message}" }
@@ -860,7 +893,7 @@ class DetailsViewModel(
                             ),
                         )
                     }
-                    currentMainId = existingContent.mainId
+                    currentMainId = existingContent.mainId; _mainIdFlow.value = existingContent.mainId
                     refreshContentAndLibraryStatus(existingContent.mainId)
                     return
                 }
@@ -876,7 +909,7 @@ class DetailsViewModel(
                 repoUrl = null,
                 extensionPkg = null,
             )
-            currentMainId = mainId
+            currentMainId = mainId; _mainIdFlow.value = mainId
 
             // D-142: Store the extension detail (with coverUrl) for library display.
             // Without this, the library can't show cover images for extension-only entries.
@@ -1523,7 +1556,7 @@ class DetailsViewModel(
                     // Also restore episode metadata map.
                     val metadataMap = cachedEpisodes.associate { meta ->
                         meta.episodeNumber.toInt() to com.confused.anikuta.core.metadata.EpisodeMetadata(
-                            episodeKey = mainId + ":" + meta.episodeNumber.toInt(),
+                            episodeKey = mainId + "|" + String.format("%05d", meta.episodeNumber.toInt()),
                             number = meta.episodeNumber.toDouble(),
                             title = meta.title,
                             thumbnailUrl = meta.thumbnailUrl,

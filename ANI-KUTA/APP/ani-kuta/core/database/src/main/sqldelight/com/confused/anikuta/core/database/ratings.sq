@@ -1,0 +1,60 @@
+-- User ratings (Phase TR — PLAN §1.6, §1.10)
+-- Per-anime (user_rating) + per-episode (user_episode_rating).
+-- Both key off main_id (stable UUID for backup/restore).
+
+-- ── Per-anime rating (the whole content) ──
+CREATE TABLE IF NOT EXISTS user_rating (
+    main_id TEXT NOT NULL PRIMARY KEY,
+    rating INTEGER NOT NULL,             -- 0-100 (AniList-native; displayed as 0-10 with one decimal)
+    rated_at INTEGER NOT NULL,
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+-- Upsert per-anime rating.
+upsertUserRating:
+INSERT OR REPLACE INTO user_rating(main_id, rating, rated_at) VALUES (:main_id, :rating, :rated_at);
+
+-- Get per-anime rating.
+getUserRating:
+SELECT * FROM user_rating WHERE main_id = ?;
+
+-- Delete per-anime rating.
+deleteUserRating:
+DELETE FROM user_rating WHERE main_id = ?;
+
+-- Get all ratings (for backup).
+getAllUserRatings:
+SELECT * FROM user_rating;
+
+-- ── Per-episode rating ──
+CREATE TABLE IF NOT EXISTS user_episode_rating (
+    main_id TEXT NOT NULL,
+    episode_key TEXT NOT NULL,
+    rating INTEGER NOT NULL,             -- 0-100 (same scale as user_rating)
+    rated_at INTEGER NOT NULL,
+    PRIMARY KEY (main_id, episode_key),
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_episode_rating_main ON user_episode_rating(main_id);
+
+-- Upsert per-episode rating.
+upsertUserEpisodeRating:
+INSERT OR REPLACE INTO user_episode_rating(main_id, episode_key, rating, rated_at)
+VALUES (:main_id, :episode_key, :rating, :rated_at);
+
+-- Get per-episode rating.
+getUserEpisodeRating:
+SELECT * FROM user_episode_rating WHERE main_id = ? AND episode_key = ?;
+
+-- Get all episode ratings for an anime.
+getUserEpisodeRatingsByMainId:
+SELECT * FROM user_episode_rating WHERE main_id = ?;
+
+-- Delete per-episode rating.
+deleteUserEpisodeRating:
+DELETE FROM user_episode_rating WHERE main_id = ? AND episode_key = ?;
+
+-- Get all episode ratings (for backup).
+getAllUserEpisodeRatings:
+SELECT * FROM user_episode_rating;

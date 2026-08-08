@@ -8,9 +8,10 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":core:database"))
+    implementation(project(":core:preferences"))
+    implementation(libs.sqldelight.coroutines.extensions)
     implementation(libs.kotlinx.coroutines.core)
-
-    // Koin — needed for WatchProgressModule (registers InMemoryWatchProgressStore)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
 }

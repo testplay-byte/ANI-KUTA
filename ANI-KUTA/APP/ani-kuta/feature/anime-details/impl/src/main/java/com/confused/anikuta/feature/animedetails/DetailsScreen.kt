@@ -79,6 +79,16 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.compose.koinInject
+import kotlinx.coroutines.launch  // Phase WP: for swipe animation coroutine
+import androidx.compose.foundation.layout.offset  // Phase WP: for swipe translation
+import androidx.compose.ui.graphics.graphicsLayer  // Phase WP: for watched alpha
+import androidx.compose.runtime.rememberCoroutineScope  // Phase WP: for swipe coroutine
+import androidx.compose.ui.input.pointer.pointerInput  // Phase WP: for swipe gesture
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures  // Phase WP
+import androidx.compose.material.icons.filled.CheckCircle  // Phase WP
+import androidx.compose.material.icons.filled.VisibilityOff  // Phase WP
+import androidx.compose.ui.graphics.ColorFilter  // Phase WP: grayscale
+import androidx.compose.ui.graphics.ColorMatrix  // Phase WP: grayscale
 
 /**
  * Details screen — complete UI overhaul matching the old project's design.
@@ -104,7 +114,7 @@ import org.koin.compose.koinInject
 fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
-    onNavigateToWatch: (videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String) -> Unit = { _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
@@ -137,6 +147,8 @@ fun DetailsScreen(
     val availableSources by viewModel.availableSources.collectAsState()
     val manualSearchState by viewModel.manualSearchState.collectAsState()
     val downloadStates by viewModel.downloadStates.collectAsState()
+    // Phase WP: watch progress for the episode list (watched state + swipe-to-toggle).
+    val watchProgress by viewModel.watchProgress.collectAsState()
 
     // D.FIX: Compute the effective linked source at the top level — used by both
     // the EpisodesSection (inside Success branch) AND the ResolverSheet (outside).
@@ -423,6 +435,7 @@ fun DetailsScreen(
                                                     "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
                                                 }
                                                 onNavigateToWatch(
+                                                    mainId ?: "",
                                                     localUri,
                                                     anime?.displayName ?: "Downloaded",
                                                     "Downloaded",
@@ -474,6 +487,10 @@ fun DetailsScreen(
                                 episodeDownloadStateKey = { episode ->
                                     viewModel.episodeDownloadStateKey(episode)
                                 },
+                                // Phase WP: watched state.
+                                mainId = viewModel.currentMainId,
+                                watchProgress = watchProgress,
+                                onToggleWatched = { epKey -> viewModel.toggleWatched(epKey) },
                             )
                         }
 
@@ -628,6 +645,7 @@ fun DetailsScreen(
                         "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
                     }
                     onNavigateToWatch(
+                        viewModel.currentMainId ?: "",
                         video.url,
                         anime.displayName,
                         video.quality,
@@ -1127,6 +1145,10 @@ private fun EpisodesSection(
     onRetryEpisodeDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDeleteDownloadedEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     episodeDownloadStateKey: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> String? = { null },
+    // Phase WP: watched state per episode.
+    mainId: String? = null,
+    watchProgress: Map<String, com.confused.anikuta.core.watchprogress.WatchProgress> = emptyMap(),
+    onToggleWatched: (String) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
@@ -1343,6 +1365,10 @@ private fun EpisodesSection(
                         val stateKey = episodeDownloadStateKey(episode)
                         val downloadState = stateKey?.let { downloadStates[it] }
                             ?: EpisodeDownloadState.NotDownloaded
+                        // Phase WP: build the standardized episode key + look up watched state.
+                        val epKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
+                        val progress = epKey?.let { watchProgress[it] }
+                        val isWatched = progress?.isWatched ?: false
                         EpisodeRow(
                             episode = episode,
                             metadata = metadata,
@@ -1355,6 +1381,8 @@ private fun EpisodesSection(
                             onRetry = { onRetryEpisodeDownload(episode) },
                             onDelete = { onDeleteDownloadedEpisode(episode) },
                             onPlayDownloaded = { onEpisodeClick(episode) },
+                            isWatched = isWatched,
+                            onToggleWatched = { epKey?.let { onToggleWatched(it) } },
                         )
                     }
                     // Unlink button at the bottom.
@@ -1387,6 +1415,9 @@ private fun EpisodeRow(
     onRetry: () -> Unit = {},
     onDelete: () -> Unit = {},
     onPlayDownloaded: () -> Unit = {},
+    // Phase WP: watched state + swipe-to-toggle.
+    isWatched: Boolean = false,
+    onToggleWatched: () -> Unit = {},
 ) {
     // ── Parse display values ──
     val displayTitle = remember(episode, metadata) {
@@ -1410,14 +1441,116 @@ private fun EpisodeRow(
     // Audio availability — parsed from scanlator + episode name (like old project).
     val audio = remember(episode) { parseAudioAvailability(episode.scanlator, episode.name) }
 
-    // ── Card ──
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
+    // ── Phase WP: swipe-to-toggle watched state ──
+    // Custom pointerInput (not SwipeToDismissBox — that's for dismiss, not toggle).
+    // Swipe right past threshold → toggle. Spring back smoothly on release.
+    // Bidirectional: swipe right to toggle, swipe left to cancel a rightward swipe.
+    val swipeOffset = remember { androidx.compose.animation.core.Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        configuration.screenWidthDp.dp.toPx()
+    }
+    val swipeThresholdPx = screenWidthPx * 0.35f // 35% of screen width
+
+    // Track whether the threshold was crossed DURING the drag (for haptic feedback).
+    var thresholdCrossed by remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    // ── Phase WP: watched styling (IM4: alpha fade + grayscale on the thumbnail) ──
+    val targetAlpha = if (isWatched) 0.5f else 1.0f
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = targetAlpha,
+        label = "watched_alpha",
+    )
+    val colorFilter = remember(isWatched) {
+        if (isWatched) {
+            ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+                0.299f, 0.587f, 0.114f, 0f, 0f,
+                0.299f, 0.587f, 0.114f, 0f, 0f,
+                0.299f, 0.587f, 0.114f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f,
+            )))
+        } else null
+    }
+
+    // ── Card ── (wrapped in a Box for the swipe gesture + background icon)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .graphicsLayer { this.alpha = alpha },
     ) {
+        // Background icon — ONLY visible during active swipe (not always).
+        // Uses the same rounded shape as the card so it looks clean.
+        if (kotlin.math.abs(swipeOffset.value) > 1f) {
+            Surface(
+                color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    contentAlignment = if (swipeOffset.value > 0) androidx.compose.ui.Alignment.CenterStart
+                    else androidx.compose.ui.Alignment.CenterEnd,
+                ) {
+                    Icon(
+                        imageVector = if (isWatched) Icons.Filled.VisibilityOff
+                        else Icons.Filled.CheckCircle,
+                        contentDescription = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                        tint = if (isWatched) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+
+        // The actual card — opaque (NOT transparent), translates with the swipe.
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { androidx.compose.ui.unit.IntOffset(swipeOffset.value.toInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { thresholdCrossed = false },
+                        onDragEnd = {
+                            // If past threshold → toggle + haptic. Else smooth spring back.
+                            if (kotlin.math.abs(swipeOffset.value) > swipeThresholdPx) {
+                                com.confused.anikuta.core.common.HapticHelper.releaseConfirm(context)
+                                onToggleWatched()
+                            }
+                            coroutineScope.launch {
+                                swipeOffset.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = androidx.compose.animation.core.tween(
+                                        durationMillis = 300,
+                                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                                    ),
+                                )
+                            }
+                            thresholdCrossed = false
+                        },
+                    ) { _, dragAmount ->
+                        val newValue = (swipeOffset.value + dragAmount).coerceIn(
+                            minimumValue = -swipeThresholdPx * 1.5f, // allow left cancel
+                            maximumValue = swipeThresholdPx * 1.5f,   // allow right toggle
+                        )
+                        coroutineScope.launch {
+                            swipeOffset.snapTo(newValue)
+                        }
+                        // Haptic feedback when crossing the threshold for the first time.
+                        if (!thresholdCrossed && kotlin.math.abs(newValue) > swipeThresholdPx) {
+                            thresholdCrossed = true
+                            com.confused.anikuta.core.common.HapticHelper.stageCross(context)
+                        } else if (thresholdCrossed && kotlin.math.abs(newValue) <= swipeThresholdPx) {
+                            thresholdCrossed = false
+                        }
+                    }
+                }
+                .clickable(onClick = onClick),
+        ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
         ) {
@@ -1438,6 +1571,8 @@ private fun EpisodeRow(
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(10.dp)),
                             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            // Phase WP: grayscale when watched (IM4 — GPU-side, cheap).
+                            colorFilter = colorFilter,
                         )
                         // EP tag — themed primary background, 6dp corners, Bold White text.
                         // Shows 'EP N' (not just 'N').
@@ -1633,6 +1768,7 @@ private fun EpisodeRow(
             }
         }
     }
+    } // close the swipe wrapper Box (Phase WP)
 }
 
 // ── Audio availability parsing (ported from old project) ──

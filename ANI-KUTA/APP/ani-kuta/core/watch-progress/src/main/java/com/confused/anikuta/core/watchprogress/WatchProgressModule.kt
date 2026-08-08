@@ -1,16 +1,22 @@
 package com.confused.anikuta.core.watchprogress
 
+import com.confused.anikuta.core.preferences.PreferenceStore
 import org.koin.dsl.module
 
 /**
  * Koin module for watch-progress.
  *
- * Registers [InMemoryWatchProgressStore] as the [WatchProgressStore] impl.
- *
- * ponytail: in-memory impl → swap for SQLDelight-backed impl in Phase 5e
- *           when the database is wired. The interface stays the same, so
- *           only this module file changes.
+ * Phase WP (PLAN §2.2): registers [SqlDelightWatchProgressStore] as the
+ * [WatchProgressStore] impl. The SQLDelight impl persists to the `watch_progress`
+ * table + implements the two-flag auto-mark state machine (CF1) + reads the
+ * configurable threshold from [WatchPreferences].
  */
 val watchProgressModule = module {
-    single<WatchProgressStore> { InMemoryWatchProgressStore() }
+    single<WatchProgressStore> {
+        SqlDelightWatchProgressStore(
+            database = get(),
+            preferencesStore = get<PreferenceStore>(),
+        )
+    }
+    single { WatchPreferences(get<PreferenceStore>()) }
 }

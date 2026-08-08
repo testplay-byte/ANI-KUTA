@@ -214,8 +214,8 @@ fun AppRoot() {
                     is AnimeDetailsKey.AniList -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
@@ -240,8 +240,8 @@ fun AppRoot() {
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
                         onBack = pop,
-                        onNavigateToWatch = { videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
-                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta))
+                        onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
+                            backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
@@ -298,6 +298,8 @@ fun AppRoot() {
             is MoreKey -> MoreScreen(
                 onOpenSettings = { backstack.add(SettingsKey) },
                 onOpenDownloads = { backstack.add(DownloadsKey) },
+                onOpenHistory = { backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey) },
+                onOpenUpdates = { backstack.add(com.confused.anikuta.feature.updates.UpdatesKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
@@ -398,6 +400,7 @@ fun AppRoot() {
                                 videoHeaders = "",
                                 resolvedVideosKey = "",
                                 sourceId = sourceId,
+                                mainId = mainId,
                                 subtitleTracksSerialized = subtitleTracksStr,
                                 audioTracksSerialized = "",
                                 episodeMetadataSerialized = epMetaStr,
@@ -465,6 +468,56 @@ fun AppRoot() {
                 watchKey = currentKey,
                 onBack = pop,
             )
+            is com.confused.anikuta.feature.updates.UpdatesKey -> {
+                com.confused.anikuta.feature.updates.UpdatesScreen(
+                    onBack = pop,
+                    onNavigateToDetails = { mainId ->
+                        val content = contentRepository.getContentByMainId(mainId)
+                        if (content != null) {
+                            val anilistDetail = contentRepository.getAniListDetail(mainId)
+                            if (anilistDetail != null) {
+                                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                            } else {
+                                val extDetail = contentRepository.getExtensionDetail(mainId)
+                                if (extDetail != null) {
+                                    backstack.add(AnimeDetailsKey.Extension(
+                                        extDetail.sourceId ?: 0L,
+                                        content.animeUrl ?: "",
+                                        content.title,
+                                        null,
+                                    ))
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+            is com.confused.anikuta.feature.animehistory.HistoryKey -> {
+                com.confused.anikuta.feature.animehistory.HistoryScreen(
+                    onBack = pop,
+                    onNavigateToDetails = { mainId ->
+                        // Navigate to the anime's details page (AniList or Extension based on content).
+                        val content = contentRepository.getContentByMainId(mainId)
+                        if (content != null) {
+                            val anilistDetail = contentRepository.getAniListDetail(mainId)
+                            if (anilistDetail != null) {
+                                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                            } else {
+                                // Extension-only content — use the source ID + URL.
+                                val extDetail = contentRepository.getExtensionDetail(mainId)
+                                if (extDetail != null) {
+                                    backstack.add(AnimeDetailsKey.Extension(
+                                        extDetail.sourceId ?: 0L,
+                                        content.animeUrl ?: "",
+                                        content.title,
+                                        null,
+                                    ))
+                                }
+                            }
+                        }
+                    },
+                )
+            }
             // Safety net — should never be reached (all NavKey subtypes are handled above).
             // Non-silent: logs a warning so a missing route is visible in logcat instead of
             // rendering a blank screen with no clue why. Filter: tag:MainActivity.

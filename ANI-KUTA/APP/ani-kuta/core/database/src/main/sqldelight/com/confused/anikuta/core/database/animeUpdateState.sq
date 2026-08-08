@@ -1,0 +1,72 @@
+-- Per-anime smart-update metadata (Phase UP — PLAN §1.4)
+-- The core of the "smart update" engine. The old project had these columns on the
+-- animes table but never used them. We put them in a separate table + actually use them.
+
+CREATE TABLE IF NOT EXISTS anime_update_state (
+    main_id TEXT NOT NULL PRIMARY KEY,   -- FK → content(main_id)
+    status TEXT,                         -- 'RELEASING' | 'FINISHED' | 'NOT_YET_RELEASED' | 'CANCELLED' | null (from AniList, M2)
+    last_checked_at INTEGER,             -- when we last checked this anime for updates
+    next_check_at INTEGER,               -- when we should next check (CF4: with backoff)
+    last_known_episode_count INTEGER,    -- highest episode number we've seen
+    next_airing_episode INTEGER,         -- from AniList nextAiringEpisode (S4: populated by Schedule fetch)
+    next_airing_at INTEGER,              -- from AniList airingAt (epoch millis) (S4)
+    auto_update_enabled INTEGER NOT NULL DEFAULT 1,  -- user can disable per-anime (M3: 0 after 3 consecutive failures)
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,  -- M3
+    backoff_step INTEGER NOT NULL DEFAULT 0,           -- CF4/Q4: current backoff step (0=none, 1=1h, 2=2h, 3=4h, 4=8h, 5=24h capped)
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+-- S2: partial index — only due + enabled + releasing anime (the worker's query)
+CREATE INDEX IF NOT EXISTS idx_anime_update_due ON anime_update_state(next_check_at)
+    WHERE auto_update_enabled = 1 AND status = 'RELEASING';
+CREATE INDEX IF NOT EXISTS idx_anime_update_status ON anime_update_state(status);
+
+-- Upsert (insert or replace — for when a new anime is added to the library).
+upsertAnimeUpdateState:
+INSERT OR REPLACE INTO anime_update_state(
+    main_id, status, last_checked_at, next_check_at, last_known_episode_count,
+    next_airing_episode, next_airing_at, auto_update_enabled, consecutive_failures, backoff_step
+) VALUES (
+    :main_id, :status, :last_checked_at, :next_check_at, :last_known_episode_count,
+    :next_airing_episode, :next_airing_at, :auto_update_enabled, :consecutive_failures, :backoff_step
+);
+
+-- Get the update state for a specific anime.
+getAnimeUpdateState:
+SELECT * FROM anime_update_state WHERE main_id = ?;
+
+-- Get all anime that are due for a check (next_check_at <= now, enabled, releasing).
+getDueAnime:
+SELECT * FROM anime_update_state
+WHERE next_check_at <= ? AND auto_update_enabled = 1 AND status = 'RELEASING'
+ORDER BY next_check_at ASC;
+
+-- Update the check metadata (after a check completes).
+updateCheckResult:
+UPDATE anime_update_state
+SET last_checked_at = :last_checked_at,
+    next_check_at = :next_check_at,
+    last_known_episode_count = :last_known_episode_count,
+    consecutive_failures = :consecutive_failures,
+    backoff_step = :backoff_step
+WHERE main_id = :main_id;
+
+-- Update the airing data (from Schedule engine — S4).
+updateAiringData:
+UPDATE anime_update_state
+SET next_airing_episode = :next_airing_episode,
+    next_airing_at = :next_airing_at,
+    status = :status
+WHERE main_id = :main_id;
+
+-- Disable auto-update (M3: after 3 consecutive failures).
+disableAutoUpdate:
+UPDATE anime_update_state SET auto_update_enabled = 0 WHERE main_id = ?;
+
+-- Get all anime with auto-update enabled (for the Schedule engine to fetch airing data).
+getAutoUpdateEnabledAnime:
+SELECT * FROM anime_update_state WHERE auto_update_enabled = 1;
+
+-- Delete (when anime is removed from library — FK CASCADE handles this, but explicit is clearer).
+deleteAnimeUpdateState:
+DELETE FROM anime_update_state WHERE main_id = ?;

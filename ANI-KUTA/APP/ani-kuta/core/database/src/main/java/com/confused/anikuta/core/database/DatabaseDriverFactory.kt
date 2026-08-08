@@ -58,6 +58,42 @@ class DatabaseDriverFactory(private val context: Context) {
                         // Add the episode_url column to the existing table.
                         db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN episode_url TEXT")
                     }
+
+                    // ── Phase WP: watch_progress new columns (PLAN §1.1, §1.8) ──
+                    // The .sq CREATE TABLE is edited for fresh installs + codegen.
+                    // Existing dev installs get the new columns via these ALTER TABLEs.
+                    // (SQLite can't add FK via ALTER TABLE — main_id enforced at app level
+                    //  for existing installs; FK in CREATE TABLE for fresh installs.)
+                    if (!hasColumn(db, "watch_progress", "main_id")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN main_id TEXT")
+                    }
+                    if (!hasColumn(db, "watch_progress", "watch_count")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN watch_count INTEGER NOT NULL DEFAULT 0")
+                    }
+                    if (!hasColumn(db, "watch_progress", "first_watched_at")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN first_watched_at INTEGER")
+                    }
+                    if (!hasColumn(db, "watch_progress", "auto_mark_suppressed")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN auto_mark_suppressed INTEGER NOT NULL DEFAULT 0")
+                    }
+                    if (!hasColumn(db, "watch_progress", "user_marked_watched")) {
+                        db.execSQL("ALTER TABLE watch_progress ADD COLUMN user_marked_watched INTEGER NOT NULL DEFAULT 0")
+                    }
+                    // Index for the new main_id column (idempotent — CREATE INDEX IF NOT EXISTS).
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id)")
+
+                    // ── Phase UP: create new tables if they don't exist (episode_update, anime_update_state) ──
+                    // For existing installs, these tables are new. onCreate(db) runs ALL CREATE TABLE IF NOT EXISTS
+                    // statements (idempotent — existing tables are unaffected). This is the cleanest way to add
+                    // new tables without duplicating the schema SQL.
+                    if (!hasColumn(db, "episode_update", "id")) {
+                        onCreate(db)
+                    }
+
+                    // ── Phase TR: create ratings tables if they don't exist ──
+                    if (!hasColumn(db, "user_rating", "main_id")) {
+                        onCreate(db)
+                    }
                 }
 
                 /**

@@ -1,0 +1,62 @@
+-- Episode update feed (Phase UP — PLAN §1.3)
+-- The "New episodes" feed. Each row = a new episode discovered by the UpdateEngine.
+-- Keyed by (main_id, episode_key, audio_variant) — sub + dub of the same episode are distinct rows.
+
+CREATE TABLE IF NOT EXISTS episode_update (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    main_id TEXT NOT NULL,               -- FK → content(main_id)
+    episode_key TEXT NOT NULL,           -- the new episode's key
+    episode_number REAL NOT NULL,
+    episode_title TEXT,
+    source_id INTEGER,                   -- which extension source reported it
+    audio_variant TEXT NOT NULL DEFAULT 'unknown',  -- 'sub' | 'dub' | 'unknown' (CF7: NOT NULL for UNIQUE dedup)
+    discovered_at INTEGER NOT NULL,      -- when we found it
+    acknowledged INTEGER NOT NULL DEFAULT 0,  -- user dismissed / opened it
+    acknowledged_at INTEGER,             -- M9: when acknowledged (for retention cleanup)
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_update_unique ON episode_update(main_id, episode_key, audio_variant);
+CREATE INDEX IF NOT EXISTS idx_episode_update_discovered ON episode_update(discovered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_episode_update_unack ON episode_update(acknowledged, discovered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_episode_update_main_id ON episode_update(main_id);
+
+-- Insert a new episode update (INSERT OR REPLACE — CF5: if the details-page hook already
+-- inserted with acknowledged=1, the worker's acknowledged=0 overwrites it... wait, that's
+-- wrong. The details-page hook should use INSERT OR REPLACE with acknowledged=1 to OVERWRITE
+-- the worker's acknowledged=0. So the worker uses INSERT OR IGNORE (don't overwrite if exists).
+-- Actually, both use INSERT OR REPLACE — the one that fires LAST wins. The details-page hook
+-- fires when the user opens the details page (after the worker may have already found it),
+-- so it fires LAST → acknowledged=1 wins. Correct.
+upsertEpisodeUpdate:
+INSERT OR REPLACE INTO episode_update(
+    main_id, episode_key, episode_number, episode_title, source_id,
+    audio_variant, discovered_at, acknowledged, acknowledged_at
+) VALUES (
+    :main_id, :episode_key, :episode_number, :episode_title, :source_id,
+    :audio_variant, :discovered_at, :acknowledged, :acknowledged_at
+);
+
+-- Get unacknowledged updates (the "New" feed), ordered by discovered_at DESC.
+getUnacknowledgedUpdates:
+SELECT * FROM episode_update WHERE acknowledged = 0 ORDER BY discovered_at DESC LIMIT :limit;
+
+-- Get all updates (New + Earlier), ordered by discovered_at DESC.
+getAllUpdates:
+SELECT * FROM episode_update ORDER BY discovered_at DESC LIMIT :limit;
+
+-- Acknowledge an update (user opened the anime / dismissed it).
+acknowledgeUpdate:
+UPDATE episode_update SET acknowledged = 1, acknowledged_at = :timestamp WHERE main_id = :main_id AND episode_key = :episode_key;
+
+-- Acknowledge all updates for an anime (user opened the details page).
+acknowledgeUpdatesByMainId:
+UPDATE episode_update SET acknowledged = 1, acknowledged_at = :timestamp WHERE main_id = :main_id AND acknowledged = 0;
+
+-- Retention cleanup: delete acknowledged updates older than the cutoff (M9 — 7-day retention).
+deleteOldAcknowledged:
+DELETE FROM episode_update WHERE acknowledged = 1 AND acknowledged_at < :cutoff;
+
+-- Count unacknowledged updates (for a badge / count).
+countUnacknowledged:
+SELECT COUNT(*) FROM episode_update WHERE acknowledged = 0;

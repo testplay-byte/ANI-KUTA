@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":core:content"))
     implementation(project(":core:data-cache"))
     implementation(project(":core:download"))
+    implementation(project(":core:watch-progress"))
     implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))
