@@ -28,7 +28,6 @@ class DebugBubbleState(initialOffset: Offset = Offset.Zero) {
     var dragged by mutableStateOf(false)
         private set
 
-    fun snapOffsetTo(value: Offset) { offset = value }
     fun setOffset(value: Offset) { offset = value }
 
     fun toggleExpanded() { expanded = !expanded }
