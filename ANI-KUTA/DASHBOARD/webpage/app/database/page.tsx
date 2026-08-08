@@ -85,23 +85,26 @@ export default function DatabasePage() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
-              Phase 3 Foundation
+              Database Schema (Phase 3 + WP/UP/SC/TR/NOTIF additions)
             </span>
             <StatusDot color="var(--c-primary)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              SQLDelight schema · the engine room every Phase 3+ module depends on
+              SQLDelight schema · the engine room every module depends on · 28 tables across 13 groups
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
             Database Schema{" "}
             <span className="text-text-secondary font-medium">
-              — 21 tables, 10 groups
+              — 28 tables, 13 groups
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
             The complete SQL schema for the ANI-KUTA app — ContentUID backbone,
             library + watch + downloads + trackers + extensions + metadata +
-            app_metadata, plus 2 deferred (activity + ads). Documented in{" "}
+            app_metadata, plus Phase WP/UP/SC/TR/NOTIF additions (episode_update,
+            anime_update_state, episode_schedule, user_rating, user_episode_rating,
+            notification_config, notification_sent), plus 2 deferred (activity + ads).
+            Documented in{" "}
             <code className="font-mono text-text-primary">
               17-database-schema.md
             </code>

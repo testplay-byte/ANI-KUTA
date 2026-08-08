@@ -348,14 +348,14 @@ export const TESTING_CONCERNS: TestingConcern[] = [
   },
   {
     id: "DASH-STALE",
-    title: "Dashboard data is stale",
-    body: "The dashboard shows 31 modules / D-027..D-054 but the actual project has 44+ modules / D-001..D-152. A full dashboard data refresh is needed.",
+    title: "Dashboard data refresh (RESOLVED)",
+    body: "RESOLVED — Dashboard data refreshed (Task DASHBOARD-REFRESH). Dashboard now correctly shows 44 modules / D-001..D-152 decisions / 28 tables / all phases done. Keeping this entry for historical reference; the testing checklist below still applies to the refreshed state.",
     severity: "stale",
   },
   {
     id: "D-150",
     title: "Nav3 dependency is unused",
-    body: "Nav3 1.1.5 is on the classpath but the app uses hand-rolled navigation (D-150).",
+    body: "Nav3 1.1.5 is on the classpath but the app uses hand-rolled navigation (D-150). Dependency can be removed from libs.versions.toml + build.gradle.kts.",
     severity: "stale",
   },
   {

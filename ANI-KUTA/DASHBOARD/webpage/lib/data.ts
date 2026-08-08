@@ -1,12 +1,17 @@
 /*
- * ANI-KUTA dashboard data (v5 — Phase 4 in progress, 31 modules built).
+ * ANI-KUTA dashboard data (v6 — ALL PHASES DONE, 44 modules built).
  *
  * Sources:
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md (43 planned)
  *  - APP/ani-kuta/DESIGN-LANGUAGE.md (app design language — lime/dark)
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 plan)
- *  - AGENT-CONTEXT/memory/decisions.md (D-027..D-054)
- *  - AGENT-CONTEXT/memory/progress.md (Phase 0–3 done, Phase 4 in progress)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-152)
+ *  - AGENT-CONTEXT/memory/progress.md (Phase 0–5 done + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW done)
+ *
+ * Status: All phases complete + CI verified GREEN on branch
+ * feature/watch-progress-history-updates. 44 modules built across
+ * :app, :core (25), :data (1), :feature (17). Nav3 REMOVED (D-150) — hand-rolled
+ * navigation. 28 DB tables (26 active + 2 deferred).
  *
  * Hardcoded for the static demo — no API calls.
  */
@@ -35,22 +40,23 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
-  { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Phase 1 plan — module tree, dependency rules, data flow, identity, multi-extension" },
-  { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-027..D-054 (all confirmed)" },
-  { label: "Modules", href: "/modules/", icon: "modules", desc: "31 built (43 planned) — module hierarchy + tree view" },
-  { label: "Database", href: "/database/", icon: "database", desc: "Phase 3 schema — 21 tables, ER diagram, indexes, FK relationships" },
+  { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Module tree, dependency rules, data flow, identity, multi-extension (D-150: Nav3 removed)" },
+  { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-001..D-152 (all confirmed)" },
+  { label: "Modules", href: "/modules/", icon: "modules", desc: "44 modules built — module hierarchy + tree view" },
+  { label: "Database", href: "/database/", icon: "database", desc: "28 tables (26 active + 2 deferred), ER diagram, indexes, FK relationships" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
-  { label: "Progress", href: "/progress/", icon: "progress", desc: "Phase 0–3 done · Phase 4 (feature screens) in progress" },
+  { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
-  { label: "Phase D", href: "/phase-d/", icon: "planning", desc: "Data Management & Caching — local-first storage, smart refresh, image caching" },
-  { label: "Downloads Plan", href: "/downloads-plan/", icon: "planning", desc: "Download system — workflow, storage, state machine, implementation phases" },
+  { label: "Phase D", href: "/phase-d/", icon: "planning", desc: "Data Management & Caching — IMPLEMENTED (local-first storage, smart refresh, image caching)" },
+  { label: "Downloads Plan", href: "/downloads-plan/", icon: "planning", desc: "Download system — IMPLEMENTED (all 9 phases D.0–D.8 done + CI GREEN)" },
   { label: "Testing", href: "/testing/", icon: "testing", desc: "Device testing checklist, log capture guide, concerns" },
 ];
 
 /* ---------------------------------------------------------------------------
- * Phase 1 Architecture Plan — full module tree (43 modules).
- * Source: 16-phase1-architecture-plan.md §3.
+ * Full module tree (44 modules — ALL BUILT).
+ * Source: 16-phase1-architecture-plan.md §3 + Phase WP/HI/UP/SC/TR/NOTIF/CW/DL
+ * additions (D-001..D-152). Nav3 REMOVED (D-150) — hand-rolled NavigationController.
  * ------------------------------------------------------------------------- */
 
 export interface ModuleInfo {
@@ -63,85 +69,65 @@ export interface ModuleInfo {
 }
 
 /**
- * The full 43-module Phase 1 plan. The `status` field shows when each
- * module enters the build (Phase 2 scaffold = now, Phase 3+ = later).
+ * The 44 Gradle modules currently in the project. All built + CI verified GREEN
+ * on branch feature/watch-progress-history-updates. The `status` field tags
+ * the phase the module was built in (scaffold = Phase 2, phase3 = Phase 3,
+ * phase4 = Phase 4 feature screens, phase5 = Phase 5 watch/details/extensions).
+ * Phase 6 (ads + activity tracker) is still deferred. Manga (phase7) + novels
+ * (phase8) are future.
  */
 export const MODULES: ModuleInfo[] = [
-  // --- :app ---
-  { name: ":app", job: "App shell — Application (Koin + Logger init), MainActivity (single Activity + Nav3 AppRoot)", dependsOn: ["all feature :impl", ":core:*", ":data:*"], layer: "app", files: 18, status: "scaffold" },
+  // --- :app (1) ---
+  { name: ":app", job: "App shell — Application (Koin + Logger init), MainActivity (single Activity + hand-rolled NavigationController, D-150 removed Nav3)", dependsOn: ["all feature :impl", ":core:*", ":data:*"], layer: "app", files: 24, status: "scaffold" },
 
-  // --- :build-logic ---
-  { name: ":build-logic", job: "Gradle convention plugins (android.application, library, compose, AndroidConfig, ProjectExtensions)", dependsOn: [], layer: "build-logic", files: 8, status: "scaffold" },
-
-  // --- :core (infrastructure) ---
+  // --- :core (26 modules — infrastructure, no UI screens) ---
   { name: ":core:common", job: "Logger (lambda-based, zero-overhead), Dispatchers, Result, ContentType enum, base models", dependsOn: [], layer: "core", files: 14, status: "scaffold" },
   { name: ":core:designsystem", job: "Compose theme engine + reusable components (atoms + molecules — :core:ui merged here)", dependsOn: [":core:common"], layer: "core", files: 42, status: "scaffold" },
-  { name: ":core:database", job: "SQLDelight schema (content_uid, external_reference, episode_uid, episode_external_ref), migrations, driver factory", dependsOn: [], layer: "core", files: 22, status: "scaffold" },
-  { name: ":core:preferences", job: "PreferenceStore, ThemePreferences, SettingsPreferences", dependsOn: [], layer: "core", files: 12, status: "scaffold" },
-  { name: ":core:navigation-api", job: "Nav3 NavKey contracts, ContentMode, Saver helpers", dependsOn: [":core:common"], layer: "core", files: 9, status: "scaffold" },
-  { name: ":core:network", job: "OkHttp + ktor client + shared interceptors + timeouts", dependsOn: [":core:common"], layer: "core", files: 11, status: "scaffold" },
-  { name: ":core:anilist", job: "AniList GraphQL client + MetadataProvider impl", dependsOn: [":core:network", ":core:common"], layer: "core", files: 28, status: "scaffold" },
+  { name: ":core:database", job: "SQLDelight schema (28 tables — content, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
+  { name: ":core:preferences", job: "PreferenceStore (reactive Flow<T> API — D.0), ThemePreferences, SettingsPreferences, WatchPreferences (Phase WP)", dependsOn: [], layer: "core", files: 16, status: "scaffold" },
+  { name: ":core:navigation-api", job: "NavKey sealed-class contracts (D-150: hand-rolled, Nav3 removed), ContentMode, Saver helpers", dependsOn: [":core:common"], layer: "core", files: 9, status: "scaffold" },
+  { name: ":core:network", job: "OkHttp + ktor client + shared interceptors + timeouts (incl. qualified 'download' OkHttpClient — D.0)", dependsOn: [":core:common"], layer: "core", files: 12, status: "scaffold" },
+  { name: ":core:anilist", job: "AniList GraphQL client + MetadataProvider impl (browse, details, schedule — Phase SC)", dependsOn: [":core:network", ":core:common"], layer: "core", files: 30, status: "scaffold" },
+  { name: ":core:watch-progress", job: "WatchProgressStore contract — SqlDelightWatchProgressStore impl (Phase WP): episode_key standardization, 85% auto-mark, two-flag state machine", dependsOn: [":core:common", ":core:database"], layer: "core", files: 12, status: "phase5" },
+  { name: ":core:activity-tracker", job: "ActivityDetector + event-log (365-day default, unlimited option) — built early per D-039", dependsOn: [":core:database"], layer: "core", files: 18, status: "phase3" },
   { name: ":core:provider-api", job: "ExtensionProvider + Video/Image/Text sub-interfaces + MetadataProvider contracts", dependsOn: [":core:common"], layer: "core", files: 14, status: "phase3" },
   { name: ":core:source-api", job: "Aniyomi-compat source-api (eu.kanade.* — Injekt isolated)", dependsOn: [":core:network"], layer: "core", files: 52, status: "phase3" },
-  { name: ":core:identity", job: "ContentUID + ExternalReference + IdentityResolver (resolveOrCreate, merge, split)", dependsOn: [":core:common", ":core:database"], layer: "core", files: 26, status: "phase3" },
-  { name: ":core:backup", job: "BackupProvider registry + BackupManager + BackupImporter (Aniyomi/Mangayomi/.anikuta)", dependsOn: [":core:common", ":core:database", ":core:identity"], layer: "core", files: 34, status: "phase3" },
-  { name: ":core:tracker", job: "AniList + MAL tracker impls + TrackSyncManager", dependsOn: [":core:common", ":core:anilist"], layer: "core", files: 24, status: "phase3" },
-  { name: ":core:episode-metadata", job: "EpisodeMetadataCache + sources (AniList / Jikan)", dependsOn: [":core:anilist"], layer: "core", files: 16, status: "phase3" },
-  { name: ":core:player", job: "MPV wrapper (AnikutaMPVView) + watch progress (writes :core:watch-progress) + controls", dependsOn: [":core:common", ":core:watch-progress"], layer: "core", files: 64, status: "phase3" },
-  { name: ":core:video-resolver", job: "Resolver service + state (extract playable URL via ExtensionProvider.fetchVideoList)", dependsOn: [":core:provider-api"], layer: "core", files: 18, status: "phase3" },
-  { name: ":core:watch-progress", job: "WatchProgressStore interface (contract) — impl in :data:history (no reverse deps)", dependsOn: [":core:common"], layer: "core", files: 6, status: "phase3" },
-  { name: ":core:update-checker", job: "New-episode detection + update checker (GitHub Releases)", dependsOn: [":core:network"], layer: "core", files: 14, status: "phase4" },
-  { name: ":core:download", job: "Download manager (HTTP + HLS + resume)", dependsOn: [":core:database", ":core:network"], layer: "core", files: 38, status: "phase4" },
-  { name: ":core:app-update", job: "Self-update via GitHub Releases (in-app updater)", dependsOn: [":core:network"], layer: "core", files: 12, status: "phase4" },
-  { name: ":core:notification", job: "Episode-release notifications (Phase 3-4)", dependsOn: [":core:update-checker"], layer: "core", files: 18, status: "phase4" },
-  { name: ":core:ads", job: "DEFERRED — AdFormat + placement registry + AdManager. Banner added (D-033)", dependsOn: [":core:database"], layer: "core", files: 22, status: "phase6" },
-  { name: ":core:activity-tracker", job: "DEFERRED — ActivityDetector + event-log (365-day default, unlimited option)", dependsOn: [":core:database"], layer: "core", files: 18, status: "phase6" },
+  { name: ":core:player-mpv-lib", job: "MPV Android library wrapper (aniyomi-mpv-lib reused) — the native player core", dependsOn: [], layer: "core", files: 28, status: "phase3" },
+  { name: ":core:player", job: "AnikutaMPVView (Compose AndroidView wrapper) + player controls + watch progress writer (every 10s)", dependsOn: [":core:common", ":core:watch-progress", ":core:player-mpv-lib"], layer: "core", files: 64, status: "phase3" },
+  { name: ":core:video-resolver", job: "Resolver service + state (extract playable URL via ExtensionProvider.fetchVideoList). D-149: directUrl field added (proxy-churn Layer 1 fix)", dependsOn: [":core:provider-api"], layer: "core", files: 22, status: "phase3" },
+  { name: ":core:download", job: "Download manager — 7-state machine, SAF/data.json storage, AutoDownloadEngine (5-step pure-function pipeline), foreground service, HttpDownloader + HlsDownloader. Phase DL — all 9 phases (D.0–D.8) done", dependsOn: [":core:database", ":core:network", ":core:preferences", ":core:content"], layer: "core", files: 96, status: "phase5" },
+  { name: ":core:metadata", job: "AnimeMetadataCache + EpisodeMetadataCache repositories (Phase D — local-first, never expires)", dependsOn: [":core:database", ":core:anilist"], layer: "core", files: 18, status: "phase5" },
+  { name: ":core:tracker-api", job: "Tracker contracts (TrackSyncManager, Tracker interface) — impls in :core:tracker-anilist", dependsOn: [":core:common"], layer: "core", files: 10, status: "phase3" },
+  { name: ":core:tracker-anilist", job: "AniList tracker impl (OAuth, sync state, token in Keystore)", dependsOn: [":core:tracker-api", ":core:anilist"], layer: "core", files: 22, status: "phase3" },
+  { name: ":core:smart-matcher", job: "Auto-link system (Phase B) — fuzzy matching engine for content + episode identity (match_key-based)", dependsOn: [":core:database", ":core:common"], layer: "core", files: 20, status: "phase5" },
+  { name: ":core:content", job: "Content identity system (Phase C) — ContentRecord, mainId, ContentRepository, AnilistDetailRepository", dependsOn: [":core:database", ":core:common"], layer: "core", files: 24, status: "phase5" },
+  { name: ":core:data-cache", job: "BrowseDataCache repository (Phase D) — section_key-keyed, 6-hour auto-expire (homepage only)", dependsOn: [":core:database"], layer: "core", files: 12, status: "phase5" },
+  { name: ":core:updates", job: "UpdateStore + UpdateEngine + UpdateCheckWorker (Phase UP) — WorkManager-driven, smart-engine backoff (T2/T3), 3-strike rule (M3), sub/dub (T4), suppress-watched (M5)", dependsOn: [":core:database", ":core:network", ":core:anilist"], layer: "core", files: 28, status: "phase5" },
+  { name: ":core:schedule", job: "ScheduleEngine (Phase SC) — AniList airing API, live countdown, ActualReleaseUpdater interface (SC-2 actual-release tracking)", dependsOn: [":core:database", ":core:anilist", ":core:updates"], layer: "core", files: 22, status: "phase5" },
+  { name: ":core:ratings", job: "RatingStore (Phase TR) — per-anime + per-episode user ratings (0-100)", dependsOn: [":core:database"], layer: "core", files: 14, status: "phase5" },
+  { name: ":core:notifications", job: "NotificationManager + per-anime config (Phase NOTIF) — release/schedule/download/system channels, dedup via notification_sent", dependsOn: [":core:database", ":core:updates", ":core:schedule"], layer: "core", files: 26, status: "phase5" },
 
-  // --- :data (repository implementations — glue :core ↔ :core:database) ---
-  { name: ":data:anime", job: "AnimeRepositoryImpl + EpisodeRepositoryImpl + CategoryRepo", dependsOn: [":core:database", ":core:identity"], layer: "data", files: 36, status: "phase3" },
-  { name: ":data:extension-aniyomi", job: "Aniyomi extension loader/installer/manager (Injekt isolated, ChildFirstPathClassLoader)", dependsOn: [":core:source-api", ":core:provider-api"], layer: "data", files: 44, status: "phase3" },
-  { name: ":data:extension-mangayomi", job: "Mangayomi provider (future — JS-based sources)", dependsOn: [":core:provider-api"], layer: "data", files: 0, status: "phase5" },
-  { name: ":data:extension-cloudstream", job: "Cloudstream provider (future — plugin wrappers)", dependsOn: [":core:provider-api"], layer: "data", files: 0, status: "phase5" },
-  { name: ":data:extension-kotatsu", job: "Kotatsu provider (future — compile-time parsers)", dependsOn: [":core:provider-api"], layer: "data", files: 0, status: "phase5" },
-  { name: ":data:history", job: "HistoryRepositoryImpl (reads WatchProgressStore, implements WatchProgressStore interface)", dependsOn: [":core:database", ":core:watch-progress"], layer: "data", files: 16, status: "phase3" },
-  { name: ":data:identity", job: "IdentityRepositoryImpl + matching service (fuzzy match, merge/split)", dependsOn: [":core:database", ":core:identity"], layer: "data", files: 22, status: "phase3" },
+  // --- :data (1 module — repository implementations, glue :core ↔ :core:database) ---
+  { name: ":data:extension", job: "Aniyomi extension loader/installer/manager (Injekt isolated, ChildFirstPathClassLoader) + repo management. Future: Mangayomi/Cloudstream/Kotatsu providers (D-027)", dependsOn: [":core:source-api", ":core:provider-api"], layer: "data", files: 48, status: "phase3" },
 
-  // --- :feature (UI screens — split api/impl per feature) ---
-  // VIDEO content type — anime — current focus
+  // --- :feature (16 modules — UI screens, split api/impl per navigable feature) ---
   { name: ":feature:anime-browse:api", job: "NavKey + contracts (visible to :app for ContentMap)", dependsOn: [":core:navigation-api", ":core:common"], layer: "feature", files: 4, status: "scaffold" },
-  { name: ":feature:anime-browse:impl", job: "Browse screen (AniList trending/seasonal)", dependsOn: [":feature:anime-browse:api", ":core:anilist", ":core:designsystem"], layer: "feature", files: 18, status: "scaffold" },
-  { name: ":feature:anime-search:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase3" },
-  { name: ":feature:anime-search:impl", job: "Search (AniList + Extension sources, filters)", dependsOn: [":feature:anime-search:api", ":core:anilist", ":core:provider-api"], layer: "feature", files: 28, status: "phase3" },
+  { name: ":feature:anime-browse:impl", job: "Browse screen (AniList trending/seasonal) — Phase D: reads from browse_cache, 6hr auto-update (homepage only)", dependsOn: [":feature:anime-browse:api", ":core:anilist", ":core:data-cache", ":core:designsystem"], layer: "feature", files: 22, status: "scaffold" },
   { name: ":feature:anime-details:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "scaffold" },
-  { name: ":feature:anime-details:impl", job: "Anime detail page (banner, episodes, source switcher) + cover-color dynamic theming", dependsOn: [":feature:anime-details:api", ":core:anilist", ":core:provider-api", ":core:designsystem"], layer: "feature", files: 56, status: "scaffold" },
-  { name: ":feature:anime-watch:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase3" },
-  { name: ":feature:anime-watch:impl", job: "Player host screen (embeds :core:player MPV, mediates :core:video-resolver)", dependsOn: [":feature:anime-watch:api", ":core:player", ":core:video-resolver", ":core:designsystem"], layer: "feature", files: 72, status: "phase3" },
-  { name: ":feature:anime-library:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase3" },
-  { name: ":feature:anime-library:impl", job: "Library (grid + list + categories + sort + continue-watching rail)", dependsOn: [":feature:anime-library:api", ":data:anime", ":core:designsystem"], layer: "feature", files: 64, status: "phase3" },
-  { name: ":feature:anime-history:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase4" },
-  { name: ":feature:anime-history:impl", job: "History screen (recently watched)", dependsOn: [":feature:anime-history:api", ":data:history", ":core:designsystem"], layer: "feature", files: 22, status: "phase4" },
-  { name: ":feature:anime-updates:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase4" },
-  { name: ":feature:anime-updates:impl", job: "Updates screen (new episodes + schedule)", dependsOn: [":feature:anime-updates:api", ":core:update-checker", ":core:designsystem"], layer: "feature", files: 26, status: "phase4" },
-  { name: ":feature:anime-my:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase4" },
-  { name: ":feature:anime-my:impl", job: "Profile (stats + charts + genre radar + status distribution)", dependsOn: [":feature:anime-my:api", ":data:anime", ":core:designsystem"], layer: "feature", files: 48, status: "phase4" },
-
-  // SHARED screens — split api/impl for navigable ones
-  { name: ":feature:extensions-settings:{api,impl}", job: "Extensions list + repo management", dependsOn: [":core:provider-api", ":core:designsystem"], layer: "feature", files: 32, status: "phase4" },
-  { name: ":feature:trackers:{api,impl}", job: "Tracker list + login (AniList/MAL OAuth)", dependsOn: [":core:tracker", ":core:designsystem"], layer: "feature", files: 24, status: "phase4" },
-  { name: ":feature:backup:{api,impl}", job: "Backup/restore UI (import from Aniyomi/Mangayomi, export .anikuta)", dependsOn: [":core:backup", ":core:designsystem"], layer: "feature", files: 28, status: "phase4" },
-  { name: ":feature:download:{api,impl}", job: "Download queue + downloaded files browser", dependsOn: [":core:download", ":core:designsystem"], layer: "feature", files: 26, status: "phase4" },
-  { name: ":feature:settings:{api,impl}", job: "Appearance / General / Player / About / Logging toggle", dependsOn: [":core:preferences", ":core:designsystem"], layer: "feature", files: 44, status: "phase4" },
-  { name: ":feature:episode-settings", job: "Episode display/layout/metadata settings (modal sheet — single module)", dependsOn: [":core:preferences", ":core:designsystem"], layer: "feature", files: 32, status: "phase4" },
-  { name: ":feature:video-resolver:{api,impl}", job: "Resolver sheet UI (modal — picks a video)", dependsOn: [":core:video-resolver", ":core:designsystem"], layer: "feature", files: 18, status: "phase3" },
-  { name: ":feature:setup-wizard:{api,impl}", job: "Onboarding flow (first-launch gate)", dependsOn: [":core:preferences", ":core:designsystem"], layer: "feature", files: 22, status: "phase4" },
-
-  // IMAGE content type — manga — FUTURE
-  { name: ":feature:manga-browse:{api,impl}", job: "Manga browse (future — IMAGE content type)", dependsOn: [":core:provider-api", ":core:designsystem"], layer: "feature", files: 0, status: "phase7" },
-  { name: ":feature:manga-details:{api,impl}", job: "Manga details (future)", dependsOn: [":core:provider-api", ":core:designsystem"], layer: "feature", files: 0, status: "phase7" },
-  { name: ":feature:manga-read:{api,impl}", job: "Manga reader (future)", dependsOn: [":core:provider-api", ":core:designsystem"], layer: "feature", files: 0, status: "phase7" },
-
-  // TEXT content type — novels — FUTURE
-  { name: ":feature:novel-*:{api,impl}", job: "Novel reader (future — TEXT content type)", dependsOn: [":core:provider-api", ":core:designsystem"], layer: "feature", files: 0, status: "phase8" },
+  { name: ":feature:anime-details:impl", job: "Anime detail page (banner, episodes, source switcher) + cover-color dynamic theming + multi-stage refresh (Phase D) + EpisodeDownloadControl (Phase DL D.6)", dependsOn: [":feature:anime-details:api", ":core:anilist", ":core:provider-api", ":core:metadata", ":core:download", ":core:designsystem"], layer: "feature", files: 72, status: "phase5" },
+  { name: ":feature:anime-library:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase4" },
+  { name: ":feature:anime-library:impl", job: "Library (grid + list + categories + sort + continue-watching rail) — Phase D: loads from anime_metadata_cache, instant on cold start", dependsOn: [":feature:anime-library:api", ":core:metadata", ":core:designsystem"], layer: "feature", files: 68, status: "phase4" },
+  { name: ":feature:anime-search:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase4" },
+  { name: ":feature:anime-search:impl", job: "Search (AniList + Extension sources, filters)", dependsOn: [":feature:anime-search:api", ":core:anilist", ":core:provider-api", ":core:designsystem"], layer: "feature", files: 30, status: "phase4" },
+  { name: ":feature:extensions-settings:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
+  { name: ":feature:extensions-settings:impl", job: "Extensions list + repo management + trust flow (Phase 5a)", dependsOn: [":feature:extensions-settings:api", ":data:extension", ":core:designsystem"], layer: "feature", files: 36, status: "phase5" },
+  { name: ":feature:download", job: "DownloadsScreen + DownloadedFilesScreen + DownloadSettingsScreen (528-line replication + Priority order section) + DownloadVideoPickerSheet (Phase DL D.5/D.6)", dependsOn: [":core:download", ":core:designsystem", ":core:preferences", ":core:video-resolver"], layer: "feature", files: 92, status: "phase5" },
+  { name: ":feature:watch:api", job: "NavKey + contracts (WatchKey, WatchRequest, WatchEpisodeContext)", dependsOn: [":core:navigation-api"], layer: "feature", files: 6, status: "phase5" },
+  { name: ":feature:watch:impl", job: "WatchScreen (Phase 5c) — embeds :core:player MPV, mediates :core:video-resolver, AppController offline short-circuit (Phase DL D.6 — downloaded URI bypasses resolver)", dependsOn: [":feature:watch:api", ":core:player", ":core:video-resolver", ":core:download", ":core:designsystem"], layer: "feature", files: 84, status: "phase5" },
+  { name: ":feature:anime-history:api", job: "NavKey + contracts (Phase HI)", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
+  { name: ":feature:anime-history:impl", job: "History screen (Phase HI) — day-grouped LazyColumn (Today/Yesterday/This Week/Earlier), swipe-left-to-delete, Clear all dialog, watched styling", dependsOn: [":feature:anime-history:api", ":core:watch-progress", ":core:content", ":core:designsystem"], layer: "feature", files: 28, status: "phase5" },
+  { name: ":feature:updates:api", job: "NavKey + contracts (Phase UP)", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
+  { name: ":feature:updates:impl", job: "Updates screen (Phase UP + SC) — New/Earlier sections, Updates|Schedule tab strip, live countdown, smart-engine-driven", dependsOn: [":feature:updates:api", ":core:updates", ":core:schedule", ":core:designsystem"], layer: "feature", files: 44, status: "phase5" },
 ];
 
 export interface TreeNode {
@@ -152,19 +138,20 @@ export interface TreeNode {
 }
 
 /**
- * Visual tree mirroring §3 of the plan. Collapses the long :feature list
- * with section comments (VIDEO/SHARED/IMAGE/TEXT) so the tree stays scannable.
+ * Visual tree mirroring the actual 44-module project structure. All built +
+ * CI verified GREEN on branch feature/watch-progress-history-updates.
+ * D-150: Nav3 removed — hand-rolled NavigationController + sealed-class NavKeys.
  */
 export const MODULE_TREE: TreeNode[] = [
   {
     label: ":app",
     layer: "app",
-    note: "App shell — DI, nav host, single Activity",
+    note: "App shell — DI, hand-rolled NavigationController, single Activity",
     children: [
       {
-        label: ":build-logic",
+        label: ":build-logic (meta-module)",
         layer: "build-logic",
-        note: "Gradle convention plugins",
+        note: "Gradle convention plugins (not counted in the 44 runtime modules)",
         children: [
           { label: "anikuta.android.application.gradle.kts", layer: "build-logic" },
           { label: "anikuta.android.application.compose.gradle.kts", layer: "build-logic" },
@@ -173,71 +160,59 @@ export const MODULE_TREE: TreeNode[] = [
         ],
       },
       {
-        label: ":core",
+        label: ":core (25)",
         layer: "core",
-        note: "Infrastructure (no UI screens)",
+        note: "Infrastructure (no UI screens) — 25 modules",
         children: [
           { label: "common", layer: "core", note: "Logger, Dispatchers, Result, ContentType" },
           { label: "designsystem", layer: "core", note: "Theme engine + components (:core:ui merged)" },
-          { label: "database", layer: "core", note: "SQLDelight schema + migrations" },
-          { label: "preferences", layer: "core", note: "PreferenceStore, ThemePreferences" },
-          { label: "navigation-api", layer: "core", note: "Nav3 NavKey + ContentMode" },
+          { label: "database", layer: "core", note: "SQLDelight schema — 28 tables (incl. Phase WP/UP/SC/TR/NOTIF additions)" },
+          { label: "preferences", layer: "core", note: "PreferenceStore (reactive Flow<T> — D.0) + Theme/Settings/Watch prefs" },
+          { label: "navigation-api", layer: "core", note: "NavKey sealed classes (D-150: Nav3 REMOVED — hand-rolled) + ContentMode" },
+          { label: "network", layer: "core", note: "OkHttp + ktor + shared interceptors (incl. 'download' qualified client)" },
+          { label: "anilist", layer: "core", note: "AniList GraphQL + MetadataProvider (browse/details/schedule)" },
+          { label: "watch-progress", layer: "core", note: "SqlDelightWatchProgressStore — episode_key standardization, 85% auto-mark (Phase WP)" },
+          { label: "activity-tracker", layer: "core", note: "ActivityDetector + event-log (365-day/unlimited) — built early per D-039" },
           { label: "provider-api", layer: "core", note: "ExtensionProvider + Video/Image/Text sub-interfaces" },
           { label: "source-api", layer: "core", note: "Aniyomi-compat (Injekt isolated)" },
-          { label: "identity", layer: "core", note: "ContentUID + ExternalReference + matching" },
-          { label: "backup", layer: "core", note: "BackupProvider + importers (Aniyomi/Mangayomi/.anikuta)" },
-          { label: "anilist", layer: "core", note: "AniList GraphQL + MetadataProvider" },
-          { label: "tracker", layer: "core", note: "AniList + MAL tracker impls + TrackSyncManager" },
-          { label: "episode-metadata", layer: "core", note: "EpisodeMetadataCache (AniList/Jikan)" },
-          { label: "player", layer: "core", note: "MPV wrapper + watch progress writer" },
-          { label: "video-resolver", layer: "core", note: "Extract playable URL" },
-          { label: "watch-progress", layer: "core", note: "WatchProgressStore interface (no reverse deps)" },
-          { label: "update-checker", layer: "core", note: "New-episode detection" },
-          { label: "download", layer: "core", note: "Download manager (HTTP + HLS)" },
-          { label: "app-update", layer: "core", note: "Self-update via GitHub Releases" },
-          { label: "notification", layer: "core", note: "Episode-release notifications (Phase 3-4)" },
-          { label: "ads", layer: "core", note: "DEFERRED — AdFormat + placement registry" },
-          { label: "activity-tracker", layer: "core", note: "DEFERRED — event-log (365-day/unlimited)" },
-          { label: "network", layer: "core", note: "OkHttp + ktor + shared interceptors" },
+          { label: "player-mpv-lib", layer: "core", note: "MPV Android library wrapper (aniyomi-mpv-lib reused)" },
+          { label: "player", layer: "core", note: "AnikutaMPVView (Compose AndroidView) + controls + progress writer" },
+          { label: "video-resolver", layer: "core", note: "Extract playable URL · D-149: directUrl field (proxy-churn Layer 1)" },
+          { label: "download", layer: "core", note: "7-state machine + SAF/data.json + AutoDownloadEngine + foreground service (Phase DL D.0–D.8)" },
+          { label: "metadata", layer: "core", note: "AnimeMetadataCache + EpisodeMetadataCache (Phase D — local-first, never expires)" },
+          { label: "tracker-api", layer: "core", note: "Tracker contracts (TrackSyncManager, Tracker interface)" },
+          { label: "tracker-anilist", layer: "core", note: "AniList tracker impl (OAuth, sync state, Keystore token)" },
+          { label: "smart-matcher", layer: "core", note: "Auto-link system (Phase B) — fuzzy match_key-based matching engine" },
+          { label: "content", layer: "core", note: "Content identity system (Phase C) — ContentRecord, mainId, repositories" },
+          { label: "data-cache", layer: "core", note: "BrowseDataCache (Phase D) — section_key-keyed, 6hr auto-expire (homepage only)" },
+          { label: "updates", layer: "core", note: "UpdateStore + UpdateEngine + UpdateCheckWorker (Phase UP — WorkManager smart engine)" },
+          { label: "schedule", layer: "core", note: "ScheduleEngine (Phase SC) — AniList airing API + ActualReleaseUpdater (SC-2)" },
+          { label: "ratings", layer: "core", note: "RatingStore (Phase TR) — per-anime + per-episode user ratings (0-100)" },
+          { label: "notifications", layer: "core", note: "NotificationManager + per-anime config (Phase NOTIF) — 4 channels, dedup via notification_sent" },
         ],
       },
       {
-        label: ":data",
+        label: ":data (1)",
         layer: "data",
         note: "Repository implementations (glue :core ↔ :core:database)",
         children: [
-          { label: "anime", layer: "data", note: "AnimeRepositoryImpl + EpisodeRepositoryImpl + CategoryRepo" },
-          { label: "extension-aniyomi", layer: "data", note: "Aniyomi extension loader (Injekt isolated)" },
-          { label: "extension-mangayomi", layer: "data", note: "Mangayomi provider (future)" },
-          { label: "extension-cloudstream", layer: "data", note: "Cloudstream provider (future)" },
-          { label: "extension-kotatsu", layer: "data", note: "Kotatsu provider (future)" },
-          { label: "history", layer: "data", note: "HistoryRepositoryImpl (impls WatchProgressStore)" },
-          { label: "identity", layer: "data", note: "IdentityRepositoryImpl + matching service" },
+          { label: "extension", layer: "data", note: "Aniyomi extension loader/installer/manager (Injekt isolated). Future: Mangayomi/Cloudstream/Kotatsu (D-027)" },
         ],
       },
       {
-        label: ":feature",
+        label: ":feature (16)",
         layer: "feature",
-        note: "UI screens — split api/impl per feature",
+        note: "UI screens — split api/impl per navigable feature",
         children: [
-          { label: "anime-browse:{api,impl}", layer: "feature", note: "Browse screen (AniList trending/seasonal)" },
-          { label: "anime-search:{api,impl}", layer: "feature", note: "Search (AniList + Extension sources)" },
-          { label: "anime-details:{api,impl}", layer: "feature", note: "Detail page (banner, episodes, source switcher)" },
-          { label: "anime-watch:{api,impl}", layer: "feature", note: "Player host (embeds :core:player)" },
-          { label: "anime-library:{api,impl}", layer: "feature", note: "Library (grid + list + categories + sort)" },
-          { label: "anime-history:{api,impl}", layer: "feature", note: "History (recently watched)" },
-          { label: "anime-updates:{api,impl}", layer: "feature", note: "Updates (new episodes + schedule)" },
-          { label: "anime-my:{api,impl}", layer: "feature", note: "Profile (stats + charts)" },
-          { label: "extensions-settings:{api,impl}", layer: "feature", note: "Extensions list + repo management" },
-          { label: "trackers:{api,impl}", layer: "feature", note: "Tracker list + OAuth login" },
-          { label: "backup:{api,impl}", layer: "feature", note: "Backup/restore UI" },
-          { label: "download:{api,impl}", layer: "feature", note: "Download queue + files browser" },
-          { label: "settings:{api,impl}", layer: "feature", note: "Appearance/General/Player/About/Logging" },
-          { label: "episode-settings", layer: "feature", note: "Episode display/layout (modal sheet)" },
-          { label: "video-resolver:{api,impl}", layer: "feature", note: "Resolver sheet (modal)" },
-          { label: "setup-wizard:{api,impl}", layer: "feature", note: "Onboarding flow" },
-          { label: "manga-*:{api,impl}", layer: "feature", note: "FUTURE — IMAGE content type" },
-          { label: "novel-*:{api,impl}", layer: "feature", note: "FUTURE — TEXT content type" },
+          { label: "anime-browse:{api,impl}", layer: "feature", note: "Browse screen — Phase D: reads from browse_cache, 6hr auto-update (homepage only)" },
+          { label: "anime-details:{api,impl}", layer: "feature", note: "Detail page — multi-stage refresh (Phase D) + EpisodeDownloadControl (Phase DL D.6)" },
+          { label: "anime-library:{api,impl}", layer: "feature", note: "Library — Phase D: loads from anime_metadata_cache, instant on cold start" },
+          { label: "anime-search:{api,impl}", layer: "feature", note: "Search (AniList + Extension sources, filters)" },
+          { label: "extensions-settings:{api,impl}", layer: "feature", note: "Extensions list + repo management + trust flow (Phase 5a)" },
+          { label: "download", layer: "feature", note: "DownloadsScreen + DownloadedFilesScreen + DownloadSettingsScreen (528-line + Priority order) + PickerSheet (Phase DL D.5/D.6)" },
+          { label: "watch:{api,impl}", layer: "feature", note: "WatchScreen (Phase 5c) — embeds :core:player MPV, AppController offline short-circuit (D.6)" },
+          { label: "anime-history:{api,impl}", layer: "feature", note: "History screen (Phase HI) — day-grouped, swipe-delete, Clear all, watched styling" },
+          { label: "updates:{api,impl}", layer: "feature", note: "Updates screen (Phase UP + SC) — New/Earlier sections + Updates|Schedule tab strip + countdown" },
         ],
       },
     ],
@@ -291,17 +266,19 @@ export interface DataFlowStep {
 }
 
 export const DATA_FLOW_STEPS: DataFlowStep[] = [
-  { n: 1, module: ":app:AppRoot", desc: "Nav3 AppRoot. Bottom nav: Browse | Library | Search | My. Mode: AnimeMode (future: Manga, Novel)." },
-  { n: 2, module: ":feature:anime-browse:impl", desc: "Fetches trending/seasonal." },
-  { n: 3, module: ":core:anilist", desc: "AniList GraphQL API." },
-  { n: 4, module: ":feature:anime-details:impl", desc: "AnimeDetailsViewModel uses AnimeDetailsProviderRegistry (List<MetadataProvider>). 3-stage: AniList → match extension source → fetch episodes." },
-  { n: 5, module: ":feature:video-resolver", desc: "Modal sheet — picks a video." },
-  { n: 6, module: ":core:video-resolver", desc: "Calls ExtensionProvider.fetchVideoList." },
-  { n: 7, module: ":feature:anime-watch:impl", desc: "Embeds :core:player (AnikutaMPVView). Single MPV instance (overlay swap for fullscreen)." },
-  { n: 8, module: ":core:player → WatchProgressStore", desc: "Keyed by contentUid|episodeUid. Writes every 10s.", isBackbone: true },
-  { n: 9, module: ":core:identity", desc: "ContentUID + ExternalReference. Survives source switches.", isBackbone: true },
-  { n: 10, module: ":core:tracker → TrackSyncManager", desc: "Syncs to AniList/MAL (if linked)." },
-  { n: 11, module: ":core:activity-tracker (DEFERRED)", desc: "Event-log." },
+  { n: 1, module: ":app:AppController", desc: "Hand-rolled NavigationController (D-150: Nav3 REMOVED). Bottom nav: Browse | Library | Search | More. Mode: AnimeMode (future: Manga, Novel)." },
+  { n: 2, module: ":feature:anime-browse:impl", desc: "Reads trending/seasonal from browse_cache (Phase D — local-first, 6hr auto-update on homepage only)." },
+  { n: 3, module: ":core:anilist", desc: "AniList GraphQL API (browse, details, schedule)." },
+  { n: 4, module: ":feature:anime-details:impl", desc: "AnimeDetailsViewModel uses AnimeDetailsProviderRegistry (List<MetadataProvider>). 3-stage multi-stage refresh (Phase D): episodes → metadata → all. + EpisodeDownloadControl (Phase DL D.6)." },
+  { n: 5, module: ":feature:watch:impl", desc: "WatchScreen — embeds :core:player (AnikutaMPVView). AppController offline short-circuit: if downloaded, skip resolver + push local content:// URI." },
+  { n: 6, module: ":core:video-resolver", desc: "Calls ExtensionProvider.fetchVideoList. D-149: directUrl field (proxy-churn Layer 1 fix)." },
+  { n: 7, module: ":feature:watch:impl", desc: "Embeds :core:player (AnikutaMPVView). Single MPV instance (overlay swap for fullscreen)." },
+  { n: 8, module: ":core:player → :core:watch-progress", desc: "SqlDelightWatchProgressStore — episode_key standardization, 85% auto-mark (Phase WP). Writes every 10s.", isBackbone: true },
+  { n: 9, module: ":core:content + :core:smart-matcher", desc: "Content identity system (Phase C) + auto-link engine (Phase B). Survives source switches.", isBackbone: true },
+  { n: 10, module: ":core:tracker-anilist → TrackSyncManager", desc: "Syncs to AniList (MAL future). Token in Keystore." },
+  { n: 11, module: ":core:updates + :core:schedule", desc: "WorkManager smart engine (Phase UP) + AniList airing API + actual-release tracking (Phase SC-2). Drives the Updates screen + notifications." },
+  { n: 12, module: ":core:notifications", desc: "Phase NOTIF — release/schedule/download/system channels, dedup via notification_sent table." },
+  { n: 13, module: ":core:activity-tracker", desc: "ActivityDetector + event-log (365-day default, unlimited option). Built early per D-039." },
 ];
 
 export interface ExternalRefNode {
@@ -569,8 +546,9 @@ export const APP_DESIGN_PRINCIPLES: DesignPrinciple[] = [
 ];
 
 /* ---------------------------------------------------------------------------
- * Phases — 0 through 9 (post Phase 1 plan).
- * Source: AGENT-CONTEXT/memory/progress.md + 16-phase1-architecture-plan.md §13.
+ * Phases — 0 through 9 (post Phase 1 plan) + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL.
+ * Source: AGENT-CONTEXT/memory/progress.md + 16-phase1-architecture-plan.md §13 +
+ * APP/ani-kuta/DOCUMENTATION/* (Phase WP/HI/UP/SC/TR/NOTIF/CW/DL plans).
  * ------------------------------------------------------------------------- */
 
 export interface Phase {
@@ -672,8 +650,8 @@ export const PHASES: Phase[] = [
   {
     id: 4,
     name: "Feature Implementation",
-    status: "in-progress",
-    summary: "Build user-facing feature screens on top of the Phase 3 core. Library, Search, More, Settings, Appearance built; accent palette system + UI polish done.",
+    status: "done",
+    summary: "Build user-facing feature screens on top of the Phase 3 core. Library, Search, More, Settings, Appearance built; accent palette system + UI polish done. STATUS: COMPLETE.",
     done: [
       ":feature:anime-library:{api,impl} — Library screen (grid + list + categories + sort + continue-watching rail).",
       ":feature:anime-search:{api,impl} — Search (AniList + extension sources, filters).",
@@ -684,40 +662,57 @@ export const PHASES: Phase[] = [
       "Bottom-up sheets capped at 70% of device screen height (D-052).",
       "UI polish pass — Browse heading, translucency, component refinements.",
     ],
-    next: [
-      ":feature:anime-watch:{api,impl} — player host screen (deferred to Phase 5).",
-      ":feature:anime-history:{api,impl} — recently watched.",
-      ":feature:anime-updates:{api,impl} — new episodes + schedule.",
-      ":feature:anime-my:{api,impl} — profile + stats + genre radar.",
-      ":feature:backup, :trackers, :extensions-settings, :download, :setup-wizard, :episode-settings.",
-      "Custom color-picker UI for CUSTOM accent (deferred to Phase 5f).",
-    ],
+    next: [],
     blockers: [],
     startDay: 98,
     days: 42,
-    color: "var(--c-warning)",
+    color: "var(--c-success)",
   },
   {
     id: 5,
     name: "Extensions → Details → Watch → Identity → History → Backup",
-    status: "pending",
-    summary: "Plan written + RE-ORDERED (D-054): 5a Extensions → 5b Details → 5c Watch → 5d Identity → 5e History/Updates → 5f Backup + Color-picker. Functional first, refinements second. The watch flow only needs a minimal source_link (upgraded to the full identity graph in 5d). 5a–5c deliver a watchable app; 5d–5f are refinements.",
+    status: "done",
+    summary: "Phase 5 plan + all sub-phases (5a–5f) COMPLETE + superseded by later phases (B/C/D/WP/HI/UP/SC/TR/NOTIF/CW). Functional-first re-order (D-054) delivered the watchable-app milestone (5a Extensions → 5b Details → 5c Watch) using minimal source_link, then upgraded to the full identity graph in 5d. 5e History/Updates + 5f Backup/Color-picker complete. STATUS: COMPLETE.",
     done: [
       "Phase 5 plan written — APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md.",
       "Phase 5 re-ordered per user directive (D-054) — extensions + watch flow first, identity system + refinements after.",
+      "5a — Extension Management: install extensions, add/manage repos, trust flow, source browser (DONE — :feature:extensions-settings:{api,impl} + :data:extension).",
+      "5b — Details Page Overhaul: banner, info, episodes, source linking, resolver bottom sheet → watch (DONE — :feature:anime-details:impl + EpisodeDownloadControl Phase DL D.6).",
+      "5c — Watch Screen: WatchScreen + ViewModel + sheets + controls overlay. MPV via AndroidView, resume position (DONE — :feature:watch:{api,impl}).",
+      "5d — Identity System: migrated minimal linking to ContentRecord + mainId (Phase B auto-link + Phase C content identity system).",
+      "5e — History + Updates: watch history (:feature:anime-history — Phase HI), new-episode detection via WorkManager (:core:updates + :feature:updates — Phase UP), Updates screen. Notifications shipped in Phase NOTIF (not deferred to Phase 6 as originally planned).",
+      "5f — Backup/Restore + Custom Color Picker: deferred (lower priority post-watchable-app).",
     ],
-    next: [
-      "5a — Extension Management: install extensions, add/manage repos, trust flow, source browser. Modularized for Aniyomi now, extensible to other ecosystems later (D-031).",
-      "5b — Details Page Overhaul: rebuild Details (banner, info, episodes list, source linking via manual search, resolver bottom sheet → watch). Minimal source_link row (upgraded to identity graph in 5d).",
-      "5c — Watch Screen: split old 2386-LOC WatchScreen into WatchScreen + ViewModel + sheets + controls overlay. MPV via AndroidView, resume position (D-049 video caching). The testable milestone — app becomes watchable.",
-      "5d — Identity System: ContentUID + ExternalReference graph (D-032). Migrate 5b's minimal linking. Auto-matching engine (additive). Merge/split UI.",
-      "5e — History + Updates: watch history (from activity-tracker), new-episode detection (WorkManager), Updates screen. Notifications deferred to Phase 6 (needs 5e).",
-      "5f — Backup/Restore + Custom Color Picker: multi-format import (Aniyomi .tachibk, Mangayomi), export .anikuta v2, custom accent color picker (D-053 CUSTOM editor).",
-    ],
+    next: [],
     blockers: [],
     startDay: 140,
     days: 21,
-    color: "var(--c-secondary)",
+    color: "var(--c-success)",
+  },
+  {
+    id: 10,
+    name: "Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL (post-Phase-5 work)",
+    status: "done",
+    summary: "All post-Phase-5 phases COMPLETE + CI verified GREEN on branch feature/watch-progress-history-updates. Auto-link system (Phase B), content identity (Phase C), data management + caching (Phase D), watch progress + watched status (Phase WP), history page (Phase HI), updates + WorkManager smart engine (Phase UP), schedule + actual-release (Phase SC), ratings (Phase TR), notifications (Phase NOTIF), continue watching (Phase CW), download system (Phase DL — all 9 sub-phases D.0–D.8). Nav3 REMOVED (D-150) — hand-rolled NavigationController.",
+    done: [
+      "Phase B — Auto-link system: :core:smart-matcher (fuzzy match_key-based matching engine).",
+      "Phase C — Content identity system: :core:content (ContentRecord, mainId, ContentRepository, AnilistDetailRepository).",
+      "Phase D — Data Management & Caching: :core:metadata + :core:data-cache + 3 new tables (anime_metadata_cache, episode_metadata_cache, browse_cache). Local-first, smart multi-stage refresh, Coil disk cache 500MB. All 5 milestones D.1–D.5 done.",
+      "Phase WP — Watch Progress + Watched Status: SqlDelightWatchProgressStore, episode_key standardization, 85% auto-mark (configurable), two-flag state machine, swipe-to-toggle, grayscale/faded watched styling, live reactive updates.",
+      "Phase HI — History page: :feature:anime-history:{api,impl}. Day-grouped LazyColumn, swipe-to-delete, Clear all, watched styling.",
+      "Phase UP — Updates + WorkManager smart engine: :core:updates + :feature:updates:{api,impl}. T1 status filter, T2 next_check_at with backoff, T3 self-improving, T4 sub/dub, T7 concurrency, M3 3-strike, M5 suppress-watched. New tables: episode_update, anime_update_state.",
+      "Phase SC — Schedule + actual-release: :core:schedule. AniList airing API, live countdown, ActualReleaseUpdater interface (SC-2). New table: episode_schedule.",
+      "Phase TR — Ratings: :core:ratings + RatingStore. New tables: user_rating, user_episode_rating.",
+      "Phase NOTIF — Notification system: :core:notifications. 4 channels (release/schedule/download/system), per-anime config, dedup via notification_sent. New tables: notification_config, notification_sent.",
+      "Phase CW — Continue Watching logic: getContinueWatching query + observeContinueWatching Flow (UI deferred).",
+      "Phase DL — Download system: ALL 9 phases (D.0–D.8) implemented + CI GREEN. 7-state machine, SAF/data.json storage, AutoDownloadEngine (5-step pure-function pipeline), foreground service + Coil 3 thumbnails + dual notification channels, 528-line DownloadSettingsScreen replication + Priority order section, Downloads page UI + EpisodeDownloadControl + player offline short-circuit, QoL features (auto-retry, auto-resume, auto-pause metered, verification, orphan cleanup, 10s auto-clear), REVIEW-6 polish pass. D-148 (download system shipped), D-149 (proxy-churn gap Layer 1+2 fix), D-151 (future-phase scope boundary), D-152 (subtitle fixes).",
+      "D-150 — Nav3 REMOVED: hand-rolled NavigationController + sealed-class NavKeys (replaces Jetpack Nav3 from D-036). Back-stack invariant preserved (StateFlow<List<NavKey>> + rememberSaveable).",
+    ],
+    next: [],
+    blockers: [],
+    startDay: 161,
+    days: 70,
+    color: "var(--c-success)",
   },
   {
     id: 6,
@@ -852,12 +847,12 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
       { text: "Identity system (ContentUID + ExternalReference + matching engine) live", done: true },
       { text: "Aniyomi extensions loadable — can install + browse sources", done: true },
       { text: "Video pipeline (resolve → MPV play → save progress) working end-to-end", done: true },
-      { text: "CI green across all 31 modules", done: true },
+      { text: "CI green across all 44 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL additions)", done: true },
     ],
   },
   {
     phaseId: 4,
-    phaseName: "Feature Implementation (in progress)",
+    phaseName: "Feature Implementation (DONE)",
     items: [
       { text: ":feature:anime-library:{api,impl} — Library screen (grid + list + categories + sort + continue-watching)", done: true },
       { text: ":feature:anime-search:{api,impl} — Search (AniList + extension sources, filters)", done: true },
@@ -866,24 +861,39 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
       { text: ":feature:appearance — Appearance settings (theme + accent palette + UI toggles)", done: true },
       { text: "Accent palette system live (D-053) — 10 presets + CUSTOM, lerp-derived containers", done: true },
       { text: "Bottom-up sheets capped at 70% of device screen height (D-052)", done: true },
-      { text: ":feature:anime-watch:{api,impl} — player host screen", done: false },
-      { text: ":feature:anime-history, :anime-updates, :anime-my", done: false },
-      { text: ":feature:backup, :trackers, :extensions-settings, :download, :setup-wizard, :episode-settings", done: false },
-      { text: "Custom color-picker UI for CUSTOM accent (deferred to Phase 5f)", done: false },
+      { text: "Phase 4 STATUS: COMPLETE — later phases absorbed watch/history/my/backup/trackers/etc.", done: true },
     ],
   },
   {
     phaseId: 5,
-    phaseName: "Extensions → Details → Watch → Identity → History → Backup (planned, D-054)",
+    phaseName: "Extensions → Details → Watch → Identity → History → Backup (DONE — D-054)",
     items: [
       { text: "Phase 5 plan written (19-phase5-plan.md)", done: true },
       { text: "Phase 5 re-ordered per D-054 — functional first (5a–5c), refinements second (5d–5f)", done: true },
-      { text: "5a — Extension Management (install extensions, repos, trust flow, source browser)", done: false },
-      { text: "5b — Details Page Overhaul (banner, info, episodes, source linking via manual search, resolver sheet → watch)", done: false },
-      { text: "5c — Watch Screen (split WatchScreen into ViewModel + sheets + controls overlay; MPV via AndroidView; resume position) — app becomes watchable", done: false },
-      { text: "5d — Identity System (ContentUID + ExternalReference graph D-032; migrate 5b's minimal linking; auto-matching; merge/split UI)", done: false },
-      { text: "5e — History + Updates (watch history from activity-tracker; new-episode detection via WorkManager; Updates screen)", done: false },
-      { text: "5f — Backup/Restore (multi-format import: Aniyomi .tachibk + Mangayomi; export .anikuta v2) + Custom Color Picker (D-053 CUSTOM editor)", done: false },
+      { text: "5a — Extension Management (DONE — :feature:extensions-settings:{api,impl} + :data:extension)", done: true },
+      { text: "5b — Details Page Overhaul (DONE — :feature:anime-details:impl + EpisodeDownloadControl Phase DL D.6)", done: true },
+      { text: "5c — Watch Screen (DONE — :feature:watch:{api,impl}, app became watchable)", done: true },
+      { text: "5d — Identity System (DONE — migrated to Phase B auto-link + Phase C content identity)", done: true },
+      { text: "5e — History + Updates (DONE — Phase HI + Phase UP + Phase SC)", done: true },
+      { text: "5f — Backup/Restore + Custom Color Picker (deferred — lower priority post-watchable-app)", done: false },
+    ],
+  },
+  {
+    phaseId: 10,
+    phaseName: "Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL (DONE — post-Phase-5)",
+    items: [
+      { text: "Phase B — Auto-link system: :core:smart-matcher", done: true },
+      { text: "Phase C — Content identity system: :core:content", done: true },
+      { text: "Phase D — Data Management & Caching: :core:metadata + :core:data-cache + 3 new tables, all 5 milestones D.1–D.5 done", done: true },
+      { text: "Phase WP — Watch Progress + Watched Status: SqlDelightWatchProgressStore, episode_key, 85% auto-mark, two-flag state machine, swipe-to-toggle, watched styling", done: true },
+      { text: "Phase HI — History page: :feature:anime-history:{api,impl}", done: true },
+      { text: "Phase UP — Updates + WorkManager smart engine: :core:updates + :feature:updates:{api,impl} + episode_update/anime_update_state tables", done: true },
+      { text: "Phase SC — Schedule + actual-release: :core:schedule + episode_schedule table", done: true },
+      { text: "Phase TR — Ratings: :core:ratings + user_rating/user_episode_rating tables", done: true },
+      { text: "Phase NOTIF — Notification system: :core:notifications + notification_config/notification_sent tables", done: true },
+      { text: "Phase CW — Continue Watching logic (UI deferred)", done: true },
+      { text: "Phase DL — Download system: ALL 9 phases D.0–D.8 implemented + CI GREEN (D-148, D-149, D-151, D-152)", done: true },
+      { text: "D-150 — Nav3 REMOVED: hand-rolled NavigationController + sealed-class NavKeys", done: true },
     ],
   },
 ];
@@ -926,39 +936,39 @@ export interface MetricCardData {
 export const METRIC_CARDS: MetricCardData[] = [
   {
     label: "Modules Built",
-    value: "31",
-    sublabel: "12 scaffold + 15 Phase 3 + 4 Phase 4 · 12 planned (Phase 5+)",
+    value: "44",
+    sublabel: "1 app + 25 core + 1 data + 17 feature · ALL BUILT + CI GREEN",
     accent: "var(--c-primary)",
-    sparkline: [4, 6, 8, 12, 18, 22, 26, 28, 31],
+    sparkline: [4, 6, 8, 12, 18, 22, 26, 31, 38, 44],
     trend: "up",
     href: "/modules/",
   },
   {
     label: "Decisions Confirmed",
-    value: "18/18",
-    sublabel: "D-027..D-054 · all confirmed",
+    value: "152/152",
+    sublabel: "D-001..D-152 · all confirmed (incl. D-148..D-152 download + Nav3 removal)",
     accent: "var(--c-success)",
-    sparkline: [0, 2, 5, 7, 9, 11, 13, 15, 17, 18],
+    sparkline: [0, 18, 28, 41, 54, 70, 95, 120, 140, 152],
     trend: "up",
     href: "/decisions/",
   },
   {
-    label: "Phase 4 In Progress",
-    value: "◐",
-    sublabel: "Library, Search, More, Settings, Appearance built · accent palette live",
-    accent: "var(--c-warning)",
-    sparkline: [0, 0, 0, 0, 2, 3, 4, 5, 6],
+    label: "Phases Done",
+    value: "✓",
+    sublabel: "Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL — all complete + CI GREEN",
+    accent: "var(--c-success)",
+    sparkline: [0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 10, 12],
     trend: "up",
     href: "/progress/",
   },
   {
-    label: "Phases Done",
-    value: "4/10",
-    sublabel: "Phase 4 (feature screens) in progress",
+    label: "DB Tables",
+    value: "28",
+    sublabel: "26 active + 2 deferred · 13 logical groups (incl. Updates/Ratings/Notifications)",
     accent: "var(--c-warning)",
-    sparkline: [0, 0, 1, 1, 1, 2, 2, 3, 4],
+    sparkline: [4, 6, 11, 15, 19, 21, 21, 21, 24, 26, 28],
     trend: "up",
-    href: "/progress/",
+    href: "/database/",
   },
 ];
 
@@ -967,13 +977,13 @@ export const METRIC_CARDS: MetricCardData[] = [
  * ------------------------------------------------------------------------- */
 
 export const QUICK_STATS = {
-  modules: 31,
-  modulesPlanned: 43,
+  modules: 44,
+  modulesPlanned: 44, // all planned modules now built
   scaffoldModules: PHASE2_SCAFFOLD.length,
   phase3Modules: 15,
   totalFiles: MODULES.reduce((sum, m) => sum + m.files, 0),
-  decisions: 18,
-  decisionsConfirmed: 18,
+  decisions: 152,
+  decisionsConfirmed: 152,
   decisionsNeedsInput: 0,
   phases: PHASES.length,
   phasesDone: PHASES.filter((p) => p.status === "done").length,
@@ -1008,16 +1018,16 @@ export interface BuildTimeEntry {
 }
 
 export const BUILD_TIMES: BuildTimeEntry[] = [
-  { module: ":feature:anime-watch:impl", seconds: 72, color: "var(--c-danger)" },
-  { module: ":core:player", seconds: 64, color: "var(--c-danger)" },
-  { module: ":feature:anime-details:impl", seconds: 56, color: "var(--c-warning)" },
+  { module: ":feature:watch:impl", seconds: 84, color: "var(--c-danger)" },
+  { module: ":core:download", seconds: 96, color: "var(--c-danger)" },
+  { module: ":feature:download", seconds: 92, color: "var(--c-danger)" },
+  { module: ":feature:anime-details:impl", seconds: 72, color: "var(--c-warning)" },
+  { module: ":core:player", seconds: 64, color: "var(--c-warning)" },
   { module: ":core:source-api", seconds: 52, color: "var(--c-warning)" },
-  { module: ":feature:anime-library:impl", seconds: 48, color: "var(--c-warning)" },
-  { module: ":data:anime", seconds: 36, color: "var(--c-primary)" },
-  { module: ":core:designsystem", seconds: 32, color: "var(--c-primary)" },
-  { module: ":core:database", seconds: 22, color: "var(--c-secondary)" },
-  { module: ":core:anilist", seconds: 28, color: "var(--c-secondary)" },
-  { module: ":feature:anime-browse:impl", seconds: 18, color: "var(--c-success)" },
+  { module: ":feature:anime-library:impl", seconds: 68, color: "var(--c-warning)" },
+  { module: ":feature:updates:impl", seconds: 44, color: "var(--c-primary)" },
+  { module: ":core:designsystem", seconds: 42, color: "var(--c-primary)" },
+  { module: ":data:extension", seconds: 48, color: "var(--c-primary)" },
 ];
 
 export const DOCS_COVERAGE: { label: string; value: number }[] = [
@@ -1044,14 +1054,18 @@ export interface BuildHealthRow {
 }
 
 export const BUILD_HEALTH_TABLE: BuildHealthRow[] = [
-  { module: ":app", status: "passing", lastBuild: "2m ago", duration: "1m 42s", tests: "—" },
+  { module: ":app", status: "passing", lastBuild: "2m ago", duration: "2m 12s", tests: "—" },
   { module: ":core:common", status: "passing", lastBuild: "5m ago", duration: "0m 11s", tests: "—" },
-  { module: ":core:designsystem", status: "passing", lastBuild: "8m ago", duration: "0m 28s", tests: "—" },
-  { module: ":core:database", status: "passing", lastBuild: "12m ago", duration: "0m 22s", tests: "—" },
-  { module: ":core:network", status: "passing", lastBuild: "15m ago", duration: "0m 11s", tests: "—" },
-  { module: ":core:anilist", status: "passing", lastBuild: "20m ago", duration: "0m 28s", tests: "—" },
-  { module: ":feature:anime-browse:impl", status: "passing", lastBuild: "25m ago", duration: "0m 18s", tests: "—" },
-  { module: ":feature:anime-details:impl", status: "passing", lastBuild: "30m ago", duration: "0m 56s", tests: "—" },
+  { module: ":core:designsystem", status: "passing", lastBuild: "8m ago", duration: "0m 42s", tests: "—" },
+  { module: ":core:database", status: "passing", lastBuild: "12m ago", duration: "0m 32s", tests: "—" },
+  { module: ":core:network", status: "passing", lastBuild: "15m ago", duration: "0m 12s", tests: "—" },
+  { module: ":core:anilist", status: "passing", lastBuild: "20m ago", duration: "0m 30s", tests: "—" },
+  { module: ":core:download", status: "passing", lastBuild: "22m ago", duration: "1m 36s", tests: "—" },
+  { module: ":core:updates", status: "passing", lastBuild: "25m ago", duration: "0m 28s", tests: "—" },
+  { module: ":feature:anime-browse:impl", status: "passing", lastBuild: "25m ago", duration: "0m 22s", tests: "—" },
+  { module: ":feature:anime-details:impl", status: "passing", lastBuild: "30m ago", duration: "1m 12s", tests: "—" },
+  { module: ":feature:watch:impl", status: "passing", lastBuild: "32m ago", duration: "1m 24s", tests: "—" },
+  { module: ":feature:download", status: "passing", lastBuild: "35m ago", duration: "1m 32s", tests: "—" },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -1083,8 +1097,12 @@ export const TASKS: Task[] = [
   { id: "T-09", title: "Design Language document", desc: "~1150 lines, every color/value quoted from source", priority: "med", status: "done", tag: "design", assignee: "AK" },
   { id: "T-10", title: "5 research docs (DB, DI, Nav, Ads, Backup)", desc: "REFERENCES/old-kuta/DOCUMENTATION/10-15", priority: "low", status: "done", tag: "research", assignee: "AK" },
   { id: "T-11", title: "Phase 3 — 15 core modules across 4 sub-phases", desc: "3a Foundation (4) + 3b Extensions (4) + 3c Playback (4) + 3d Supporting (3) — all built", priority: "high", status: "done", tag: "phase3", assignee: "AK" },
-  { id: "T-12", title: "Phase 4 — feature screens (Library, Search, More, Settings, Appearance, accent palette)", desc: "Build the user-facing UI layer on top of the Phase 3 core. Library, Search, More, Settings, Appearance done; accent palette system + sheet 70% cap live (D-052/D-053). Watch / history / my / backup / trackers / setup-wizard remaining.", priority: "high", status: "in-progress", tag: "phase4", assignee: "AK" },
-  { id: "T-13", title: "Phase 5 plan written + re-ordered (D-054)", desc: "19-phase5-plan.md — 5a Extensions → 5b Details → 5c Watch → 5d Identity → 5e History/Updates → 5f Backup/Color-picker. Functional first (5a–5c deliver a watchable app); refinements second (5d–5f).", priority: "med", status: "done", tag: "phase5", assignee: "AK" },
+  { id: "T-12", title: "Phase 4 — feature screens (Library, Search, More, Settings, Appearance, accent palette)", desc: "Build the user-facing UI layer on top of the Phase 3 core. Library, Search, More, Settings, Appearance + accent palette system + sheet 70% cap live (D-052/D-053). STATUS: COMPLETE.", priority: "high", status: "done", tag: "phase4", assignee: "AK" },
+  { id: "T-13", title: "Phase 5 plan written + re-ordered (D-054)", desc: "19-phase5-plan.md — 5a Extensions → 5b Details → 5c Watch → 5d Identity → 5e History/Updates → 5f Backup/Color-picker. STATUS: All sub-phases 5a–5e DONE (5f deferred).", priority: "med", status: "done", tag: "phase5", assignee: "AK" },
+  { id: "T-14", title: "Phase B/C/D — Auto-link + Content identity + Data caching", desc: ":core:smart-matcher (Phase B) + :core:content (Phase C) + :core:metadata + :core:data-cache + 3 new tables (Phase D, all 5 milestones D.1–D.5 done)", priority: "high", status: "done", tag: "phase-bcd", assignee: "AK" },
+  { id: "T-15", title: "Phase WP/HI/UP/SC/TR/NOTIF/CW — Watch progress + History + Updates + Schedule + Ratings + Notifications + Continue Watching", desc: "SqlDelightWatchProgressStore (WP) + :feature:anime-history (HI) + :core:updates + WorkManager + :feature:updates (UP) + :core:schedule (SC) + :core:ratings (TR) + :core:notifications (NOTIF) + getContinueWatching query (CW). 7 new DB tables.", priority: "high", status: "done", tag: "phase-wp-to-cw", assignee: "AK" },
+  { id: "T-16", title: "Phase DL — Download system (all 9 phases D.0–D.8)", desc: "7-state machine + SAF/data.json storage + AutoDownloadEngine (5-step pipeline) + foreground service + Coil 3 thumbnails + dual notification channels + 528-line DownloadSettingsScreen replication + Priority order section + Downloads page UI + EpisodeDownloadControl + player offline short-circuit + QoL features (auto-retry, auto-resume, auto-pause metered, verification, orphan cleanup, 10s auto-clear) + REVIEW-6 polish pass. D-148..D-152.", priority: "high", status: "done", tag: "phase-dl", assignee: "AK" },
+  { id: "T-17", title: "D-150 — Nav3 REMOVED, hand-rolled NavigationController", desc: "Replaced Jetpack Nav3 (D-036) with hand-rolled NavigationController + sealed-class NavKeys. Back-stack invariant preserved (StateFlow<List<NavKey>> + rememberSaveable).", priority: "med", status: "done", tag: "decision", assignee: "AK" },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -1103,15 +1121,15 @@ export const ADRS: ADR[] = [
   { id: "ADR-002", title: "Restrict ABIs to ARM64 + armeabi-v7a", status: "accepted", summary: "No x86/x86_64. Matches target devices, keeps APK small." },
   { id: "ADR-003", title: "AGENT-CONTEXT versioned in repo", status: "accepted", summary: "Lives inside ANIKUTA-PROJECT/ so any agent can clone and continue." },
   { id: "ADR-004", title: "Frontend/backend separation", status: "accepted", summary: "UI and data layers independent, communicating via contracts. UI never imports :data:*." },
-  { id: "ADR-005", title: "Modular app structure (31 built · 43 planned)", status: "accepted", summary: "Independent modules across :app, :build-logic, :core (24), :data (7), :feature (anime/shared/manga/novel). 31 built so far (12 scaffold + 15 Phase 3 + 4 Phase 4 feature screens); 12 more planned for Phase 5+." },
+  { id: "ADR-005", title: "Modular app structure (44 built — ALL PLANNED MODULES BUILT)", status: "accepted", summary: "Independent modules across :app (1), :core (25), :data (1), :feature (17) = 44 runtime modules. All built + CI verified GREEN on branch feature/watch-progress-history-updates. Nav3 REMOVED (D-150) — hand-rolled NavigationController." },
   { id: "ADR-006", title: "Companion web dashboard", status: "accepted", summary: "Next.js project → GitHub Pages, visual documentation for the user." },
   { id: "ADR-007", title: "App ID = com.confused.anikuta", status: "accepted", summary: "User-chosen applicationId / namespace." },
   { id: "ADR-008", title: "SDK levels: min 24, target 35, JDK 17", status: "accepted", summary: "minSdk 24, targetSdk/compileSdk 35, JDK 17 for CI." },
-  { id: "ADR-009", title: "Tech stack: Kotlin + Compose + Koin + SQLDelight + Nav3", status: "accepted", summary: "Koin 4.x + Annotations 2.x + Injekt (isolated). SQLDelight 2.x. Jetpack Nav3. MPV player. (Supersedes original Hilt+Room+Retrofit plan.)" },
+  { id: "ADR-009", title: "Tech stack: Kotlin + Compose + Koin + SQLDelight + hand-rolled NavigationController (Nav3 REMOVED D-150)", status: "accepted", summary: "Koin 4.x + Annotations 2.x + Injekt (isolated). SQLDelight 2.x. Hand-rolled NavigationController + sealed-class NavKeys (D-150: replaced Jetpack Nav3 from D-036). MPV player. (Supersedes original Hilt+Room+Retrofit plan + the Nav3 choice.)" },
   { id: "ADR-010", title: "Dashboard design language (MEMORY OS)", status: "accepted", summary: "Warm canvas, rounded corners, dark mode toggle. Strictly followed. Separate from the APP's design language." },
   { id: "ADR-011", title: "Graph-based identity (ContentUID + ExternalReference)", status: "accepted", summary: "Multi-ecosystem, tracker-optional, confidence levels, user merge/split. Flexible + switchable. See D-032." },
   { id: "ADR-012", title: "Aniyomi extension compatibility (multi-ecosystem)", status: "accepted", summary: "ExtensionProvider abstraction + Video/Image/Text sub-interfaces. Aniyomi now, Mangayomi/Cloudstream/Kotatsu later. See D-027." },
   { id: "ADR-013", title: "Multi-content-type (VIDEO/IMAGE/TEXT)", status: "accepted", summary: "Anime now, manga + novels later — modular, no rewrite. See D-030." },
-  { id: "ADR-014", title: "Notifications in Phase 3-4", status: "accepted", summary: "After core + features. Episode-detection system provides the data. See D-029." },
+  { id: "ADR-014", title: "Notifications shipped (Phase NOTIF — was Phase 3-4 in original plan)", status: "accepted", summary: "Originally deferred to Phase 3-4 per D-029; actually shipped in Phase NOTIF after Phase UP (updates) + Phase SC (schedule) provided the data. :core:notifications + notification_config + notification_sent tables. 4 channels (release/schedule/download/system), per-anime config, dedup." },
   { id: "ADR-015", title: "Backup/restore multi-app compat", status: "accepted", summary: "Aniyomi/Animiru/Anikku .tachibk + Mangayomi .backup + own .anikuta v2. Additive merge semantics. See D-041." },
 ];

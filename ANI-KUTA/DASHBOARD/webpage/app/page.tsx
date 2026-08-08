@@ -8,9 +8,11 @@ import { METRIC_CARDS, QUICK_STATS, PHASES } from "@/lib/data";
 import { decisions } from "@/lib/decisions";
 
 export default function OverviewPage() {
+  // All phases are done — show the most recent "done" phase (the post-Phase-5 batch).
   const currentPhase =
     PHASES.find((p) => p.status === "in-progress" || p.status === "blocked") ??
-    PHASES[3];
+    PHASES.find((p) => p.id === 10) ??
+    PHASES[PHASES.length - 1];
   const confirmedCount = decisions.filter(
     (d) => d.status === "confirmed",
   ).length;
@@ -27,9 +29,9 @@ export default function OverviewPage() {
             <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
               Project Status
             </span>
-            <StatusDot color="var(--c-warning)" size="sm" />
+            <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Phase 4 in progress · 31 modules built · Library / Search / More / Settings / Appearance done · accent palette live
+              ALL PHASES DONE · 44 modules built · Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL complete + CI GREEN
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -39,14 +41,14 @@ export default function OverviewPage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living dashboard for the ANI-KUTA project: 31 of 43
-            modules built, Phase 3 (core infrastructure) complete across 4
-            sub-phases, Phase 4 (feature screens) in progress — Library,
-            Search, More, Settings, Appearance built; accent palette system
-            (D-053) + 70% sheet cap (D-052) live. All decisions D-027..D-054
-            confirmed. Phase 5 plan re-ordered (D-054): extensions → details
-            → watch first (functional), then identity → history → backup
-            (refinements). Kept in sync with{" "}
+            A calm, living dashboard for the ANI-KUTA project: 44 modules
+            built (1 app + 25 core + 1 data + 17 feature — ALL PLANNED MODULES
+            BUILT), all phases 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL complete,
+            28 DB tables (26 active + 2 deferred) across 13 logical groups, +
+            CI verified GREEN on branch feature/watch-progress-history-updates.
+            Phase DL (download system — all 9 phases D.0–D.8) + Phase WP/HI/UP/SC/TR/NOTIF/CW
+            all shipped. Nav3 REMOVED (D-150) — hand-rolled NavigationController.
+            All decisions D-001..D-152 confirmed. Kept in sync with{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
             on every push.
           </p>
@@ -91,7 +93,7 @@ export default function OverviewPage() {
             </Link>
             <Link href="/progress/" className="no-underline">
               <span className="inline-flex items-center gap-2 h-9 px-[18px] rounded-[12px] text-[13.5px] font-medium bg-chip border border-border text-text-secondary transition-all duration-200 hover:translate-y-[-1px] hover:text-text-primary">
-                Phase 4 in progress →
+                All phases done →
               </span>
             </Link>
           </div>
@@ -160,13 +162,13 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>21 tables</span>
+                <span>28 tables</span>
                 <span className="opacity-50">·</span>
-                <span>19 active</span>
+                <span>26 active</span>
                 <span className="opacity-50">·</span>
                 <span>2 deferred</span>
                 <span className="opacity-50">·</span>
-                <span>10 groups</span>
+                <span>13 groups</span>
               </div>
             </div>
             {/* Body */}
@@ -178,9 +180,9 @@ export default function OverviewPage() {
                 filter by group.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Tables" value="21" />
-                <MiniStat label="Columns" value="120+" />
-                <MiniStat label="Indexes" value="20+" />
+                <MiniStat label="Tables" value="28" />
+                <MiniStat label="Columns" value="150+" />
+                <MiniStat label="Indexes" value="30+" />
               </div>
               <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-primary)] group-hover:underline">
                 Explore schema →
@@ -211,7 +213,7 @@ export default function OverviewPage() {
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
                     style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
-                    43 modules — 31 built
+                    44 modules — all built ✓
                   </div>
                 </div>
                 {/* mini grid glyph */}
@@ -233,11 +235,11 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>43 planned</span>
+                <span>44 planned</span>
                 <span className="opacity-50">·</span>
-                <span>31 built ✓</span>
+                <span>44 built ✓</span>
                 <span className="opacity-50">·</span>
-                <span>5 layers</span>
+                <span>4 layers</span>
               </div>
             </div>
             {/* Body */}
@@ -249,9 +251,9 @@ export default function OverviewPage() {
                 detail cards with file counts.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Modules" value="43" />
-                <MiniStat label="Built" value="31" />
-                <MiniStat label="Layers" value="5" />
+                <MiniStat label="Modules" value="44" />
+                <MiniStat label="Built" value="44" />
+                <MiniStat label="Layers" value="4" />
               </div>
               <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-success)] group-hover:underline">
                 Explore modules →
@@ -277,12 +279,12 @@ export default function OverviewPage() {
             <span
               className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium shrink-0"
               style={{
-                backgroundColor: "var(--c-warning)1a",
-                color: "var(--c-warning)",
+                backgroundColor: "var(--c-success)1a",
+                color: "var(--c-success)",
               }}
             >
-              <StatusDot color="var(--c-warning)" size="sm" />
-              In progress
+              <StatusDot color="var(--c-success)" size="sm" />
+              Done
             </span>
           </div>
           <p className="text-[13px] text-text-secondary leading-relaxed mb-4">
@@ -292,7 +294,7 @@ export default function OverviewPage() {
           {currentPhase.done.length > 0 && (
             <div className="space-y-2 mb-4">
               <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary">
-                Done so far — feature screens + polish
+                Done — all post-Phase-5 work shipped (Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL)
               </div>
               {currentPhase.done.slice(0, 6).map((d) => (
                 <div
@@ -445,13 +447,15 @@ export default function OverviewPage() {
         </div>
 
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          D-027 through D-054 — covering extension compat, base app,
-          notifications, manga plan, multi-extension + multi-content-type,
-          identity system, ads (deferred), DI, DB, navigation, backup format,
-          watch-progress layering, activity tracking, console logging,
-          backup/restore multi-app compat, the bottom-up sheet 70% height cap
-          (D-052), the accent palette system (D-053), and the Phase 5
-          re-order (D-054 — extensions → details → watch first).
+          D-001 through D-152 — covering the foundational choices (repo layout,
+          app ID, base app, extension compat, identity system, DI, DB, navigation,
+          backup, design language, Phase 4 polish, Phase 5 re-order) AND the later
+          work: watch progress persistence (WP), history page (HI), updates +
+          WorkManager smart engine (UP), schedule + actual-release (SC), ratings
+          (TR), notifications (NOTIF), continue watching (CW), download system
+          (D-148 — all 9 phases D.0–D.8 shipped), proxy-churn gap (D-149), Nav3
+          REMOVED — hand-rolled NavigationController (D-150), download future-phase
+          scope (D-151), + subtitle fixes (D-152).
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

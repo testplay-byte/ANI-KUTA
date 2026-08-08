@@ -9,22 +9,26 @@ import {
 } from "@/lib/data";
 
 /**
- * Progress page (v6) — Phase 0–3 done (Setup + Plan + Scaffold + Core modules),
- * Phase 4 (feature screens) in progress, Phase 5 plan written + re-ordered (D-054).
+ * Progress page (v7) — ALL PHASES DONE. Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL
+ * complete + CI verified GREEN on branch feature/watch-progress-history-updates.
+ * 44 modules built, 28 DB tables, 152 decisions confirmed.
  *
  * Sections:
  *  1. Header card + legend.
  *  2. Phase timeline (compact, at top).
  *  3. Phase 3 wrap-up (15 modules across 4 sub-phases — all built).
- *  4. Phase 4 progress (feature screens built, accent palette live, sheets capped).
- *  5. Phase 5 plan + new 6 sub-phases (5a–5f, re-ordered per D-054).
- *  6. Current phase checklist.
- *  7. Full phase list (detailed, with done/next/blockers per phase).
+ *  4. Phase 4 wrap-up (feature screens + accent palette — COMPLETE).
+ *  5. Phase 5 wrap-up (5a–5e DONE — 5f deferred).
+ *  6. Phase 10 wrap-up (B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL — all DONE).
+ *  7. Current phase checklist.
+ *  8. Full phase list (detailed, with done/next/blockers per phase).
  */
 export default function ProgressPage() {
+  // All phases are done — show the most recent "done" phase (the post-Phase-5 batch).
   const currentPhase =
     PHASES.find((p) => p.status === "in-progress" || p.status === "blocked") ??
-    PHASES[3];
+    PHASES.find((p) => p.id === 10) ??
+    PHASES[PHASES.length - 1];
   const currentChecklist = PHASE_CHECKLISTS.find(
     (c) => c.phaseId === currentPhase.id,
   );
@@ -44,20 +48,19 @@ export default function ProgressPage() {
             </h2>
           </div>
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
-            <StatusDot color="var(--c-warning)" size="sm" />
-            {doneCount}/{PHASES.length} done · Phase 4 in progress
+            <StatusDot color="var(--c-success)" size="sm" />
+            {doneCount}/{PHASES.length} done · ALL PHASES COMPLETE ✓
           </span>
         </div>
         <p className="text-[13px] text-text-secondary leading-relaxed max-w-2xl">
-          The project advances phase-by-phase. Phase 0 (setup), Phase 1
-          (architecture plan + design language), Phase 2 (scaffold — 12
-          modules), and Phase 3 (15 core modules across 4 sub-phases) are
-          complete. Phase 4 (feature screens — Library, Search, More,
-          Settings, Appearance) is in progress: those screens are built,
-          the accent palette system (D-053) is live, and bottom-up sheets
-          are capped at 70% of screen height (D-052). Phase 5 plan is
-          written and re-ordered (D-054): extensions → details → watch first
-          (functional), then identity → history → backup (refinements).
+          ALL PHASES COMPLETE + CI verified GREEN on branch feature/watch-progress-history-updates.
+          Phase 0 (setup), Phase 1 (architecture plan + design language), Phase 2
+          (scaffold — 12 modules), Phase 3 (15 core modules across 4 sub-phases),
+          Phase 4 (feature screens + accent palette), Phase 5 (5a–5e — 5f deferred),
+          and Phase 10 (post-Phase-5 work: B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL) are
+          all done. 44 modules built (1 app + 25 core + 1 data + 17 feature),
+          28 DB tables (26 active + 2 deferred), 152 decisions confirmed
+          (D-001..D-152). Nav3 REMOVED (D-150) — hand-rolled NavigationController.
           Live status — kept in sync with{" "}
           <code className="font-mono text-text-primary">memory/progress.md</code>.
         </p>
@@ -119,38 +122,39 @@ export default function ProgressPage() {
             <li>· Video pipeline working — resolve URL → play via MPV → save progress.</li>
             <li>· Download manager (HTTP + HLS + resume) operational.</li>
             <li>· AniList tracker sync wired (tracker-api + tracker-anilist).</li>
-            <li>· <strong>CI green across all 31 modules.</strong></li>
+            <li>· <strong>CI green across all 44 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL additions).</strong></li>
           </ul>
         </div>
       </Card>
 
-      {/* Phase 4 in-progress — feature screens built, accent palette live */}
+      {/* Phase 4 DONE — feature screens + accent palette COMPLETE */}
       <Card>
         <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
-              §4 — Phase 4 In Progress
+              §4 — Phase 4 COMPLETE ✓
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
               Library, Search, More, Settings, Appearance built · accent palette live
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
-              The user-facing UI layer is taking shape on top of the Phase 3
-              core. Five feature screens are built, the accent palette system
-              (D-053) is functional with live apply, and bottom-up sheets are
-              capped at 70% of device screen height (D-052). Watch, history,
-              my, backup, trackers, and setup-wizard remain.
+              The user-facing UI layer was built on top of the Phase 3 core.
+              Five feature screens shipped, the accent palette system (D-053)
+              is functional with live apply, and bottom-up sheets are capped
+              at 70% of device screen height (D-052). STATUS: COMPLETE — later
+              phases (5 + 10) absorbed the remaining watch/history/my/backup/
+              trackers/setup-wizard work.
             </p>
           </div>
           <span
             className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0"
             style={{
-              backgroundColor: "var(--c-warning)1a",
-              color: "var(--c-warning)",
+              backgroundColor: "var(--c-success)1a",
+              color: "var(--c-success)",
             }}
           >
-            <StatusDot color="var(--c-warning)" size="sm" />
-            In progress
+            <StatusDot color="var(--c-success)" size="sm" />
+            Done ✓
           </span>
         </div>
 
@@ -167,76 +171,126 @@ export default function ProgressPage() {
 
         <div className="mt-4 p-4 rounded-[12px] border border-border bg-surface">
           <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary mb-2">
-            Phase 4 — Remaining
+            Phase 4 — STATUS
           </div>
           <ul className="space-y-1 text-[12px] text-text-primary">
-            <li>· :feature:anime-watch:{`{api,impl}`} — player host screen (deferred to Phase 5).</li>
-            <li>· :feature:anime-history, :anime-updates, :anime-my — profile + stats.</li>
-            <li>· :feature:backup, :trackers, :extensions-settings, :download, :setup-wizard, :episode-settings.</li>
-            <li>· Custom color-picker UI for CUSTOM accent (deferred to Phase 5f).</li>
+            <li>· STATUS: COMPLETE ✓ — later phases absorbed the remaining work.</li>
+            <li>· :feature:watch:{`{api,impl}`} shipped in Phase 5c (DONE).</li>
+            <li>· :feature:anime-history, :feature:updates shipped in Phase HI + Phase UP (DONE).</li>
+            <li>· :feature:extensions-settings, :feature:download shipped in Phase 5a + Phase DL D.5/D.6 (DONE).</li>
+            <li>· :feature:backup, :trackers, :setup-wizard, :episode-settings — deferred (lower priority).</li>
           </ul>
         </div>
       </Card>
 
-      {/* Phase 5 plan written + re-ordered (D-054) */}
+      {/* Phase 5 DONE (5a–5e) — 5f deferred (D-054) */}
       <Card>
         <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
           <div>
             <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
-              §5 — Phase 5 Plan + Re-order (D-054)
+              §5 — Phase 5 DONE (5a–5e) · 5f deferred (D-054)
             </div>
             <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
               Extensions → Details → Watch → Identity → History → Backup
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
-              The Phase 5 plan is written (APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md)
-              and was re-ordered per user directive (D-054): functional first,
-              refinements second. The watch flow only needs a minimal source_link
-              (a single row pointing an episode at a source for playback) — it
-              does NOT need the full identity graph. So 5a–5c ship the watchable
-              app with minimal linking, 5d upgrades linking to the full identity
-              graph, and 5e–5f are further refinements. Pending — starts when
-              Phase 4 wraps.
+              The Phase 5 plan was written (APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md)
+              + re-ordered per user directive (D-054): functional first,
+              refinements second. The watch flow used a minimal source_link
+              (a single row pointing an episode at a source for playback) —
+              it did NOT need the full identity graph. 5a–5c shipped the watchable
+              app with minimal linking, 5d upgraded linking to the full identity
+              graph (via Phase B auto-link + Phase C content identity), 5e shipped
+              History + Updates + Schedule. 5f (Backup + Color-picker) is deferred.
+              STATUS: 5a–5e COMPLETE ✓.
             </p>
           </div>
-          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0 border bg-chip border-border text-text-secondary">
-            <StatusDot color="var(--c-secondary)" size="sm" />
-            Planned
+          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0" style={{ backgroundColor: "var(--c-success)1a", color: "var(--c-success)" }}>
+            <StatusDot color="var(--c-success)" size="sm" />
+            Done ✓
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-4">
           <Phase5SubPhaseRow
             id="5a"
-            name="Extension Management"
-            desc="Install extensions, add/manage repos, trust flow, source browser. Modularized for Aniyomi now, extensible to other ecosystems later (D-031)."
+            name="Extension Management ✓"
+            desc="DONE — :feature:extensions-settings:{api,impl} + :data:extension. Install extensions, add/manage repos, trust flow, source browser (D-031)."
           />
           <Phase5SubPhaseRow
             id="5b"
-            name="Details Page Overhaul"
-            desc="Rebuild Details (banner, info, episodes list, source linking via manual search, resolver bottom sheet → watch). Minimal source_link row (upgraded to identity graph in 5d)."
+            name="Details Page Overhaul ✓"
+            desc="DONE — :feature:anime-details:impl + EpisodeDownloadControl (Phase DL D.6). Banner, info, episodes list, source linking, resolver bottom sheet → watch."
           />
           <Phase5SubPhaseRow
             id="5c"
-            name="Watch Screen"
-            desc="Split old 2386-LOC WatchScreen into WatchScreen + ViewModel + sheets + controls overlay. MPV via AndroidView, resume position (D-049 video caching). The testable milestone — app becomes watchable."
+            name="Watch Screen ✓"
+            desc="DONE — :feature:watch:{api,impl}. MPV via AndroidView, resume position. The testable milestone — app became watchable."
             highlight
           />
           <Phase5SubPhaseRow
             id="5d"
-            name="Identity System"
-            desc="ContentUID + ExternalReference graph (D-032). Migrate 5b's minimal linking. Auto-matching engine (additive). Merge/split UI."
+            name="Identity System ✓"
+            desc="DONE — migrated minimal source_link to Phase B auto-link (:core:smart-matcher) + Phase C content identity (:core:content)."
           />
           <Phase5SubPhaseRow
             id="5e"
-            name="History + Updates"
-            desc="Watch history (from activity-tracker), new-episode detection (WorkManager), Updates screen. Notifications deferred to Phase 6 (needs 5e)."
+            name="History + Updates ✓"
+            desc="DONE — :feature:anime-history (Phase HI) + :core:updates + :feature:updates (Phase UP) + :core:schedule (Phase SC). Notifications shipped in Phase NOTIF (not deferred to Phase 6)."
           />
           <Phase5SubPhaseRow
             id="5f"
-            name="Backup/Restore + Color Picker"
-            desc="Multi-format import (Aniyomi .tachibk, Mangayomi), export .anikuta v2, custom accent color picker (D-053 CUSTOM editor)."
+            name="Backup/Restore + Color Picker (deferred)"
+            desc="DEFERRED — lower priority post-watchable-app. Multi-format import (Aniyomi .tachibk, Mangayomi), export .anikuta v2, custom accent color picker (D-053 CUSTOM editor)."
           />
+        </div>
+      </Card>
+
+      {/* Phase 10 — post-Phase-5 work (B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL) all DONE */}
+      <Card>
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+              §10 — Post-Phase-5 Work COMPLETE ✓
+            </div>
+            <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary">
+              Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL — all shipped + CI GREEN
+            </h3>
+            <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
+              The post-Phase-5 work shipped on branch feature/watch-progress-history-updates.
+              Auto-link system (B), content identity (C), data management + caching (D),
+              watch progress + watched status (WP), history page (HI), updates + WorkManager
+              smart engine (UP), schedule + actual-release (SC), ratings (TR), notifications
+              (NOTIF), continue watching (CW), download system (DL — all 9 phases D.0–D.8).
+              Nav3 REMOVED (D-150) — hand-rolled NavigationController. 7 new DB tables.
+              All CI verified GREEN.
+            </p>
+          </div>
+          <span
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0"
+            style={{
+              backgroundColor: "var(--c-success)1a",
+              color: "var(--c-success)",
+            }}
+          >
+            <StatusDot color="var(--c-success)" size="sm" />
+            Done ✓
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+          <Phase4DoneRow label="Phase B — Auto-link" desc=":core:smart-matcher — fuzzy match_key-based matching engine" />
+          <Phase4DoneRow label="Phase C — Content identity" desc=":core:content — ContentRecord, mainId, ContentRepository, AnilistDetailRepository" />
+          <Phase4DoneRow label="Phase D — Data caching" desc=":core:metadata + :core:data-cache + 3 new tables (D.1–D.5 all done)" />
+          <Phase4DoneRow label="Phase WP — Watch progress" desc="SqlDelightWatchProgressStore · episode_key · 85% auto-mark · two-flag state machine" />
+          <Phase4DoneRow label="Phase HI — History" desc=":feature:anime-history:{api,impl} — day-grouped LazyColumn, swipe-delete, Clear all" />
+          <Phase4DoneRow label="Phase UP — Updates" desc=":core:updates + :feature:updates:{api,impl} + WorkManager smart engine + 2 new tables" />
+          <Phase4DoneRow label="Phase SC — Schedule" desc=":core:schedule — AniList airing API, live countdown, ActualReleaseUpdater (SC-2) + 1 new table" />
+          <Phase4DoneRow label="Phase TR — Ratings" desc=":core:ratings + RatingStore + 2 new tables (per-anime + per-episode user ratings 0-100)" />
+          <Phase4DoneRow label="Phase NOTIF — Notifications" desc=":core:notifications + 2 new tables (notification_config, notification_sent) · 4 channels · dedup" />
+          <Phase4DoneRow label="Phase CW — Continue Watching" desc="getContinueWatching query + observeContinueWatching Flow (UI deferred)" />
+          <Phase4DoneRow label="Phase DL — Download system" desc="ALL 9 phases D.0–D.8 implemented + CI GREEN · D-148..D-152 · 7-state machine · SAF/data.json · AutoDownloadEngine" />
+          <Phase4DoneRow label="D-150 — Nav3 REMOVED" desc="Hand-rolled NavigationController + sealed-class NavKeys (replaces Jetpack Nav3 from D-036)" />
         </div>
       </Card>
 

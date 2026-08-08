@@ -284,18 +284,13 @@ private fun HistoryRow(
     ) {
         // Background delete icon — match the card's height (not just the icon).
         if (kotlin.math.abs(swipeOffset.value) > 1f) {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
+            Surface(
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxSize(),
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.matchParentSize(),
-                ) {}
                 Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .padding(horizontal = 24.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                     contentAlignment = if (swipeOffset.value < 0) Alignment.CenterEnd
                     else Alignment.CenterStart,
                 ) {

@@ -26,12 +26,12 @@ export default function ModulesPage() {
               Module Map
             </div>
             <h2 className="text-[22px] font-bold tracking-extra-tight text-text-primary">
-              Proposed Module Hierarchy
+              Module Hierarchy — all built ✓
             </h2>
           </div>
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
-            <StatusDot color="var(--c-warning)" size="sm" />
-            Draft — finalized in Phase 1
+            <StatusDot color="var(--c-success)" size="sm" />
+            {MODULES.length} modules · ALL BUILT + CI GREEN
           </span>
         </div>
         <p className="text-[13px] text-text-secondary leading-relaxed max-w-2xl">

@@ -27,11 +27,11 @@
 export const DOWNLOADS_HERO = {
   title: "Download System — Implementation Plan",
   subtitle:
-    "Workflow, storage paths, 7-state machine, auto-download engine, foreground service, the proxy-churn fix, and the 9-phase build plan (D.0 → D.8) for the new ANI-KUTA — now hardened by 5 review rounds + a 72-item fix pass.",
-  status: "PLAN HARDENED — 5 REVIEWS",
-  statusColor: "var(--c-warning)",
+    "Workflow, storage paths, 7-state machine, auto-download engine, foreground service, the proxy-churn fix, and the 9-phase build plan (D.0 → D.8) for the new ANI-KUTA — now hardened by 5 review rounds + a 72-item fix pass. All 9 phases (D.0–D.8) are now IMPLEMENTED + CI verified GREEN.",
+  status: "IMPLEMENTED — ALL 9 PHASES DONE",
+  statusColor: "var(--c-success)",
   summary:
-    "The download-system plan went through 5 senior review rounds (DL-REVIEW-1 through DL-REVIEW-5), surfaced 72 must-fix items (18 carry-over CRITICALs + 54 new IMPORTANT/CRITICAL findings), and was consolidated in the DL-PLAN-FIX pass. Every fix landed: the unbounded re-resolve recursion (M15) is now capped at 1 attempt, the foreground service starts synchronously (M20) — no more ForegroundServiceDidNotStartInTimeException, the DB schema edits the .sq files directly (no .sqm migration — M1+M2), the local HttpException (M49) replaces dead HTTP-branch code, and the RETRYING state (M9) is now propagated through the state machine, queue, DB schema, and UI. The folder tree was rewritten (video/images/text format folders + 5-digit E00001 padding + data.json per content + .nomedia). The auto-download engine is a 5-step pure-function pipeline (flatten → rank → applyFallbacks → pick → globalFallback) with a new dimensionPriority pref (default [AUDIO, QUALITY, SERVER]). Build estimate grew from 23-30 to 30-40 days to absorb the consolidation pass + the re-review + the inevitable mid-implementation discoveries.",
+    "The download-system plan went through 5 senior review rounds (DL-REVIEW-1 through DL-REVIEW-5), surfaced 72 must-fix items (18 carry-over CRITICALs + 54 new IMPORTANT/CRITICAL findings), and was consolidated in the DL-PLAN-FIX pass. Every fix landed: the unbounded re-resolve recursion (M15) is now capped at 1 attempt, the foreground service starts synchronously (M20) — no more ForegroundServiceDidNotStartInTimeException, the DB schema edits the .sq files directly (no .sqm migration — M1+M2), the local HttpException (M49) replaces dead HTTP-branch code, and the RETRYING state (M9) is now propagated through the state machine, queue, DB schema, and UI. The folder tree was rewritten (video/images/text format folders + 5-digit E00001 padding + data.json per content + .nomedia). The auto-download engine is a 5-step pure-function pipeline (flatten → rank → applyFallbacks → pick → globalFallback) with a new dimensionPriority pref (default [AUDIO, QUALITY, SERVER]). STATUS: ALL 9 PHASES (D.0–D.8) ARE IMPLEMENTED + CI VERIFIED GREEN. The system is live: click-to-queue workflow, SAF/data.json storage, proxy-churn fix (directUrl + 1-cap re-resolve), dynamic progress tracking, foreground service + Coil 3 thumbnails + dual notification channels, settings page (528-line replication + Priority order section), Downloads page UI + episode download controls + player offline short-circuit, QoL features (auto-retry, auto-resume, auto-pause metered, verification, orphan cleanup, 10s auto-clear), and the REVIEW-6 polish pass.",
 } as const;
 
 /* ---------------------------------------------------------------------------
@@ -1685,13 +1685,14 @@ export const DI_GRAPH = `App.kt startKoin
        └── single DownloadMigration(DownloadStore, DownloadStorageProvider ⚠️)`;
 
 /* ---------------------------------------------------------------------------
- * Implementation Phases — D.0 → D.6 (from 13-implementation-plan.md)
+ * Implementation Phases — D.0 → D.8 (from 13-implementation-plan.md)
+ * All 9 phases (D.0–D.8) are now IMPLEMENTED + CI verified GREEN.
  * ------------------------------------------------------------------------- */
 
 export interface ImplementationPhase {
   id: string;
   title: string;
-  status: "planned";
+  status: "implemented" | "planned";
   days: string;
   goal: string;
   tasks: string[];
@@ -1702,7 +1703,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.0",
     title: "Foundations (the REVIEW-5 consolidation pass)",
-    status: "planned",
+    status: "implemented",
     days: "2-3 days",
     goal: "Extend the new project's infrastructure to support the download system. All 8 M1-M8 (DB schema) + M49 (HttpException) + M65 (scanner deps) + M23/M63 (manifest) + M26 (drawables) + M12 (delete the stub) fixes land here.",
     color: "var(--c-primary)",
@@ -1723,7 +1724,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.1",
     title: "Engine + Storage (NEW data.json system)",
-    status: "planned",
+    status: "implemented",
     days: "4-5 days",
     goal: "Port + adapt the :core:download engine + implement the NEW SAF/data.json storage system. No UI yet — just the engine + DI + the reinstall-recognition scan. The biggest phase.",
     color: "var(--c-secondary)",
@@ -1743,7 +1744,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.2",
     title: "Orchestrator + Auto-download engine + proxy-churn fix",
-    status: "planned",
+    status: "implemented",
     days: "3-4 days",
     goal: "Bridge the resolver + engine + implement the NEW 5-step priority pipeline + the proxy-churn fix (4 layers). The headline feature for the user's 'which dimension matters most' gap.",
     color: "var(--c-warning)",
@@ -1762,7 +1763,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.3",
     title: "Queue management + Dynamic progress tracking",
-    status: "planned",
+    status: "implemented",
     days: "2 days",
     goal: "Proper queue start-next logic, configurable concurrency, smooth progress bar (the user's complaint about the bar jumping 95→100 is now actually fixed — M35).",
     color: "var(--c-success)",
@@ -1776,7 +1777,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.4",
     title: "Foreground service + Notifications (REVIEW-5 M20-M30 fixes)",
-    status: "planned",
+    status: "implemented",
     days: "2-3 days",
     goal: "The foreground service (with the SYNCHRONOUS startForeground pattern — M20) + the new notification design (Coil 3 thumbnails — M21+M22, dual channels, lock-screen action visibility — M30).",
     color: "var(--c-danger)",
@@ -1792,7 +1793,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.5",
     title: "Settings page UI (EXACT replication + the NEW Priority order section)",
-    status: "planned",
+    status: "implemented",
     days: "3 days",
     goal: "Replicate the old project's 528-line DownloadSettingsScreen EXACTLY + ADD the new 'Priority order' collapsible section (the user's 'which dimension matters most' gap is now configurable).",
     color: "var(--c-primary)",
@@ -1806,7 +1807,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.6",
     title: "Downloads page UI + Episode download controls + Player integration",
-    status: "planned",
+    status: "implemented",
     days: "4-5 days",
     goal: "The :feature:download module + the per-episode download UI + the offline short-circuit. M62: fixed the D.14 → D.6 typo (player integration is part of D.6, not a non-existent D.14).",
     color: "var(--c-secondary)",
@@ -1823,7 +1824,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.7",
     title: "Quality-of-life features (the headline QoL: auto-retry)",
-    status: "planned",
+    status: "implemented",
     days: "2-3 days",
     goal: "The QoL features from 16-quality-of-life.md — auto-retry (with RETRYING state), auto-resume on network change, auto-pause on metered network, download verification, orphan-file cleanup, auto-clear completed entries after 10s.",
     color: "var(--c-warning)",
@@ -1841,7 +1842,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
   {
     id: "D.8",
     title: "Polish + testing (the REVIEW-6 re-review pass)",
-    status: "planned",
+    status: "implemented",
     days: "1-2 days",
     goal: "Fix the known bugs + ship-quality polish + the REVIEW-6 re-review of the fixes.",
     color: "var(--c-secondary)",
@@ -1859,7 +1860,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
 ];
 
 export const IMPLEMENTATION_TOTAL_ESTIMATE =
-  "Total: 30-40 days (was 23-30 — grew by the REVIEW-5 consolidation pass of +3-4 days for the 72 MUST-FIX items, +1-2 days for REVIEW-6 re-review, +3-4 days for inevitable mid-implementation discoveries). Assumes one developer. D.5 + D.6 can overlap (different files); D.7 can run parallel to D.5/D.6 (different module).";
+  "Total: 30-40 days estimated · ALL 9 PHASES (D.0–D.8) NOW IMPLEMENTED + CI VERIFIED GREEN on branch feature/watch-progress-history-updates. D.5 + D.6 ran in parallel (different files); D.7 ran parallel to D.5/D.6 (different module). The REVIEW-6 re-review pass landed + the known bugs (DOWNLOADING-on-restart, AnimatedContent, notification action buttons, deep-link) all shipped.";
 
 /* ---------------------------------------------------------------------------
  * Design Decisions — D1..D7 (from 13-implementation-plan.md §4)

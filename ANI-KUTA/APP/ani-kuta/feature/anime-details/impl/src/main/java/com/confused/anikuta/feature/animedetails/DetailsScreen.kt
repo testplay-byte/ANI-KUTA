@@ -1488,24 +1488,18 @@ private fun EpisodeRow(
             else if (swipeProgress < 0.2f) 0f
             else ((swipeProgress - 0.2f) / 0.8f).coerceIn(0f, 1f)
         if (iconAlpha > 0f) {
-            // Background: match the card's height (not just the icon's height).
-            // The card has padding(10dp) + content — we use matchParentSize in a Box
-            // to ensure the background is exactly as tall as the card.
-            Box(
+            // Background: fill the same space as the card.
+            // Use fillMaxSize so the background matches the card's height exactly.
+            Surface(
+                color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .graphicsLayer { this.alpha = iconAlpha },
             ) {
-                Surface(
-                    color = if (isWatched) MaterialTheme.colorScheme.error.copy(alpha = 0.15f)
-                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.matchParentSize(),
-                ) {}
                 Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .padding(horizontal = 24.dp),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                     contentAlignment = if (swipeOffset.value > 0) androidx.compose.ui.Alignment.CenterStart
                     else androidx.compose.ui.Alignment.CenterEnd,
                 ) {

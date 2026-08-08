@@ -1,13 +1,15 @@
 /*
- * Phase D — Data Management & Caching (planning data v1).
+ * Phase D — Data Management & Caching (IMPLEMENTED).
  *
- * Source: Phase D plan v1 — local-first storage, smart refresh, image caching.
+ * Source: Phase D plan — local-first storage, smart refresh, image caching.
  *   - 3 new database tables: anime_metadata_cache, episode_metadata_cache, browse_cache
  *   - Multi-stage refresh on details page (episodes → metadata → all) with vibration
  *   - 6-hour auto-update on homepage only (not other pages)
  *   - Image caching via Coil's disk cache (500MB, persistent — survives restart)
  *   - Solid caching (all data persists across restarts)
  *   - Two source types properly separated: data source (AniList/TMDB) + extension source
+ *
+ * Status: All 5 milestones (D.1–D.5) implemented + CI verified GREEN.
  *
  * Hardcoded for the static dashboard demo — no API calls.
  */
@@ -20,10 +22,10 @@ export const PHASE_D_HERO = {
   title: "Phase D — Data Management & Caching",
   subtitle:
     "Local-first storage, smart multi-stage refresh, image caching — network only for refresh",
-  status: "PLANNING",
-  statusColor: "var(--c-warning)",
+  status: "IMPLEMENTED — ALL MILESTONES DONE",
+  statusColor: "var(--c-success)",
   summary:
-    "Phase D introduces a local-first data layer for the app. All metadata (anime info, episode info, covers) is stored locally in the database — the network is only used for refresh or opening new content. A multi-stage refresh system on the details page (episodes list → metadata → full refresh) provides fine-grained control with vibration feedback. A 6-hour auto-update runs on the homepage only. Image caching via Coil's disk cache (500MB, persistent) ensures covers + thumbnails survive restart. This session focuses ONLY on data management + caching; backup/restore is deferred to a future phase.",
+    "Phase D introduces a local-first data layer for the app. All metadata (anime info, episode info, covers) is stored locally in the database — the network is only used for refresh or opening new content. A multi-stage refresh system on the details page (episodes list → metadata → full refresh) provides fine-grained control with vibration feedback. A 6-hour auto-update runs on the homepage only. Image caching via Coil's disk cache (500MB, persistent) ensures covers + thumbnails survive restart. Status: COMPLETE — all 5 milestones (D.1–D.5) implemented + CI verified GREEN on branch feature/watch-progress-history-updates.",
 } as const;
 
 /* ---------------------------------------------------------------------------
@@ -611,35 +613,35 @@ export const PHASE_D_MILESTONES: PhaseDMilestone[] = [
     title: "Local metadata cache (anime + episode)",
     description:
       "Add `anime_metadata_cache` + `episode_metadata_cache` tables. Create AnimeMetadataCache + EpisodeMetadataCache repositories. Update DetailsViewModel to read from cache first, then fetch from network if not cached. Update EpisodeMetadataFetcher to use cache. When refreshing, update the cache (not just the in-memory state). Cover images automatically update via Coil when the URL changes.",
-    status: "planned",
+    status: "done",
   },
   {
     id: "D.2",
     title: "Browse page cache + refresh",
     description:
       "Add `browse_cache` table. Create BrowseDataCache repository. Update BrowseViewModel to read from cache first. Implement pull-to-refresh with vibration. Implement 6-hour auto-update (homepage only).",
-    status: "planned",
+    status: "done",
   },
   {
     id: "D.3",
     title: "Details page multi-stage refresh",
     description:
       "Implement scroll-based refresh triggers (vibration + visual indicators at each stage). Stage 1: refresh episodes list only (from extension source). Stage 2: refresh metadata only (from data source). Stage 3: refresh all (both sources + cover images). Circular spinning indicator during refresh, smooth fade-out when complete. Wire the three-dot menu 'Refresh' button to stage 3.",
-    status: "planned",
+    status: "done",
   },
   {
     id: "D.4",
     title: "Image caching",
     description:
       "Configure Coil's disk cache (500MB, persistent). Ensure images survive restart. Pre-download cover images for library entries on first library load.",
-    status: "planned",
+    status: "done",
   },
   {
     id: "D.5",
     title: "Library performance",
     description:
       "Library loads entirely from `anime_metadata_cache` (no network on tab switch). Remove the in-memory `anilistCache` — replaced by the persistent DB cache. Background refresh of stale entries (only when the user pulls to refresh). Lazy loading + pagination for large libraries.",
-    status: "planned",
+    status: "done",
   },
 ];
 

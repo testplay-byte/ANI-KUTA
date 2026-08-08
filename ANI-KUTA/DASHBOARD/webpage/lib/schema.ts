@@ -1,15 +1,15 @@
 /*
- * ANI-KUTA database schema — visual data (Phase 3 foundation).
+ * ANI-KUTA database schema — visual data (Phase 3 foundation + Phase WP/UP/SC/TR/NOTIF additions).
  *
  * Source: APP/ani-kuta/DOCUMENTATION/17-database-schema.md
  *
- * 21 tables (19 active + 2 deferred) across 10 logical groups.
+ * 28 tables (26 active + 2 deferred) across 13 logical groups.
  * Hardcoded for the static dashboard demo — no API calls.
  *
  * Each table entry mirrors the SQL CREATE TABLE statement in the doc:
  *  - columns: ordered (name, type, constraints, isPK, isFK, fkTarget, desc)
  *  - indexes: list of named indexes
- *  - group: one of the 10 logical groups
+ *  - group: one of the 13 logical groups
  *  - deferred: true if Phase 6+
  */
 
@@ -23,7 +23,10 @@ export type SchemaGroup =
   | "Metadata"
   | "App"
   | "Activity"
-  | "Ads";
+  | "Ads"
+  | "Updates"
+  | "Ratings"
+  | "Notifications";
 
 export interface SchemaColumn {
   name: string;
@@ -61,7 +64,7 @@ export interface SchemaTable {
 }
 
 /* ---------------------------------------------------------------------------
- * Group metadata (10 groups, color-coded per DESIGN.md accent palette).
+ * Group metadata (13 groups, color-coded per DESIGN.md accent palette).
  * ------------------------------------------------------------------------- */
 
 export interface GroupMeta {
@@ -157,10 +160,34 @@ export const SCHEMA_GROUPS: GroupMeta[] = [
     colorVar: "#71717A",
     dot: "bg-[#71717A]",
   },
+  {
+    name: "Updates",
+    label: "Updates + Schedule",
+    purpose: "New-episode detection + per-anime update state + airing schedule (Phase UP + SC)",
+    color: "#10B981",
+    colorVar: "#10B981",
+    dot: "bg-[#10B981]",
+  },
+  {
+    name: "Ratings",
+    label: "Ratings",
+    purpose: "Per-anime + per-episode user ratings (Phase TR)",
+    color: "#F43F5E",
+    colorVar: "#F43F5E",
+    dot: "bg-[#F43F5E]",
+  },
+  {
+    name: "Notifications",
+    label: "Notifications",
+    purpose: "Notification preferences + sent log (Phase NOTIF)",
+    color: "#06B6D4",
+    colorVar: "#06B6D4",
+    dot: "bg-[#06B6D4]",
+  },
 ];
 
 /* ---------------------------------------------------------------------------
- * 21 tables — hardcoded from 17-database-schema.md.
+ * 28 tables — hardcoded from 17-database-schema.md + Phase WP/UP/SC/TR/NOTIF additions.
  * ------------------------------------------------------------------------- */
 
 export const SCHEMA_TABLES: SchemaTable[] = [
@@ -522,6 +549,132 @@ export const SCHEMA_TABLES: SchemaTable[] = [
     ],
     indexes: [{ name: "idx_ad_shown_at", on: "shown_at DESC" }],
   },
+
+  /* ---- Group 11: Updates + Schedule (Phase UP + SC) — 3 new tables ---- */
+  {
+    name: "episode_update",
+    group: "Updates",
+    description:
+      "Per-episode update record. One row per detected new episode (WorkManager-driven). Phase UP.",
+    columns: [
+      { name: "id", type: "INTEGER", constraints: "PRIMARY KEY AUTOINCREMENT", isPK: true },
+      { name: "content_uid", type: "TEXT", constraints: "NOT NULL, FK", isFK: true, fkTarget: "content_uid.uid", desc: "Parent content" },
+      { name: "episode_uid", type: "TEXT", constraints: "NOT NULL, FK", isFK: true, fkTarget: "episode_uid.uid", desc: "The episode" },
+      { name: "episode_number", type: "REAL", constraints: "NOT NULL", desc: "Episode number (denormalized for fast queries)" },
+      { name: "seen", type: "INTEGER", constraints: "NOT NULL DEFAULT 0", desc: "0 = unread on Updates screen, 1 = seen by user" },
+      { name: "is_subbed", type: "INTEGER", desc: "T4 sub/dub flag — 1 if subbed source detected" },
+      { name: "is_dubbed", type: "INTEGER", desc: "T4 sub/dub flag — 1 if dubbed source detected" },
+      { name: "detected_at", type: "INTEGER", constraints: "NOT NULL", desc: "Epoch millis — when the worker found this episode" },
+    ],
+    indexes: [
+      { name: "idx_episode_update_content", on: "content_uid" },
+      { name: "idx_episode_update_seen", on: "seen", note: "Filter unseen updates" },
+      { name: "idx_episode_update_detected", on: "detected_at DESC", note: "Recent-first ordering on Updates screen" },
+    ],
+    uniques: ["(content_uid, episode_uid) — one row per content+episode"],
+  },
+  {
+    name: "anime_update_state",
+    group: "Updates",
+    description:
+      "Per-anime update state — drives the smart-engine backoff (T2 next_check_at) + self-improving interval (T3). Phase UP.",
+    columns: [
+      { name: "content_uid", type: "TEXT", constraints: "PRIMARY KEY, FK", isPK: true, isFK: true, fkTarget: "content_uid.uid" },
+      { name: "status", type: "TEXT", constraints: "NOT NULL", desc: "RELEASING|FINISHED|NOT_YET_RELEASED|CANCELLED — T1 status filter (only RELEASING checked actively)" },
+      { name: "last_checked_at", type: "INTEGER", constraints: "NOT NULL", desc: "Epoch millis — last WorkManager run for this anime" },
+      { name: "next_check_at", type: "INTEGER", constraints: "NOT NULL", desc: "T2 backoff — when to check next (increases if no new episodes found)" },
+      { name: "consecutive_misses", type: "INTEGER", constraints: "NOT NULL DEFAULT 0", desc: "T3 self-improving — how many checks in a row found nothing (drives next_check_at interval)" },
+      { name: "strike_count", type: "INTEGER", constraints: "NOT NULL DEFAULT 0", desc: "M3 3-strike rule — auto-pause checks after 3 consecutive failures" },
+      { name: "suppressed_for_watched", type: "INTEGER", constraints: "NOT NULL DEFAULT 0", desc: "M5 — suppress updates for anime the user is finished with" },
+    ],
+    indexes: [
+      { name: "idx_anime_update_next_check", on: "next_check_at", note: "Worker queries WHERE next_check_at <= now ORDER BY next_check_at" },
+      { name: "idx_anime_update_status", on: "status", note: "T1 — only check RELEASING anime" },
+    ],
+  },
+  {
+    name: "episode_schedule",
+    group: "Updates",
+    description:
+      "AniList airing schedule for currently-releasing anime. Powers the Schedule screen + actual-release tracking (Phase SC). actual_at is populated by the ActualReleaseUpdater when the WorkManager detects the episode is out.",
+    columns: [
+      { name: "content_uid", type: "TEXT", constraints: "NOT NULL, FK", isFK: true, fkTarget: "content_uid.uid" },
+      { name: "episode_number", type: "REAL", constraints: "NOT NULL", desc: "Episode number" },
+      { name: "airing_at", type: "INTEGER", constraints: "NOT NULL", desc: "AniList predicted airing time (epoch millis)" },
+      { name: "actual_at", type: "INTEGER", desc: "Phase SC-2 — actual release time (set when WorkManager detects the episode); null until then" },
+      { name: "time_until_airing", type: "INTEGER", desc: "AniList seconds-until-airing snapshot (for live countdown on Schedule screen)" },
+      { name: "updated_at", type: "INTEGER", constraints: "NOT NULL", desc: "When this row was last refreshed" },
+    ],
+    compositePK: ["content_uid", "episode_number"],
+    indexes: [
+      { name: "idx_schedule_airing", on: "airing_at ASC", note: "Schedule screen ordering" },
+      { name: "idx_schedule_actual", on: "actual_at", note: "Find episodes whose actual_at just got populated" },
+    ],
+  },
+
+  /* ---- Group 12: Ratings (Phase TR) — 2 new tables ---- */
+  {
+    name: "user_rating",
+    group: "Ratings",
+    description:
+      "Per-anime user rating (0-100). Separate from library_entry.score so ratings survive library unbinding. Phase TR.",
+    columns: [
+      { name: "content_uid", type: "TEXT", constraints: "PRIMARY KEY, FK", isPK: true, isFK: true, fkTarget: "content_uid.uid" },
+      { name: "rating", type: "INTEGER", constraints: "NOT NULL", desc: "0-100 (user rating)" },
+      { name: "rated_at", type: "INTEGER", constraints: "NOT NULL", desc: "Epoch millis — last rating change" },
+    ],
+    indexes: [{ name: "idx_user_rating_rated_at", on: "rated_at DESC" }],
+  },
+  {
+    name: "user_episode_rating",
+    group: "Ratings",
+    description:
+      "Per-episode user rating (0-100). Powers the episode-level rating UI (Phase TR). Composite key on (content_uid, episode_uid).",
+    columns: [
+      { name: "content_uid", type: "TEXT", constraints: "NOT NULL, FK", isFK: true, fkTarget: "content_uid.uid" },
+      { name: "episode_uid", type: "TEXT", constraints: "NOT NULL, FK", isFK: true, fkTarget: "episode_uid.uid" },
+      { name: "rating", type: "INTEGER", constraints: "NOT NULL", desc: "0-100 (user rating)" },
+      { name: "rated_at", type: "INTEGER", constraints: "NOT NULL", desc: "Epoch millis" },
+    ],
+    compositePK: ["content_uid", "episode_uid"],
+    indexes: [{ name: "idx_user_episode_rating_rated_at", on: "rated_at DESC" }],
+  },
+
+  /* ---- Group 13: Notifications (Phase NOTIF) — 2 new tables ---- */
+  {
+    name: "notification_config",
+    group: "Notifications",
+    description:
+      "Per-anime notification preferences (enabled/disabled, lead time, per-channel toggles). Phase NOTIF.",
+    columns: [
+      { name: "content_uid", type: "TEXT", constraints: "PRIMARY KEY, FK", isPK: true, isFK: true, fkTarget: "content_uid.uid" },
+      { name: "enabled", type: "INTEGER", constraints: "NOT NULL DEFAULT 1", desc: "0 = notifications muted for this anime" },
+      { name: "notify_on_release", type: "INTEGER", constraints: "NOT NULL DEFAULT 1", desc: "Notify when a new episode is detected" },
+      { name: "notify_on_schedule", type: "INTEGER", constraints: "NOT NULL DEFAULT 0", desc: "Notify when an episode airs (per the schedule)" },
+      { name: "lead_time_minutes", type: "INTEGER", constraints: "NOT NULL DEFAULT 0", desc: "Notify N minutes before airing" },
+      { name: "updated_at", type: "INTEGER", constraints: "NOT NULL", desc: "Epoch millis" },
+    ],
+    indexes: [{ name: "idx_notification_config_enabled", on: "enabled", note: "Find anime with notifications on" }],
+  },
+  {
+    name: "notification_sent",
+    group: "Notifications",
+    description:
+      "Log of sent notifications — used for dedup (don't notify twice for the same episode) + analytics. Phase NOTIF.",
+    columns: [
+      { name: "id", type: "INTEGER", constraints: "PRIMARY KEY AUTOINCREMENT", isPK: true },
+      { name: "content_uid", type: "TEXT", constraints: "NOT NULL, FK", isFK: true, fkTarget: "content_uid.uid" },
+      { name: "episode_uid", type: "TEXT", isFK: true, fkTarget: "episode_uid.uid", desc: "Nullable for non-episode notifications" },
+      { name: "channel", type: "TEXT", constraints: "NOT NULL", desc: "release|schedule|download|system" },
+      { name: "title", type: "TEXT", constraints: "NOT NULL", desc: "Notification title" },
+      { name: "body", type: "TEXT", desc: "Notification body" },
+      { name: "sent_at", type: "INTEGER", constraints: "NOT NULL", desc: "Epoch millis" },
+    ],
+    indexes: [
+      { name: "idx_notification_sent_sent_at", on: "sent_at DESC" },
+      { name: "idx_notification_sent_unique", on: "(content_uid, episode_uid, channel)", unique: true, partial: true, note: "Dedup — one notification per (content, episode, channel)" },
+    ],
+  },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -529,10 +682,10 @@ export const SCHEMA_TABLES: SchemaTable[] = [
  * ------------------------------------------------------------------------- */
 
 export const SCHEMA_SUMMARY = {
-  totalTables: SCHEMA_TABLES.length, // 21
-  activeTables: SCHEMA_TABLES.filter((t) => !t.deferred).length, // 19
+  totalTables: SCHEMA_TABLES.length, // 28
+  activeTables: SCHEMA_TABLES.filter((t) => !t.deferred).length, // 26
   deferredTables: SCHEMA_TABLES.filter((t) => t.deferred).length, // 2
-  totalGroups: SCHEMA_GROUPS.length, // 10
+  totalGroups: SCHEMA_GROUPS.length, // 13
   totalColumns: SCHEMA_TABLES.reduce((acc, t) => acc + t.columns.length, 0),
   totalIndexes: SCHEMA_TABLES.reduce(
     (acc, t) => acc + (t.indexes?.length ?? 0),
@@ -552,7 +705,7 @@ export interface ERNode {
   label: string;
   /** grid column 1-12 */
   col: number;
-  /** grid row 1-6 */
+  /** grid row 1-7 */
   row: number;
   group: SchemaGroup;
 }
@@ -590,6 +743,15 @@ export const ER_NODES: ERNode[] = [
   { id: "app_metadata", label: "app_metadata", col: 6, row: 5, group: "App" },
   { id: "activity_event", label: "activity_event", col: 9, row: 5, group: "Activity" },
   { id: "ad_impression", label: "ad_impression", col: 11, row: 5, group: "Ads" },
+  // Row 6 — Updates + Schedule + Ratings (Phase UP/SC/TR)
+  { id: "episode_update", label: "episode_update", col: 2, row: 6, group: "Updates" },
+  { id: "anime_update_state", label: "anime_update_state", col: 4, row: 6, group: "Updates" },
+  { id: "episode_schedule", label: "episode_schedule", col: 6, row: 6, group: "Updates" },
+  { id: "user_rating", label: "user_rating", col: 9, row: 6, group: "Ratings" },
+  { id: "user_episode_rating", label: "user_episode_rating", col: 11, row: 6, group: "Ratings" },
+  // Row 7 — Notifications (Phase NOTIF)
+  { id: "notification_config", label: "notification_config", col: 4, row: 7, group: "Notifications" },
+  { id: "notification_sent", label: "notification_sent", col: 6, row: 7, group: "Notifications" },
 ];
 
 export const ER_EDGES: EREdge[] = [
@@ -615,4 +777,14 @@ export const ER_EDGES: EREdge[] = [
   // Activity / Ads (deferred)
   { from: "content_uid", to: "activity_event", cardinality: "1-to-many" },
   { from: "content_uid", to: "ad_impression", cardinality: "1-to-many" },
+  // Updates + Schedule (Phase UP + SC)
+  { from: "content_uid", to: "anime_update_state", cardinality: "1-to-1" },
+  { from: "episode_uid", to: "episode_update", cardinality: "1-to-many" },
+  { from: "content_uid", to: "episode_schedule", cardinality: "1-to-many" },
+  // Ratings (Phase TR)
+  { from: "content_uid", to: "user_rating", cardinality: "1-to-1" },
+  { from: "episode_uid", to: "user_episode_rating", cardinality: "1-to-many", label: "via content_uid" },
+  // Notifications (Phase NOTIF)
+  { from: "content_uid", to: "notification_config", cardinality: "1-to-1" },
+  { from: "content_uid", to: "notification_sent", cardinality: "1-to-many" },
 ];

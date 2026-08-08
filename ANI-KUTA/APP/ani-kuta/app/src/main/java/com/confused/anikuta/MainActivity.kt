@@ -314,8 +314,13 @@ fun AppRoot() {
                     val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey)
                     if (localUri != null) {
                         // Look up the downloaded episode for metadata.
-                        val downloaded = downloadManager.getDownloadedEpisodes().value
+                        // Try exact match first, then fall back to mainId-only match
+                        // (the episodeKey format may differ between the Downloads page
+                        // and the downloaded_episode table).
+                        val allDownloaded = downloadManager.getDownloadedEpisodes().value
+                        val downloaded = allDownloaded
                             .firstOrNull { it.content.mainId == mainId && it.episode.episodeKey == episodeKey }
+                            ?: allDownloaded.firstOrNull { it.content.mainId == mainId }
                         val animeTitle = downloaded?.content?.title ?: "Downloaded"
                         val epTitle = downloaded?.episode?.name ?: "Episode"
                         val epNum = downloaded?.episode?.episodeNumber ?: 0f
@@ -376,14 +381,29 @@ fun AppRoot() {
                         // if the lang segment can't be parsed.
                         val subtitleUris = downloaded?.subtitleUris ?: emptyList()
                         Logger.i("Anikuta:MainActivity") {
-                            "Downloads→Watch: downloaded.subtitleUris.size=${subtitleUris.size}, " +
+                            "Downloads→Watch: downloaded=${downloaded != null}, " +
+                                "downloaded.subtitleUris.size=${subtitleUris.size}, " +
                                 "uris=${subtitleUris.joinToString("; ") { it.take(60) }}"
                         }
-                        val subtitleTracksStr = subtitleUris.mapIndexed { index, uri ->
+                        // Fallback: if subtitleUris is empty, try to find subtitle files
+                        // on disk by scanning the content folder's subtitles/ subfolder.
+                        val effectiveSubUris = if (subtitleUris.isNotEmpty()) {
+                            subtitleUris
+                        } else {
+                            Logger.w("Anikuta:MainActivity") {
+                                "Downloads→Watch: subtitleUris empty in DB — trying disk scan"
+                            }
+                            kotlinx.coroutines.runBlocking {
+                                scanSubtitleFilesOnDisk(mainId, downloaded?.episode?.episodeNumber?.toInt() ?: 0)
+                            }
+                        }
+                        val subtitleTracksStr = effectiveSubUris.mapIndexed { index, uri ->
                             val langLabel = extractSubtitleLangFromUri(uri, index)
                             "$uri${delim}$langLabel"
                         }.joinToString("\n")
-                        Logger.i("Anikuta:MainActivity") { "Downloads→Watch: passing ${subtitleUris.size} local subtitle track(s)" }
+                        Logger.i("Anikuta:MainActivity") {
+                            "Downloads→Watch: passing ${effectiveSubUris.size} local subtitle track(s), subtitleTracksStr.length=${subtitleTracksStr.length}"
+                        }
 
                         // D.FIX: Look up the sourceId from the content database so the
                         // watch screen can re-resolve non-downloaded episodes when the
@@ -1020,4 +1040,48 @@ private fun PlaceholderScreen(
             )
         }
     }
+}
+
+/**
+ * Fallback: scans the SAF storage for subtitle files for a specific episode.
+ * Used when the downloaded_episode DB table doesn't have subtitleUris populated.
+ *
+ * Searches the content folder's "subtitles" subfolder (new) + the root (legacy)
+ * for files matching the episode number pattern.
+ */
+private suspend fun scanSubtitleFilesOnDisk(mainId: String, episodeNumber: Int): List<String> {
+    if (episodeNumber <= 0) return emptyList()
+    val epNumPadded = String.format("%05d", episodeNumber)
+    val results = mutableListOf<String>()
+
+    try {
+        val koin = org.koin.core.context.GlobalContext.get()
+        val storage = koin.get<com.confused.anikuta.core.download.DownloadStorageProvider>()
+
+        val contentDir = storage.findContentFolder(mainId) ?: return emptyList()
+
+        val subtitlesDir = contentDir.listFiles().firstOrNull { it.name == "subtitles" && it.isDirectory }
+        val searchDirs = if (subtitlesDir != null) listOf(subtitlesDir, contentDir) else listOf(contentDir)
+
+        for (dir in searchDirs) {
+            for (file in dir.listFiles()) {
+                if (!file.isFile) continue
+                val name = file.name ?: continue
+                if ((name.startsWith("subtitle_E${epNumPadded}_") || name.startsWith(".subtitle_E${epNumPadded}_")) &&
+                    (name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass") || name.endsWith(".ssa"))
+                ) {
+                    results.add(file.uri.toString())
+                    com.confused.anikuta.core.common.Logger.i("Anikuta:MainActivity") {
+                        "scanSubtitleFilesOnDisk — found: ${name.take(60)}"
+                    }
+                }
+            }
+        }
+    } catch (e: Exception) {
+        com.confused.anikuta.core.common.Logger.w("Anikuta:MainActivity") {
+            "scanSubtitleFilesOnDisk failed: ${e.message}"
+        }
+    }
+
+    return results
 }

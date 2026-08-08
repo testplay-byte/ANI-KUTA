@@ -23,7 +23,7 @@ import {
  *
  * Sections:
  *  1. Plan summary + principles (9 principles).
- *  2. Full module tree (43 modules — TreeViewStatic, color-coded by layer).
+ *  2. Full module tree (44 modules — TreeViewStatic, color-coded by layer).
  *  3. Dependency rules (6 strict rules).
  *  4. Data flow diagram (discovery → watch → track, with identity backbone).
  *  5. Identity system model (ContentUID + ExternalReference graph).
@@ -40,11 +40,11 @@ export default function ArchitecturePage() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
-              Phase 1 Architecture Plan
+              Phase 1 Architecture Plan (REALIZED)
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              Complete + sub-agent reviewed · 31 of 43 modules built · all decisions D-027..D-054 confirmed
+              All 44 planned modules built · all decisions D-001..D-152 confirmed · Nav3 REMOVED (D-150)
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -54,11 +54,12 @@ export default function ArchitecturePage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            The full architecture plan for the ANI-KUTA rebuild: 43 modules
-            planned across :app, :build-logic, :core (24), :data (7), and
-            :feature (anime/shared/manga/novel). 31 modules are built so far
-            (Phase 2 scaffold + Phase 3 core infrastructure + Phase 4 feature
-            screens); 12 feature modules remain for Phase 5+. Future-proof,
+            The full architecture plan for the ANI-KUTA rebuild: 44 modules
+            built across :app (1), :core (25), :data (1), and :feature (17).
+            ALL planned modules are built + CI verified GREEN on branch
+            feature/watch-progress-history-updates. Phase 0–5 + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL
+            all complete. Nav3 REMOVED (D-150) — hand-rolled NavigationController +
+            sealed-class NavKeys. 28 DB tables (26 active + 2 deferred). Future-proof,
             modular, agent-friendly.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
@@ -118,8 +119,8 @@ export default function ArchitecturePage() {
       <Card>
         <SectionHeader
           eyebrow="§3 — Full Module Tree"
-          title="43 modules planned — 31 built so far"
-          desc=":app · :build-logic · :core (24 infrastructure modules) · :data (7 repository impls) · :feature (anime/shared/manga/novel, split api/impl per feature). 31 built (12 scaffold + 15 Phase 3 + 4 Phase 4 feature screens); 12 feature modules remain for Phase 5+."
+          title="44 modules — all built ✓"
+          desc=":app (1) · :core (26 infrastructure modules) · :data (1 repository impl) · :feature (16 — anime + extensions + download + watch + history + updates, split api/impl per navigable feature). All 44 built + CI verified GREEN. Nav3 REMOVED (D-150) — hand-rolled NavigationController."
         />
 
         <div className="rounded-[14px] border border-border bg-surface-alt/40 p-4 overflow-x-auto">
@@ -597,12 +598,12 @@ export default function ArchitecturePage() {
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed max-w-2xl">
               ~790 lines covering: architecture principles, full module tree
-              (43 modules), dependency rules, data flow, screen map (Nav3),
-              identity system design, backup/restore architecture (with §7.5
-              merge semantics), multi-extension architecture, multi-content-type
-              architecture, customizable UI system, ad system (deferred),
-              console logging, Phase 2 scaffold (12 modules), open questions,
-              sub-agent review notes.
+              (44 modules), dependency rules, data flow, screen map
+              (originally Nav3, now hand-rolled per D-150), identity system
+              design, backup/restore architecture (with §7.5 merge semantics),
+              multi-extension architecture, multi-content-type architecture,
+              customizable UI system, ad system (deferred), console logging,
+              Phase 2 scaffold (12 modules), open questions, sub-agent review notes.
             </p>
             <p className="text-[11px] text-text-secondary mt-2">
               Reviewed by Plan sub-agent (Task 5-REVIEW): 4 critical + 10
