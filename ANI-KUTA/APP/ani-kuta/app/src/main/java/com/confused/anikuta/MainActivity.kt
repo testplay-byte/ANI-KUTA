@@ -872,7 +872,7 @@ private fun extractSubtitleLangFromUri(uri: String, index: Int): String {
     val fileName = android.net.Uri.parse(uri).lastPathSegment ?: return "Subtitle ${index + 1}"
     // Expected: .subtitle_E{num}_{lang}_{index}.{ext}
     // Strip the leading ".subtitle_E" prefix + the "E{num}_" episode segment.
-    if (!fileName.startsWith(".subtitle_E")) return "Subtitle ${index + 1}"
+    if (!fileName.startsWith("subtitle_E") && !fileName.startsWith(".subtitle_E")) return "Subtitle ${index + 1}"
     val withoutExt = fileName.substringBeforeLast('.')
     // withoutExt = ".subtitle_E00001_english_0" → split by '_' → [".subtitle", "E00001", "english", "0"]
     val segments = withoutExt.split('_')

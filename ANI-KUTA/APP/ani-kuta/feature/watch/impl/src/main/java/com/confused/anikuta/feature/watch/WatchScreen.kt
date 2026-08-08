@@ -786,10 +786,15 @@ fun WatchScreen(
                         val subUris = dlEp?.subtitleUris ?: emptyList()
                         if (subUris.isNotEmpty()) {
                             observer?.let { obs ->
-                                obs.pendingSubtitleTracks = subUris.mapIndexed { i, u -> Pair(u, "Subtitle ${i + 1}") }
+                                obs.pendingSubtitleTracks = subUris.mapIndexed { i, u ->
+                                    val lang = com.confused.anikuta.extractSubtitleLangFromUri(u, i)
+                                    Pair(u, lang)
+                                }
                                 obs.trackHeaders = ""
                             }
-                            Logger.i(TAG) { "Episode switch — set ${subUris.size} pending subtitle track(s) for offline episode" }
+                            Logger.i(TAG) { "Episode switch — set ${subUris.size} pending subtitle track(s) for offline episode: ${subUris.joinToString("; ") { it.take(60) }}" }
+                        } else {
+                            Logger.w(TAG) { "Episode switch — no subtitle URIs found for downloaded episode (mainId=$currentMainId, epUrl=${ep.url})" }
                         }
 
                         // For fd:// URLs, delay 500ms for surface readiness (same as initial load).

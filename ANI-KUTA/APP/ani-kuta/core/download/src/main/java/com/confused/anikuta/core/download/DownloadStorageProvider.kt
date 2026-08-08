@@ -172,7 +172,7 @@ class DownloadStorageProvider(
             val epNum = String.format("%05d", episode.episodeNumber.toInt())
             val rawLang = subtitleLangs.getOrNull(subIndex2) ?: ""
             val safeLang = sanitizeLangForFileName(rawLang)
-            val subName = ".subtitle_E${epNum}_${safeLang}_${subIndex2}.$ext"
+            val subName = "subtitle_E${epNum}_${safeLang}_${subIndex2}.$ext"
             subIndex[subName]?.delete()
             val subTarget = subtitlesDir.createFile("application/octet-stream", subName)
             if (subTarget != null) {

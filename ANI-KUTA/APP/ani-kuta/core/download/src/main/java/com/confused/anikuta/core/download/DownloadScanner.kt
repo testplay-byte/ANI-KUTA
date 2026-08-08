@@ -275,9 +275,10 @@ class DownloadScanner(
      * DB had no record of them (previously `subtitleUris = emptyList()` was
      * hard-coded). This recovers them so offline playback works after a reinstall.
      *
-     * Recognizes BOTH naming conventions (backward-compat with pre-fix downloads):
-     * - New: `.subtitle_E{epNumPadded}_{lang}_{index}.{ext}` (D-FIX-SUB)
-     * - Legacy: `.subtitle_E{epNumPadded}_{index}.{ext}` (pre-fix)
+     * Recognizes ALL naming conventions (backward-compat):
+     * - Current: `subtitle_E{epNumPadded}_{lang}_{index}.{ext}` (no dot prefix)
+     * - Previous: `.subtitle_E{epNumPadded}_{lang}_{index}.{ext}` (with dot prefix)
+     * - Legacy: `.subtitle_E{epNumPadded}_{index}.{ext}` (pre-fix, no lang)
      *
      * Returns the URIs sorted by the trailing index (so track order is preserved),
      * which matches the order the downloader wrote them.
@@ -286,9 +287,10 @@ class DownloadScanner(
         index: Map<String, DocumentFile>,
         epNumPadded: String,
     ): List<String> {
-        val prefix = ".subtitle_E${epNumPadded}_"
+        // Search for both "subtitle_E" (current) and ".subtitle_E" (previous/legacy).
         val matching = index.entries.filter { (name, _) ->
-            name.startsWith(prefix) && name.substringAfterLast('.', "").lowercase() in SUBTITLE_EXTENSIONS
+            (name.startsWith("subtitle_E${epNumPadded}_") || name.startsWith(".subtitle_E${epNumPadded}_")) &&
+            name.substringAfterLast('.', "").lowercase() in SUBTITLE_EXTENSIONS
         }
         // Sort by the index segment (the last numeric token before the extension).
         // For both new (`_lang_index.ext`) and legacy (`_index.ext`) formats, the
