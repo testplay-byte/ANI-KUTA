@@ -58,6 +58,18 @@
             android:name="com.confused.anikuta.data.extension.installer.ExtensionInstallService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Phase UP: Disable default WorkManagerInitializer (we use Configuration.Provider) -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
     </application>
 
 </manifest>

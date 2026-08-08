@@ -81,6 +81,14 @@ class DatabaseDriverFactory(private val context: Context) {
                     }
                     // Index for the new main_id column (idempotent — CREATE INDEX IF NOT EXISTS).
                     db.execSQL("CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id)")
+
+                    // ── Phase UP: create new tables if they don't exist (episode_update, anime_update_state) ──
+                    // For existing installs, these tables are new. onCreate(db) runs ALL CREATE TABLE IF NOT EXISTS
+                    // statements (idempotent — existing tables are unaffected). This is the cleanest way to add
+                    // new tables without duplicating the schema SQL.
+                    if (!hasColumn(db, "episode_update", "id")) {
+                        onCreate(db)
+                    }
                 }
 
                 /**

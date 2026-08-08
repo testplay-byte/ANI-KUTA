@@ -74,10 +74,12 @@ dependencies {
     implementation(project(":feature:watch:impl"))
     implementation(project(":feature:anime-history:api"))
     implementation(project(":feature:anime-history:impl"))
+    implementation(project(":core:updates"))
 
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
 

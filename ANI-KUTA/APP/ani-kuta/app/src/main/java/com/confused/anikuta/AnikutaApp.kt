@@ -29,6 +29,7 @@ import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
 import com.confused.anikuta.feature.animesearch.di.searchModule
 import com.confused.anikuta.feature.animehistory.di.historyModule
+import com.confused.anikuta.core.updates.di.updatesModule
 import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
 import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
@@ -45,7 +46,7 @@ import uy.kohesive.injekt.api.addSingletonFactory
 import uy.kohesive.injekt.api.fullType
 import java.util.UUID
 
-class AnikutaApp : Application() {
+class AnikutaApp : Application(), androidx.work.Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
@@ -91,6 +92,7 @@ class AnikutaApp : Application() {
                 libraryModule,
                 searchModule,
                 historyModule,
+                updatesModule,
                 activityTrackerModule,
                 extensionModule,
                 playerModule,
@@ -125,7 +127,33 @@ class AnikutaApp : Application() {
         } catch (e: Exception) {
             Logger.e("AnikutaApp", e) { "Failed to set Coil ImageLoader" }
         }
+
+        // Phase UP: Schedule the periodic UpdateCheckWorker (1h cadence).
+        try {
+            val constraints = androidx.work.Constraints.Builder()
+                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                .setRequiresBatteryNotLow(true)
+                .build()
+            val request = androidx.work.PeriodicWorkRequestBuilder<
+                com.confused.anikuta.core.updates.UpdateCheckWorker
+            >(
+                com.confused.anikuta.core.updates.UpdateCheckWorker.PERIODIC_INTERVAL_HOURS,
+                java.util.concurrent.TimeUnit.HOURS,
+            ).setConstraints(constraints).build()
+            androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                com.confused.anikuta.core.updates.UpdateCheckWorker.PERIODIC_WORK_NAME,
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                request,
+            )
+            Logger.i("AnikutaApp") { "UpdateCheckWorker scheduled (1h periodic, CONNECTED + BatteryNotLow)" }
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to schedule UpdateCheckWorker" }
+        }
     }
+
+    // Phase UP: Configuration.Provider for WorkManager (disables default initializer).
+    override val workManagerConfiguration: androidx.work.Configuration
+        get() = androidx.work.Configuration.Builder().build()
 
     companion object {
         // App-level infrastructure DI
