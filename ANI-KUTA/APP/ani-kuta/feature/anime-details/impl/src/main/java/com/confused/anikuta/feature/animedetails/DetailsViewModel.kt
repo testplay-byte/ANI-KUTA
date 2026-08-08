@@ -209,10 +209,12 @@ class DetailsViewModel(
                 if (mainId != null) {
                     watchProgressStore.observeByMainId(mainId)
                 } else {
-                    kotlinx.coroutines.flow.flowOf(emptyMap())
+                    kotlinx.coroutines.flow.flowOf(emptyList())
                 }
             }
-            .map { list -> list.associateBy { it.episodeKey } }
+            .map { list: List<com.confused.anikuta.core.watchprogress.WatchProgress> ->
+                list.associateBy { it.episodeKey }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     /** Phase WP: Toggle the watched state of an episode (swipe-to-toggle). */

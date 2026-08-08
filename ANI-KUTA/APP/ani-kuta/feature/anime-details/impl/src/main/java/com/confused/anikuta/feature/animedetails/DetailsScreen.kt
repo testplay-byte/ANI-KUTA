@@ -82,6 +82,14 @@ import org.koin.compose.koinInject
 import kotlinx.coroutines.launch  // Phase WP: for swipe animation coroutine
 import androidx.compose.foundation.layout.offset  // Phase WP: for swipe translation
 import androidx.compose.ui.graphics.graphicsLayer  // Phase WP: for watched alpha
+import androidx.compose.runtime.rememberCoroutineScope  // Phase WP: for swipe coroutine
+import androidx.compose.ui.input.pointer.pointerInput  // Phase WP: for swipe gesture
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures  // Phase WP
+import androidx.compose.material.icons.Icons  // Phase WP: swipe background icon
+import androidx.compose.material.icons.filled.CheckCircle  // Phase WP
+import androidx.compose.material.icons.filled.VisibilityOff  // Phase WP
+import androidx.compose.ui.graphics.ColorFilter  // Phase WP: grayscale
+import androidx.compose.ui.graphics.ColorMatrix  // Phase WP: grayscale
 
 /**
  * Details screen — complete UI overhaul matching the old project's design.
@@ -1455,10 +1463,10 @@ private fun EpisodeRow(
         label = "watched_saturation",
     )
     val colorMatrix = remember(saturation) {
-        android.graphics.ColorMatrix().apply { setSaturation(saturation) }
+        ColorMatrix().apply { setSaturation(saturation) }
     }
     val colorFilter = remember(colorMatrix) {
-        android.graphics.ColorMatrixColorFilter(colorMatrix)
+        ColorFilter.colorMatrix(colorMatrix)
     }
 
     // ── Card ── (wrapped in a Box for the swipe gesture + background icon)
@@ -1479,8 +1487,8 @@ private fun EpisodeRow(
             contentAlignment = androidx.compose.ui.Alignment.CenterStart,
         ) {
             androidx.compose.material3.Icon(
-                imageVector = if (isWatched) androidx.compose.material.icons.Icons.Filled.VisibilityOff
-                else androidx.compose.material.icons.Icons.Filled.CheckCircle,
+                imageVector = if (isWatched) Icons.Filled.VisibilityOff
+                else Icons.Filled.CheckCircle,
                 contentDescription = if (isWatched) "Mark as unwatched" else "Mark as watched",
                 tint = if (isWatched) MaterialTheme.colorScheme.onSurfaceVariant
                 else MaterialTheme.colorScheme.primary,
@@ -1496,7 +1504,7 @@ private fun EpisodeRow(
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(swipeOffset.value.toInt(), 0) }
                 .pointerInput(Unit) {
-                    androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                    detectHorizontalDragGestures(
                         onDragEnd = {
                             // If past threshold → toggle. Else spring back.
                             if (kotlin.math.abs(swipeOffset.value) > swipeThresholdPx) {
