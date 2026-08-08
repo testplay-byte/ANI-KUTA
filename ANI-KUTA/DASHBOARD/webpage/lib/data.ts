@@ -45,7 +45,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
   { label: "Phase D", href: "/phase-d/", icon: "planning", desc: "Data Management & Caching — local-first storage, smart refresh, image caching" },
   { label: "Downloads Plan", href: "/downloads-plan/", icon: "planning", desc: "Download system — workflow, storage, state machine, implementation phases" },
-  { label: "Testing", href: "/testing/", icon: "testing", desc: "On-device test checklist, log capture guide, and known concerns for the current build" },
 ];
 
 /* ---------------------------------------------------------------------------
