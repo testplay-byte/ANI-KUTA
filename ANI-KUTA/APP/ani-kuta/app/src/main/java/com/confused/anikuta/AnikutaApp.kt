@@ -124,6 +124,15 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             modules(debugKoinModules())
         }
 
+        // DB-4: wire debug-only integrations (Logger appender → DebugLogBuffer).
+        // No-op in release builds (initDebugIntegrations() is a no-op there).
+        // Must run AFTER Koin starts so DebugLogBuffer is resolvable.
+        try {
+            initDebugIntegrations()
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to init debug integrations" }
+        }
+
         // Seed lookup tables + Default library category (idempotent — INSERT OR IGNORE).
         // Must run AFTER Koin is started so ContentRepository is available.
         try {

@@ -148,16 +148,18 @@ fun DebugPanel(
                     )
 
                     // ── Tab content ──
+                    // No verticalScroll here — tabs that need scrolling (Database,
+                    // Console) manage their own LazyColumn/scroll. Non-scroll tabs
+                    // (Screen, placeholders) get a padding wrapper.
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
                         when (activeTab) {
                             DebugTab.SCREEN -> CurrentScreenContent()
                             DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab()
-                            DebugTab.CONSOLE -> PlaceholderContent("Console", "DB-4")
+                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
                             DebugTab.NETWORK -> PlaceholderContent("Network", "DB-5")
                             DebugTab.APP_INFO -> PlaceholderContent("App Info", "DB-6")
                         }

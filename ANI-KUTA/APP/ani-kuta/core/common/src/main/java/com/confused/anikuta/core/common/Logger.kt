@@ -22,6 +22,19 @@ object Logger {
     @Volatile
     private var minLevel: LogLevel = LogLevel.VERBOSE
 
+    /**
+     * In-memory log appender (Phase DB). Null by default — zero overhead when
+     * not set. Set by `:app/src/debug/DebugInit.kt` to a `DebugLogBuffer`
+     * (10,000-entry ring buffer) in debug builds. Release builds never set it.
+     */
+    @Volatile
+    private var appender: LogAppender? = null
+
+    /** Set the in-memory appender (debug builds only). Null = no buffering. */
+    fun setAppender(appender: LogAppender?) {
+        this.appender = appender
+    }
+
     /** Called from :app Application.onCreate() with :app's BuildConfig.DEBUG. */
     fun setEnabled(enabled: Boolean) {
         this.enabled = enabled
@@ -33,31 +46,41 @@ object Logger {
 
     fun v(tag: String, throwable: Throwable? = null, message: () -> String) {
         if (enabled && minLevel <= LogLevel.VERBOSE) {
-            Log.v(tag, message(), throwable)
+            val msg = message()
+            Log.v(tag, msg, throwable)
+            appender?.append(LogLevel.VERBOSE, tag, msg, throwable)
         }
     }
 
     fun d(tag: String, throwable: Throwable? = null, message: () -> String) {
         if (enabled && minLevel <= LogLevel.DEBUG) {
-            Log.d(tag, message(), throwable)
+            val msg = message()
+            Log.d(tag, msg, throwable)
+            appender?.append(LogLevel.DEBUG, tag, msg, throwable)
         }
     }
 
     fun i(tag: String, throwable: Throwable? = null, message: () -> String) {
         if (enabled && minLevel <= LogLevel.INFO) {
-            Log.i(tag, message(), throwable)
+            val msg = message()
+            Log.i(tag, msg, throwable)
+            appender?.append(LogLevel.INFO, tag, msg, throwable)
         }
     }
 
     fun w(tag: String, throwable: Throwable? = null, message: () -> String) {
         if (enabled && minLevel <= LogLevel.WARN) {
-            Log.w(tag, message(), throwable)
+            val msg = message()
+            Log.w(tag, msg, throwable)
+            appender?.append(LogLevel.WARN, tag, msg, throwable)
         }
     }
 
     fun e(tag: String, throwable: Throwable? = null, message: () -> String) {
         if (enabled && minLevel <= LogLevel.ERROR) {
-            Log.e(tag, message(), throwable)
+            val msg = message()
+            Log.e(tag, msg, throwable)
+            appender?.append(LogLevel.ERROR, tag, msg, throwable)
         }
     }
 }
