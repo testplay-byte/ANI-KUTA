@@ -1,5 +1,10 @@
 package com.confused.anikuta.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,42 +20,34 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SettingsGroupCard
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import com.confused.anikuta.core.notifications.NotificationConfig
+import com.confused.anikuta.core.notifications.AudioPref
+import com.confused.anikuta.core.notifications.TriggerState
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -58,32 +55,29 @@ import org.koin.compose.viewmodel.koinViewModel
  *
  * Reached from [SettingsScreen] → "Notifications" nav row.
  *
- * Three sections:
+ * Sections:
  * 1. **General** — global master kill switch.
- * 2. **New anime defaults** — the trigger + audio prefs seeded into per-anime config
- *    when a user enables notifications for a new anime.
- * 3. **Library** — per-anime notification config. Each row has a master toggle for
- *    that anime; tapping the row opens a detail sheet with per-trigger + sub/dub
- *    toggles.
+ * 2. **New anime defaults** (hidden when master is off) — tri-state triggers
+ *    (On / Silent / Off) for schedule / watchable / immediate, plus a tri-state
+ *    audio pref (Sub / Dub / Both). Each row's description adapts to the selection.
+ * 3. **Library** — a nav row to the dedicated [NotificationsLibraryScreen] for
+ *    per-anime configuration.
  *
  * @param onBack Pops this screen.
+ * @param onOpenLibrary Navigates to the per-anime library config page.
  */
 @Composable
 fun NotificationsSettingsScreen(
     onBack: () -> Unit,
+    onOpenLibrary: () -> Unit,
     viewModel: NotificationsSettingsViewModel = koinViewModel(),
 ) {
     val masterEnabled by viewModel.masterEnabled.collectAsStateWithLifecycle()
     val defaults by viewModel.defaults.collectAsStateWithLifecycle()
-    val libraryItems by viewModel.libraryItems.collectAsStateWithLifecycle()
-    val loading by viewModel.loading.collectAsStateWithLifecycle()
 
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
-
-    // The anime whose detail sheet is open (null = closed).
-    var sheetItem by remember { mutableStateOf<AnimeNotifItem?>(null) }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -115,64 +109,18 @@ fun NotificationsSettingsScreen(
                         }
                     }
 
-                    // ── New anime defaults ──
+                    // ── New anime defaults (smoothly hidden when master is off) ──
                     item {
-                        SettingsGroupCard(label = "New anime defaults") {
-                            SettingRow(
-                                title = "On schedule",
-                                description = "Notify when the airing time is reached",
-                                trailing = {
-                                    Switch(
-                                        checked = defaults.onSchedule,
-                                        onCheckedChange = viewModel::setDefaultOnSchedule,
-                                    )
-                                },
-                            )
-                            SettingRow(
-                                title = "On watchable",
-                                description = "Notify when an episode is found on a source",
-                                trailing = {
-                                    Switch(
-                                        checked = defaults.onWatchable,
-                                        onCheckedChange = viewModel::setDefaultOnWatchable,
-                                    )
-                                },
-                            )
-                            SettingRow(
-                                title = "On immediate",
-                                description = "Notify as soon as the schedule says released",
-                                trailing = {
-                                    Switch(
-                                        checked = defaults.onImmediate,
-                                        onCheckedChange = viewModel::setDefaultOnImmediate,
-                                    )
-                                },
-                            )
-                            SettingRow(
-                                title = "Sub",
-                                description = "Notify for subbed releases",
-                                trailing = {
-                                    Switch(
-                                        checked = defaults.sub,
-                                        onCheckedChange = viewModel::setDefaultSub,
-                                    )
-                                },
-                            )
-                            SettingRow(
-                                title = "Dub",
-                                description = "Notify for dubbed releases",
-                                showDivider = false,
-                                trailing = {
-                                    Switch(
-                                        checked = defaults.dub,
-                                        onCheckedChange = viewModel::setDefaultDub,
-                                    )
-                                },
-                            )
+                        AnimatedVisibility(
+                            visible = masterEnabled,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically(),
+                        ) {
+                            DefaultsSection(defaults, viewModel)
                         }
                     }
 
-                    // ── Library: per-anime config ──
+                    // ── Library nav row ──
                     item {
                         Text(
                             text = "Library",
@@ -182,54 +130,7 @@ fun NotificationsSettingsScreen(
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp),
                         )
-                        Text(
-                            text = "Enable notifications per anime. Tap a row to customize triggers.",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-                        )
-                    }
-
-                    if (loading) {
-                        item {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    "Loading library…",
-                                    fontFamily = RobotoFamily,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    } else if (libraryItems.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    "No library anime yet. Add anime to your library to configure per-anime notifications.",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                )
-                            }
-                        }
-                    } else {
-                        items(libraryItems, key = { it.mainId }) { item ->
-                            AnimeNotifRow(
-                                item = item,
-                                masterEnabled = masterEnabled,
-                                onToggle = { enabled ->
-                                    viewModel.setAnimeEnabled(item.mainId, enabled)
-                                },
-                                onOpenDetail = { sheetItem = item },
-                            )
-                        }
+                        LibraryNavRow(onOpenLibrary = onOpenLibrary)
                     }
                 }
 
@@ -243,166 +144,150 @@ fun NotificationsSettingsScreen(
                 )
             }
         }
-
-        // ── Per-anime config bottom sheet ──
-        val current = sheetItem
-        if (current != null) {
-            AnimeConfigSheet(
-                item = current,
-                onDismiss = { sheetItem = null },
-                onUpdate = { transform ->
-                    // Persist to the DB + refresh the ViewModel's library list.
-                    viewModel.updateAnimeConfig(current.mainId, transform)
-                },
-            )
-        }
     }
 }
 
-// ── Library row ──────────────────────────────────────────────────────────────
+// ── Defaults section (tri-state toggles + adapting descriptions) ──────────────
 
 @Composable
-private fun AnimeNotifRow(
-    item: AnimeNotifItem,
-    masterEnabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    onOpenDetail: () -> Unit,
+private fun DefaultsSection(
+    defaults: NotificationsSettingsViewModel.Defaults,
+    viewModel: NotificationsSettingsViewModel,
 ) {
+    SettingsGroupCard(label = "New anime defaults") {
+        // On schedule
+        SettingRow(
+            title = "On schedule",
+            description = triggerDescription("schedule", defaults.onSchedule),
+            showDivider = false,
+            trailing = {},
+        )
+        SegmentedToggle(
+            options = listOf("On", "Silent", "Off"),
+            selectedIndex = defaults.onSchedule.ordinal,
+            onSelect = { idx -> viewModel.setDefaultOnSchedule(TRIGGERS[idx]) },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        // On watchable
+        SettingRow(
+            title = "On watchable",
+            description = triggerDescription("watchable", defaults.onWatchable),
+            showDivider = false,
+            trailing = {},
+        )
+        SegmentedToggle(
+            options = listOf("On", "Silent", "Off"),
+            selectedIndex = defaults.onWatchable.ordinal,
+            onSelect = { idx -> viewModel.setDefaultOnWatchable(TRIGGERS[idx]) },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        // On immediate
+        SettingRow(
+            title = "On immediate",
+            description = triggerDescription("immediate", defaults.onImmediate),
+            showDivider = false,
+            trailing = {},
+        )
+        SegmentedToggle(
+            options = listOf("On", "Silent", "Off"),
+            selectedIndex = defaults.onImmediate.ordinal,
+            onSelect = { idx -> viewModel.setDefaultOnImmediate(TRIGGERS[idx]) },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        // Audio (Sub / Dub / Both)
+        SettingRow(
+            title = "Audio",
+            description = audioDescription(defaults.audioPref),
+            showDivider = false,
+            trailing = {},
+        )
+        SegmentedToggle(
+            options = listOf("Sub", "Dub", "Both"),
+            selectedIndex = defaults.audioPref.ordinal,
+            onSelect = { idx -> viewModel.setDefaultAudioPref(AUDIO[idx]) },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+}
+
+// TriggerState enum order must match the "On / Silent / Off" labels.
+private val TRIGGERS = listOf(TriggerState.ON, TriggerState.SILENT, TriggerState.OFF)
+// AudioPref enum order must match the "Sub / Dub / Both" labels.
+private val AUDIO = listOf(AudioPref.SUB, AudioPref.DUB, AudioPref.BOTH)
+
+private fun triggerDescription(trigger: String, state: TriggerState): String {
+    val condition = when (trigger) {
+        "schedule" -> "when the airing time is reached"
+        "watchable" -> "when an episode is found on a source"
+        "immediate" -> "as soon as the schedule says released"
+        else -> "for this trigger"
+    }
+    return when (state) {
+        TriggerState.ON -> "Notify $condition"
+        TriggerState.SILENT -> "Notify silently $condition"
+        TriggerState.OFF -> "Don't notify $condition"
+    }
+}
+
+private fun audioDescription(pref: AudioPref): String = when (pref) {
+    AudioPref.SUB -> "Notify for sub releases only"
+    AudioPref.DUB -> "Notify for dub releases only"
+    AudioPref.BOTH -> "Notify for sub and dub releases"
+}
+
+// ── Library nav row ──────────────────────────────────────────────────────────
+
+@Composable
+private fun LibraryNavRow(onOpenLibrary: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onOpenDetail),
+            .clickable(onClick = onOpenLibrary),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Cover (40×56dp)
-            if (item.coverUrl != null) {
-                AsyncImage(
-                    model = item.coverUrl,
-                    contentDescription = item.title,
-                    modifier = Modifier.size(width = 40.dp, height = 56.dp).clip(RoundedCornerShape(6.dp)),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Box(
-                    modifier = Modifier.size(width = 40.dp, height = 56.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.size(36.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        Icons.Filled.Notifications,
+                        imageVector = Icons.Filled.LibraryBooks,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
             Spacer(Modifier.width(12.dp))
-            // Title
-            Text(
-                text = item.title,
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (masterEnabled) MaterialTheme.colorScheme.onSurface
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            // Per-anime switch
-            Switch(
-                checked = item.isEnabled,
-                enabled = masterEnabled,
-                onCheckedChange = onToggle,
-            )
-            Spacer(Modifier.width(4.dp))
-            // Chevron → opens detail sheet
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Library",
+                    fontFamily = RobotoFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Per-anime notification config + advanced options",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "Customize",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp).clickable(onClick = onOpenDetail),
+                modifier = Modifier.size(20.dp),
             )
         }
-    }
-}
-
-// ── Per-anime config bottom sheet ────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AnimeConfigSheet(
-    item: AnimeNotifItem,
-    onDismiss: () -> Unit,
-    onUpdate: (NotificationConfig.() -> NotificationConfig) -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // The working config — defaults if none exists yet.
-    var config by remember(item.mainId) {
-        mutableStateOf(item.config ?: NotificationConfig(mainId = item.mainId))
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                text = item.title,
-                fontFamily = RobotoFamily,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
-            ConfigToggle("Enable notifications", config.enabled) { v ->
-                config = config.copy(enabled = v); onUpdate { copy(enabled = v) }
-            }
-            ConfigToggle("On schedule", config.notifyOnSchedule) { v ->
-                config = config.copy(notifyOnSchedule = v); onUpdate { copy(notifyOnSchedule = v) }
-            }
-            ConfigToggle("On watchable", config.notifyOnWatchable) { v ->
-                config = config.copy(notifyOnWatchable = v); onUpdate { copy(notifyOnWatchable = v) }
-            }
-            ConfigToggle("On immediate", config.notifyOnImmediate) { v ->
-                config = config.copy(notifyOnImmediate = v); onUpdate { copy(notifyOnImmediate = v) }
-            }
-            ConfigToggle("Sub", config.notifySub) { v ->
-                config = config.copy(notifySub = v); onUpdate { copy(notifySub = v) }
-            }
-            ConfigToggle("Dub", config.notifyDub) { v ->
-                config = config.copy(notifyDub = v); onUpdate { copy(notifyDub = v) }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
-
-@Composable
-private fun ConfigToggle(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            fontFamily = RobotoFamily,
-            fontSize = 15.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

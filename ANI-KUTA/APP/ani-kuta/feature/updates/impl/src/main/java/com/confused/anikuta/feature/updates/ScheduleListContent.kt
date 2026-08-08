@@ -19,6 +19,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Today
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -83,46 +88,105 @@ fun ScheduleListContent(
         }
     }
 
+    // "Today" button trigger counter — increments when the user taps the Today
+    // button; ScheduleCalendarContent observes it + animates the pager to today.
+    var scrollToTodayRequest by remember { androidx.compose.runtime.mutableStateOf(0) }
+
     // Toggle + content wrapped in a Column so the toggle sits ABOVE the content.
     // Previously these were siblings emitted into the parent Box — the fillMaxSize
     // list/calendar drew ON TOP of the toggle (a Box stacks later children above
     // earlier ones), hiding it. That was the "can't click the calendar button" bug.
     Column(modifier = Modifier.fillMaxSize()) {
-        // View toggle: List / Calendar
+        // View toggle bar — styled to match the Updates | Schedule pill (same
+        // container Surface + per-tab Surface). When in calendar view, the pill
+        // shrinks to the left (weight 1f) and a "Today" button appears on the right.
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            listOf("List" to false, "Calendar" to true).forEach { (label, isCal) ->
-                val isSelected = calendarView == isCal
-                val bgColor by androidx.compose.animation.animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary
-                    else androidx.compose.ui.graphics.Color.Transparent,
-                    animationSpec = androidx.compose.animation.core.tween(200),
-                    label = "schedView_$isCal",
-                )
-                val textColor by androidx.compose.animation.animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    animationSpec = androidx.compose.animation.core.tween(200),
-                    label = "schedText_$isCal",
-                )
-                Surface(
-                    color = bgColor,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).clickable { calendarView = isCal },
+            // ── List / Calendar pill (matches the Updates | Schedule tab strip) ──
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                Row(
+                    modifier = Modifier.padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        text = label,
-                        color = textColor,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    )
+                    listOf("List" to false, "Calendar" to true).forEach { (label, isCal) ->
+                        val isSelected = calendarView == isCal
+                        val bgColor by androidx.compose.animation.animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+                            else androidx.compose.ui.graphics.Color.Transparent,
+                            animationSpec = androidx.compose.animation.core.tween(200),
+                            label = "schedView_$isCal",
+                        )
+                        val textColor by androidx.compose.animation.animateColorAsState(
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = androidx.compose.animation.core.tween(200),
+                            label = "schedText_$isCal",
+                        )
+                        Surface(
+                            color = bgColor,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f).clickable { calendarView = isCal },
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = if (isCal) Icons.Filled.CalendarMonth
+                                    else Icons.AutoMirrored.Filled.List,
+                                    contentDescription = null,
+                                    tint = textColor,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = label,
+                                    color = textColor,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
                 }
-                if (!isCal) Spacer(Modifier.width(4.dp))
+            }
+
+            // ── "Today" button — only in calendar view. Jumps the pager to today. ──
+            if (calendarView) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.clickable { scrollToTodayRequest++ },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Today,
+                            contentDescription = "Today",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Today",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
         }
 
@@ -147,6 +211,7 @@ fun ScheduleListContent(
                             ScheduleCalendarContent(
                                 entries = allEntries,
                                 onNavigateToDetails = onNavigateToDetails,
+                                scrollToTodayRequest = scrollToTodayRequest,
                             )
                             if (allEntries.isEmpty()) {
                                 Spacer(Modifier.height(16.dp))

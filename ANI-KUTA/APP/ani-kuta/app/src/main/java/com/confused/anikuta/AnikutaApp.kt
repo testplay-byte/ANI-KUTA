@@ -37,6 +37,7 @@ import com.confused.anikuta.feature.updates.di.updatesFeatureModule
 import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
 import com.confused.anikuta.settings.NotificationsSettingsViewModel
+import com.confused.anikuta.settings.NotificationsLibraryViewModel
 import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
 import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.serialization.json.Json
@@ -199,6 +200,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)
+            viewModelOf(::NotificationsLibraryViewModel)
 
             // D.2: Download orchestrator + re-resolver (bridges :core:video-resolver + :core:download)
             single { com.confused.anikuta.download.ReResolver(get<com.confused.anikuta.core.videoresolver.VideoResolver>()) }

@@ -29,11 +29,13 @@ class NotificationConfigStore(
             NotificationConfig(
                 mainId = it.main_id,
                 enabled = it.enabled.toInt() == 1,
-                notifyOnSchedule = it.notify_on_schedule.toInt() == 1,
-                notifyOnWatchable = it.notify_on_watchable.toInt() == 1,
-                notifyOnImmediate = it.notify_on_immediate.toInt() == 1,
-                notifySub = it.notify_sub.toInt() == 1,
-                notifyDub = it.notify_dub.toInt() == 1,
+                notifyOnSchedule = TriggerState.fromDb(it.notify_on_schedule),
+                notifyOnWatchable = TriggerState.fromDb(it.notify_on_watchable),
+                notifyOnImmediate = TriggerState.fromDb(it.notify_on_immediate),
+                audioPref = AudioPref.fromBooleans(
+                    it.notify_sub.toInt() == 1,
+                    it.notify_dub.toInt() == 1,
+                ),
             )
         }
     }
@@ -44,11 +46,13 @@ class NotificationConfigStore(
             NotificationConfig(
                 mainId = it.main_id,
                 enabled = it.enabled.toInt() == 1,
-                notifyOnSchedule = it.notify_on_schedule.toInt() == 1,
-                notifyOnWatchable = it.notify_on_watchable.toInt() == 1,
-                notifyOnImmediate = it.notify_on_immediate.toInt() == 1,
-                notifySub = it.notify_sub.toInt() == 1,
-                notifyDub = it.notify_dub.toInt() == 1,
+                notifyOnSchedule = TriggerState.fromDb(it.notify_on_schedule),
+                notifyOnWatchable = TriggerState.fromDb(it.notify_on_watchable),
+                notifyOnImmediate = TriggerState.fromDb(it.notify_on_immediate),
+                audioPref = AudioPref.fromBooleans(
+                    it.notify_sub.toInt() == 1,
+                    it.notify_dub.toInt() == 1,
+                ),
             )
         }
     }
@@ -58,11 +62,11 @@ class NotificationConfigStore(
         database.notificationsQueries.upsertNotificationConfig(
             main_id = config.mainId,
             enabled = if (config.enabled) 1L else 0L,
-            notify_on_schedule = if (config.notifyOnSchedule) 1L else 0L,
-            notify_on_watchable = if (config.notifyOnWatchable) 1L else 0L,
-            notify_on_immediate = if (config.notifyOnImmediate) 1L else 0L,
-            notify_sub = if (config.notifySub) 1L else 0L,
-            notify_dub = if (config.notifyDub) 1L else 0L,
+            notify_on_schedule = config.notifyOnSchedule.dbValue,
+            notify_on_watchable = config.notifyOnWatchable.dbValue,
+            notify_on_immediate = config.notifyOnImmediate.dbValue,
+            notify_sub = if (config.audioPref.subBoolean()) 1L else 0L,
+            notify_dub = if (config.audioPref.dubBoolean()) 1L else 0L,
         )
         Logger.i(TAG) { "setConfig: mainId=${config.mainId} enabled=${config.enabled}" }
     }
@@ -96,13 +100,3 @@ class NotificationConfigStore(
         database.notificationsQueries.deleteOldSentNotifications(cutoff)
     }
 }
-
-data class NotificationConfig(
-    val mainId: String,
-    val enabled: Boolean = true,
-    val notifyOnSchedule: Boolean = false,
-    val notifyOnWatchable: Boolean = true,
-    val notifyOnImmediate: Boolean = false,
-    val notifySub: Boolean = true,
-    val notifyDub: Boolean = false,
-)

@@ -72,6 +72,8 @@ private val LimeBlueFg = Color(0xFF0A2A33)
 fun ScheduleCalendarContent(
     entries: List<ScheduleDisplay>,
     onNavigateToDetails: (String) -> Unit = {},
+    /** Increments when the caller wants the calendar to jump to today's month. */
+    scrollToTodayRequest: Int = 0,
 ) {
     // Index entries by "yyyy-MM-dd" for O(1) day-cell lookup.
     val byDay = remember(entries) {
@@ -94,6 +96,15 @@ fun ScheduleCalendarContent(
 
     var selectedDay by remember { mutableStateOf<String?>(null) }
     var limitMessage by remember { mutableStateOf<String?>(null) }
+
+    // "Today" button → jump the pager to the current-month page (initialPage).
+    // initialPage == current month, which contains today. Observed via a counter
+    // so the caller (the toggle bar) can trigger it without holding the pagerState.
+    LaunchedEffect(scrollToTodayRequest) {
+        if (scrollToTodayRequest > 0 && pagerState.currentPage != initialPage) {
+            pagerState.animateScrollToPage(initialPage)
+        }
+    }
 
     fun pageToMonth(page: Int): Calendar {
         val offset = page - initialPage
@@ -182,11 +193,23 @@ fun ScheduleCalendarContent(
                 val totalSpacingPx = 6f * 4f
                 val cellSizePx = (cardWidthPx - totalSpacingPx) / 7f
                 val rowCount = displayedWeekCount.coerceIn(5, 6)
-                val gridHeightPx = cellSizePx * rowCount + (rowCount - 1) * 4f
+                val targetGridHeightPx = cellSizePx * rowCount + (rowCount - 1) * 4f
+
+                // Animate the grid height when the displayed month changes (different
+                // week counts → different heights). Without this the height jumps
+                // abruptly mid-swipe; animateDpAsState smooths it (spring by default).
+                val animatedGridHeight by androidx.compose.animation.core.animateDpAsState(
+                    targetValue = targetGridHeightPx.dp,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                    ),
+                    label = "calendarGridHeight",
+                )
 
                 HorizontalPager(
                     state = pagerState,
-                    modifier = Modifier.fillMaxWidth().height(gridHeightPx.dp),
+                    modifier = Modifier.fillMaxWidth().height(animatedGridHeight),
                 ) { page ->
                     val month = pageToMonth(page)
                     MonthGrid(

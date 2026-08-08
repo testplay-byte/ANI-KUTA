@@ -1,6 +1,9 @@
 package com.confused.anikuta.core.preferences
 
+import com.confused.anikuta.core.notifications.AudioPref
+import com.confused.anikuta.core.notifications.TriggerState
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /**
  * Global notification preferences (Phase NOTIF — settings UI).
@@ -10,17 +13,14 @@ import kotlinx.coroutines.flow.Flow
  *    [com.confused.anikuta.core.notifications.NotificationManager] suppresses every
  *    notification regardless of per-anime config.
  * 2. **Default trigger + audio prefs** — applied when a user enables notifications
- *    for a new anime (the per-anime [NotificationConfig] is seeded from these
- *    defaults). Per-anime config can then be tweaked individually.
+ *    for a new anime (the per-anime [com.confused.anikuta.core.notifications.NotificationConfig]
+ *    is seeded from these defaults). Per-anime config can then be tweaked individually.
  *
- * Per-anime config lives in [NotificationConfigStore] (DB-backed). This class is
- * only the global preferences (SharedPreferences-backed).
+ * Triggers are tri-state ([TriggerState]: ON / SILENT / OFF). Audio is tri-state
+ * ([AudioPref]: SUB / DUB / BOTH), stored as two booleans (sub + dub) in
+ * SharedPreferences for symmetry with the DB schema.
  *
- * Backed by [PreferenceStore]. Reactive via the `*Flow` accessors (for the settings
- * UI to collect as State).
- *
- * CORE_RULES §23: UI toggles flip mutableStateOf snapshots; the underlying
- * SharedPreferences write happens immediately.
+ * Backed by [PreferenceStore]. Reactive via the `*Flow` accessors.
  */
 class NotificationPreferences(private val store: PreferenceStore) {
 
@@ -32,47 +32,51 @@ class NotificationPreferences(private val store: PreferenceStore) {
     fun notificationsEnabledFlow(): Flow<Boolean> =
         store.booleanFlow(KEY_ENABLED, true)
 
-    // ── Default trigger types (applied when enabling a new anime) ─────────────
+    // ── Default trigger states (tri-state) ─────────────────────────────────────
+    // Stored as Int (0=OFF, 1=ON, 2=SILENT) — matches TriggerState.dbValue.
 
-    /** Notify when the scheduled airing time is reached. */
-    var defaultNotifyOnSchedule: Boolean
-        get() = store.getBoolean(KEY_DEF_SCHEDULE, false)
-        set(value) = store.putBoolean(KEY_DEF_SCHEDULE, value)
+    var defaultNotifyOnSchedule: TriggerState
+        get() = TriggerState.fromDb(store.getInt(KEY_DEF_SCHEDULE, TriggerState.OFF.dbValue).toLong())
+        set(value) = store.putInt(KEY_DEF_SCHEDULE, value.dbValue.toInt())
 
-    fun defaultNotifyOnScheduleFlow(): Flow<Boolean> =
-        store.booleanFlow(KEY_DEF_SCHEDULE, false)
+    fun defaultNotifyOnScheduleFlow(): Flow<TriggerState> =
+        store.intFlow(KEY_DEF_SCHEDULE, TriggerState.OFF.dbValue.toInt())
+            .map { TriggerState.fromDb(it.toLong()) }
 
-    /** Notify when the episode is found on a source (watchable). */
-    var defaultNotifyOnWatchable: Boolean
-        get() = store.getBoolean(KEY_DEF_WATCHABLE, true)
-        set(value) = store.putBoolean(KEY_DEF_WATCHABLE, value)
+    var defaultNotifyOnWatchable: TriggerState
+        get() = TriggerState.fromDb(store.getInt(KEY_DEF_WATCHABLE, TriggerState.ON.dbValue).toLong())
+        set(value) = store.putInt(KEY_DEF_WATCHABLE, value.dbValue.toInt())
 
-    fun defaultNotifyOnWatchableFlow(): Flow<Boolean> =
-        store.booleanFlow(KEY_DEF_WATCHABLE, true)
+    fun defaultNotifyOnWatchableFlow(): Flow<TriggerState> =
+        store.intFlow(KEY_DEF_WATCHABLE, TriggerState.ON.dbValue.toInt())
+            .map { TriggerState.fromDb(it.toLong()) }
 
-    /** Notify immediately when the schedule says released (no source check). */
-    var defaultNotifyOnImmediate: Boolean
-        get() = store.getBoolean(KEY_DEF_IMMEDIATE, false)
-        set(value) = store.putBoolean(KEY_DEF_IMMEDIATE, value)
+    var defaultNotifyOnImmediate: TriggerState
+        get() = TriggerState.fromDb(store.getInt(KEY_DEF_IMMEDIATE, TriggerState.OFF.dbValue).toLong())
+        set(value) = store.putInt(KEY_DEF_IMMEDIATE, value.dbValue.toInt())
 
-    fun defaultNotifyOnImmediateFlow(): Flow<Boolean> =
-        store.booleanFlow(KEY_DEF_IMMEDIATE, false)
+    fun defaultNotifyOnImmediateFlow(): Flow<TriggerState> =
+        store.intFlow(KEY_DEF_IMMEDIATE, TriggerState.OFF.dbValue.toInt())
+            .map { TriggerState.fromDb(it.toLong()) }
 
-    // ── Default audio variant prefs ──────────────────────────────────────────
+    // ── Default audio pref (tri-state, stored as two booleans) ─────────────────
 
-    var defaultNotifySub: Boolean
-        get() = store.getBoolean(KEY_DEF_SUB, true)
-        set(value) = store.putBoolean(KEY_DEF_SUB, value)
+    var defaultAudioPref: AudioPref
+        get() = AudioPref.fromBooleans(
+            store.getBoolean(KEY_DEF_SUB, true),
+            store.getBoolean(KEY_DEF_DUB, false),
+        )
+        set(value) {
+            store.putBoolean(KEY_DEF_SUB, value.subBoolean())
+            store.putBoolean(KEY_DEF_DUB, value.dubBoolean())
+        }
 
-    fun defaultNotifySubFlow(): Flow<Boolean> =
-        store.booleanFlow(KEY_DEF_SUB, true)
-
-    var defaultNotifyDub: Boolean
-        get() = store.getBoolean(KEY_DEF_DUB, false)
-        set(value) = store.putBoolean(KEY_DEF_DUB, value)
-
-    fun defaultNotifyDubFlow(): Flow<Boolean> =
-        store.booleanFlow(KEY_DEF_DUB, false)
+    /** Reactive flow combining the two audio booleans into an [AudioPref]. */
+    fun defaultAudioPrefFlow(): Flow<AudioPref> =
+        kotlinx.coroutines.flow.combine(
+            store.booleanFlow(KEY_DEF_SUB, true),
+            store.booleanFlow(KEY_DEF_DUB, false),
+        ) { sub, dub -> AudioPref.fromBooleans(sub, dub) }
 
     companion object {
         private const val KEY_ENABLED = "notif_master_enabled"

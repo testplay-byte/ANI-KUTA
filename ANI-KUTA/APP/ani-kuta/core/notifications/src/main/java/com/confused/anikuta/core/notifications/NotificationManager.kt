@@ -31,11 +31,14 @@ class NotificationManager(
         private const val TAG = "Anikuta:Core:Notifications"
         private const val CHANNEL_ID = "anikuta_new_episodes"
         private const val CHANNEL_NAME = "New episodes"
+        private const val CHANNEL_ID_SILENT = "anikuta_new_episodes_silent"
+        private const val CHANNEL_NAME_SILENT = "New episodes (silent)"
         private const val NOTIFICATION_ID_BASE = 30000
     }
 
     init {
         ensureChannel()
+        ensureSilentChannel()
     }
 
     /**
@@ -66,19 +69,21 @@ class NotificationManager(
             return false
         }
 
-        // 2. Check trigger type.
-        val triggerEnabled = when (triggerType) {
+        // 2. Check trigger type — tri-state (ON / SILENT / OFF). OFF suppresses;
+        //    ON + SILENT both post but SILENT uses the low-importance channel.
+        val triggerState = when (triggerType) {
             "schedule" -> config.notifyOnSchedule
             "watchable" -> config.notifyOnWatchable
             "immediate" -> config.notifyOnImmediate
-            else -> false
+            else -> TriggerState.OFF
         }
-        if (!triggerEnabled) {
-            Logger.d(TAG) { "postNotification — suppressed (trigger $triggerType not enabled): mainId=$mainId" }
+        if (triggerState == TriggerState.OFF) {
+            Logger.d(TAG) { "postNotification — suppressed (trigger $triggerType off): mainId=$mainId" }
             return false
         }
+        val silent = triggerState == TriggerState.SILENT
 
-        // 3. Check sub/dub.
+        // 3. Check sub/dub (derived from AudioPref).
         val audioOk = when (audioVariant) {
             "sub" -> config.notifySub
             "dub" -> config.notifyDub
@@ -99,17 +104,21 @@ class NotificationManager(
         val content = contentRepository.getContentByMainId(mainId)
         val title = content?.title ?: "Unknown anime"
 
-        // 6. Post the notification.
+        // 6. Post the notification. Silent → low-importance channel (no sound);
+        //    otherwise the default channel (sound + popup).
         val notifId = (NOTIFICATION_ID_BASE + (mainId.hashCode() and 0x3FFF) + episodeNumber.toInt()).coerceAtMost(Int.MAX_VALUE)
         val displayAudio = if (audioVariant == "sub") "SUB" else if (audioVariant == "dub") "DUB" else ""
         val text = "EP $episodeNumber${if (displayAudio.isNotBlank()) " · $displayAudio" else ""} is now available"
+        val channel = if (silent) CHANNEL_ID_SILENT else CHANNEL_ID
+        val priority = if (silent) NotificationCompat.PRIORITY_LOW
+        else NotificationCompat.PRIORITY_DEFAULT
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(priority)
             .setAutoCancel(true)
             .build()
 
@@ -135,6 +144,22 @@ class NotificationManager(
             }
             nm.createNotificationChannel(channel)
             Logger.i(TAG) { "Notification channel created: $CHANNEL_ID" }
+        }
+    }
+
+    /** Low-importance channel for SILENT trigger notifications (no sound). */
+    private fun ensureSilentChannel() {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(CHANNEL_ID_SILENT) == null) {
+            val channel = NotificationChannel(
+                CHANNEL_ID_SILENT,
+                CHANNEL_NAME_SILENT,
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = "Silent notifications for new episode releases (no sound)"
+            }
+            nm.createNotificationChannel(channel)
+            Logger.i(TAG) { "Silent notification channel created: $CHANNEL_ID_SILENT" }
         }
     }
 }

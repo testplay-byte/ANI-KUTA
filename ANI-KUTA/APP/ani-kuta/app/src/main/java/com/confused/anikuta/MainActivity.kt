@@ -80,6 +80,7 @@ import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
 import com.confused.anikuta.settings.NotificationsSettingsScreen
+import com.confused.anikuta.settings.NotificationsLibraryScreen
 import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
 import kotlinx.coroutines.launch
@@ -126,6 +127,9 @@ object SettingsKey : NavKey
 
 @Serializable
 object NotificationsKey : NavKey
+
+@Serializable
+object NotificationsLibraryKey : NavKey
 
 @Serializable
 object AppearanceKey : NavKey
@@ -471,6 +475,10 @@ fun AppRoot() {
                 onBack = pop,
             )
             is NotificationsKey -> NotificationsSettingsScreen(
+                onBack = pop,
+                onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
+            )
+            is NotificationsLibraryKey -> NotificationsLibraryScreen(
                 onBack = pop,
             )
             is ExtensionsSettingsKey -> ExtensionsSettingsScreen(
