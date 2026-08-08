@@ -1145,3 +1145,39 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Lesson:** always verify CI *actually* passed (poll the run + check conclusion), never trust a self-reported "green" in docs. The false claim meant the user downloaded a build from *before* the failing commits (or no build at all for the latest).
 - **Status:** ✅ Fixed + CI green (run 31275021179, artifact `anikuta-apk` 53 MB). Feature branch `feature/watch-progress-history-updates` deleted (was fully merged into main; main now verified green).
 - **Date:** swipe/calendar/notifications session.
+
+### D-157 — Calendar toggle restyle + icons + Today button + smooth height animation
+- **What:** Four calendar UX improvements per user feedback:
+  1. **Toggle restyle:** the List/Calendar toggle now matches the Updates | Schedule pill exactly — same container `Surface(surfaceVariant.copy(alpha=0.5f))` + per-tab `Surface` with primary/transparent colors. Previously it was a bare `Row` of Surfaces with no surrounding pill (looked inconsistent).
+  2. **Icons:** `Icons.AutoMirrored.Filled.List` before "List", `Icons.Filled.CalendarMonth` before "Calendar" — both tinted with the tab's text color.
+  3. **"Today" button:** in calendar view, the toggle pill shrinks to `weight(1f)` (left) and a "Today" button (`Icons.Filled.Today` + label, primary-tinted) appears on the right. Tapping it animates the pager to `initialPage` (the current-month page, which contains today). Wired via a `scrollToTodayRequest: Int` counter that `ScheduleCalendarContent` observes with a `LaunchedEffect` → `pagerState.animateScrollToPage(initialPage)`. Counter pattern (not a lambda) because the pager state lives inside `ScheduleCalendarContent` and the button lives in the toggle bar above it.
+  4. **Smooth height animation:** the calendar grid height (which varies by the month's week count: 5 or 6 rows) now animates via `animateDpAsState` (spring, `DampingRatioNoBouncy` + `StiffnessMediumLow`) instead of jumping abruptly when the displayed month changes.
+- **Status:** ✅ Implemented + CI green (run 31277015651, commit b55da53).
+- **Date:** calendar/notifications-3way session.
+
+### D-158 — Notification triggers + audio upgraded to tri-state (3-way segmented toggles)
+- **What:** Replaced the boolean Sub/Dub/trigger switches with 3-way segmented toggles (matching the download-settings "Best effort / Ask / Don't" style):
+  - **Audio:** `AudioPref` enum (SUB / DUB / BOTH), derived from the two existing DB booleans (`notify_sub` + `notify_dub`). No schema change — SUB=(1,0), DUB=(0,1), BOTH=(1,1); (0,0) maps to BOTH as a sensible default.
+  - **Triggers** (on schedule / on watchable / on immediate): `TriggerState` enum (ON / SILENT / OFF), stored as INTEGER 0/1/2 — backward-compatible with the old boolean data (0=OFF, 1=ON; 2=SILENT is new). The DB column type stays INTEGER (no migration needed — `CREATE TABLE IF NOT EXISTS` won't recreate, and old 0/1 values remain valid).
+  - **Silent notifications:** `NotificationManager` now has a second channel (`anikuta_new_episodes_silent`, IMPORTANCE_LOW). SILENT triggers post there with `PRIORITY_LOW` (no sound); ON uses the default channel.
+  - **Adapting descriptions:** each toggle row's description changes with the selection — e.g. "Notify for sub releases only" / "Notify for dub releases only" / "Notify for sub and dub releases"; "Notify when the airing time is reached" / "Notify silently when…" / "Don't notify when…".
+- **Why On/Silent/Off for triggers:** the user explicitly wanted a 3-way for triggers (not just on/off). On/Silent/Off is the cleanest 3-state with genuinely different behavior (silent = no sound) + clearly different descriptions. Designed per the user's "set up properly according to our needs" latitude.
+- **Circular-dep fix:** `NotificationConfig` + the two enums moved to `:core:common` (package `com.confused.anikuta.core.notifications`) — `:core:preferences` needed to reference `TriggerState`/`AudioPref`, but `:core:notifications` already depends on `:core:preferences`, so putting them in `:core:notifications` would create a cycle. `:core:preferences` now depends on `:core:common`.
+- **Reusable component:** `SegmentedToggle` (in `:app/settings`) — same visual as download-settings' SegmentedRowLocal.
+- **Status:** ✅ Implemented + CI green. Three CI iterations (AudioPref `subBoolean`/`dubBoolean` were in companion → moved to instance; `store.getInt` default needed `.toInt()` on the Long `dbValue`; `var by remember{mutableStateOf}` needed `setValue` import).
+- **Date:** calendar/notifications-3way session.
+
+### D-159 — Notifications defaults hide smoothly when master toggle is off
+- **What:** When the "Enable notifications" master toggle is off, the entire "New anime defaults" section now hides via `AnimatedVisibility` (`fadeIn() + expandVertically()` / `fadeOut() + shrinkVertically()`) — a smooth collapse, not an abrupt disappearance. Wrapped in a `Column` inside the LazyColumn item because `AnimatedVisibility`'s `ColumnScope` overload needs a `ColumnScope` receiver (a `LazyItemScope` doesn't provide one).
+- **Status:** ✅ Implemented + CI green.
+- **Date:** calendar/notifications-3way session.
+
+### D-160 — Dedicated Notifications Library page (category filter + per-anime advanced config)
+- **What:** Moved the per-anime library list out of the Notifications settings screen into a dedicated `NotificationsLibraryScreen` (reached via a "Library" nav row at the bottom of the settings screen). The library page has:
+  1. **Category filter chips** (`LazyRow`): "All" + every `LibraryCategory` the user has. Selecting a category filters the list via `ContentRepository.getMainIdsByCategory(id)`.
+  2. **Per-anime list:** each row = cover + title + a `Switch` (enable/disable for that anime) + a chevron. Tapping the row (or chevron) opens the advanced-config sheet.
+  3. **Advanced-config bottom sheet:** per-anime tri-state triggers (On/Silent/Off) + audio (Sub/Dub/Both), each with an adapting description. The sheet holds a local working snapshot (`mutableStateOf(config)`) + persists on every change via `updateAnimeConfig`.
+- **New ViewModel:** `NotificationsLibraryViewModel` (registered via `viewModelOf` in `appModule`) — owns categories, selected category, items, the open-item state, and the config-write methods.
+- **Nav:** `NotificationsLibraryKey` wired in `MainActivity`; the settings screen passes `onOpenLibrary = { backstack.add(NotificationsLibraryKey) }`.
+- **Status:** ✅ Implemented + CI green.
+- **Date:** calendar/notifications-3way session.

@@ -416,3 +416,31 @@
 ### Status
 - ✅ CI genuinely green (run 31275021179, commit 25e5637). Awaiting device verification of swipe background, calendar toggle, + notifications settings screen.
 - Subtitles intentionally deferred per user (separate session).
+
+## Session — Calendar UX polish + Notifications tri-state + dedicated Library page
+
+### Calendar UX (D-157)
+- **Toggle restyle:** List/Calendar toggle now matches the Updates | Schedule pill (container Surface + per-tab Surface, same colors). Added `List` + `CalendarMonth` icons (tinted with tab text color).
+- **"Today" button:** in calendar view, the toggle pill shrinks left (weight 1f) and a "Today" button (`Today` icon + label) appears on the right. Tapping it animates the pager to the current-month page. Wired via a `scrollToTodayRequest: Int` counter observed by `ScheduleCalendarContent` (LaunchedEffect → `animateScrollToPage`).
+- **Smooth height animation:** grid height now animates via `animateDpAsState` (spring, no-bouncy, medium-low stiffness) when the displayed month's week count changes (was an abrupt jump).
+
+### Notifications tri-state (D-158)
+- `TriggerState` enum (ON / SILENT / OFF) replaces boolean triggers — stored as INTEGER 0/1/2 (backward compatible with old 0/1 data; no migration needed).
+- `AudioPref` enum (SUB / DUB / BOTH) replaces the two sub/dub booleans — derived from them (no schema change).
+- `NotificationManager`: SILENT triggers post to a new low-importance channel (`anikuta_new_episodes_silent`, IMPORTANCE_LOW) with PRIORITY_LOW (no sound); ON uses the default channel.
+- Reusable `SegmentedToggle` component (matches download-settings style).
+- Adapting descriptions: e.g. "Notify for sub releases only" / "Notify for dub releases only" / "Notify for sub and dub releases"; "Notify when…" / "Notify silently when…" / "Don't notify when…".
+- `NotificationConfig` + enums moved to `:core:common` (package `com.confused.anikuta.core.notifications`) to break the preferences↔notifications circular dep. `:core:preferences` now depends on `:core:common`.
+
+### Master-off hide (D-159)
+- The "New anime defaults" section smoothly collapses via `AnimatedVisibility` (fadeIn + expandVertically / fadeOut + shrinkVertically) when the master toggle is off. Wrapped in a `Column` inside the LazyColumn item (LazyItemScope has no ColumnScope).
+
+### Dedicated Library page (D-160)
+- Per-anime config moved to `NotificationsLibraryScreen` (reached via a "Library" nav row at the bottom of the settings screen).
+- Category filter chips (LazyRow): "All" + every `LibraryCategory`. Selecting filters via `ContentRepository.getMainIdsByCategory(id)`.
+- Per-anime list: cover + title + Switch (enable/disable) + chevron → opens advanced-config bottom sheet (tri-state triggers + audio, adapting descriptions).
+- `NotificationsLibraryViewModel` (viewModelOf in appModule). `NotificationsLibraryKey` wired in MainActivity.
+
+### Status
+- ✅ CI green (run 31277015651, commit b55da53, artifact 53 MB). 3 iterations (enum companion `this` → instance methods; `getInt` default Long→Int; `var by` setValue import + AnimatedVisibility ColumnScope).
+- Swipe + calendar toggle confirmed working on device (user feedback this session). Calendar UX + notifications tri-state + library page awaiting device verification.

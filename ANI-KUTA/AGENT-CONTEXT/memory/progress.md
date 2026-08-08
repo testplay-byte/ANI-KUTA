@@ -21,9 +21,18 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - Repo root cleanup: skills/ + worklog.md removed + gitignored.
 - Notification system: :core:notifications module, per-content config, AniList-based release triggers, dedup.
 - Calendar view: custom HorizontalPager with day cells, multi-dot indicators, day-detail bottom sheet.
-- Dashboard data refreshed: 44 modules, D-001..D-156, 28 DB tables, all phases marked done.
+- Dashboard data refreshed: 44 modules, D-001..D-160, 28 DB tables, all phases marked done.
 
-**Latest session (swipe / calendar / notifications):**
+**Latest session (calendar UX + notifications tri-state + library page):**
+- **Swipe + calendar toggle confirmed working** on device (user feedback).
+- **Calendar UX polish (D-157):** List/Calendar toggle restyled to match the Updates | Schedule pill + List/CalendarMonth icons. "Today" button (toggle shrinks left, button on right) → animates pager to the current month via a `scrollToTodayRequest` counter. Smooth height animation (`animateDpAsState` spring) when the month's week count changes.
+- **Notifications tri-state (D-158):** triggers upgraded Boolean → `TriggerState` (ON/SILENT/OFF, stored as INTEGER 0/1/2 — backward compatible); audio → `AudioPref` (SUB/DUB/BOTH, derived from 2 booleans). 3-way `SegmentedToggle` (matches download-settings style). Adapting descriptions per selection. Silent notifications use a new low-importance channel. `NotificationConfig`+enums moved to `:core:common` (broke the preferences↔notifications circular dep).
+- **Master-off hide (D-159):** the "New anime defaults" section smoothly collapses (`AnimatedVisibility` fade+expand/shrink) when the master toggle is off.
+- **Dedicated Library page (D-160):** per-anime config moved to `NotificationsLibraryScreen` — category filter chips (All + every library category) + per-anime list (Switch + chevron) + advanced-config bottom sheet (tri-state). `NotificationsLibraryKey` wired.
+- **CI:** 3 iterations (enum companion `this` issue, `getInt` Long/Int default, `var by` setValue import + AnimatedVisibility ColumnScope). Green at b55da53 (run 31277015651, artifact 53 MB).
+- Subtitles intentionally deferred per user (separate session).
+
+**Previous session (swipe / calendar / notifications):**
 - **Swipe background fixed (D-153):** the reveal background in `DetailsScreen.EpisodeRow` + `HistoryScreen.HistoryRow` was invisible because it used `fillMaxSize()` inside a wrap-content-height Box (resolves to 0 height). Switched to `matchParentSize()` (BoxScope) + always-compose with `graphicsLayer` alpha fade. The previous session's `fillMaxSize` "fix" was the regression.
 - **Calendar toggle fixed (D-154):** the List/Calendar toggle was hidden because `ScheduleListContent` emitted the toggle + content as bare siblings into a parent Box (later siblings draw on top → list covered the toggle). Wrapped in a `Column`. Also: auto-fetch schedule on first open if empty, calendar `verticalScroll`, empty-state hint, gate the Updates-driven `ScrollBlurOverlay` to the Updates tab.
 - **Notification settings UI built (D-155):** `NotificationPreferences` (master toggle + defaults) in `:core:preferences`; `NotificationManager` now respects the global kill switch; `NotificationsSettingsScreen` + ViewModel in `:app` (master toggle, defaults, per-anime library list + detail bottom sheet); Notifications nav row in Settings + `NotificationsKey` wired.
@@ -38,7 +47,7 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - Rating UI not built — store + schema ready, UI pending.
 - Continue Watching UI not placed — logic ready, UI deferred.
 
-**Next:** Rating UI → Continue Watching UI → Subtitle loading investigation → Debug bubble.
+**Next:** Debug bubble (next, per user) → Rating UI → Continue Watching UI → Subtitle loading investigation.
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -105,11 +114,11 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: swipe / calendar / notifications session (Z.ai Code sandbox).
+- Session: calendar UX + notifications tri-state + library page (Z.ai Code sandbox).
 - By: main agent (implementation + CI verification).
-- Branch: `main` (ONLY branch — `feature/watch-progress-history-updates` deleted after verifying main builds green).
-- CI: ✅ genuinely green (run 31275021179, commit 25e5637, artifact `anikuta-apk` 53 MB). Previous 2 runs had failed (DocumentFile — now fixed, D-156).
-- Note: 44 Gradle modules, 28 DB tables, D-001..D-156 decisions. Nav3 removed (D-150). Repo root cleaned. Notification settings UI done (D-155). Calendar toggle fixed (D-154). Swipe bg fixed (D-153). All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF (store+manager+UI), CW, DL.
+- Branch: `main` (ONLY branch).
+- CI: ✅ green (run 31277015651, commit b55da53, artifact `anikuta-apk` 53 MB). 3 iterations this session (enum companion `this`, getInt Long/Int default, var-by setValue import + AnimatedVisibility ColumnScope).
+- Note: 44 Gradle modules, 28 DB tables, D-001..D-160 decisions. Nav3 removed (D-150). Repo root cleaned. Notification settings: tri-state triggers+audio (D-158), master-off hide (D-159), dedicated library page (D-160). Calendar: toggle restyle + icons + Today button + smooth height anim (D-157). All phases done: WP, HI, UP, SC (list+calendar), TR, NOTIF (store+manager+UI+tri-state+library), CW, DL.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 
