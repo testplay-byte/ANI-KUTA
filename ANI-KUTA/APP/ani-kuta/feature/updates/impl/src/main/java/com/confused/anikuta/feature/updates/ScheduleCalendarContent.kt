@@ -311,7 +311,7 @@ private fun DayCell(
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalAlignment = Arrangement.Center,
+            verticalArrangement = Arrangement.Center,
         ) {
             Text(
                 text = dayInfo.dayOfMonth.toString(),
