@@ -64,7 +64,9 @@ import java.util.Locale
  * CORE_RULES §20: the buffer itself doesn't log (would recurse).
  */
 @Composable
-fun ConsoleTab() {
+fun ConsoleTab(
+    minimized: Boolean = false,
+) {
     val buffer = koinInject<DebugLogBuffer>()
     val context = LocalContext.current
 
@@ -73,6 +75,17 @@ fun ConsoleTab() {
     var levelFilter by remember { mutableStateOf(setOf<LogLevel>()) }
     var refreshTrigger by remember { mutableStateOf(0) }
     val lazyListState = rememberLazyListState()
+
+    // Auto-refresh: poll the buffer every 1 second (live updating).
+    LaunchedEffect(Unit) {
+        while (true) {
+            entries = buffer.snapshot()
+            if (entries.isNotEmpty()) {
+                lazyListState.scrollToItem(entries.lastIndex)
+            }
+            kotlinx.coroutines.delay(1000)
+        }
+    }
 
     // Load the snapshot on open + on Refresh.
     LaunchedEffect(refreshTrigger) {
@@ -92,7 +105,11 @@ fun ConsoleTab() {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // ── Tag filter + refresh + clear ──
+        // In minimized mode: hide all buttons (search/copy/delete), show only
+        // the live console list. Auto-refresh every 1s.
+        // In full mode: show all buttons.
+        if (!minimized) {
+        // ── Tag filter + copy + clear ──
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -202,8 +219,9 @@ fun ConsoleTab() {
                 modifier = Modifier.align(Alignment.CenterVertically),
             )
         }
+        }  // end if (!minimized)
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
 
         // ── Log entries list ──
         if (filtered.isEmpty()) {

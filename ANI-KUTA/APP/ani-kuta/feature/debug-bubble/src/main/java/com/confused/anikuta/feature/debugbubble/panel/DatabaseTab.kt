@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Storage
@@ -174,21 +175,9 @@ private fun TableDetailView(
         rowCount = browser.countRows(tableName)
         val allColumns = browser.getColumns(tableName)
         columns = allColumns
-        // If search is non-empty, search ALL text columns + merge results.
-        rows = if (searchQuery.isNotBlank()) {
-            // Search each text column + collect matching rows (dedup by row index).
-            val matchedRowIndices = mutableSetOf<Int>()
-            val fullData = browser.queryTable(tableName).second
-            fullData.forEachIndexed { rowIdx, row ->
-                // Check if any cell in this row contains the query (case-insensitive).
-                if (row.any { it.contains(searchQuery, ignoreCase = true) }) {
-                    matchedRowIndices.add(rowIdx)
-                }
-            }
-            matchedRowIndices.map { fullData[it] }
-        } else {
-            browser.queryTable(tableName).second
-        }
+        // ALWAYS load ALL rows (not just matches). Matches are highlighted in
+        // the UI — the user wants to see all rows, with matching ones highlighted.
+        rows = browser.queryTable(tableName).second
         loading = false
     }
 
@@ -246,7 +235,7 @@ private fun TableDetailView(
                             inner()
                         },
                     )
-                    // Match count + arrow navigation.
+                    // Match count + up/down arrow navigation.
                     if (matchIndices.isNotEmpty()) {
                         Text(
                             text = "${currentMatch + 1}/${matchIndices.size}",
@@ -255,11 +244,25 @@ private fun TableDetailView(
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(start = 4.dp),
                         )
+                        // Up arrow → previous match.
                         IconButton(
-                            onClick = { if (currentMatch > 0) currentMatch-- },
+                            onClick = {
+                                if (currentMatch > 0) currentMatch--
+                                else currentMatch = matchIndices.lastIndex  // wrap to last
+                            },
                             modifier = Modifier.size(24.dp),
                         ) {
-                            Icon(Icons.Filled.KeyboardArrowDown, "Prev", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Filled.KeyboardArrowUp, "Prev", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        }
+                        // Down arrow → next match.
+                        IconButton(
+                            onClick = {
+                                if (currentMatch < matchIndices.lastIndex) currentMatch++
+                                else currentMatch = 0  // wrap to first
+                            },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(Icons.Filled.KeyboardArrowDown, "Next", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                         }
                     }
                 }

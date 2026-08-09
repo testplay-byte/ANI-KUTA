@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
@@ -55,6 +56,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.debugapi.LocalDebugContext
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+
+// ── Fixed debug-bubble colors (same in both light + dark mode, per user) ──
+// Background: #5A77DB (blue-purple). Foreground: #003F88 (dark blue).
+private val DebugBgColor = Color(0xFF5A77DB)
+private val DebugFgColor = Color(0xFF003F88)
+private val DebugFgColorVariant = Color(0xFF003F88).copy(alpha = 0.7f)  // onSurfaceVariant equivalent
+private val DebugBorderColor = Color(0xFF003F88)
 
 /**
  * The debug panel — expands beside the bubble when tapped (Phase DB-2, revised).
@@ -133,11 +141,11 @@ fun DebugPanel(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Surface(
-                color = MaterialTheme.colorScheme.surface,  // SOLID — no transparency
+                color = DebugBgColor,  // Fixed color (same in both themes)
                 shape = RoundedCornerShape(20.dp),
                 shadowElevation = 12.dp,
-                tonalElevation = 3.dp,
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
+                tonalElevation = 0.dp,  // no tonal elevation — fixed color
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, DebugBorderColor),
                 modifier = Modifier
                     .width(with(density) { panelWidthPx.toDp() })
                     .height(with(density) { panelHeightPx.toDp() })
@@ -207,11 +215,11 @@ fun DebugPanel(
             val miniWidthPx = (screenWidthPx * 0.5f).coerceAtLeast(0f)
             val miniHeightPx = (screenHeightPx * 0.4f).coerceAtLeast(0f)
             Surface(
-                color = MaterialTheme.colorScheme.surface,
+                color = DebugBgColor,  // Fixed color (same in both themes)
                 shape = RoundedCornerShape(16.dp),
                 shadowElevation = 8.dp,
-                tonalElevation = 3.dp,
-                border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
+                tonalElevation = 0.dp,
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, DebugBorderColor),
                 modifier = Modifier
                     .width(with(density) { miniWidthPx.toDp() })
                     .height(with(density) { miniHeightPx.toDp() })
@@ -225,7 +233,7 @@ fun DebugPanel(
                     // - tap → expand
                     // - drag → move the mini-window
                     Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        color = DebugFgColor.copy(alpha = 0.15f),
                         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -259,7 +267,7 @@ fun DebugPanel(
                                     .width(32.dp)
                                     .height(4.dp)
                                     .background(
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        DebugFgColorVariant.copy(alpha = 0.4f),
                                         RoundedCornerShape(2.dp),
                                     ),
                             )
@@ -278,8 +286,8 @@ fun DebugPanel(
                             DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab(
                                 onSelectTable = { },
                             )
-                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
-                            DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab()
+                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab(minimized = true)
+                            DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab(minimized = true)
                             DebugTab.APP_INFO -> com.confused.anikuta.feature.debugbubble.panel.AppInfoTab()
                         }
                     }
@@ -329,14 +337,14 @@ private fun PanelHeader(
             fontFamily = RobotoFamily,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = DebugFgColor,
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onMinimize) {
-            Icon(Icons.Filled.Minimize, "Minimize", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.Minimize, "Minimize", tint = DebugFgColorVariant)
         }
         IconButton(onClick = onClose) {
-            Icon(Icons.Filled.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.Close, "Close", tint = DebugFgColorVariant)
         }
     }
 }
@@ -349,25 +357,22 @@ private fun TabStrip(
     onSelect: (DebugTab) -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = Color.White.copy(alpha = 0.10f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        // LazyRow = horizontally scrollable. Each tab has a fixed width (not
-        // weighted) so they don't get squeezed when there are many. Per user:
-        // "I should be able to scroll it right and left."
         LazyRow(
             modifier = Modifier.fillMaxWidth().padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items(DebugTab.values().toList()) { tab ->
                 val isSelected = tab == activeTab
-                val bg = if (isSelected) MaterialTheme.colorScheme.primary
-                else androidx.compose.ui.graphics.Color.Transparent
-                val fg = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                else MaterialTheme.colorScheme.onSurfaceVariant
+                val bg = if (isSelected) DebugFgColor
+                else Color.Transparent
+                val fg = if (isSelected) Color.White
+                else DebugFgColorVariant
                 Surface(
                     color = bg,
                     shape = RoundedCornerShape(8.dp),
@@ -421,7 +426,7 @@ private fun CurrentScreenContent(
                     fontFamily = RobotoFamily,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = DebugFgColor,
                 )
             }
 
@@ -432,12 +437,12 @@ private fun CurrentScreenContent(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = Color.White,  // section labels = white on the blue bg
                     modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 SectionCard {
                     Column {
-                        context.screenData.forEach { (k, v) ->
+                        context.screenData.entries.forEachIndexed { idx, (k, v) ->
                             // Tap-to-copy: tapping a data row copies the value.
                             Row(
                                 modifier = Modifier
@@ -453,14 +458,23 @@ private fun CurrentScreenContent(
                                     fontFamily = RobotoFamily,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = DebugFgColorVariant,
                                     modifier = Modifier.width(120.dp),
                                 )
                                 Text(
                                     text = v,
                                     fontFamily = RobotoFamily,
                                     fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = DebugFgColor,
+                                )
+                            }
+                            // Separator line between data items (not after the last).
+                            if (idx < context.screenData.size - 1) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(DebugBorderColor.copy(alpha = 0.2f)),
                                 )
                             }
                         }
@@ -475,14 +489,14 @@ private fun CurrentScreenContent(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = Color.White,
                     modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 context.relevantTables.forEach { ref ->
                     Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                        color = Color.White.copy(alpha = 0.15f),
                         shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DebugBorderColor.copy(alpha = 0.5f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
@@ -495,7 +509,7 @@ private fun CurrentScreenContent(
                             Icon(
                                 imageVector = Icons.Filled.Storage,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                tint = Color.White,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
@@ -503,14 +517,14 @@ private fun CurrentScreenContent(
                                 fontFamily = RobotoFamily,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                color = Color.White,
                                 modifier = Modifier.padding(start = 8.dp).weight(1f),
                             )
                             Text(
                                 text = "${ref.table}.${ref.filterColumn}",
                                 fontFamily = RobotoFamily,
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                color = Color.White.copy(alpha = 0.7f),
                             )
                         }
                     }
@@ -524,14 +538,14 @@ private fun CurrentScreenContent(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = Color.White,
                     modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 context.actions.forEach { action ->
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = Color.White.copy(alpha = 0.10f),
                         shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DebugBorderColor.copy(alpha = 0.3f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
@@ -542,7 +556,7 @@ private fun CurrentScreenContent(
                             fontFamily = RobotoFamily,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = DebugFgColor,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                         )
                     }
@@ -554,13 +568,12 @@ private fun CurrentScreenContent(
 
 @Composable
 private fun SectionCard(content: @Composable () -> Unit) {
-    // Lighter tone: surface + tonalElevation (subtle light tint, not grey).
-    // Border around every section (per user: "borders around every single thing").
+    // Card on the fixed-color panel: slightly lighter than the bg (white with
+    // low alpha) so cards stand out. Border in the fg color.
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp,
+        color = Color.White.copy(alpha = 0.12f),
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, DebugBorderColor.copy(alpha = 0.4f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Box(modifier = Modifier.padding(12.dp)) { content() }
@@ -578,13 +591,13 @@ private fun EmptyState(title: String, desc: String) {
             fontFamily = RobotoFamily,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = DebugFgColor,
         )
         Text(
             text = desc,
             fontFamily = RobotoFamily,
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = DebugFgColorVariant,
             modifier = Modifier.padding(top = 8.dp),
         )
     }

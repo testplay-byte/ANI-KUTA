@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -57,7 +57,9 @@ import java.util.Locale
  * traffic only (disclosed in a banner).
  */
 @Composable
-fun NetworkTab() {
+fun NetworkTab(
+    minimized: Boolean = false,
+) {
     val stats = koinInject<DebugNetworkStats>()
 
     var snapshot by remember { mutableStateOf(DebugNetworkStats.NetworkSnapshot.EMPTY) }
@@ -77,7 +79,13 @@ fun NetworkTab() {
 
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // In minimized mode: hide refresh/clear buttons, show only live stats.
+        if (!minimized) {
         // ── Header row: refresh + clear ──
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -94,6 +102,7 @@ fun NetworkTab() {
                 Icon(Icons.Filled.Delete, "Clear", tint = MaterialTheme.colorScheme.error)
             }
         }
+        }  // end if (!minimized)
 
         // ── Summary stats ──
         Row(
@@ -242,11 +251,13 @@ fun NetworkTab() {
                 Text("No requests yet", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+            // Use Column + forEach (not LazyColumn) so the whole tab can be in
+            // a verticalScroll. Max 50 items — fine for non-lazy rendering.
+            Column(
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items(snapshot.recentRequests.reversed()) { req ->  // newest first
+                snapshot.recentRequests.reversed().forEach { req ->
                     RequestRow(req, timeFmt)
                 }
             }
