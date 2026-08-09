@@ -80,8 +80,8 @@ const MAX_CELL_PREVIEW = 120; // chars before truncation kicks in
 
 /** Default column width bounds (features #1 + #5). */
 const COL_DEFAULT_MIN = 60;
-const COL_DEFAULT_MAX = 130; // ~15 chars at 12.5px mono
-const COL_RESIZE_MAX = 600; // hard cap when dragging
+const COL_DEFAULT_MAX = 520; // 4x the original 130 — wider default
+const COL_RESIZE_MAX = 1200; // hard cap when dragging
 const ROW_NUM_COL_WIDTH = 56;
 
 /** CSS storage key for the sidebar collapsed state (#3). */
@@ -447,9 +447,30 @@ export default function DBViewerPage() {
       const k = colWidthKey(col);
       const w = colWidths[k];
       if (w && w > 0) return w;
-      // Default ~15 chars (COL_DEFAULT_MAX=130). Image cols slightly different.
+      // Smart defaults: narrow columns for short data, wider for text.
       const shape = imageShapeForColumn(col);
-      return shape === "portrait" ? 90 : shape === "square" ? 90 : 130;
+      if (shape === "portrait") return 90;
+      if (shape === "square") return 90;
+      // Numeric/short columns: just wide enough for the header.
+      const shortCols = ["id", "score", "episodes", "season", "season_year", "status",
+        "enabled", "notify_on_schedule", "notify_on_watchable", "notify_on_immediate",
+        "notify_sub", "notify_dub", "is_permanent", "display_order", "type",
+        "content_type", "content_format", "auto_update_enabled", "completed",
+        "watch_count", "auto_mark_suppressed", "user_marked_watched",
+        "category_id", "added_at", "created_at", "fetched_at", "expires_at",
+        "last_checked_at", "next_check_at", "next_airing_episode",
+        "consecutive_failures", "backoff_step", "last_known_episode_count",
+        "anilist_id", "id_mal", "source_id", "extension_id", "extension_repo_id",
+        "data_source_id", "system_id", "episode_number", "display_order",
+      ];
+      if (shortCols.includes(col)) return 100;
+      // Medium columns (titles, names, keys).
+      const mediumCols = ["main_id", "episode_key", "name", "display_name", "audio_variant",
+        "source", "author", "genres", "package_prefix", "section_key",
+      ];
+      if (mediumCols.includes(col)) return 250;
+      // Long text columns (descriptions, titles, URLs).
+      return COL_DEFAULT_MAX; // 520px
     },
     [colWidths, colWidthKey],
   );
@@ -1208,8 +1229,8 @@ function DataGrid({
           <tr>
             <th
               scope="col"
-              className="sticky left-0 z-30 bg-canvas border-b border-r border-border px-2.5 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary"
-              style={{ width: ROW_NUM_COL_WIDTH, minWidth: ROW_NUM_COL_WIDTH }}
+              className="sticky left-0 z-50 bg-surface-alt border-b border-r-2 border-border px-2.5 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary"
+              style={{ width: ROW_NUM_COL_WIDTH, minWidth: ROW_NUM_COL_WIDTH, maxWidth: ROW_NUM_COL_WIDTH }}
             >
               #
             </th>
@@ -1254,7 +1275,8 @@ function DataGrid({
                 className="group hover:bg-canvas/60 transition-colors duration-100"
               >
                 <td
-                  className="sticky left-0 z-20 bg-canvas group-hover:bg-surface-alt/80 transition-colors duration-100 border-b border-r border-border px-2.5 py-2 text-[11px] font-mono text-text-secondary text-right tabular-nums align-top"
+                  className="sticky left-0 z-30 bg-surface-alt group-hover:bg-canvas/80 transition-colors duration-100 border-b border-r-2 border-border px-2.5 py-2 text-[11px] font-mono text-text-secondary text-right tabular-nums align-top"
+                  style={{ width: ROW_NUM_COL_WIDTH, minWidth: ROW_NUM_COL_WIDTH, maxWidth: ROW_NUM_COL_WIDTH }}
                 >
                   <button
                     type="button"
@@ -1382,8 +1404,7 @@ function Cell({
   const shape = imageShapeForColumn(col);
   const isImg = shape !== null && looksLikeUrl(value);
 
-  // Long-text threshold: show "click to expand" affordance when truncated.
-  const isLong = text.length > MAX_CELL_PREVIEW;
+  // No 'more' button — the cell click popup is enough (per user).
 
   return (
     <div
@@ -1412,32 +1433,7 @@ function Cell({
         {query ? highlightMatch(text, query) : text}
       </div>
 
-      {isLong && !expanded && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          className="shrink-0 text-[10px] font-medium uppercase tracking-widest text-[var(--c-primary)] hover:underline"
-          aria-label="Expand cell inline"
-        >
-          more
-        </button>
-      )}
-      {isLong && expanded && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          className="shrink-0 text-[10px] font-medium uppercase tracking-widest text-text-secondary hover:text-text-primary hover:underline"
-          aria-label="Collapse cell inline"
-        >
-          less
-        </button>
-      )}
+
     </div>
   );
 }
