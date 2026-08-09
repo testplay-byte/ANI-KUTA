@@ -138,7 +138,7 @@ fun DebugBubble(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         pressed = true
-                        var lastPos = down.position()
+                        var lastPos = down.position
                         var isDragging = false
 
                         while (true) {
@@ -152,7 +152,7 @@ fun DebugBubble(
                                 }
                                 break
                             }
-                            val currentPos = change.position()
+                            val currentPos = change.position
                             val dx = currentPos.x - lastPos.x
                             val dy = currentPos.y - lastPos.y
                             lastPos = currentPos
