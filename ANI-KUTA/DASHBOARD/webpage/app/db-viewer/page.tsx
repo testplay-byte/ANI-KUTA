@@ -79,9 +79,9 @@ const IMAGE_COL_PATTERNS: { test: RegExp; shape: "portrait" | "square" }[] = [
 const MAX_CELL_PREVIEW = 120; // chars before truncation kicks in
 
 /** Default column width bounds (features #1 + #5). */
-const COL_DEFAULT_MIN = 80;
-const COL_DEFAULT_MAX = 200;
-const COL_RESIZE_MAX = 800; // hard cap when dragging
+const COL_DEFAULT_MIN = 60;
+const COL_DEFAULT_MAX = 130; // ~15 chars at 12.5px mono
+const COL_RESIZE_MAX = 600; // hard cap when dragging
 const ROW_NUM_COL_WIDTH = 56;
 
 /** CSS storage key for the sidebar collapsed state (#3). */
@@ -447,10 +447,9 @@ export default function DBViewerPage() {
       const k = colWidthKey(col);
       const w = colWidths[k];
       if (w && w > 0) return w;
-      // Smart defaults — kept *below* the 200px default max so columns are
-      // visibly "not maxed out" (feature #5). Image cols are narrower still.
+      // Default ~15 chars (COL_DEFAULT_MAX=130). Image cols slightly different.
       const shape = imageShapeForColumn(col);
-      return shape === "portrait" ? 110 : shape === "square" ? 130 : 180;
+      return shape === "portrait" ? 90 : shape === "square" ? 90 : 130;
     },
     [colWidths, colWidthKey],
   );
@@ -835,6 +834,7 @@ export default function DBViewerPage() {
                       onImageClick={(src) =>
                         setImageViewer({ src, alt: "Image preview" })
                       }
+                      isFullscreen={isFullscreen}
                     />
                     <Pagination
                       page={safePage}
@@ -1119,6 +1119,7 @@ function DataGrid({
   onCellClick,
   onRowNumClick,
   onImageClick,
+  isFullscreen,
 }: {
   tableName: string;
   columns: string[];
@@ -1132,6 +1133,7 @@ function DataGrid({
   onCellClick: (column: string, value: unknown, rowIndex: number) => void;
   onRowNumClick: (row: Row, columns: string[], rowIndex: number) => void;
   onImageClick: (src: string) => void;
+  isFullscreen?: boolean;
 }) {
   // Reference to the active "drag" so the global mousemove/mouseup listeners
   // know which column is being resized.
@@ -1207,7 +1209,7 @@ function DataGrid({
   }
 
   return (
-    <div className="flex-1 overflow-auto min-h-0">
+    <div className={`flex-1 overflow-auto min-h-0 ${isFullscreen ? "" : "max-h-[70vh]"}`}>
       <table
         className="min-w-full border-collapse text-[12.5px]"
         style={{ tableLayout: "fixed" }}
@@ -1231,12 +1233,7 @@ function DataGrid({
               <th
                 key={col}
                 scope="col"
-                className="relative bg-surface-alt border-b border-r last:border-r-0 border-border px-3 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary"
-                style={{
-                  width: getColWidth(col),
-                  minWidth: COL_DEFAULT_MIN,
-                  maxWidth: COL_DEFAULT_MAX,
-                }}
+                className="relative bg-surface-alt border-b border-r last:border-r-0 border-border px-3 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary overflow-hidden"
               >
                 <span className="flex items-center gap-1.5 min-w-0 pr-3">
                   {imageShapeForColumn(col) && (
@@ -1292,7 +1289,7 @@ function DataGrid({
                   return (
                     <td
                       key={col}
-                      className="border-b border-r last:border-r-0 border-border px-3 py-2 align-top text-text-primary"
+                      className="border-b border-r last:border-r-0 border-border px-3 py-2 align-top text-text-primary overflow-hidden"
                     >
                       <Cell
                         value={value}
