@@ -18,5 +18,5 @@ val debugBubbleModule = module {
     single { DebugDatabaseBrowser(get()) }  // Context injected via Koin
     single { DebugLogBuffer() }  // 10,000-entry ring buffer (default capacity)
     single { DebugNetworkStats() }  // OkHttp interceptor (wired via wrapDebugOkHttp)
-    single { DebugDbStats() }  // DB write tracker (wired via wrapDebugSqlDriver)
+    single { DebugDbStats() }  // DB read+write tracker (wired via wrapDebugSqlDriver)
 }

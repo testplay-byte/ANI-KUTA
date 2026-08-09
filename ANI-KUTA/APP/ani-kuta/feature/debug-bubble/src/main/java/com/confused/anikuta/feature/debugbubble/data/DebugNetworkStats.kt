@@ -2,6 +2,9 @@ package com.confused.anikuta.feature.debugbubble.data
 
 import okhttp3.Interceptor
 import okhttp3.Response
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -161,6 +164,128 @@ class DebugNetworkStats : Interceptor {
             recentRequests.clear()
             timeSeries.clear()
         }
+    }
+
+    /**
+     * Export all network activity data as a human-readable text log suitable
+     * for sharing (e.g., to share with a developer for debugging).
+     *
+     * Format:
+     * ```
+     * ANI-KUTA Debug Bubble — Network Activity Log
+     * Exported: 2026-08-09 22:45:00
+     * ========================================
+     *
+     * SUMMARY
+     * =======
+     * Total requests:      500
+     * Bytes received:   12.3MB
+     * Bytes sent:       45.6KB
+     * Errors:                3
+     *
+     * STATUS CODES
+     * ============
+     * 2xx:  490
+     * 3xx:    5
+     * 4xx:    2
+     * 5xx:    3
+     * err:    0
+     *
+     * CATEGORIES
+     * ==========
+     * Metadata: 200
+     * Video:     50
+     * Image:    200
+     * Other:     50
+     *
+     * TOP SOURCES
+     * ===========
+     * graphql.anilist.co:           200
+     * s4.anilist.co:                150
+     * ...
+     *
+     * RECENT REQUESTS (last 50, newest first)
+     * ======================================
+     * [22:44:59] GET  200  123ms  45.2KB  https://graphql.anilist.co/graphql
+     * [22:44:58] GET  200   45ms  12.1KB  https://s4.anilist.co/.../cover.png
+     * ...
+     * ```
+     */
+    fun exportAsText(): String {
+        val snap = snapshot()
+        val dateFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        val sb = StringBuilder()
+
+        sb.appendLine("ANI-KUTA Debug Bubble — Network Activity Log")
+        sb.appendLine("Exported: ${dateFmt.format(Date())}")
+        sb.appendLine("========================================")
+        sb.appendLine()
+
+        // ── Summary ──
+        sb.appendLine("SUMMARY")
+        sb.appendLine("=======")
+        sb.appendLine("Total requests:     ${"%,d".format(snap.totalRequests)}")
+        sb.appendLine("Bytes received:     ${formatBytes(snap.totalBytesReceived)}")
+        sb.appendLine("Bytes sent:         ${formatBytes(snap.totalBytesSent)}")
+        sb.appendLine("Errors:             ${"%,d".format(snap.errorCount)}")
+        sb.appendLine()
+
+        // ── Status codes ──
+        sb.appendLine("STATUS CODES")
+        sb.appendLine("============")
+        val statusLabels = listOf("2xx", "3xx", "4xx", "5xx", "err")
+        statusLabels.forEachIndexed { idx, label ->
+            sb.appendLine("$label:  ${"%,d".format(snap.statusBuckets.getOrElse(idx) { 0 })}")
+        }
+        sb.appendLine()
+
+        // ── Categories ──
+        sb.appendLine("CATEGORIES")
+        sb.appendLine("==========")
+        RequestCategory.values().forEachIndexed { idx, cat ->
+            sb.appendLine("${cat.label}:  ${"%,d".format(snap.categoryCounts.getOrElse(idx) { 0 })}")
+        }
+        sb.appendLine()
+
+        // ── Top sources ──
+        if (snap.hostCounts.isNotEmpty()) {
+            sb.appendLine("TOP SOURCES")
+            sb.appendLine("===========")
+            val topHosts = snap.hostCounts.entries.sortedByDescending { it.value }
+            val maxHostLen = (topHosts.maxOfOrNull { it.key.length } ?: 0).coerceAtLeast(4)
+            topHosts.forEach { (host, count) ->
+                sb.appendLine("${host.padEnd(maxHostLen)}  ${"%,d".format(count)}")
+            }
+            sb.appendLine()
+        }
+
+        // ── Recent requests ──
+        sb.appendLine("RECENT REQUESTS (last ${snap.recentRequests.size}, newest first)")
+        sb.appendLine("======================================")
+        if (snap.recentRequests.isEmpty()) {
+            sb.appendLine("(no requests recorded)")
+        } else {
+            snap.recentRequests.reversed().forEach { req ->
+                val time = timeFmt.format(Date(req.timestamp))
+                val status = if (req.status < 0) "ERR" else req.status.toString()
+                val bytes = if (req.bytes > 0) formatBytes(req.bytes) else "-"
+                val latency = "${req.latencyMs}ms"
+                val cat = req.category.label.take(3).uppercase()
+                sb.appendLine("[$time] ${req.method} $cat $status ${latency.padStart(6)} ${bytes.padStart(7)}  ${req.host}${req.path}")
+                if (req.error != null) {
+                    sb.appendLine("  ERROR: ${req.error}")
+                }
+            }
+        }
+
+        return sb.toString()
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1_000_000 -> "%.1fMB".format(bytes / 1_000_000.0)
+        bytes >= 1_000 -> "%.1fKB".format(bytes / 1_000.0)
+        else -> "${bytes}B"
     }
 
     /** Record a request in the time-series (per-second bucket). */

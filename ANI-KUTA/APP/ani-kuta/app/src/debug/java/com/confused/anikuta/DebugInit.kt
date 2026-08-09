@@ -61,8 +61,9 @@ fun wrapDebugOkHttp(client: OkHttpClient): OkHttpClient {
 }
 
 /**
- * DB-9: wrap a [SqlDriver] with [DebugSqlDriverWrapper] to track DB writes
- * (INSERT / UPDATE / DELETE / REPLACE) for the debug bubble's DB Activity view.
+ * DB-9: wrap a [SqlDriver] with [DebugSqlDriverWrapper] to track DB operations
+ * (SELECT reads + INSERT/UPDATE/DELETE/REPLACE writes) for the debug bubble's
+ * DB Activity view.
  *
  * Called from `appModule`'s `single<SqlDriver>` binding. The [DebugDbStats]
  * singleton is fetched from Koin (registered in [debugBubbleModule]). This
@@ -70,9 +71,9 @@ fun wrapDebugOkHttp(client: OkHttpClient): OkHttpClient {
  * is constructed, which happens when the first repository needs the DB — well
  * after Koin starts), so `GlobalContext.get().get<DebugDbStats>()` succeeds.
  *
- * The wrapper uses Kotlin interface delegation (`by delegate`) — it only
- * overrides `execute()` and auto-forwards the other 6 SqlDriver methods to
- * the underlying driver. Zero overhead on reads (`executeQuery`).
+ * The wrapper uses Kotlin interface delegation (`by delegate`) — it overrides
+ * `execute()` (writes) and `executeQuery()` (reads), auto-forwarding the other
+ * 5 SqlDriver methods to the underlying driver.
  */
 fun wrapDebugSqlDriver(driver: SqlDriver): SqlDriver {
     val stats = org.koin.core.context.GlobalContext.get().get<DebugDbStats>()
