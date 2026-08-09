@@ -510,3 +510,30 @@
 - ✅ All 8 phases implemented + CI green. Awaiting device verification.
 - The bubble is visible by default in debug builds (per user). Release builds contain zero debug-bubble code.
 - Future: "Show debug bubble" Settings toggle (deferred — bubble is visible-by-default), automated testing via the bubble (future phase per user).
+
+## Session — Dashboard DB Viewer page (feature/debug-bubble branch)
+
+### DB Viewer — client-side JSON inspector
+- New `/db-viewer` page on the dashboard: upload a `DB.json` export (drag-and-drop or file picker) and browse every table as a searchable, paginated grid. 100% client-side — no server upload, no API calls.
+- **Features (built across multiple commits, final state):**
+  - Column drag-to-resize (drag the right border of any column header). Uses `tableLayout: "fixed"` + explicit `width: sum(col widths)` on the `<table>` so `<col>` widths are authoritative (content truncates instead of pushing columns wider).
+  - Fullscreen mode (browser native + UI fullscreen — hides hero/sidebar, focuses the grid).
+  - Collapsible table sidebar (260px ↔ 56px icon-only, persisted to localStorage).
+  - Image fullscreen viewer (click any cover/poster/URL preview → full-screen overlay with fade-in).
+  - Cell click popup (modal showing the full value of any cell — handles nulls, URLs, images, multi-line text).
+  - Row-number popup (click any row number → modal showing all columns of that row in a two-column key/value layout).
+  - Image auto-preview for columns matching `cover|poster|thumbnail` (portrait 40×56) or `image|url` (square 40×40).
+  - Search across ALL columns with `<mark>` highlighting.
+  - Pagination (50 rows/page).
+  - "Try sample DB" button fetches the repo's `DB.json` for instant demo.
+
+### Final polish round (commit 064a9c2)
+- **Smart column widths via Canvas measurement** — every column's default width is now `max(measured_header_width + padding, content-aware_default)`. Added `measureHeaderText()` using a cached Canvas 2D context (400-weight 11.5px JetBrains Mono). Replaced the old hardcoded `shortCols`/`mediumCols` lists that gave fixed 100/250px widths (which truncated many headings). Now headings NEVER show truncation dots. Memoized via `useMemo` on `currentTable`.
+- **cover_url / banner_url fix** — portrait image columns went from 90px → 200px; square image columns from 90px → 170px. Enough for the 40px preview + a meaningful URL slice, with the heading fully visible.
+- **Dedicated row-number section** — column widened 56→72px, numbers bumped 11→16px bold (font-weight 700), header "#" bumped 10.5→15px bold, background changed to `canvas` (distinct from `surface-alt`), right border thickened 2→3px with an extra `boxShadow` for depth. Visually reads as a separate strip.
+- **Removed** the unused `MAX_CELL_PREVIEW` constant and the "more"/"less" cell expand button (the cell click popup is sufficient).
+- Verified locally with Agent Browser: all 13 headers in `anilist_detail` render with `scrollWidth === offsetWidth` (zero truncation); `cover_url` offsetWidth = 200px; row-number button computed style = `font-size: 16px, font-weight: 700, color: #1a1a1a`.
+
+### Status
+- ✅ Deployed to GitHub Pages (via `feature/debug-bubble` branch — Pages environment branch policy updated). Live at https://testplay-byte.github.io/ANI-KUTA/db-viewer/
+- Commit `064a9c2` on `feature/debug-bubble`, pushed to origin.
