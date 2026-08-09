@@ -492,6 +492,21 @@ export default function DBViewerPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [imageViewer, cellPopup, rowPopup, isFullscreen]);
 
+  /* ----- Sync isFullscreen with browser native fullscreen changes ----- */
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        setIsFullscreen(false);
+      }
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, []);
+
   /* ----- body scroll lock while any overlay is open ----- */
   useEffect(() => {
     const anyOverlayOpen = !!imageViewer || !!cellPopup || !!rowPopup;
@@ -635,10 +650,24 @@ export default function DBViewerPage() {
                 </div>
               )}
 
-              {/* #2 — Fullscreen toggle */}
+              {/* #2 — Fullscreen toggle (browser native + UI fullscreen) */}
               <button
                 type="button"
-                onClick={() => setIsFullscreen((v) => !v)}
+                onClick={() => {
+                  const next = !isFullscreen;
+                  setIsFullscreen(next);
+                  if (next) {
+                    // Request browser native fullscreen on the document element.
+                    const el = document.documentElement;
+                    if (el.requestFullscreen) el.requestFullscreen();
+                    else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen();
+                  } else {
+                    if (document.fullscreenElement) {
+                      if (document.exitFullscreen) document.exitFullscreen();
+                      else if ((document as any).webkitExitFullscreen) (document as any).webkitExitFullscreen();
+                    }
+                  }
+                }}
                 aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
                 className="shrink-0 inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-[10px] border border-border bg-surface text-[12px] font-medium text-text-secondary hover:text-text-primary hover:bg-canvas hover:translate-y-[-1px] transition-all duration-150"
@@ -678,10 +707,10 @@ export default function DBViewerPage() {
           </div>
 
           {/* Body: table selector + grid */}
-          <div className="flex flex-col lg:flex-row min-h-[420px]">
-            {/* Sidebar (desktop) — feature #3 collapsible */}
-            {!isFullscreen && (
-              <aside
+          {/* In fullscreen: no page scroll (overflow hidden), only table scrolls. */}
+          <div className={`flex flex-col lg:flex-row min-h-[420px] ${isFullscreen ? "h-[calc(100vh-60px)]" : ""}`}>
+            {/* Sidebar (desktop) — feature #3 collapsible. Kept visible in fullscreen. */}
+            <aside
                 className={`hidden lg:flex flex-col shrink-0 border-r border-border bg-surface-alt/50 transition-[width] duration-200 ${
                   sidebarCollapsed ? "w-[56px]" : "w-[260px]"
                 }`}
@@ -750,9 +779,8 @@ export default function DBViewerPage() {
                   )}
                 </nav>
               </aside>
-            )}
 
-            {/* Mobile table dropdown (hidden in fullscreen too — keep mobile UX) */}
+            {/* Mobile table dropdown (hidden in fullscreen — keep mobile UX) */}
             {!isFullscreen && (
               <div className="lg:hidden p-3 border-b border-border bg-surface-alt/50">
                 <label className="block text-[10.5px] font-medium uppercase tracking-widest text-text-secondary mb-1.5">
@@ -1111,14 +1139,18 @@ function DataGrid({
     startWidth: number;
   } | null>(null);
 
-  // We register global listeners once; they read from dragStateRef.
+  // We register global listeners ONCE (empty deps); they read from dragStateRef
+  // + onColResizeRef to avoid stale closures + re-registration issues.
+  const onColResizeRef = useRef(onColResize);
+  onColResizeRef.current = onColResize;
+
   useEffect(() => {
     const onMove = (e: globalThis.MouseEvent) => {
       const ds = dragStateRef.current;
       if (!ds) return;
       e.preventDefault();
       const delta = e.clientX - ds.startX;
-      onColResize(ds.col, ds.startWidth + delta);
+      onColResizeRef.current(ds.col, ds.startWidth + delta);
     };
     const onUp = () => {
       if (dragStateRef.current) {
@@ -1133,7 +1165,7 @@ function DataGrid({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [onColResize]);
+  }, []);  // empty deps — register once
 
   const startResize = useCallback(
     (e: ReactMouseEvent, col: string) => {
@@ -1185,7 +1217,7 @@ function DataGrid({
           <tr>
             <th
               scope="col"
-              className="sticky left-0 z-20 bg-surface-alt border-b border-r border-border px-2.5 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary"
+              className="sticky left-0 z-30 bg-canvas border-b border-r border-border px-2.5 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary"
               style={{ width: ROW_NUM_COL_WIDTH, minWidth: ROW_NUM_COL_WIDTH }}
             >
               #
@@ -1236,7 +1268,7 @@ function DataGrid({
                 className="group hover:bg-canvas/60 transition-colors duration-100"
               >
                 <td
-                  className="sticky left-0 z-10 bg-surface group-hover:bg-canvas/60 transition-colors duration-100 border-b border-r border-border px-2.5 py-2 text-[11px] font-mono text-text-secondary text-right tabular-nums align-top"
+                  className="sticky left-0 z-20 bg-canvas group-hover:bg-surface-alt/80 transition-colors duration-100 border-b border-r border-border px-2.5 py-2 text-[11px] font-mono text-text-secondary text-right tabular-nums align-top"
                 >
                   <button
                     type="button"
@@ -1367,7 +1399,20 @@ function Cell({
   const isLong = text.length > MAX_CELL_PREVIEW;
 
   return (
-    <div className={`flex items-start gap-2 ${isImg ? "" : "min-w-0"}`}>
+    <div
+      className={`flex items-start gap-2 ${isImg ? "" : "min-w-0"}`}
+      onClick={onCellClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onCellClick();
+        }
+      }}
+      title="Click to view full value"
+      style={{ cursor: "pointer" }}
+    >
       {isImg && (
         <CellImage
           src={value}
@@ -1376,20 +1421,7 @@ function Cell({
         />
       )}
 
-      <div
-        className={`min-w-0 flex-1 ${expanded ? "whitespace-pre-wrap break-words" : "truncate"}`}
-        onClick={onCellClick}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onCellClick();
-          }
-        }}
-        title="Click to view full value"
-        style={{ cursor: "pointer" }}
-      >
+      <div className={`min-w-0 flex-1 ${expanded ? "whitespace-pre-wrap break-words" : "truncate"}`}>
         {query ? highlightMatch(text, query) : text}
       </div>
 
@@ -1527,17 +1559,17 @@ function ImageFullscreenOverlay({
         <CloseIcon className="w-5 h-5" />
       </button>
 
-      {/* Image — object-contain adapts to portrait/landscape */}
+      {/* Image — object-contain in a flex container so it touches all edges. */}
+      {/* Tall images touch top+bottom; wide images touch left+right. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={alt}
         onClick={(e) => {
-          // Clicking the image also closes (per spec).
           e.stopPropagation();
           handleClose();
         }}
-        className="max-w-[100vw] max-h-[100vh] w-auto h-auto object-contain select-none"
+        className="max-w-full max-h-full object-contain select-none"
         draggable={false}
         style={{
           opacity: visible ? 1 : 0,
