@@ -78,11 +78,58 @@ fun NetworkTab(
 
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
+    // View switcher: Network / DB Activity.
+    var viewMode by remember { mutableStateOf("network") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        // ── View switcher (Network / DB Activity) — hidden when minimized ──
+        if (!minimized) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf("network" to "Network", "db" to "DB Activity").forEach { (mode, label) ->
+                    val isSelected = viewMode == mode
+                    Surface(
+                        color = if (isSelected) NetBorderColor.copy(alpha = 0.3f) else NetCardColor,
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) NetBorderColor else NetBorderColor.copy(alpha = 0.3f)),
+                        modifier = Modifier.weight(1f).clickable { viewMode = mode },
+                    ) {
+                        Text(
+                            text = label,
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) NetTextColor else NetTextVariantColor,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (viewMode == "db") {
+            // ── DB Activity view ──
+            // Shows database update events (placeholder — future phase will track
+            // SQLDelight writes + display them here with navigation to the updated table).
+            NetSectionCard("Database activity") {
+                Text(
+                    text = "No database updates tracked yet.\n\nThis view will show DB write events (inserts/updates/deletes) in real time, with the ability to tap an event to navigate to the affected table in the Database tab.\n\nExtension traffic (video resolution via Injekt) is also not captured — this requires wiring the interceptor into the extension's NetworkHelper.",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    color = NetTextVariantColor,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+        } else {
+        // ── Network view ──
+
         // ── Header (refresh + clear) — hidden when minimized ──
         if (!minimized) {
             Row(
@@ -113,11 +160,11 @@ fun NetworkTab(
         }
 
         // ── 5-minute graphs (requests + data usage) ──
-        // Two sparkline-style Canvas charts showing the last 5 minutes of activity.
-        if (snapshot.timeSeries.isNotEmpty()) {
+        // Always shown — even when empty (flat line at zero). Per user:
+        // "show the graph even when nothing has been done."
             // Requests over time graph.
             NetSectionCard("Requests (5 min)") {
-                val maxReq = snapshot.timeSeries.maxOf { it.requestCount }.coerceAtLeast(1)
+                val maxReq = snapshot.timeSeries.maxOfOrNull { it.requestCount }?.coerceAtLeast(1) ?: 1
                 androidx.compose.foundation.Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -159,7 +206,7 @@ fun NetworkTab(
 
             // Data usage over time graph.
             NetSectionCard("Data usage (5 min)") {
-                val maxBytes = snapshot.timeSeries.maxOf { it.bytesReceived }.coerceAtLeast(1L)
+                val maxBytes = snapshot.timeSeries.maxOfOrNull { it.bytesReceived }?.coerceAtLeast(1L) ?: 1L
                 androidx.compose.foundation.Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -198,7 +245,6 @@ fun NetworkTab(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-        }
 
         // ── Status codes (compact bars) ──
         NetSectionCard("Status codes") {
@@ -308,6 +354,7 @@ fun NetworkTab(
                 NetRequestRow(req, timeFmt)
             }
         }
+        }  // end else (network view)
     }
 }
 

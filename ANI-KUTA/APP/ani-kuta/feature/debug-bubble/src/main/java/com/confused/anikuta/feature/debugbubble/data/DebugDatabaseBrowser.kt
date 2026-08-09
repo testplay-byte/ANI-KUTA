@@ -102,6 +102,27 @@ class DebugDatabaseBrowser(
     }
 
     /**
+     * Query ALL rows from a table (no LIMIT). Used by [exportAsJson] to export
+     * the complete database. Per user: "download the whole completed database —
+     * not leaving anything behind, even if it is very big."
+     */
+    fun queryAllRows(table: String): Pair<List<ColumnInfo>, List<List<String>>> {
+        val columns = getColumns(table)
+        if (columns.isEmpty()) return emptyList<ColumnInfo>() to emptyList()
+        val colList = columns.joinToString(", ") { it.name }
+        return withReadDb { db ->
+            val rows = mutableListOf<List<String>>()
+            db.rawQuery("SELECT $colList FROM $table", null).use { c ->
+                while (c.moveToNext()) {
+                    val row = columns.indices.map { colIdx -> renderCell(c, colIdx, columns[colIdx]) }
+                    rows.add(row)
+                }
+            }
+            columns to rows
+        }
+    }
+
+    /**
      * Search a table for rows where [column] LIKE '%[query]%'. Bound parameter
      * (no injection — D-162 I3). Returns the column metadata + matching rows.
      */
@@ -191,7 +212,7 @@ class DebugDatabaseBrowser(
         tables.forEachIndexed { tableIdx, tableName ->
             sb.append("\"").append(tableName).append("\":[")
             val columns = getColumns(tableName)
-            val (_, rows) = queryTable(tableName)
+            val (_, rows) = queryAllRows(tableName)
             rows.forEachIndexed { rowIdx, row ->
                 sb.append("{")
                 row.forEachIndexed { colIdx, cell ->

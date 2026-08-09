@@ -41,7 +41,6 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Module tree, dependency rules, data flow, identity, multi-extension (D-150: Nav3 removed)" },
-  { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-001..D-152 (all confirmed)" },
   { label: "Modules", href: "/modules/", icon: "modules", desc: "44 modules built — module hierarchy + tree view" },
   { label: "Database", href: "/database/", icon: "database", desc: "28 tables (26 active + 2 deferred), ER diagram, indexes, FK relationships" },
   { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
@@ -49,10 +48,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
-  { label: "Phase D", href: "/phase-d/", icon: "planning", desc: "Data Management & Caching — IMPLEMENTED (local-first storage, smart refresh, image caching)" },
-  { label: "Downloads Plan", href: "/downloads-plan/", icon: "planning", desc: "Download system — IMPLEMENTED (all 9 phases D.0–D.8 done + CI GREEN)" },
-  { label: "Debug Bubble", href: "/debug-bubble/", icon: "debug", desc: "Floating debug overlay — IMPLEMENTED (all 8 phases done, D-163, CI green, awaiting device verification)" },
-  { label: "Testing", href: "/testing/", icon: "testing", desc: "Device testing checklist, log capture guide, concerns" },
 ];
 
 /* ---------------------------------------------------------------------------
