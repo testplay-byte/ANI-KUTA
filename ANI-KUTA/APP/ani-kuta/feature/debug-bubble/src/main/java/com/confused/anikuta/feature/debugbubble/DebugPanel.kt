@@ -7,6 +7,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -112,6 +113,10 @@ fun DebugPanel(
     )
 
     var activeTab by remember { mutableStateOf(DebugTab.SCREEN) }
+    // When the user taps a "View in DB" button on the Screen tab, this stores
+    // the table to open + the search filter. The DatabaseTab reads it on open.
+    var pendingDbTable by remember { mutableStateOf<String?>(null) }
+    var pendingDbFilter by remember { mutableStateOf("") }
 
     // ── Expanded panel (full) ──
     AnimatedVisibility(
@@ -145,13 +150,10 @@ fun DebugPanel(
                     },
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // ── Header (title + minimize + close) ──
-                    PanelHeader(
-                        onMinimize = onMinimize,
-                        onClose = { state.close() },
-                    )
-
                     // ── Tab strip (Material icons, segmented style) ──
+                    // No header (close/minimize/debug text removed per user).
+                    // The bubble (outside the panel) handles close (tap when expanded).
+                    // Tap-outside minimizes.
                     TabStrip(
                         activeTab = activeTab,
                         onSelect = { activeTab = it },
@@ -170,10 +172,16 @@ fun DebugPanel(
                         when (activeTab) {
                             DebugTab.SCREEN -> CurrentScreenContent(
                                 onViewInDb = { table, filterCol, filterVal ->
+                                    // Navigate to the Database tab + open the table
+                                    // pre-filtered to the relevant row.
+                                    pendingDbTable = table
+                                    pendingDbFilter = filterVal
                                     activeTab = DebugTab.DATABASE
                                 },
                             )
                             DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab(
+                                initialTable = pendingDbTable,
+                                initialSearch = pendingDbFilter,
                                 onSelectTable = { },
                             )
                             DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
@@ -186,9 +194,9 @@ fun DebugPanel(
         }
     }
 
-    // ── Minimized mini-window (portrait, half-width, live content) ──
-    // Per user: "portrait kind of view, small, not the whole width — about half
-    // the width of the screen. When minimized the content adapts."
+    // ── Minimized mini-window (portrait, half-width, draggable, live content) ──
+    // Per user: no header/text/buttons. Top strip = drag-and-drop area (tap to
+    // expand). Content below = live data (scrollable, no buttons).
     AnimatedVisibility(
         visible = state.panelState == PanelState.MINIMIZED,
         enter = fadeIn() + scaleIn(initialScale = 0.85f),
@@ -196,7 +204,6 @@ fun DebugPanel(
         modifier = Modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Mini-window: half the screen width, 40% of the screen height (portrait).
             val miniWidthPx = (screenWidthPx * 0.5f).coerceAtLeast(0f)
             val miniHeightPx = (screenHeightPx * 0.4f).coerceAtLeast(0f)
             Surface(
@@ -210,49 +217,59 @@ fun DebugPanel(
                     .height(with(density) { miniHeightPx.toDp() })
                     .offset {
                         IntOffset(panelOffset.x.toInt(), panelOffset.y.toInt())
-                    }
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = {})
                     },
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // ── Mini header (tap to expand + close) ──
-                    Row(
+                    // ── Drag handle strip (draggable + tap-to-expand) ──
+                    // No text, no buttons. Just a colored strip that:
+                    // - tap → expand
+                    // - drag → move the mini-window
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { state.expand() }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .height(24.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(onTap = { state.expand() })
+                            }
+                            .pointerInput(Unit) {
+                                detectDragGestures(
+                                    onDragEnd = { },
+                                    onDragCancel = { },
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    state.updateOffset(
+                                        clampMiniOffset(
+                                            state.offset + dragAmount,
+                                            screenWidthPx, screenHeightPx, miniWidthPx, miniHeightPx,
+                                            statusBarPx, navBarPx,
+                                        ),
+                                    )
+                                }
+                            },
                     ) {
-                        Icon(
-                            imageVector = activeTab.icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = activeTab.label,
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(start = 6.dp).weight(1f),
-                        )
-                        Text(
-                            text = "tap to expand",
-                            fontFamily = RobotoFamily,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        IconButton(onClick = { state.close() }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Filled.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            // Small drag indicator bar.
+                            Box(
+                                modifier = Modifier
+                                    .width(32.dp)
+                                    .height(4.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        RoundedCornerShape(2.dp),
+                                    ),
+                            )
                         }
                     }
-                    // ── Live content (each tab manages own scroll — no outer verticalScroll) ──
+                    // ── Live content (scrollable, no buttons) ──
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
                         when (activeTab) {
                             DebugTab.SCREEN -> CurrentScreenContent(
@@ -270,6 +287,28 @@ fun DebugPanel(
             }
         }
     }
+}
+
+// ── Helpers ──
+
+/** Clamp the mini-window offset to keep it fully on-screen. */
+private fun clampMiniOffset(
+    offset: Offset,
+    screenWidthPx: Float,
+    screenHeightPx: Float,
+    miniWidthPx: Float,
+    miniHeightPx: Float,
+    statusBarPx: Float,
+    navBarPx: Float,
+): Offset {
+    val minX = 0f
+    val maxX = (screenWidthPx - miniWidthPx).coerceAtLeast(0f)
+    val minY = statusBarPx
+    val maxY = (screenHeightPx - miniHeightPx - navBarPx).coerceAtLeast(statusBarPx)
+    return Offset(
+        x = offset.x.coerceIn(minX, maxX),
+        y = offset.y.coerceIn(minY, maxY),
+    )
 }
 
 // ── Header ──
@@ -368,6 +407,7 @@ private fun CurrentScreenContent(
     onViewInDb: (table: String, filterCol: String, filterVal: String) -> Unit,
 ) {
     val context = LocalDebugContext.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     if (context == null) {
         EmptyState(
             title = "No screen context",
@@ -398,7 +438,16 @@ private fun CurrentScreenContent(
                 SectionCard {
                     Column {
                         context.screenData.forEach { (k, v) ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            // Tap-to-copy: tapping a data row copies the value.
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                                    .clickable {
+                                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        cm.setPrimaryClip(android.content.ClipData.newPlainText(k, v))
+                                    },
+                            ) {
                                 Text(
                                     text = k,
                                     fontFamily = RobotoFamily,
@@ -433,6 +482,7 @@ private fun CurrentScreenContent(
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
                         shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
@@ -481,6 +531,7 @@ private fun CurrentScreenContent(
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
@@ -504,10 +555,12 @@ private fun CurrentScreenContent(
 @Composable
 private fun SectionCard(content: @Composable () -> Unit) {
     // Lighter tone: surface + tonalElevation (subtle light tint, not grey).
+    // Border around every section (per user: "borders around every single thing").
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 2.dp,
         shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Box(modifier = Modifier.padding(12.dp)) { content() }

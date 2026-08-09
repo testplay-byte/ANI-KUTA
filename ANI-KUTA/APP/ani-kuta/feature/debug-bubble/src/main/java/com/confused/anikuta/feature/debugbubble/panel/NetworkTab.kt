@@ -63,6 +63,14 @@ fun NetworkTab() {
     var snapshot by remember { mutableStateOf(DebugNetworkStats.NetworkSnapshot.EMPTY) }
     var refreshTrigger by remember { mutableStateOf(0) }
 
+    // Auto-refresh: poll the stats every 2 seconds (live updating, no manual refresh needed).
+    LaunchedEffect(Unit) {
+        while (true) {
+            snapshot = stats.snapshot()
+            kotlinx.coroutines.delay(2000)
+        }
+    }
+    // Manual refresh also works.
     LaunchedEffect(refreshTrigger) {
         snapshot = stats.snapshot()
     }

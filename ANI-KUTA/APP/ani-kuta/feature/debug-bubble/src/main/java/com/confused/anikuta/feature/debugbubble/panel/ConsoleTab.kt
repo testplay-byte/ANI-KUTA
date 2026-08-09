@@ -232,9 +232,20 @@ fun ConsoleTab() {
 private fun LogEntryRow(entry: DebugLogBuffer.LogEntry) {
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()) }
     val color = levelColor(entry.level)
+    // Per-entry background color by level (per user: "dedicated background color
+    // depending on what it is"). ERROR = red tint, WARN = orange tint, etc.
+    val bgColor = when (entry.level) {
+        LogLevel.ERROR -> Color(0xFFEF4433).copy(alpha = 0.12f)
+        LogLevel.WARN -> Color(0xFFFF9800).copy(alpha = 0.10f)
+        LogLevel.INFO -> Color(0xFF4CAF50).copy(alpha = 0.08f)
+        LogLevel.DEBUG -> Color(0xFF2196F3).copy(alpha = 0.06f)
+        LogLevel.VERBOSE -> Color(0xFF9E9E9E).copy(alpha = 0.05f)
+        LogLevel.NONE -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+    }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = bgColor,
         shape = RoundedCornerShape(6.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.3f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
