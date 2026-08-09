@@ -525,7 +525,9 @@ export default function DBViewerPage() {
    * ======================================================================= */
 
   return (
-    <div className={isFullscreen ? "space-y-3" : "space-y-6"}>
+    <div
+      className={isFullscreen ? "fixed inset-0 z-[200] bg-background overflow-hidden flex flex-col p-4 space-y-3" : "space-y-6"}
+    >
       {/* ---- Hero (hidden in fullscreen) ---- */}
       {!isFullscreen && (
         <Card className="!p-6 md:!p-8">
@@ -1149,11 +1151,14 @@ function DataGrid({
       const ds = dragStateRef.current;
       if (!ds) return;
       e.preventDefault();
+      e.stopPropagation();
       const delta = e.clientX - ds.startX;
       onColResizeRef.current(ds.col, ds.startWidth + delta);
     };
-    const onUp = () => {
+    const onUp = (e: globalThis.MouseEvent) => {
       if (dragStateRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
         dragStateRef.current = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
@@ -1165,7 +1170,7 @@ function DataGrid({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, []);  // empty deps — register once
+  }, []);
 
   const startResize = useCallback(
     (e: ReactMouseEvent, col: string) => {
@@ -1202,7 +1207,7 @@ function DataGrid({
   }
 
   return (
-    <div className="flex-1 overflow-auto max-h-[70vh]">
+    <div className="flex-1 overflow-auto min-h-0">
       <table
         className="min-w-full border-collapse text-[12.5px]"
         style={{ tableLayout: "fixed" }}
@@ -1213,7 +1218,7 @@ function DataGrid({
             <col key={col} style={{ width: getColWidth(col) }} />
           ))}
         </colgroup>
-        <thead className="sticky top-0 z-10">
+        <thead className="sticky top-0 z-40">
           <tr>
             <th
               scope="col"
@@ -1230,7 +1235,7 @@ function DataGrid({
                 style={{
                   width: getColWidth(col),
                   minWidth: COL_DEFAULT_MIN,
-                  maxWidth: COL_RESIZE_MAX,
+                  maxWidth: COL_DEFAULT_MAX,
                 }}
               >
                 <span className="flex items-center gap-1.5 min-w-0 pr-3">
@@ -1488,7 +1493,10 @@ function CellImage({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       aria-label="Open image in fullscreen"
       title="Click to open image"
       className={`${sizeClass} shrink-0 rounded-[6px] border border-border bg-bg-chip overflow-hidden relative group/img`}
@@ -1569,7 +1577,7 @@ function ImageFullscreenOverlay({
           e.stopPropagation();
           handleClose();
         }}
-        className="max-w-full max-h-full object-contain select-none"
+        className="w-full h-full object-contain select-none"
         draggable={false}
         style={{
           opacity: visible ? 1 : 0,
