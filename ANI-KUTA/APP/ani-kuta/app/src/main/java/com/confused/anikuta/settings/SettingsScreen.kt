@@ -113,6 +113,12 @@ fun SettingsScreen(
                             onClick = onOpenNotifications,
                         )
                     }
+
+                    // ── Debug (Phase DB) — debug builds only; no-op in release ──
+                    item {
+                        SettingsSectionLabel("Debug")
+                        com.confused.anikuta.DebugBubbleToggle()
+                    }
                 }
 
                 ScrollBlurOverlay(

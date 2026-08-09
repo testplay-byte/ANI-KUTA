@@ -132,6 +132,7 @@ fun DebugPanel(
                 shape = RoundedCornerShape(20.dp),
                 shadowElevation = 12.dp,
                 tonalElevation = 3.dp,
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
                     .width(with(density) { panelWidthPx.toDp() })
                     .height(with(density) { panelHeightPx.toDp() })
@@ -156,17 +157,19 @@ fun DebugPanel(
                         onSelect = { activeTab = it },
                     )
 
-                    // ── Tab content (scrollable) ──
+                    // ── Tab content ──
+                    // NO outer verticalScroll — each tab manages its own scrolling
+                    // (Database/Console/Network use LazyColumn; Screen/AppInfo use
+                    // their own verticalScroll). Nesting verticalScroll + LazyColumn
+                    // causes "infinity maximum height constraints" crash.
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
                         when (activeTab) {
                             DebugTab.SCREEN -> CurrentScreenContent(
                                 onViewInDb = { table, filterCol, filterVal ->
-                                    // Switch to the Database tab + pre-filter.
                                     activeTab = DebugTab.DATABASE
                                 },
                             )
@@ -183,10 +186,9 @@ fun DebugPanel(
         }
     }
 
-    // ── Minimized mini-window (shows live content of the active tab) ──
-    // Per user: "it would turn into a mini view, like a mini window, and all
-    // the info will be shown but in a miniature kind of format." Positioned
-    // near the panel location (not a bottom bar). Scrollable without reopening.
+    // ── Minimized mini-window (portrait, half-width, live content) ──
+    // Per user: "portrait kind of view, small, not the whole width — about half
+    // the width of the screen. When minimized the content adapts."
     AnimatedVisibility(
         visible = state.panelState == PanelState.MINIMIZED,
         enter = fadeIn() + scaleIn(initialScale = 0.85f),
@@ -194,20 +196,22 @@ fun DebugPanel(
         modifier = Modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            // Mini-window: half the screen width, 40% of the screen height (portrait).
+            val miniWidthPx = (screenWidthPx * 0.5f).coerceAtLeast(0f)
+            val miniHeightPx = (screenHeightPx * 0.4f).coerceAtLeast(0f)
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(16.dp),
                 shadowElevation = 8.dp,
                 tonalElevation = 3.dp,
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.outline),
                 modifier = Modifier
-                    .width(with(density) { panelWidthPx.toDp() })
-                    .height(with(density) { (panelHeightPx * 0.4f).toDp() })  // mini = 40% of full height
+                    .width(with(density) { miniWidthPx.toDp() })
+                    .height(with(density) { miniHeightPx.toDp() })
                     .offset {
                         IntOffset(panelOffset.x.toInt(), panelOffset.y.toInt())
                     }
                     .pointerInput(Unit) {
-                        // Consume taps so they don't pass through to the screen below,
-                        // but don't expand on tap (user can scroll content).
                         detectTapGestures(onTap = {})
                     },
             ) {
@@ -244,11 +248,10 @@ fun DebugPanel(
                             Icon(Icons.Filled.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
                         }
                     }
-                    // ── Live content (scrollable, same as the full panel) ──
+                    // ── Live content (each tab manages own scroll — no outer verticalScroll) ──
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
                             .padding(horizontal = 12.dp, vertical = 4.dp),
                     ) {
                         when (activeTab) {
@@ -371,8 +374,7 @@ private fun CurrentScreenContent(
             desc = "This screen doesn't provide debug context. The generic tabs (Database, Console, Network, App Info) are available.",
         )
     } else {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // ── Screen name header ──
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
             SectionCard {
                 Text(
                     text = context.screenName,
