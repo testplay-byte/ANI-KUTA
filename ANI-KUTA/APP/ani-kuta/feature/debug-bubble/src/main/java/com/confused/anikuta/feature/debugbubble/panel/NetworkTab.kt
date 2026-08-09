@@ -150,6 +150,59 @@ fun NetworkTab() {
             }
         }
 
+        // ── Category breakdown (metadata / video / image / other) ──
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "Request categories",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                DebugNetworkStats.RequestCategory.values().forEachIndexed { idx, cat ->
+                    val count = snapshot.categoryCounts.getOrElse(idx) { 0 }
+                    val color = when (cat) {
+                        DebugNetworkStats.RequestCategory.METADATA -> Color(0xFF9C27B0)
+                        DebugNetworkStats.RequestCategory.VIDEO -> Color(0xFF4CAF50)
+                        DebugNetworkStats.RequestCategory.IMAGE -> Color(0xFF2196F3)
+                        DebugNetworkStats.RequestCategory.OTHER -> Color(0xFF9E9E9E)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = cat.label,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = color,
+                            modifier = Modifier.width(70.dp),
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(12.dp)
+                                .background(color.copy(alpha = 0.25f), RoundedCornerShape(2.dp)),
+                        )
+                        Text(
+                            text = count.toString(),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
+
         // ── Extension-traffic caveat ──
         Surface(
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
@@ -246,6 +299,18 @@ private fun RequestRow(req: DebugNetworkStats.RequestRecord, timeFmt: SimpleDate
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = req.category.label.take(3).uppercase(),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = when (req.category) {
+                        DebugNetworkStats.RequestCategory.METADATA -> Color(0xFF9C27B0)
+                        DebugNetworkStats.RequestCategory.VIDEO -> Color(0xFF4CAF50)
+                        DebugNetworkStats.RequestCategory.IMAGE -> Color(0xFF2196F3)
+                        DebugNetworkStats.RequestCategory.OTHER -> Color(0xFF9E9E9E)
+                    },
                 )
                 Text(
                     text = if (req.status < 0) "ERR" else req.status.toString(),

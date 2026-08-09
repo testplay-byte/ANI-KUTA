@@ -107,6 +107,16 @@ fun DebugBubble(
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // ── The debug panel (rendered FIRST so the bubble draws on top of it) ──
+        // The panel's scrim covers the full screen, but the bubble is rendered
+        // after it (later sibling) so the bubble stays visible + tappable when
+        // the panel is open. Per user: "the button should not disappear."
+        DebugPanel(
+            state = state,
+            onMinimize = { state.minimize() },
+        )
+
+        // ── The bubble (rendered AFTER the panel so it's on top) ──
         Surface(
             // Theme-aware contrast: dark bubble in light mode, white bubble in dark
             // mode (per user). onSurface is dark-in-light + light/white-in-dark.
@@ -125,34 +135,28 @@ fun DebugBubble(
                 }
                 .pointerInput(Unit) {
                     // Single gesture detector that distinguishes tap from drag.
-                    // awaitEachGesture gives full control over the gesture lifecycle.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         pressed = true
                         var lastPos = down.position()
                         var isDragging = false
 
-                        // Track the gesture until the pointer is released.
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Main)
                             val change = event.changes.firstOrNull() ?: break
                             if (!change.pressed) {
-                                // Pointer released.
                                 change.consume()
                                 pressed = false
                                 if (!isDragging) {
-                                    // Pure tap (total movement < threshold) → toggle the panel.
                                     state.onBubbleTap()
                                 }
                                 break
                             }
-                            // Movement during the gesture — compute delta from last position.
                             val currentPos = change.position()
                             val dx = currentPos.x - lastPos.x
                             val dy = currentPos.y - lastPos.y
                             lastPos = currentPos
                             if (!isDragging && (abs(dx) > tapThresholdPx || abs(dy) > tapThresholdPx)) {
-                                // Crossed the threshold → this is a drag, not a tap.
                                 isDragging = true
                             }
                             if (isDragging) {
@@ -172,19 +176,11 @@ fun DebugBubble(
                 Icon(
                     imageVector = Icons.Filled.BugReport,
                     contentDescription = "Debug bubble",
-                    // Opposite contrast: surface is light-in-dark + dark-in-light
-                    // (inverse of the onSurface bubble color).
                     tint = MaterialTheme.colorScheme.surface,
                     modifier = Modifier.size(BUBBLE_ICON_SIZE),
                 )
             }
         }
-
-        // ── The debug panel (DB-2) ──
-        DebugPanel(
-            state = state,
-            onMinimize = { state.minimize() },
-        )
     }
 }
 

@@ -8,19 +8,17 @@ import java.util.concurrent.atomic.AtomicLong
  * OkHttp interceptor that records network stats for the debug bubble's Network
  * tab (Phase DB-5).
  *
- * Counts: total requests, total bytes (response body), status-code histogram
- * (2xx/3xx/4xx/5xx/network-errors), + a capped (50) deque of recent requests.
+ * Counts: total requests, total bytes, status-code histogram, + categorized
+ * counts (metadata / video / image / other). Categorization is by URL pattern:
+ * - AniList GraphQL API → metadata
+ * - Common video extensions (.mp4, .m3u8, .ts, .mkv) → video
+ * - Image extensions (.jpg, .png, .webp) → image
+ * - Everything else → other
  *
- * O(1) per request (atomic increments + capped synchronized deque). Registered
- * as an interceptor on both the default + download OkHttpClients in debug builds
- * (via `wrapDebugOkHttp` in `:app/src/debug/DebugInit.kt`).
+ * O(1) per request (atomic increments + capped synchronized deque).
  *
- * **Extension traffic caveat (D-162 I1):** extensions use a SEPARATE OkHttpClient
- * via Injekt (NetworkHelper) — the interceptor does NOT see extension HTTP calls.
- * The Network tab shows app-level traffic (AniList API, source API calls via
- * the Koin client, downloads) only.
- *
- * CORE_RULES §20: doesn't log (would recurse via Logger → appender → …).
+ * **Extension traffic caveat (D-162 I1):** extensions use a separate Injekt
+ * OkHttpClient — not captured.
  */
 class DebugNetworkStats : Interceptor {
 
@@ -28,6 +26,7 @@ class DebugNetworkStats : Interceptor {
     private val totalBytes = AtomicLong(0)
     private val errorCount = AtomicLong(0)
     private val statusBuckets = IntArray(5) // 2xx / 3xx / 4xx / 5xx / network-errors
+    private val categoryCounts = IntArray(4) // metadata / video / image / other
     private val recentRequests = ArrayDeque<RequestRecord>()
     private val lock = Any()
     private val maxRecent = 50
@@ -36,6 +35,7 @@ class DebugNetworkStats : Interceptor {
         val request = chain.request()
         val startMs = System.currentTimeMillis()
         requestCount.incrementAndGet()
+        val category = categorize(request.url.host, request.url.encodedPath)
 
         return try {
             val response = chain.proceed(request)
@@ -43,8 +43,9 @@ class DebugNetworkStats : Interceptor {
             val bytes = response.body?.contentLength()?.coerceAtLeast(0) ?: 0L
             totalBytes.addAndGet(bytes)
             val code = response.code
-            bucketFor(code).let { idx ->
-                synchronized(lock) { statusBuckets[idx]++ }
+            synchronized(lock) {
+                statusBuckets[bucketFor(code)]++
+                categoryCounts[category.ordinal]++
             }
             addRecent(RequestRecord(
                 method = request.method,
@@ -54,53 +55,71 @@ class DebugNetworkStats : Interceptor {
                 latencyMs = latencyMs,
                 bytes = bytes,
                 timestamp = startMs,
+                category = category,
             ))
             response
         } catch (e: Exception) {
             errorCount.incrementAndGet()
-            synchronized(lock) { statusBuckets[4]++ }  // network-errors bucket
+            synchronized(lock) {
+                statusBuckets[4]++
+                categoryCounts[category.ordinal]++
+            }
             addRecent(RequestRecord(
                 method = request.method,
                 host = request.url.host,
                 path = request.url.encodedPath,
-                status = -1,  // network error
+                status = -1,
                 latencyMs = System.currentTimeMillis() - startMs,
                 bytes = 0L,
                 timestamp = startMs,
+                category = category,
                 error = e.message,
             ))
             throw e
         }
     }
 
-    /** Immutable snapshot for the UI. */
     fun snapshot(): NetworkSnapshot = synchronized(lock) {
         NetworkSnapshot(
             totalRequests = requestCount.get(),
             totalBytes = totalBytes.get(),
             errorCount = errorCount.get(),
             statusBuckets = statusBuckets.copyOf(),
+            categoryCounts = categoryCounts.copyOf(),
             recentRequests = recentRequests.toList(),
         )
     }
 
-    /** Clear all stats. */
     fun clear() {
         requestCount.set(0)
         totalBytes.set(0)
         errorCount.set(0)
         synchronized(lock) {
             for (i in statusBuckets.indices) statusBuckets[i] = 0
+            for (i in categoryCounts.indices) categoryCounts[i] = 0
             recentRequests.clear()
         }
     }
 
     private fun bucketFor(code: Int): Int = when (code / 100) {
-        2 -> 0  // 2xx
-        3 -> 1  // 3xx
-        4 -> 2  // 4xx
-        5 -> 3  // 5xx
-        else -> 4  // network-errors / unknown
+        2 -> 0
+        3 -> 1
+        4 -> 2
+        5 -> 3
+        else -> 4
+    }
+
+    private fun categorize(host: String, path: String): RequestCategory {
+        val lower = (host + path).lowercase()
+        return when {
+            "anilist.co" in lower || "graphql" in lower -> RequestCategory.METADATA
+            lower.endsWith(".mp4") || lower.endsWith(".m3u8") || lower.endsWith(".ts") ||
+                lower.endsWith(".mkv") || "video" in lower || "stream" in lower -> RequestCategory.VIDEO
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") ||
+                lower.endsWith(".webp") || lower.endsWith(".gif") || "image" in lower ||
+                "cover" in lower || "thumbnail" in lower -> RequestCategory.IMAGE
+            else -> RequestCategory.OTHER
+        }
     }
 
     private fun addRecent(record: RequestRecord) {
@@ -110,28 +129,35 @@ class DebugNetworkStats : Interceptor {
         }
     }
 
-    /** A single recorded request. */
+    enum class RequestCategory(val label: String) {
+        METADATA("Metadata"),
+        VIDEO("Video"),
+        IMAGE("Image"),
+        OTHER("Other"),
+    }
+
     data class RequestRecord(
         val method: String,
         val host: String,
         val path: String,
-        val status: Int,  // -1 = network error
+        val status: Int,
         val latencyMs: Long,
         val bytes: Long,
         val timestamp: Long,
+        val category: RequestCategory,
         val error: String? = null,
     )
 
-    /** Immutable snapshot of all stats. */
     data class NetworkSnapshot(
         val totalRequests: Long,
         val totalBytes: Long,
         val errorCount: Long,
-        val statusBuckets: IntArray,  // [2xx, 3xx, 4xx, 5xx, errors]
+        val statusBuckets: IntArray,
+        val categoryCounts: IntArray,
         val recentRequests: List<RequestRecord>,
     ) {
         companion object {
-            val EMPTY = NetworkSnapshot(0, 0, 0, IntArray(5), emptyList())
+            val EMPTY = NetworkSnapshot(0, 0, 0, IntArray(5), IntArray(4), emptyList())
         }
     }
 }
