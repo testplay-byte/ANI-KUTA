@@ -588,3 +588,54 @@
 - ✅ CI green (run 31339439293, commit 619a174, artifact `anikuta-apk` 54.1 MB).
 - Code-reviewed by sub-agent (Task 2-d): no critical or important issues.
 - Awaiting device verification: (1) open an anime for the first time → DB Activity should show writes to `content`, `anilist_detail`, `anime_metadata_cache`, `data_cache_episode`; (2) charts should slide forward every 2s even when idle; (3) selecting DB Activity + minimizing should keep the DB Activity view in the mini-window.
+
+## Session — Debug Bubble: read tracking + export logs + filter toggle + dual-line chart (feature/debug-bubble branch)
+
+### Read tracking (SELECT) — now tracks ALL DB operations
+- **Problem:** The DB Activity view only tracked writes (INSERT/UPDATE/DELETE/REPLACE). The user wanted to see reads (SELECT) too — "it should detect the reads and it should also detect the writes and it should also detect the updates and deletes."
+- **Solution:** `DebugSqlDriverWrapper` now overrides BOTH `execute()` (writes) AND `executeQuery<R>()` (reads). The `executeQuery` override parses SELECT statements via a new `selectTableRegex` that matches `SELECT ... FROM <table>` (including `SELECT DISTINCT`). Also handles `WITH ... SELECT` (CTEs).
+- **DebugDbStats rewrite:**
+  - New `totalReads: AtomicLong` + `readTableCounts: MutableMap<String, Int>`.
+  - `DbWriteEvent` renamed to `DbEvent` with an `isRead: Boolean` flag.
+  - `DbTimeSeriesBucket` now has `readCount: Int` + `writeCount: Int` (dual dimension).
+  - `DbSnapshot` includes `totalReads`, `readTableCounts`.
+  - `recordRead(table, sql)` method — mirrors `recordWrite`.
+  - `recordTimeSeries(timestamp, isWrite)` — updates the right dimension.
+  - `advanceToNow()` fills both `readCount=0` + `writeCount=0` for idle seconds.
+  - Ring buffer increased 50 → 200 (reads are far more frequent than writes).
+- **NetworkTab DB Activity UI:**
+  - 5 stat cards: Reads (cyan), Writes (gold), Ins (green), Upd (blue), Del (red).
+  - Dual-line chart: reads (cyan) + writes (gold) overlaid. `maxVal = maxOf(maxReads, maxWrites).coerceAtLeast(1)` so neither line is clipped. Peak labels show both dimensions.
+  - Separate "Top tables (writes)" + "Top tables (reads)" sections.
+  - Filter toggle (All / Reads / Writes) for the recent events list. Default = "Writes" (reads would flood the list).
+  - In minimized mode: shows only writes (reads would flood the mini-window).
+  - `DbEventRow` replaces `DbWriteEventRow` — cyan color for SELECT events; green/blue/red/orange for INSERT/UPDATE/DELETE/REPLACE.
+
+### Export/download log buttons
+- **DebugDbStats.exportAsText():** produces a human-readable text log with:
+  - SUMMARY (total reads, total writes, INSERT/UPDATE/DELETE/other breakdown).
+  - TABLE BREAKDOWN (writes) — per-table write counts, sorted descending.
+  - TABLE BREAKDOWN (reads) — per-table read counts, sorted descending.
+  - RECENT EVENTS (last 200, newest first) — timestamp, operation, table, truncated SQL.
+- **DebugNetworkStats.exportAsText():** produces a human-readable text log with:
+  - SUMMARY (total requests, bytes received/sent, errors).
+  - STATUS CODES (2xx/3xx/4xx/5xx/err histogram).
+  - CATEGORIES (Metadata/Video/Image/Other).
+  - TOP SOURCES (per-host counts, sorted descending).
+  - RECENT REQUESTS (last 50, newest first) — timestamp, method, category, status, latency, bytes, URL.
+- **SAF (Storage Access Framework) export:**
+  - Network view header: Download icon → `exportNetLauncher.launch("anikuta_network_<timestamp>.log")`.
+  - DB Activity header: Download icon → `exportDbLauncher.launch("anikuta_db_activity_<timestamp>.log")`.
+  - Uses `ActivityResultContracts.CreateDocument("text/plain")` — the user picks a file location via the system file picker. The log text is written on a background `Thread` (same pattern as DatabaseTab's JSON export).
+  - The exported `.log` files are plain text, easily shareable (e.g., via messaging apps, email, or attached to a GitHub issue).
+
+### Filter toggle + better formatting
+- 3-way filter (All / Reads / Writes) for the DB Activity recent events list.
+- Separate "Top tables (writes)" + "Top tables (reads)" sections so the user can see which tables are being read vs written.
+- Color-coded events: cyan=SELECT, green=INSERT, blue=UPDATE, red=DELETE, orange=REPLACE.
+- The filter toggle is hidden in minimized mode (the mini-window always shows writes only).
+
+### Status
+- ✅ CI run 31341636467 started (commit 1f65e5d). Awaiting green.
+- Code-reviewed by sub-agent (Task 3-a): no critical or important issues. 6 minor issues (3 fixed: stale KDoc in DebugInit.kt, stale comment in DebugBubbleModule.kt, inaccurate comment in DebugSqlDriverWrapper.kt; 3 acceptable tradeoffs: indentation, raw Thread, ring buffer eviction).
+- Awaiting device verification: (1) reads should now appear in the DB Activity view (cyan-colored SELECT events); (2) the export buttons should produce `.log` files via the system file picker; (3) the filter toggle should correctly filter events; (4) the dual-line chart should show both reads + writes.

@@ -1245,3 +1245,31 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Sub-agent review (Task 2-d):** No critical issues, no important issues. 3 minor unused-import issues (pre-existing, cleaned up). Overall: READY TO COMMIT.
 - **Status:** ✅ CI green (run 31339439293, commit 619a174, artifact 54.1 MB). Awaiting device verification.
 - **Date:** this session (feature/debug-bubble branch).
+
+### D-165 — Debug Bubble: read tracking + export logs + filter toggle + dual-line chart
+- **What:** Four improvements to the debug bubble's DB Activity view: (1) track SELECT reads in addition to writes, (2) export DB activity + network logs as shareable `.log` files, (3) a filter toggle (All / Reads / Writes) for the recent events list, (4) a dual-line chart (reads + writes) with 5 stat cards.
+- **Why:** The user wanted to see ALL DB operations (reads + writes + updates + deletes), not just writes. They also wanted to download logs to share with the developer for debugging.
+- **Read tracking architecture:**
+  - `DebugSqlDriverWrapper` now overrides both `execute()` (writes) and `executeQuery<R>()` (reads). The `executeQuery` override has the correct SQLDelight 2.0.2 signature: `override fun <R> executeQuery(identifier: Int?, sql: String, mapper: (SqlCursor) -> QueryResult<R>, parameters: Int, binders: (SqlPreparedStatement.() -> Unit)?): QueryResult<R>`.
+  - SELECT table regex: `^\s*(?:SELECT\s+(?:DISTINCT\s+)?[\s\S]*?\s+FROM)\s+["`\[]?(\w+)["`\]]?` — matches `SELECT ... FROM <table>` and `SELECT DISTINCT ... FROM <table>`. Also handles `WITH ... SELECT` (CTEs).
+  - `DebugDbStats` rewritten: `totalReads` atomic counter, `readTableCounts` map, `DbEvent` (with `isRead` flag) replaces `DbWriteEvent`, `DbTimeSeriesBucket` now has `readCount + writeCount`, `recordRead(table, sql)` method, ring buffer increased 50 → 200.
+- **Export approach:**
+  - `exportAsText()` methods on both `DebugDbStats` and `DebugNetworkStats` — produce human-readable text logs (not JSON, because the user said "log kind of format" and text is easier to read/share).
+  - SAF (Storage Access Framework) via `ActivityResultContracts.CreateDocument("text/plain")` — the user picks a file location; the log is written on a background thread.
+  - File names: `anikuta_db_activity_<timestamp>.log` + `anikuta_network_<timestamp>.log`.
+- **Filter toggle design:**
+  - 3-way: All / Reads / Writes. Default = "Writes" (reads are far more frequent — every Flow emission, every screen load — and would flood the list).
+  - In minimized mode: always shows writes only (reads would make the mini-window unreadable).
+  - The filter state is `remember`-scoped to `DbActivityContent` (not hoisted to DebugPanel) — it doesn't need to survive minimize since minimized mode always shows writes.
+- **Dual-line chart:**
+  - Two overlaid lines: cyan (reads/sec) + gold (writes/sec).
+  - `maxVal = maxOf(maxReads, maxWrites).coerceAtLeast(1)` — both lines scaled to the same max so neither is clipped.
+  - Peak labels show both dimensions: "Peak: N reads/s" + "Peak: N writes/s".
+- **Alternatives considered for read tracking:**
+  - (A) Only track reads in aggregate (counter + time-series), not in the recent-events list — REJECTED: the user explicitly wants to see reads in the event list.
+  - (B) Separate ring buffers for reads vs writes — REJECTED: would lose the chronological interleaving of reads + writes (which is useful for understanding the order of operations).
+  - (C) Larger ring buffer (500+) — REJECTED: 200 is enough to see the last ~200 operations, and reads are so frequent that 500 would still be filled in seconds. The filter toggle lets the user focus on writes.
+  - (CHOSEN) Shared 200-entry ring buffer with a filter toggle — the user can switch to "Writes" to see only writes, "Reads" to see only reads, or "All" to see the interleaved history.
+- **Sub-agent review (Task 3-a):** No critical issues, no important issues. 6 minor issues (3 fixed: stale KDoc/comment; 3 acceptable tradeoffs: indentation, raw Thread for export, ring buffer eviction under heavy read load).
+- **Status:** ✅ CI run 31341636467 started (commit 1f65e5d). Awaiting green + device verification.
+- **Date:** this session (feature/debug-bubble branch).
