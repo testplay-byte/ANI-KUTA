@@ -47,7 +47,7 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - Rating UI not built — store + schema ready, UI pending.
 - Continue Watching UI not placed — logic ready, UI deferred.
 
-**Next:** Debug bubble — IMPLEMENTED (D-163, all 8 phases done on `feature/debug-bubble`, CI green, awaiting device verification). After verification → Rating UI → Continue Watching UI → Subtitle loading investigation.
+**Next:** Debug bubble — IMPLEMENTED + ENHANCED (D-163..D-165, DB-1..DB-9 done on `feature/debug-bubble`, CI green, merge-ready). Next session: merge `feature/debug-bubble` → `main`, then → Database optimization → Rating UI → Continue Watching UI → Subtitle loading investigation.
 
 ## What's Done
 - [x] Phase 0 (environment, rules, dashboard, old project documented).
@@ -114,11 +114,12 @@ The `download-system-plan` branch has been merged to `main` + deleted. The `feat
 - **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
 
 ## Last Updated
-- Session: debug-bubble implementation (Z.ai Code sandbox) — on `feature/debug-bubble` branch.
+- Session: debug-bubble enhancement — read tracking + export logs + filter toggle + dual-line chart (Z.ai Code sandbox) — on `feature/debug-bubble` branch.
 - By: main agent (implementation + sub-agent reviews + CI verification).
 - Branch: `feature/debug-bubble` (all debug-bubble work here; main untouched). `main` is at 73b16ba (D-161 crash fix).
-- CI: ✅ all 8 phases green on feature/debug-bubble. Final: run 31283553038, commit 477a256, artifact 54 MB.
-- Note: D-001..D-163 decisions. Debug bubble fully implemented (DB-1..DB-8) — 5-tab panel (Current Screen, Database, Console, Network, App Info) + draggable squircle bubble + 4 screen opt-ins (Details, Browse, Watch, Downloads). Debug-only (debugImplementation); release builds have zero debug-bubble code. Awaiting device verification.
+- CI: ✅ green on feature/debug-bubble. Latest: run 31341636467, commit bd7f31d, artifact 54.1 MB.
+- Note: D-001..D-165 decisions. Debug bubble fully implemented (DB-1..DB-9) — 5-tab panel (Current Screen, Database, Console, Network, App Info) + draggable squircle bubble + 4 screen opt-ins (Details, Browse, Watch, Downloads). DB Activity view now tracks BOTH reads (SELECT) + writes (INSERT/UPDATE/DELETE/REPLACE) with a dual-line chart, filter toggle, and export-to-log-file via SAF. Network view also has export-to-log-file. Charts constantly slide forward every 2s even with zero traffic. Debug-only (debugImplementation); release builds have zero debug-bubble code.
+- **Merge-ready:** The `feature/debug-bubble` branch is ready to merge to `main` in the next session. All changes are CI-green, code-reviewed, and documented. The branch adds: (1) the full debug bubble feature (DB-1..DB-8), (2) DB Activity tracker with read+write tracking (DB-9), (3) chart sliding, (4) viewMode hoist, (5) export logs, (6) filter toggle, (7) dual-line chart. No changes to any repository, ViewModel, .sq file, or release code path.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 
