@@ -1,6 +1,7 @@
 package com.confused.anikuta.feature.debugbubble.panel
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,8 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -44,38 +46,35 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * The Network tab — OkHttp interceptor stats (Phase DB-5).
- *
- * Shows: summary (total requests, bytes, errors), status-code histogram
- * (2xx/3xx/4xx/5xx/errors), + a scrollable list of the last 50 requests.
- *
- * Data is fetched on tab open + on Refresh (snapshot from [DebugNetworkStats]).
- *
- * **Extension traffic caveat (D-162 I1):** extensions use a separate Injekt
- * OkHttpClient — their HTTP calls are NOT captured. The tab shows app-level
- * traffic only (disclosed in a banner).
- */
+// Network tab colors (match the panel's coral/sienna theme).
+private val NetCardColor = Color(0xFF8B4A3A)
+private val NetTextColor = Color(0xFFF5E6D3)
+private val NetTextVariantColor = Color(0xFFF5E6D3).copy(alpha = 0.6f)
+private val NetBorderColor = Color(0xFFD4A574)
+private val NetLabelColor = Color(0xFFE8C170)
+private val NetGreen = Color(0xFF66BB6A)
+private val NetBlue = Color(0xFF42A5F5)
+private val NetOrange = Color(0xFFFFA726)
+private val NetRed = Color(0xFFEF5350)
+private val NetPurple = Color(0xFFAB47BC)
+private val NetGray = Color(0xFF9E9E9E)
+
 @Composable
 fun NetworkTab(
     minimized: Boolean = false,
 ) {
     val stats = koinInject<DebugNetworkStats>()
-
     var snapshot by remember { mutableStateOf(DebugNetworkStats.NetworkSnapshot.EMPTY) }
     var refreshTrigger by remember { mutableStateOf(0) }
 
-    // Auto-refresh: poll the stats every 2 seconds (live updating, no manual refresh needed).
+    // Auto-refresh every 2 seconds (live updating).
     LaunchedEffect(Unit) {
         while (true) {
             snapshot = stats.snapshot()
             kotlinx.coroutines.delay(2000)
         }
     }
-    // Manual refresh also works.
-    LaunchedEffect(refreshTrigger) {
-        snapshot = stats.snapshot()
-    }
+    LaunchedEffect(refreshTrigger) { snapshot = stats.snapshot() }
 
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
@@ -84,300 +83,213 @@ fun NetworkTab(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        // In minimized mode: hide refresh/clear buttons, show only live stats.
+        // ── Header (refresh + clear) — hidden when minimized ──
         if (!minimized) {
-        // ── Header row: refresh + clear ──
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = { refreshTrigger++ }) {
-                Icon(Icons.Filled.Refresh, "Refresh", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = {
-                stats.clear()
-                refreshTrigger++
-            }) {
-                Icon(Icons.Filled.Delete, "Clear", tint = MaterialTheme.colorScheme.error)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                IconButton(onClick = { refreshTrigger++ }) {
+                    Icon(Icons.Filled.Refresh, "Refresh", tint = NetTextVariantColor, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = { stats.clear(); refreshTrigger++ }) {
+                    Icon(Icons.Filled.Delete, "Clear", tint = NetRed, modifier = Modifier.size(18.dp))
+                }
             }
         }
-        }  // end if (!minimized)
 
-        // ── Summary stats ──
+        // ── Bandwidth summary (4 stat cards: requests, received, sent, errors) ──
         Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            StatCard("Requests", snapshot.totalRequests.toString(), Modifier.weight(1f))
-            StatCard("Bytes", formatBytes(snapshot.totalBytes), Modifier.weight(1f))
-            StatCard("Errors", snapshot.errorCount.toString(), Modifier.weight(1f))
+            NetStatCard("Requests", snapshot.totalRequests.toString(), NetBlue, Modifier.weight(1f))
+            NetStatCard("Received", formatBytes(snapshot.totalBytesReceived), NetGreen, Modifier.weight(1f))
+            NetStatCard("Sent", formatBytes(snapshot.totalBytesSent), NetOrange, Modifier.weight(1f))
+            NetStatCard("Errors", snapshot.errorCount.toString(), NetRed, Modifier.weight(1f))
         }
 
-        // ── Status-code histogram ──
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = "Status codes",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                listOf(
-                    "2xx" to snapshot.statusBuckets[0] to Color(0xFF4CAF50),
-                    "3xx" to snapshot.statusBuckets[1] to Color(0xFF2196F3),
-                    "4xx" to snapshot.statusBuckets[2] to Color(0xFFFF9800),
-                    "5xx" to snapshot.statusBuckets[3] to Color(0xFFF44336),
-                    "errors" to snapshot.statusBuckets[4] to Color(0xFF9E9E9E),
-                ).forEach { (pair, color) ->
-                    val (label, count) = pair
+        // ── Status codes (compact bars) ──
+        NetSectionCard("Status codes") {
+            val statusData = listOf(
+                "2xx" to snapshot.statusBuckets[0] to NetGreen,
+                "3xx" to snapshot.statusBuckets[1] to NetBlue,
+                "4xx" to snapshot.statusBuckets[2] to NetOrange,
+                "5xx" to snapshot.statusBuckets[3] to NetRed,
+                "err" to snapshot.statusBuckets[4] to NetGray,
+            )
+            val maxCount = statusData.maxOf { it.first.second }.coerceAtLeast(1)
+            statusData.forEach { (pair, color) ->
+                val (label, count) = pair
+                val barWidth = (count.toFloat() / maxCount).coerceIn(0f, 1f)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(label, fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = color, modifier = Modifier.width(30.dp))
+                    Box(modifier = Modifier.weight(1f).height(10.dp)) {
+                        Box(modifier = Modifier.fillMaxSize().background(color.copy(alpha = 0.15f), RoundedCornerShape(2.dp)))
+                        Box(modifier = Modifier.fillMaxWidth(barWidth).fillMaxSize().background(color, RoundedCornerShape(2.dp)))
+                    }
+                    Text(count.toString(), fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = NetTextColor, modifier = Modifier.padding(start = 6.dp).width(30.dp))
+                }
+            }
+        }
+
+        // ── Request categories ──
+        NetSectionCard("Categories") {
+            val catData = DebugNetworkStats.RequestCategory.values()
+            val catColors = listOf(NetPurple, NetGreen, NetBlue, NetGray)
+            val maxCat = snapshot.categoryCounts.maxOrNull()?.coerceAtLeast(1) ?: 1
+            catData.forEachIndexed { idx, cat ->
+                val count = snapshot.categoryCounts.getOrElse(idx) { 0 }
+                val color = catColors[idx]
+                val barWidth = (count.toFloat() / maxCat).coerceIn(0f, 1f)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(cat.label, fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = color, modifier = Modifier.width(70.dp))
+                    Box(modifier = Modifier.weight(1f).height(10.dp)) {
+                        Box(modifier = Modifier.fillMaxSize().background(color.copy(alpha = 0.15f), RoundedCornerShape(2.dp)))
+                        Box(modifier = Modifier.fillMaxWidth(barWidth).fillMaxSize().background(color, RoundedCornerShape(2.dp)))
+                    }
+                    Text(count.toString(), fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = NetTextColor, modifier = Modifier.padding(start = 6.dp).width(30.dp))
+                }
+            }
+        }
+
+        // ── Top hosts (per-source breakdown) ──
+        if (snapshot.hostCounts.isNotEmpty()) {
+            NetSectionCard("Top sources") {
+                val topHosts = snapshot.hostCounts.entries.sortedByDescending { it.value }.take(5)
+                val maxHost = topHosts.maxOf { it.value }.coerceAtLeast(1)
+                topHosts.forEach { (host, count) ->
+                    val barWidth = (count.toFloat() / maxHost).coerceIn(0f, 1f)
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = label,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = color,
-                            modifier = Modifier.width(50.dp),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(12.dp)
-                                .background(color.copy(alpha = 0.25f), RoundedCornerShape(2.dp)),
-                        )
-                        Text(
-                            text = count.toString(),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
+                        Text(host, fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = NetTextVariantColor, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Box(modifier = Modifier.width(60.dp).height(8.dp)) {
+                            Box(modifier = Modifier.fillMaxSize().background(NetBorderColor.copy(alpha = 0.15f), RoundedCornerShape(2.dp)))
+                            Box(modifier = Modifier.fillMaxWidth(barWidth).fillMaxSize().background(NetBorderColor, RoundedCornerShape(2.dp)))
+                        }
+                        Text(count.toString(), fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = NetTextColor, modifier = Modifier.padding(start = 6.dp).width(24.dp))
                     }
                 }
             }
         }
 
-        // ── Category breakdown (metadata / video / image / other) ──
+        // ── Extension traffic caveat ──
         Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(
-                    text = "Request categories",
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                DebugNetworkStats.RequestCategory.values().forEachIndexed { idx, cat ->
-                    val count = snapshot.categoryCounts.getOrElse(idx) { 0 }
-                    val color = when (cat) {
-                        DebugNetworkStats.RequestCategory.METADATA -> Color(0xFF9C27B0)
-                        DebugNetworkStats.RequestCategory.VIDEO -> Color(0xFF4CAF50)
-                        DebugNetworkStats.RequestCategory.IMAGE -> Color(0xFF2196F3)
-                        DebugNetworkStats.RequestCategory.OTHER -> Color(0xFF9E9E9E)
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = cat.label,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = color,
-                            modifier = Modifier.width(70.dp),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(12.dp)
-                                .background(color.copy(alpha = 0.25f), RoundedCornerShape(2.dp)),
-                        )
-                        Text(
-                            text = count.toString(),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(start = 8.dp),
-                        )
-                    }
-                }
-            }
-        }
-
-        // ── Extension-traffic caveat ──
-        Surface(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+            color = Color.Black.copy(alpha = 0.15f),
             shape = RoundedCornerShape(6.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         ) {
             Text(
-                text = "Note: extension HTTP calls (via Injekt) are not captured.",
+                text = "Extension HTTP calls (Injekt) are not captured.",
                 fontFamily = RobotoFamily,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                fontSize = 9.sp,
+                color = NetTextVariantColor,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
-
-        Spacer(Modifier.height(8.dp))
 
         // ── Recent requests ──
-        Text(
-            text = "Recent requests (${snapshot.recentRequests.size})",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
+        if (!minimized) {
+            Text(
+                text = "Recent (${snapshot.recentRequests.size})",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = NetLabelColor,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+
         if (snapshot.recentRequests.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No requests yet", fontFamily = RobotoFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
+                Text("No requests yet", fontFamily = RobotoFamily, fontSize = 12.sp, color = NetTextVariantColor)
             }
         } else {
-            // Use Column + forEach (not LazyColumn) so the whole tab can be in
-            // a verticalScroll. Max 50 items — fine for non-lazy rendering.
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                snapshot.recentRequests.reversed().forEach { req ->
-                    RequestRow(req, timeFmt)
-                }
+            snapshot.recentRequests.reversed().forEach { req ->
+                NetRequestRow(req, timeFmt)
             }
         }
     }
 }
 
 @Composable
-private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
+private fun NetStatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = NetCardColor,
         shape = RoundedCornerShape(8.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.4f)),
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Text(
-                text = value,
-                fontFamily = RobotoFamily,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(value, fontFamily = RobotoFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = NetTextColor)
+            Text(label, fontFamily = RobotoFamily, fontSize = 9.sp, color = NetTextVariantColor)
         }
     }
 }
 
 @Composable
-private fun RequestRow(req: DebugNetworkStats.RequestRecord, timeFmt: SimpleDateFormat) {
+private fun NetSectionCard(title: String, content: @Composable () -> Unit) {
+    Surface(
+        color = NetCardColor,
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, NetBorderColor.copy(alpha = 0.4f)),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(title, fontFamily = RobotoFamily, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = NetLabelColor, modifier = Modifier.padding(bottom = 6.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun NetRequestRow(req: DebugNetworkStats.RequestRecord, timeFmt: SimpleDateFormat) {
     val statusColor = when {
-        req.status < 0 -> Color(0xFF9E9E9E)  // network error
-        req.status < 300 -> Color(0xFF4CAF50)  // 2xx
-        req.status < 400 -> Color(0xFF2196F3)  // 3xx
-        req.status < 500 -> Color(0xFFFF9800)  // 4xx
-        else -> Color(0xFFF44336)  // 5xx
+        req.status < 0 -> NetGray
+        req.status < 300 -> NetGreen
+        req.status < 400 -> NetBlue
+        req.status < 500 -> NetOrange
+        else -> NetRed
+    }
+    val catColor = when (req.category) {
+        DebugNetworkStats.RequestCategory.METADATA -> NetPurple
+        DebugNetworkStats.RequestCategory.VIDEO -> NetGreen
+        DebugNetworkStats.RequestCategory.IMAGE -> NetBlue
+        DebugNetworkStats.RequestCategory.OTHER -> NetGray
     }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        color = Color.Black.copy(alpha = 0.15f),
         shape = RoundedCornerShape(6.dp),
-        modifier = Modifier.fillMaxWidth(),
+        border = androidx.compose.foundation.BorderStroke(1.dp, statusColor.copy(alpha = 0.3f)),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = timeFmt.format(Date(req.timestamp)),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = req.method,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = req.category.label.take(3).uppercase(),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = when (req.category) {
-                        DebugNetworkStats.RequestCategory.METADATA -> Color(0xFF9C27B0)
-                        DebugNetworkStats.RequestCategory.VIDEO -> Color(0xFF4CAF50)
-                        DebugNetworkStats.RequestCategory.IMAGE -> Color(0xFF2196F3)
-                        DebugNetworkStats.RequestCategory.OTHER -> Color(0xFF9E9E9E)
-                    },
-                )
-                Text(
-                    text = if (req.status < 0) "ERR" else req.status.toString(),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = statusColor,
-                )
-                Text(
-                    text = "${req.latencyMs}ms",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                if (req.bytes > 0) {
-                    Text(
-                        text = formatBytes(req.bytes),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(timeFmt.format(Date(req.timestamp)), fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = NetTextVariantColor)
+                Text(req.method, fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = NetTextColor)
+                Text(req.category.label.take(3).uppercase(), fontFamily = FontFamily.Monospace, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = catColor)
+                Text(if (req.status < 0) "ERR" else req.status.toString(), fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = statusColor)
+                Text("${req.latencyMs}ms", fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = NetTextVariantColor, modifier = Modifier.weight(1f))
+                if (req.bytes > 0) Text(formatBytes(req.bytes), fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = NetTextVariantColor)
             }
-            Text(
-                text = "${req.host}${req.path}",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            )
+            Text("${req.host}${req.path}", fontFamily = FontFamily.Monospace, fontSize = 9.sp, color = NetTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (req.error != null) {
-                Text(
-                    text = req.error,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 9.sp,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
+                Text(req.error, fontFamily = FontFamily.Monospace, fontSize = 8.sp, color = NetRed, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
 private fun formatBytes(bytes: Long): String = when {
-    bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
-    bytes >= 1_000 -> "%.1f KB".format(bytes / 1_000.0)
-    else -> "$bytes B"
+    bytes >= 1_000_000 -> "%.1fMB".format(bytes / 1_000_000.0)
+    bytes >= 1_000 -> "%.1fKB".format(bytes / 1_000.0)
+    else -> "${bytes}B"
 }

@@ -23,10 +23,12 @@ import java.util.concurrent.atomic.AtomicLong
 class DebugNetworkStats : Interceptor {
 
     private val requestCount = AtomicLong(0)
-    private val totalBytes = AtomicLong(0)
+    private val totalBytesReceived = AtomicLong(0)  // response body bytes
+    private val totalBytesSent = AtomicLong(0)      // request body bytes
     private val errorCount = AtomicLong(0)
     private val statusBuckets = IntArray(5) // 2xx / 3xx / 4xx / 5xx / network-errors
     private val categoryCounts = IntArray(4) // metadata / video / image / other
+    private val hostCounts = mutableMapOf<String, Int>()  // per-host request counts
     private val recentRequests = ArrayDeque<RequestRecord>()
     private val lock = Any()
     private val maxRecent = 50
@@ -36,16 +38,21 @@ class DebugNetworkStats : Interceptor {
         val startMs = System.currentTimeMillis()
         requestCount.incrementAndGet()
         val category = categorize(request.url.host, request.url.encodedPath)
+        val host = request.url.host
+        // Track sent bytes (request body).
+        val sentBytes = request.body?.contentLength()?.coerceAtLeast(0) ?: 0L
+        totalBytesSent.addAndGet(sentBytes)
 
         return try {
             val response = chain.proceed(request)
             val latencyMs = System.currentTimeMillis() - startMs
             val bytes = response.body?.contentLength()?.coerceAtLeast(0) ?: 0L
-            totalBytes.addAndGet(bytes)
+            totalBytesReceived.addAndGet(bytes)
             val code = response.code
             synchronized(lock) {
                 statusBuckets[bucketFor(code)]++
                 categoryCounts[category.ordinal]++
+                hostCounts[host] = (hostCounts[host] ?: 0) + 1
             }
             addRecent(RequestRecord(
                 method = request.method,
@@ -82,21 +89,25 @@ class DebugNetworkStats : Interceptor {
     fun snapshot(): NetworkSnapshot = synchronized(lock) {
         NetworkSnapshot(
             totalRequests = requestCount.get(),
-            totalBytes = totalBytes.get(),
+            totalBytesReceived = totalBytesReceived.get(),
+            totalBytesSent = totalBytesSent.get(),
             errorCount = errorCount.get(),
             statusBuckets = statusBuckets.copyOf(),
             categoryCounts = categoryCounts.copyOf(),
+            hostCounts = hostCounts.toMap(),
             recentRequests = recentRequests.toList(),
         )
     }
 
     fun clear() {
         requestCount.set(0)
-        totalBytes.set(0)
+        totalBytesReceived.set(0)
+        totalBytesSent.set(0)
         errorCount.set(0)
         synchronized(lock) {
             for (i in statusBuckets.indices) statusBuckets[i] = 0
             for (i in categoryCounts.indices) categoryCounts[i] = 0
+            hostCounts.clear()
             recentRequests.clear()
         }
     }
@@ -150,14 +161,18 @@ class DebugNetworkStats : Interceptor {
 
     data class NetworkSnapshot(
         val totalRequests: Long,
-        val totalBytes: Long,
+        val totalBytesReceived: Long,
+        val totalBytesSent: Long,
         val errorCount: Long,
         val statusBuckets: IntArray,
         val categoryCounts: IntArray,
+        val hostCounts: Map<String, Int>,
         val recentRequests: List<RequestRecord>,
     ) {
+        val totalBytes: Long get() = totalBytesReceived + totalBytesSent
+
         companion object {
-            val EMPTY = NetworkSnapshot(0, 0, 0, IntArray(5), IntArray(4), emptyList())
+            val EMPTY = NetworkSnapshot(0, 0, 0, 0, IntArray(5), IntArray(4), emptyMap(), emptyList())
         }
     }
 }

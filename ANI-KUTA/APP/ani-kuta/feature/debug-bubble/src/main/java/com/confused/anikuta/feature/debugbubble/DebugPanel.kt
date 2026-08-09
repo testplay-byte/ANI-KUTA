@@ -173,14 +173,18 @@ fun DebugPanel(
                     )
 
                     // ── Tab content ──
-                    // NO outer verticalScroll — each tab manages its own scrolling
-                    // (Database/Console/Network use LazyColumn; Screen/AppInfo use
-                    // their own verticalScroll). Nesting verticalScroll + LazyColumn
-                    // causes "infinity maximum height constraints" crash.
+                    // NO outer verticalScroll — each tab manages its own scrolling.
+                    // Console tab: no padding (dark grey fills the whole area).
+                    // Other tabs: 16dp horizontal + 12dp vertical padding.
+                    val contentPadding = if (activeTab == DebugTab.CONSOLE) {
+                        Modifier.padding(0.dp)
+                    } else {
+                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .then(contentPadding),
                     ) {
                         when (activeTab) {
                             DebugTab.SCREEN -> CurrentScreenContent(
@@ -279,10 +283,16 @@ fun DebugPanel(
                         }
                     }
                     // ── Live content (scrollable, no buttons) ──
+                    // Console: no padding (dark grey fills the whole area).
+                    val miniContentPadding = if (activeTab == DebugTab.CONSOLE) {
+                        Modifier.padding(0.dp)
+                    } else {
+                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .then(miniContentPadding),
                     ) {
                         when (activeTab) {
                             DebugTab.SCREEN -> CurrentScreenContent(
