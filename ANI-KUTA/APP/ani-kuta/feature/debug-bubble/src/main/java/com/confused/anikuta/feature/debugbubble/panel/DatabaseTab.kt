@@ -96,7 +96,7 @@ fun DatabaseTab(
         // ── Table list ──
         // Export launcher: creates a JSON file via SAF (Storage Access Framework).
         val exportLauncher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.CreateDocument("application/json"),
+            contract = ActivityResultContracts.CreateDocument(),
         ) { uri ->
             if (uri != null) {
                 kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
