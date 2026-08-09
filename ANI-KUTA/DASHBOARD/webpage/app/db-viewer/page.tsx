@@ -21,14 +21,21 @@ import { Card } from "@/components/Card";
  * searchable, paginated grid. Everything happens client-side — no server
  * upload, no API calls (except the optional "load sample" fetch).
  *
- * Feature set (v2):
+ * Feature set (v3):
  *  1. Column drag-to-resize — drag the right border of any column header.
  *  2. Fullscreen mode — hide hero + sidebar, focus on the data grid.
  *  3. Collapsible table sidebar — toggle between full + icon-only.
  *  4. Image fullscreen viewer — click any preview to open a full-screen overlay.
- *  5. Column max-width — default cap of 200px (overridable via resize).
+ *  5. Smart column widths — every column's default width is measured against
+ *     its header text via Canvas 2D, so headings NEVER truncate (no dots).
+ *     Image columns (cover_url, poster_url, ...) get extra room for the
+ *     preview + URL slice; short numeric columns stay narrow; long text
+ *     columns use the full 520px default.
  *  6. Cell click popup — modal showing the full value of any cell.
  *  7. Row-number popup — modal showing all columns of a row.
+ *  8. Dedicated row-number section — visually separated from the data
+ *     columns via a thicker 3px right border, distinct canvas background,
+ *     and bigger bolder numbers (16px font-bold) with a 15px "#" header.
  *
  * Design tokens (DESIGN.md §8) — all colors come from CSS variables so the
  * page automatically follows the dashboard's dark-mode toggle.
@@ -76,13 +83,17 @@ const IMAGE_COL_PATTERNS: { test: RegExp; shape: "portrait" | "square" }[] = [
   { test: /image|url/i, shape: "square" }, // 40×40
 ];
 
-const MAX_CELL_PREVIEW = 120; // chars before truncation kicks in
-
 /** Default column width bounds (features #1 + #5). */
 const COL_DEFAULT_MIN = 60;
-const COL_DEFAULT_MAX = 520; // 4x the original 130 — wider default
+const COL_DEFAULT_MAX = 520; // 4x the original 130 — wider default for long text
 const COL_RESIZE_MAX = 1200; // hard cap when dragging
-const ROW_NUM_COL_WIDTH = 56;
+
+/**
+ * Dedicated row-number column — visually a separate section.
+ * Wider than before (72px) to comfortably fit larger, bolder numbers
+ * and a strong right border that splits it from the data columns.
+ */
+const ROW_NUM_COL_WIDTH = 72;
 
 /** CSS storage key for the sidebar collapsed state (#3). */
 const SIDEBAR_COLLAPSED_KEY = "db-viewer:sidebar-collapsed";
@@ -121,6 +132,134 @@ function imageShapeForColumn(col: string): "portrait" | "square" | null {
     if (test.test(col)) return shape;
   }
   return null;
+}
+
+/* ---------------------------------------------------------------------------
+ * Smart column-width measurement (v3)
+ *
+ * Goal: every column's DEFAULT width must be wide enough to show its
+ * heading text in full — NO truncation dots. On top of that minimum,
+ * we layer content-aware defaults so:
+ *   - short numeric columns (id, score, ...) stay narrow
+ *   - image columns (cover_url, poster_url, ...) get enough room for
+ *     the preview + a meaningful slice of the URL
+ *   - long-text columns (descriptions, URLs, ...) get the full 520px
+ *
+ * Header text is measured with a Canvas 2D context — this gives the
+ * exact pixel width for the font we actually render (600-weight 11.5px
+ * JetBrains Mono). SSR falls back to a per-char estimate.
+ * ------------------------------------------------------------------------- */
+
+let _measureCanvas: CanvasRenderingContext2D | null | undefined;
+function getMeasureCtx(): CanvasRenderingContext2D | null {
+  if (_measureCanvas !== undefined) return _measureCanvas;
+  if (typeof document === "undefined") {
+    _measureCanvas = null;
+    return null;
+  }
+  try {
+    const c = document.createElement("canvas");
+    _measureCanvas = c.getContext("2d");
+    return _measureCanvas;
+  } catch {
+    _measureCanvas = null;
+    return null;
+  }
+}
+
+/**
+ * Measure the rendered width (in CSS pixels) of `text` using the same
+ * font styling we apply to column headers.
+ *
+ * Header style (see <th> below):
+ *   font-family: JetBrains Mono / ui-monospace
+ *   font-size:   11.5px
+ *   font-weight: 400 (the .font-mono class — the `font-semibold` on the
+ *                <th> wrapper doesn't override the inner span's weight)
+ *
+ * Returns ~7.6px per char as an SSR/edge fallback.
+ */
+function measureHeaderText(text: string): number {
+  const ctx = getMeasureCtx();
+  if (!ctx) return text.length * 7.6;
+  ctx.font = '400 11.5px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  try {
+    return ctx.measureText(text).width;
+  } catch {
+    return text.length * 7.6;
+  }
+}
+
+/**
+ * Compute the minimum column width required to show the heading text
+ * without any truncation dots.
+ *
+ * Layout inside <th>:
+ *   px-3  (12px left + 12px right)         =  24
+ *   image-indicator dot + gap (image cols) =  12
+ *   resize handle hit area (right edge)    =   8
+ *   safety buffer (ascender/descender)     =  10
+ *                                          ----
+ *                                            54  (66 for image cols)
+ */
+function headerMinWidth(col: string): number {
+  const textWidth = measureHeaderText(col);
+  const isImageCol = imageShapeForColumn(col) !== null;
+  const padding = isImageCol ? 66 : 54;
+  return Math.ceil(textWidth) + padding;
+}
+
+/**
+ * Compute the smart default width for a column.
+ *
+ * Layers, in priority order:
+ *  1. Image columns → max(headerMin, IMAGE_COL_WIDTH) so cover_url etc.
+ *     get enough room for the 40px preview + a meaningful URL slice.
+ *  2. Short-data columns (sampled max ≤ 5 chars) → max(headerMin, 84).
+ *  3. Medium-data columns (sampled max 6–24 chars) → max(headerMin, content-based).
+ *  4. Long-data columns → max(headerMin, COL_DEFAULT_MAX = 520).
+ *
+ * `headerMin` is ALWAYS part of the max() — that's the guarantee that
+ * headings never truncate.
+ */
+function computeSmartWidth(col: string, rows: Row[]): number {
+  const headerMin = headerMinWidth(col);
+
+  // --- Image columns ---
+  // cover/poster/thumbnail (portrait): 40px image + 8px gap + URL preview
+  //   → 180px minimum gives ~120px for the URL text after the image.
+  // image/url (square): 40px image + 8px gap + URL preview
+  //   → 160px minimum.
+  const shape = imageShapeForColumn(col);
+  if (shape === "portrait") return Math.max(headerMin, 200);
+  if (shape === "square") return Math.max(headerMin, 170);
+
+  // --- Sample the data to estimate content width ---
+  // We only look at the first 30 rows — enough to spot short vs. long
+  // columns without scanning the whole table.
+  const sampleSize = Math.min(rows.length, 30);
+  let maxLen = 0;
+  for (let i = 0; i < sampleSize; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const v = stringifyCell(row[col]);
+    if (v.length > maxLen) maxLen = v.length;
+  }
+
+  // Short data (≤5 chars — booleans, small ints, codes): headerMin is enough.
+  if (maxLen <= 5) {
+    return Math.max(headerMin, 84);
+  }
+
+  // Medium data (6–24 chars — names, titles, short codes):
+  // scale with content, capped at 320px.
+  if (maxLen <= 24) {
+    const contentWidth = Math.min(maxLen * 7.6 + 24, 320);
+    return Math.max(headerMin, Math.ceil(contentWidth));
+  }
+
+  // Long data (25+ chars — descriptions, URLs, payloads): use the full default.
+  return Math.max(headerMin, COL_DEFAULT_MAX);
 }
 
 /** Format bytes as a human-readable size. */
@@ -442,37 +581,28 @@ export default function DBViewerPage() {
     [selected],
   );
 
+  // Memoize the smart default widths for the CURRENT table so we don't
+  // re-measure header text on every render. Recomputes only when the
+  // table selection or its rows change.
+  const defaultColWidths = useMemo(() => {
+    if (!currentTable) return {} as Record<string, number>;
+    const out: Record<string, number> = {};
+    for (const col of currentTable.columns) {
+      out[col] = computeSmartWidth(col, currentTable.rows);
+    }
+    return out;
+  }, [currentTable]);
+
   const getColWidth = useCallback(
     (col: string): number => {
+      // User-resized widths always win.
       const k = colWidthKey(col);
       const w = colWidths[k];
       if (w && w > 0) return w;
-      // Smart defaults: narrow columns for short data, wider for text.
-      const shape = imageShapeForColumn(col);
-      if (shape === "portrait") return 90;
-      if (shape === "square") return 90;
-      // Numeric/short columns: just wide enough for the header.
-      const shortCols = ["id", "score", "episodes", "season", "season_year", "status",
-        "enabled", "notify_on_schedule", "notify_on_watchable", "notify_on_immediate",
-        "notify_sub", "notify_dub", "is_permanent", "display_order", "type",
-        "content_type", "content_format", "auto_update_enabled", "completed",
-        "watch_count", "auto_mark_suppressed", "user_marked_watched",
-        "category_id", "added_at", "created_at", "fetched_at", "expires_at",
-        "last_checked_at", "next_check_at", "next_airing_episode",
-        "consecutive_failures", "backoff_step", "last_known_episode_count",
-        "anilist_id", "id_mal", "source_id", "extension_id", "extension_repo_id",
-        "data_source_id", "system_id", "episode_number", "display_order",
-      ];
-      if (shortCols.includes(col)) return 100;
-      // Medium columns (titles, names, keys).
-      const mediumCols = ["main_id", "episode_key", "name", "display_name", "audio_variant",
-        "source", "author", "genres", "package_prefix", "section_key",
-      ];
-      if (mediumCols.includes(col)) return 250;
-      // Long text columns (descriptions, titles, URLs).
-      return COL_DEFAULT_MAX; // 520px
+      // Otherwise fall back to the measured smart default.
+      return defaultColWidths[col] ?? COL_DEFAULT_MAX;
     },
-    [colWidths, colWidthKey],
+    [colWidths, colWidthKey, defaultColWidths],
   );
 
   const handleColResize = useCallback(
@@ -1227,10 +1357,18 @@ function DataGrid({
         </colgroup>
         <thead className="sticky top-0 z-40">
           <tr>
+            {/* Dedicated row-number header — visually a separate section:
+                thicker right border (3px), distinct background (canvas,
+                darker than surface-alt), centered bigger "#". */}
             <th
               scope="col"
-              className="sticky left-0 z-50 bg-surface-alt border-b border-r-2 border-border px-2.5 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary"
-              style={{ width: ROW_NUM_COL_WIDTH, minWidth: ROW_NUM_COL_WIDTH, maxWidth: ROW_NUM_COL_WIDTH }}
+              className="sticky left-0 z-50 bg-canvas border-b-2 border-r-[3px] border-border px-3 py-2.5 text-center text-[15px] font-bold uppercase tracking-widest text-text-primary"
+              style={{
+                width: ROW_NUM_COL_WIDTH,
+                minWidth: ROW_NUM_COL_WIDTH,
+                maxWidth: ROW_NUM_COL_WIDTH,
+                boxShadow: "2px 0 0 -1px var(--c-border)",
+              }}
             >
               #
             </th>
@@ -1274,16 +1412,24 @@ function DataGrid({
                 key={rowIdx}
                 className="group hover:bg-canvas/60 transition-colors duration-100"
               >
+                {/* Dedicated row-number cell — matches the header's
+                    "separate section" treatment: thicker 3px right
+                    border, canvas background, bigger bolder numbers. */}
                 <td
-                  className="sticky left-0 z-30 bg-surface-alt group-hover:bg-canvas/80 transition-colors duration-100 border-b border-r-2 border-border px-2.5 py-2 text-[11px] font-mono text-text-secondary text-right tabular-nums align-top"
-                  style={{ width: ROW_NUM_COL_WIDTH, minWidth: ROW_NUM_COL_WIDTH, maxWidth: ROW_NUM_COL_WIDTH }}
+                  className="sticky left-0 z-30 bg-canvas group-hover:bg-canvas/80 transition-colors duration-100 border-b border-r-[3px] border-border px-3 py-2 align-top"
+                  style={{
+                    width: ROW_NUM_COL_WIDTH,
+                    minWidth: ROW_NUM_COL_WIDTH,
+                    maxWidth: ROW_NUM_COL_WIDTH,
+                    boxShadow: "2px 0 0 -1px var(--c-border)",
+                  }}
                 >
                   <button
                     type="button"
                     onClick={() => onRowNumClick(row, columns, rowIdx)}
                     aria-label={`View full row ${rowIdx}`}
                     title="Click to view full row"
-                    className="w-full h-full text-right hover:text-[var(--c-primary)] hover:underline cursor-pointer"
+                    className="w-full h-full text-center text-[16px] font-bold font-mono tabular-nums text-text-primary hover:text-[var(--c-primary)] hover:underline cursor-pointer transition-colors"
                   >
                     {rowIdx}
                   </button>
