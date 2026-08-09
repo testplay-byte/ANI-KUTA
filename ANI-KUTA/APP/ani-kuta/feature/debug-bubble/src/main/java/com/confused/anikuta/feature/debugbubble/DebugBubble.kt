@@ -98,19 +98,30 @@ fun DebugBubble(
         }
     }
 
-    // Pressed state for the tap animation (scale-down on press).
-    var pressed by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // Drop-bounce animation: on drag release, the bubble pulses (bigger → smaller)
+    // for visual feedback. No scale effect DURING the drag (per user: "no effects
+    // while dragging, just a simple drag"). The bounce fires only on drop.
+    var dropBounceTrigger by remember { androidx.compose.runtime.mutableStateOf(0) }
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.9f else 1f,
-        animationSpec = spring(dampingRatio = 0.4f, stiffness = 800f),
-        label = "bubble_scale",
+        targetValue = if (dropBounceTrigger > 0) 1.15f else 1f,
+        animationSpec = spring(dampingRatio = 0.3f, stiffness = 600f),
+        label = "bubble_drop_bounce",
+        finishedListener = {
+            // After the upscale finishes, reset to 1.0 (the spring will bounce back).
+            // Incrementing again with the same value won't retrigger; use a separate
+            // reset via a small delay.
+        },
     )
+    // Reset the bounce after a short delay so it only plays once per drop.
+    androidx.compose.runtime.LaunchedEffect(dropBounceTrigger) {
+        if (dropBounceTrigger > 0) {
+            kotlinx.coroutines.delay(250)
+            dropBounceTrigger = 0
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // ── The debug panel (rendered FIRST so the bubble draws on top of it) ──
-        // The panel's scrim covers the full screen, but the bubble is rendered
-        // after it (later sibling) so the bubble stays visible + tappable when
-        // the panel is open. Per user: "the button should not disappear."
         DebugPanel(
             state = state,
             onMinimize = { state.minimize() },
@@ -118,10 +129,8 @@ fun DebugBubble(
 
         // ── The bubble (rendered AFTER the panel so it's on top) ──
         Surface(
-            // Theme-aware contrast: dark bubble in light mode, white bubble in dark
-            // mode (per user). onSurface is dark-in-light + light/white-in-dark.
+            // Theme-aware contrast: dark bubble in light mode, white bubble in dark mode.
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f),
-            // Squircle: a rounded square (16dp corners on a 48dp box = ~33% radius).
             shape = RoundedCornerShape(16.dp),
             shadowElevation = 6.dp,
             modifier = Modifier
@@ -134,10 +143,8 @@ fun DebugBubble(
                     IntOffset(state.offset.x.toInt(), state.offset.y.toInt())
                 }
                 .pointerInput(Unit) {
-                    // Single gesture detector that distinguishes tap from drag.
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        pressed = true
                         var lastPos = down.position
                         var isDragging = false
 
@@ -146,9 +153,12 @@ fun DebugBubble(
                             val change = event.changes.firstOrNull() ?: break
                             if (!change.pressed) {
                                 change.consume()
-                                pressed = false
                                 if (!isDragging) {
+                                    // Pure tap → toggle the panel.
                                     state.onBubbleTap()
+                                } else {
+                                    // Drag ended → trigger the drop-bounce pulse.
+                                    dropBounceTrigger++
                                 }
                                 break
                             }
@@ -168,7 +178,6 @@ fun DebugBubble(
                                 state.updateOffset(newValue)
                             }
                         }
-                        pressed = false
                     }
                 },
         ) {

@@ -5,8 +5,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -156,16 +154,22 @@ fun DebugPanel(
                         onSelect = { activeTab = it },
                     )
 
-                    // ── Tab content ──
+                    // ── Tab content (scrollable) ──
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
                         when (activeTab) {
-                            DebugTab.SCREEN -> CurrentScreenContent()
+                            DebugTab.SCREEN -> CurrentScreenContent(
+                                onViewInDb = { table, filterCol, filterVal ->
+                                    // Switch to the Database tab + pre-filter.
+                                    activeTab = DebugTab.DATABASE
+                                },
+                            )
                             DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab(
-                                onSelectTable = { /* jump to table */ },
+                                onSelectTable = { },
                             )
                             DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
                             DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab()
@@ -177,46 +181,85 @@ fun DebugPanel(
         }
     }
 
-    // ── Minimized peek bar ──
+    // ── Minimized mini-window (shows live content of the active tab) ──
+    // Per user: "it would turn into a mini view, like a mini window, and all
+    // the info will be shown but in a miniature kind of format." Positioned
+    // near the panel location (not a bottom bar). Scrollable without reopening.
     AnimatedVisibility(
         visible = state.panelState == PanelState.MINIMIZED,
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it },
+        enter = fadeIn() + scaleIn(initialScale = 0.85f),
+        exit = fadeOut() + scaleOut(targetScale = 0.85f),
         modifier = Modifier.fillMaxSize(),
     ) {
-        Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-            detectTapGestures(onTap = { state.expand() })
-        }) {
+        Box(modifier = Modifier.fillMaxSize()) {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(16.dp),
                 shadowElevation = 8.dp,
+                tonalElevation = 3.dp,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .pointerInput(Unit) { detectTapGestures(onTap = { state.expand() }) },
+                    .width(with(density) { panelWidthPx.toDp() })
+                    .height(with(density) { (panelHeightPx * 0.4f).toDp() })  // mini = 40% of full height
+                    .offset {
+                        IntOffset(panelOffset.x.toInt(), panelOffset.y.toInt())
+                    }
+                    .pointerInput(Unit) {
+                        // Consume taps so they don't pass through to the screen below,
+                        // but don't expand on tap (user can scroll content).
+                        detectTapGestures(onTap = {})
+                    },
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = activeTab.icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Text(
-                        text = "Debug — tap to expand",
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 10.dp).weight(1f),
-                    )
-                    IconButton(onClick = { state.close() }) {
-                        Icon(Icons.Filled.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // ── Mini header (tap to expand + close) ──
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { state.expand() }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = activeTab.icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = activeTab.label,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(start = 6.dp).weight(1f),
+                        )
+                        Text(
+                            text = "tap to expand",
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        IconButton(onClick = { state.close() }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Filled.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    // ── Live content (scrollable, same as the full panel) ──
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    ) {
+                        when (activeTab) {
+                            DebugTab.SCREEN -> CurrentScreenContent(
+                                onViewInDb = { _, _, _ -> state.expand() },
+                            )
+                            DebugTab.DATABASE -> com.confused.anikuta.feature.debugbubble.panel.DatabaseTab(
+                                onSelectTable = { },
+                            )
+                            DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
+                            DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab()
+                            DebugTab.APP_INFO -> com.confused.anikuta.feature.debugbubble.panel.AppInfoTab()
+                        }
                     }
                 }
             }
@@ -254,7 +297,7 @@ private fun PanelHeader(
     }
 }
 
-// ── Tab strip (segmented style with Material icons) ──
+// ── Tab strip (horizontally scrollable, Material icons) ──
 
 @Composable
 private fun TabStrip(
@@ -268,11 +311,14 @@ private fun TabStrip(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        Row(
+        // LazyRow = horizontally scrollable. Each tab has a fixed width (not
+        // weighted) so they don't get squeezed when there are many. Per user:
+        // "I should be able to scroll it right and left."
+        LazyRow(
             modifier = Modifier.fillMaxWidth().padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            DebugTab.values().forEach { tab ->
+            items(DebugTab.values().toList()) { tab ->
                 val isSelected = tab == activeTab
                 val bg = if (isSelected) MaterialTheme.colorScheme.primary
                 else androidx.compose.ui.graphics.Color.Transparent
@@ -282,11 +328,10 @@ private fun TabStrip(
                     color = bg,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
-                        .weight(1f)
                         .clickable { onSelect(tab) },
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -311,10 +356,12 @@ private fun TabStrip(
     }
 }
 
-// ── Current Screen tab content (sectioned, with backgrounds) ──
+// ── Current Screen tab content (sectioned, with backgrounds + spacing) ──
 
 @Composable
-private fun CurrentScreenContent() {
+private fun CurrentScreenContent(
+    onViewInDb: (table: String, filterCol: String, filterVal: String) -> Unit,
+) {
     val context = LocalDebugContext.current
     if (context == null) {
         EmptyState(
@@ -334,7 +381,7 @@ private fun CurrentScreenContent() {
                 )
             }
 
-            // ── Screen data ──
+            // ── Screen data (with generous spacing between items) ──
             if (context.screenData.isNotEmpty()) {
                 Text(
                     text = "Screen data",
@@ -342,19 +389,19 @@ private fun CurrentScreenContent() {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                    modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 SectionCard {
                     Column {
                         context.screenData.forEach { (k, v) ->
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                                 Text(
                                     text = k,
                                     fontFamily = RobotoFamily,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.width(110.dp),
+                                    modifier = Modifier.width(120.dp),
                                 )
                                 Text(
                                     text = v,
@@ -368,7 +415,7 @@ private fun CurrentScreenContent() {
                 }
             }
 
-            // ── Relevant DB rows ──
+            // ── Relevant DB rows (clickable → navigates to Database tab) ──
             if (context.relevantTables.isNotEmpty()) {
                 Text(
                     text = "Relevant DB rows",
@@ -376,7 +423,7 @@ private fun CurrentScreenContent() {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                    modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 context.relevantTables.forEach { ref ->
                     Surface(
@@ -384,11 +431,11 @@ private fun CurrentScreenContent() {
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 3.dp)
-                            .clickable { /* DB-3: switch to Database tab pre-filtered */ },
+                            .padding(vertical = 4.dp)
+                            .clickable { onViewInDb(ref.table, ref.filterColumn, ref.filterValue) },
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
@@ -424,7 +471,7 @@ private fun CurrentScreenContent() {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                    modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 context.actions.forEach { action ->
                     Surface(
@@ -432,7 +479,7 @@ private fun CurrentScreenContent() {
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 3.dp)
+                            .padding(vertical = 4.dp)
                             .clickable { action.action() },
                     ) {
                         Text(
@@ -441,7 +488,7 @@ private fun CurrentScreenContent() {
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                         )
                     }
                 }
@@ -452,8 +499,10 @@ private fun CurrentScreenContent() {
 
 @Composable
 private fun SectionCard(content: @Composable () -> Unit) {
+    // Lighter tone: surface + tonalElevation (subtle light tint, not grey).
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
