@@ -58,11 +58,16 @@ import com.confused.anikuta.core.debugapi.LocalDebugContext
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 // ── Fixed debug-bubble colors (same in both light + dark mode, per user) ──
-// Background: #5A77DB (blue-purple). Foreground: #003F88 (dark blue).
-private val DebugBgColor = Color(0xFF5A77DB)
-private val DebugFgColor = Color(0xFF003F88)
-private val DebugFgColorVariant = Color(0xFF003F88).copy(alpha = 0.7f)  // onSurfaceVariant equivalent
-private val DebugBorderColor = Color(0xFF003F88)
+// Pink + yellow mixture, darkened. Background = dark coral/rose (#6B2D2D).
+// Cards/elements = lighter sienna (#8B4A3A). Text = cream (#F5E6D3).
+// Borders = amber (#D4A574) for clear visibility.
+// Console keeps a constant dark bg (separate from these).
+private val DebugBgColor = Color(0xFF6B2D2D)       // dark coral (pink+yellow darkened)
+private val DebugCardColor = Color(0xFF8B4A3A)      // lighter sienna for cards
+private val DebugFgColor = Color(0xFFF5E6D3)        // cream text (light yellow)
+private val DebugFgColorVariant = Color(0xFFF5E6D3).copy(alpha = 0.7f)
+private val DebugBorderColor = Color(0xFFD4A574)    // amber border
+private val DebugSectionLabelColor = Color(0xFFE8C170)  // golden section labels
 
 /**
  * The debug panel — expands beside the bubble when tapped (Phase DB-2, revised).
@@ -311,8 +316,11 @@ private fun clampMiniOffset(
 ): Offset {
     val minX = 0f
     val maxX = (screenWidthPx - miniWidthPx).coerceAtLeast(0f)
+    // Allow the mini-window to go to the very bottom (just a small 4dp margin
+    // for the nav bar). Per user: "unable to drag it to the very bottom."
     val minY = statusBarPx
-    val maxY = (screenHeightPx - miniHeightPx - navBarPx).coerceAtLeast(statusBarPx)
+    // Allow going to the very bottom — only a tiny 8px margin (not the full nav bar).
+    val maxY = (screenHeightPx - miniHeightPx - 8f).coerceAtLeast(minY)
     return Offset(
         x = offset.x.coerceIn(minX, maxX),
         y = offset.y.coerceIn(minY, maxY),
@@ -357,7 +365,7 @@ private fun TabStrip(
     onSelect: (DebugTab) -> Unit,
 ) {
     Surface(
-        color = Color.White.copy(alpha = 0.10f),
+        color = DebugCardColor.copy(alpha = 0.5f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -369,10 +377,8 @@ private fun TabStrip(
         ) {
             items(DebugTab.values().toList()) { tab ->
                 val isSelected = tab == activeTab
-                val bg = if (isSelected) DebugFgColor
-                else Color.Transparent
-                val fg = if (isSelected) Color.White
-                else DebugFgColorVariant
+                val bg = if (isSelected) DebugFgColor else Color.Transparent
+                val fg = if (isSelected) DebugBgColor else DebugFgColorVariant
                 Surface(
                     color = bg,
                     shape = RoundedCornerShape(8.dp),
@@ -437,7 +443,7 @@ private fun CurrentScreenContent(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,  // section labels = white on the blue bg
+                    color = DebugSectionLabelColor,  // golden section labels
                     modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 SectionCard {
@@ -489,12 +495,12 @@ private fun CurrentScreenContent(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = DebugSectionLabelColor,
                     modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 context.relevantTables.forEach { ref ->
                     Surface(
-                        color = Color.White.copy(alpha = 0.15f),
+                        color = DebugCardColor,
                         shape = RoundedCornerShape(10.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DebugBorderColor.copy(alpha = 0.5f)),
                         modifier = Modifier
@@ -509,7 +515,7 @@ private fun CurrentScreenContent(
                             Icon(
                                 imageVector = Icons.Filled.Storage,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = DebugFgColor,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
@@ -517,7 +523,7 @@ private fun CurrentScreenContent(
                                 fontFamily = RobotoFamily,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color.White,
+                                color = DebugFgColor,
                                 modifier = Modifier.padding(start = 8.dp).weight(1f),
                             )
                             Text(
@@ -538,12 +544,12 @@ private fun CurrentScreenContent(
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = DebugSectionLabelColor,
                     modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
                 )
                 context.actions.forEach { action ->
                     Surface(
-                        color = Color.White.copy(alpha = 0.10f),
+                        color = DebugCardColor,
                         shape = RoundedCornerShape(10.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DebugBorderColor.copy(alpha = 0.3f)),
                         modifier = Modifier
@@ -568,12 +574,11 @@ private fun CurrentScreenContent(
 
 @Composable
 private fun SectionCard(content: @Composable () -> Unit) {
-    // Card on the fixed-color panel: slightly lighter than the bg (white with
-    // low alpha) so cards stand out. Border in the fg color.
+    // Card on the fixed-color panel: sienna (lighter than the coral bg).
     Surface(
-        color = Color.White.copy(alpha = 0.12f),
+        color = DebugCardColor,
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, DebugBorderColor.copy(alpha = 0.4f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, DebugBorderColor.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Box(modifier = Modifier.padding(12.dp)) { content() }
