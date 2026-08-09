@@ -537,3 +537,54 @@
 ### Status
 - ✅ Deployed to GitHub Pages (via `feature/debug-bubble` branch — Pages environment branch policy updated). Live at https://testplay-byte.github.io/ANI-KUTA/db-viewer/
 - Commit `064a9c2` on `feature/debug-bubble`, pushed to origin.
+
+## Session — Debug Bubble DB Activity tracker + sliding charts (feature/debug-bubble branch)
+
+### DB Activity view — now tracks real DB writes (DB-9)
+- **Problem:** The DB Activity view in the Network tab was a placeholder. It showed "No database updates tracked yet" and never registered any writes, even when the app was clearly writing to the database (e.g., opening an anime for the first time writes to `content`, `anilist_detail`, `anime_metadata_cache`, and `data_cache_episode`).
+- **Root cause:** No DB write tracker existed. `DebugDatabaseBrowser` is read-only (opens a separate `SQLiteDatabase` with `OPEN_READONLY`).
+- **Solution — `DebugDbStats` singleton** (`feature/debug-bubble/.../data/DebugDbStats.kt`, new file):
+  - Mirrors `DebugNetworkStats`'s structure: atomic write counters (total/insert/update/delete/other), per-table counts (`mutableMapOf<String, Int>`), per-second time-series (`ArrayDeque<DbTimeSeriesBucket>`, 300-bucket cap = 5 min), recent-events ring buffer (`ArrayDeque<DbWriteEvent>`, 50-event cap).
+  - `recordWrite(operation, table, sql)` — entry point; called from the SqlDriver wrapper.
+  - `snapshot()` — returns an immutable `DbSnapshot`; calls `advanceToNow()` gap-fill (same as `DebugNetworkStats`) so the writes/sec chart slides forward even when the DB is idle.
+  - `clear()` — resets all counters + buffers.
+  - Thread-safe: atomic counters for the hot path; `synchronized(lock)` for the deque + map + ring buffer.
+- **Solution — `DebugSqlDriverWrapper`** (`feature/debug-bubble/.../data/DebugSqlDriverWrapper.kt`, new file):
+  - Uses Kotlin interface delegation (`by delegate`) to auto-forward all 7 `SqlDriver` methods to the underlying driver. Only `execute()` is overridden — reads (`executeQuery`) have zero overhead.
+  - `parseAndRecord(sql)` — parses the operation (first keyword, uppercase) + table name (regex matching `INSERT INTO`, `INSERT OR REPLACE INTO`, `REPLACE INTO`, `UPDATE`, `DELETE FROM`) from the SQL string. If parsing fails, the event is still counted in the totals with an empty table name.
+  - Regex: `^\s*(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+["`\[]?(\w+)["`\]]?` (case-insensitive).
+- **Wiring** (mirrors the proven `wrapDebugOkHttp` pattern):
+  - `wrapDebugSqlDriver(driver: SqlDriver): SqlDriver` added to `app/src/debug/DebugInit.kt` (fetches `DebugDbStats` from Koin, wraps the driver). No-op identity stub in `app/src/release/DebugInit.kt`.
+  - `DebugDbStats` registered as a singleton in `DebugBubbleModule.kt`.
+  - `AnikutaApp.kt:199` — `single<SqlDriver> { wrapDebugSqlDriver(DatabaseDriverFactory(get()).create()) }`.
+  - Koin lazy-resolution: the `single<SqlDriver>` factory runs lazily on first resolution (when `AnikutaDatabase(get())` is constructed, well after Koin starts), so `GlobalContext.get().get<DebugDbStats>()` succeeds.
+- **NetworkTab DB Activity view** — replaced the placeholder with real content:
+  - 4 stat cards: Writes (total), Ins (inserts), Upd (updates), Del (deletes).
+  - Writes/sec chart (5 min, timestamp-based X-axis, slides forward every 2s).
+  - Top tables breakdown (per-table write counts, tap to navigate to Database tab).
+  - Recent events list (color-coded by operation: green=INSERT, blue=UPDATE, red=DELETE, orange=REPLACE; tap to navigate to the affected table in the Database tab).
+- **Catches 100% of writes** from every repository, every ViewModel, every WorkManager job. Zero changes to any repository, `.sq` file, or release code path.
+
+### Charts constantly slide forward (even with zero traffic)
+- **Problem:** The two network charts (requests/sec + data usage) only updated when a network request arrived. With zero traffic, the chart was frozen — it didn't "move like time is going."
+- **Root cause:** `DebugNetworkStats.recordTimeSeries()` was called ONLY from `intercept()` (on a successful request). `snapshot()` only pruned old buckets — it never appended zero-buckets for elapsed seconds with no traffic. The Canvas X-axis used bucket indices (not timestamps), so even if gaps existed, they'd be drawn at full density.
+- **Fix 1 — `advanceToNow()` gap-fill** (in `DebugNetworkStats.snapshot()`):
+  - After pruning old buckets, walks forward from `timeSeries.last().timestamp` to `now`, inserting zero-valued `TimeSeriesBucket(timestamp, 0, 0L)` entries for each elapsed second. Capped at 300 iterations (5 min).
+  - If the deque is empty (no traffic yet), seeds a single "now" zero-bucket so the chart has a baseline.
+  - Same method added to `DebugDbStats.snapshot()` for the writes/sec chart.
+- **Fix 2 — timestamp-based Canvas X-axis** (in NetworkTab):
+  - Changed from `x = i * stepX` (bucket index) to `x = (bucket.timestamp - windowStart) / windowSpan * width`.
+  - `windowStart = System.currentTimeMillis() - 300_000` (5 min ago), `windowSpan = 300_000`.
+  - `coerceIn(0f, w)` guards against clock skew.
+  - This ensures zero-filled gaps render at the correct temporal position (stretched across the full 5-min window) instead of being compressed.
+  - The 2-second `LaunchedEffect` auto-refresh loop now also polls `dbStats.snapshot()` alongside `stats.snapshot()`, so all three charts slide forward every 2 seconds.
+
+### Hoisted viewMode to fix DB Activity minimize bug
+- **Problem:** When the user selected "DB Activity" and then minimized the panel, the mini-window automatically switched back to the "Network" view. The DB Activity view had no minimized mode.
+- **Root cause:** `viewMode` was `remember`-scoped to the `NetworkTab` composable (local state). `AnimatedVisibility` disposes the expanded NetworkTab on minimize → the `viewMode = "db"` state was lost → the fresh minimized NetworkTab initialized `viewMode` back to `"network"`.
+- **Fix:** Hoisted `viewMode` to `DebugPanel` as `networkViewMode` (alongside `activeTab`). Passed it + `onViewModeChange` + `onViewInDb` callbacks to both NetworkTab call sites (expanded + minimized). The DB Activity view now survives the EXPANDED↔MINIMIZED transition.
+
+### Status
+- ✅ CI green (run 31339439293, commit 619a174, artifact `anikuta-apk` 54.1 MB).
+- Code-reviewed by sub-agent (Task 2-d): no critical or important issues.
+- Awaiting device verification: (1) open an anime for the first time → DB Activity should show writes to `content`, `anilist_detail`, `anime_metadata_cache`, `data_cache_episode`; (2) charts should slide forward every 2s even when idle; (3) selecting DB Activity + minimizing should keep the DB Activity view in the mini-window.

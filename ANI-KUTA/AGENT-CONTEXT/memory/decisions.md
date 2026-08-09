@@ -1221,3 +1221,27 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Sub-agent reviews:** DB-1 + DB-2 reviewed by sub-agents. DB-1 caught 3 issues (Compose runtime dep, offset import, initial-position flash). DB-2 caught 2 (status/nav bar insets, drag interception). All verified real + fixed. Later phases reviewed via CI only.
 - **Status:** ✅ All 8 phases implemented + CI green (final commit 477a256, run 31283553038, artifact 54 MB). Awaiting device verification.
 - **Date:** debug-bubble implementation session (feature/debug-bubble branch).
+
+### D-164 — Debug Bubble: DB Activity tracker + constantly-sliding charts (DB-9)
+- **What:** Three improvements to the debug bubble's Network tab: (1) a real DB Activity tracker that intercepts every SQLDelight write, (2) charts that constantly slide forward every 2 seconds even with zero traffic, (3) hoisted viewMode so the DB Activity view survives the EXPANDED↔MINIMIZED transition.
+- **Why:** The DB Activity view was a placeholder that never showed any data — it didn't track writes. The charts were frozen when the app was idle — they didn't "move like time is going." Minimizing the panel while on DB Activity always fell back to the Network view.
+- **DB Activity tracker architecture (DB-9):**
+  - `DebugDbStats` singleton (`:feature:debug-bubble`) — mirrors `DebugNetworkStats`'s structure: atomic write counters (total/insert/update/delete/other), per-table counts, per-second time-series (writes/sec for 5-min chart), recent-events ring buffer (50 events), `snapshot()` with gap-fill, `clear()`.
+  - `DebugSqlDriverWrapper` (`:feature:debug-bubble`) — Kotlin `by delegate` wrapper around `SqlDriver`. Overrides only `execute()` — the other 6 methods are auto-forwarded. Parses operation + table from the SQL string via regex. Zero overhead on reads (`executeQuery`).
+  - `wrapDebugSqlDriver(driver: SqlDriver): SqlDriver` — added to `app/src/debug/DebugInit.kt` (fetches `DebugDbStats` from Koin, wraps the driver). No-op identity stub in `app/src/release/DebugInit.kt`. Same pattern as `wrapDebugOkHttp`.
+  - Wired at `AnikutaApp.kt:199`: `single<SqlDriver> { wrapDebugSqlDriver(DatabaseDriverFactory(get()).create()) }`.
+  - Catches 100% of writes from every repository, ViewModel, and WorkManager job. Zero changes to any repository, `.sq` file, or release code path.
+- **Chart sliding approach:**
+  - `advanceToNow()` gap-fill method added to both `DebugNetworkStats` and `DebugDbStats`. Called from inside `snapshot()`. Inserts zero-valued buckets for every elapsed second since the last bucket. Capped at 300 iterations (5 min). Seeds a baseline zero-bucket if the deque is empty.
+  - Canvas X-axis changed from bucket-index-based (`x = i * stepX`) to timestamp-based (`x = (ts - windowStart) / windowSpan * width`). `coerceIn(0f, w)` guards clock skew. This ensures zero-filled gaps render at the correct temporal position instead of being compressed to full density.
+- **viewMode hoist:**
+  - `viewMode` was `remember`-scoped to `NetworkTab` (local state). `AnimatedVisibility` disposes the expanded NetworkTab on minimize → state was lost → mini-window fell back to Network.
+  - Hoisted to `DebugPanel` as `networkViewMode`. Passed + `onViewModeChange` + `onViewInDb` callbacks to both NetworkTab call sites (expanded + minimized). DB Activity now survives minimize.
+- **Alternatives considered for DB tracking:**
+  - (B) SQLDelight `Query.Listener` / `notifyListeners` — REJECTED: `notifyListeners` keys are SELECT query names (not table names), would require a hand-maintained queryKey→table mapping across 28 tables. Also only fires for queries the app explicitly subscribes to via `asFlow()`.
+  - (C) Wrap each repository — REJECTED: requires wrapping 10+ repositories, misses any future repository that forgets to use the wrapper.
+  - (D) Override generated `*Queries` mutators — REJECTED: `*Queries` is a generated interface; can't override without subclassing the generated `*QueriesImpl` (which is `final`).
+  - (A) Wrap `SqlDriver` — CHOSEN: single integration point, catches 100% of writes, mirrors the proven `wrapDebugOkHttp` pattern, zero release overhead.
+- **Sub-agent review (Task 2-d):** No critical issues, no important issues. 3 minor unused-import issues (pre-existing, cleaned up). Overall: READY TO COMMIT.
+- **Status:** ✅ CI green (run 31339439293, commit 619a174, artifact 54.1 MB). Awaiting device verification.
+- **Date:** this session (feature/debug-bubble branch).
