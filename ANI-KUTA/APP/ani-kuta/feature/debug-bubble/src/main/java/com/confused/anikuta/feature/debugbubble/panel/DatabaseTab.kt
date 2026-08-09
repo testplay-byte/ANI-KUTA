@@ -99,12 +99,13 @@ fun DatabaseTab(
             contract = ActivityResultContracts.CreateDocument(),
         ) { uri ->
             if (uri != null) {
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                // Export on a background thread (the DB read + file write are IO).
+                Thread {
                     val json = browser.exportAsJson()
                     context.contentResolver.openOutputStream(uri)?.use { os ->
                         os.write(json.toByteArray())
                     }
-                }
+                }.start()
             }
         }
 
