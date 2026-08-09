@@ -98,6 +98,14 @@ class DebugNetworkStats : Interceptor {
         while (timeSeries.isNotEmpty() && timeSeries.first().timestamp < cutoff) {
             timeSeries.removeFirst()
         }
+        // ── Gap-fill: advance the time-series to "now" so the chart slides
+        // forward even when there's no traffic.
+        //
+        // Without this, the deque only grows when a request arrives → with
+        // zero traffic the chart is frozen. The user wants the charts to
+        // "constantly move like time is going" — so we synthesize zero-
+        // valued buckets for every elapsed second since the last bucket.
+        advanceToNow()
         NetworkSnapshot(
             totalRequests = requestCount.get(),
             totalBytesReceived = totalBytesReceived.get(),
@@ -109,6 +117,36 @@ class DebugNetworkStats : Interceptor {
             recentRequests = recentRequests.toList(),
             timeSeries = timeSeries.toList(),
         )
+    }
+
+    /**
+     * Advance the time-series to the current second, inserting zero-valued
+     * buckets for every elapsed second with no traffic. This makes the
+     * charts slide forward over time even when the app is idle.
+     *
+     * Called from [snapshot] (which is already polled every 2 s by
+     * NetworkTab). Must be called inside `synchronized(lock)`.
+     *
+     * If the deque is empty (no traffic yet at all), this seeds it with a
+     * single "now" zero-bucket so the chart has a baseline to draw from.
+     */
+    private fun advanceToNow() {
+        val nowSecond = System.currentTimeMillis() / 1000 * 1000
+        if (timeSeries.isEmpty()) {
+            // Seed a baseline zero-bucket so the chart has something to draw.
+            timeSeries.addLast(TimeSeriesBucket(timestamp = nowSecond, requestCount = 0, bytesReceived = 0L))
+            return
+        }
+        var last = timeSeries.last().timestamp
+        // Cap the number of buckets we insert in one go — if the panel was
+        // closed for a long time, we don't want to insert hundreds of zero-
+        // buckets. The prune above already removes anything older than 5 min,
+        // so `last` is at most 5 min old → at most 300 iterations.
+        while (last < nowSecond) {
+            last += 1000
+            timeSeries.addLast(TimeSeriesBucket(timestamp = last, requestCount = 0, bytesReceived = 0L))
+        }
+        while (timeSeries.size > maxTimeSeriesBuckets) timeSeries.removeFirst()
     }
 
     fun clear() {

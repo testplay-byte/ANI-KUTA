@@ -193,7 +193,10 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { ImageLoaderFactory.create(get(), get()) }
 
             // Database
-            single<SqlDriver> { DatabaseDriverFactory(get()).create() }
+            // DB-9: wrapDebugSqlDriver wraps the driver with DebugSqlDriverWrapper
+            // in debug builds (tracks DB writes for the DB Activity view); no-op
+            // (identity) in release builds.
+            single<SqlDriver> { wrapDebugSqlDriver(DatabaseDriverFactory(get()).create()) }
             single<AnikutaDatabase> { AnikutaDatabase(get()) }
 
             // Phase SC-2: bind ScheduleStore as ActualReleaseUpdater (breaks the circular

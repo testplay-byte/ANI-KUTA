@@ -126,10 +126,17 @@ fun DebugPanel(
     )
 
     var activeTab by remember { mutableStateOf(DebugTab.SCREEN) }
-    // When the user taps a "View in DB" button on the Screen tab, this stores
-    // the table to open + the search filter. The DatabaseTab reads it on open.
+    // When the user taps a "View in DB" button on the Screen tab or on a DB
+    // Activity event, this stores the table to open + the search filter.
+    // The DatabaseTab reads it on open.
     var pendingDbTable by remember { mutableStateOf<String?>(null) }
     var pendingDbFilter by remember { mutableStateOf("") }
+
+    // Hoisted Network-tab view mode ("network" vs "db"). Lives here so it
+    // survives the EXPANDED↔MINIMIZED transition — previously it was local
+    // to NetworkTab and was lost on minimize, causing the mini-window to
+    // always fall back to the Network view even if DB Activity was selected.
+    var networkViewMode by remember { mutableStateOf("network") }
 
     // ── Expanded panel (full) ──
     AnimatedVisibility(
@@ -202,7 +209,17 @@ fun DebugPanel(
                                 onSelectTable = { },
                             )
                             DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab()
-                            DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab()
+                            DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab(
+                                viewMode = networkViewMode,
+                                onViewModeChange = { networkViewMode = it },
+                                onViewInDb = { table, _, _ ->
+                                    // Navigate to the Database tab with the
+                                    // affected table pre-selected.
+                                    pendingDbTable = table
+                                    pendingDbFilter = ""
+                                    activeTab = DebugTab.DATABASE
+                                },
+                            )
                             DebugTab.APP_INFO -> com.confused.anikuta.feature.debugbubble.panel.AppInfoTab()
                         }
                     }
@@ -302,7 +319,18 @@ fun DebugPanel(
                                 onSelectTable = { },
                             )
                             DebugTab.CONSOLE -> com.confused.anikuta.feature.debugbubble.panel.ConsoleTab(minimized = true)
-                            DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab(minimized = true)
+                            DebugTab.NETWORK -> com.confused.anikuta.feature.debugbubble.panel.NetworkTab(
+                                minimized = true,
+                                viewMode = networkViewMode,
+                                onViewModeChange = { networkViewMode = it },
+                                onViewInDb = { table, _, _ ->
+                                    // Expand + navigate to the Database tab.
+                                    pendingDbTable = table
+                                    pendingDbFilter = ""
+                                    activeTab = DebugTab.DATABASE
+                                    state.expand()
+                                },
+                            )
                             DebugTab.APP_INFO -> com.confused.anikuta.feature.debugbubble.panel.AppInfoTab()
                         }
                     }
