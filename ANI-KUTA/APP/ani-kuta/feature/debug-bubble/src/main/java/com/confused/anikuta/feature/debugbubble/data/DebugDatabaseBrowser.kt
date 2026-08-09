@@ -174,4 +174,47 @@ class DebugDatabaseBrowser(
             db.close()
         }
     }
+
+    /**
+     * Export the entire database as a JSON string. Each table is a key in the
+     * top-level object; the value is an array of row objects (column → value).
+     *
+     * BLOB columns are base64-encoded. NULL values are JSON null.
+     *
+     * Used by the Database tab's export button (per user: "download the whole
+     * database in a proper well-organized format — most probably a .json").
+     */
+    fun exportAsJson(): String {
+        val tables = listTables()
+        val sb = StringBuilder()
+        sb.append("{")
+        tables.forEachIndexed { tableIdx, tableName ->
+            sb.append("\"").append(tableName).append("\":[")
+            val columns = getColumns(tableName)
+            val (_, rows) = queryTable(tableName)
+            rows.forEachIndexed { rowIdx, row ->
+                sb.append("{")
+                row.forEachIndexed { colIdx, cell ->
+                    sb.append("\"").append(columns.getOrNull(colIdx)?.name ?: "col$colIdx").append("\":")
+                    if (cell == "NULL") {
+                        sb.append("null")
+                    } else if (cell.startsWith("<BLOB:") || cell.startsWith("<long text:")) {
+                        sb.append("\"").append(cell).append("\"")
+                    } else {
+                        // Escape quotes + backslashes in the value.
+                        val escaped = cell.replace("\\", "\\\\").replace("\"", "\\\"")
+                            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+                        sb.append("\"").append(escaped).append("\"")
+                    }
+                    if (colIdx < row.lastIndex) sb.append(",")
+                }
+                sb.append("}")
+                if (rowIdx < rows.lastIndex) sb.append(",")
+            }
+            sb.append("]")
+            if (tableIdx < tables.lastIndex) sb.append(",")
+        }
+        sb.append("}")
+        return sb.toString()
+    }
 }

@@ -51,6 +51,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+// ── Console fixed colors (dark grey, per user — separate from the coral theme) ──
+private val ConsoleBgColor = Color(0xFF1E1E1E)       // dark grey background
+private val ConsoleCardColor = Color(0xFF2D2D2D)      // slightly lighter card bg
+private val ConsoleTextColor = Color(0xFFE0E0E0)      // light text on dark grey
+private val ConsoleTextVariantColor = Color(0xFFE0E0E0).copy(alpha = 0.6f)
 /**
  * The Console tab — an in-memory log viewer (Phase DB-4).
  *
@@ -104,7 +109,15 @@ fun ConsoleTab(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Console uses a constant dark grey background (per user: "dark grey color
+    // for the background instead of the current one which is being used everywhere
+    // else"). Not the coral/sienna theme — a separate dark grey.
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ConsoleBgColor)
+            .padding(horizontal = 4.dp),
+    ) {
         // In minimized mode: hide all buttons (search/copy/delete), show only
         // the live console list. Auto-refresh every 1s.
         // In full mode: show all buttons.
@@ -116,7 +129,7 @@ fun ConsoleTab(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = ConsoleCardColor,
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.weight(1f),
             ) {
@@ -127,7 +140,7 @@ fun ConsoleTab(
                     Icon(
                         imageVector = Icons.Filled.Search,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = ConsoleTextVariantColor,
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(8.dp))
@@ -138,7 +151,7 @@ fun ConsoleTab(
                         textStyle = TextStyle(
                             fontFamily = RobotoFamily,
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = ConsoleTextColor,
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier.fillMaxWidth(),
@@ -148,7 +161,7 @@ fun ConsoleTab(
                                     text = "Filter by tag…",
                                     fontFamily = RobotoFamily,
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = ConsoleTextVariantColor,
                                 )
                             }
                             inner()
@@ -166,7 +179,7 @@ fun ConsoleTab(
                 val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(clipboard)
             }) {
-                Icon(Icons.Filled.ContentCopy, "Copy", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Filled.ContentCopy, "Copy", tint = ConsoleTextVariantColor)
             }
             IconButton(onClick = {
                 buffer.clear()
@@ -190,9 +203,9 @@ fun ConsoleTab(
             ).forEach { (level, label) ->
                 val isSelected = level in levelFilter
                 val bg = if (isSelected) levelColor(level).copy(alpha = 0.25f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                else ConsoleCardColor
                 val fg = if (isSelected) levelColor(level)
-                else MaterialTheme.colorScheme.onSurfaceVariant
+                else ConsoleTextVariantColor
                 Surface(
                     color = bg,
                     shape = RoundedCornerShape(6.dp),
@@ -215,7 +228,7 @@ fun ConsoleTab(
                 text = "${filtered.size}/${entries.size}",
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = ConsoleTextVariantColor,
                 modifier = Modifier.align(Alignment.CenterVertically),
             )
         }
@@ -229,7 +242,7 @@ fun ConsoleTab(
                 Text(
                     text = if (entries.isEmpty()) "No logs yet" else "No matches",
                     fontFamily = RobotoFamily,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ConsoleTextVariantColor,
                 )
             }
         } else {
@@ -258,7 +271,7 @@ private fun LogEntryRow(entry: DebugLogBuffer.LogEntry) {
         LogLevel.INFO -> Color(0xFF4CAF50).copy(alpha = 0.08f)
         LogLevel.DEBUG -> Color(0xFF2196F3).copy(alpha = 0.06f)
         LogLevel.VERBOSE -> Color(0xFF9E9E9E).copy(alpha = 0.05f)
-        LogLevel.NONE -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        LogLevel.NONE -> ConsoleCardColor
     }
     Surface(
         color = bgColor,
@@ -272,7 +285,7 @@ private fun LogEntryRow(entry: DebugLogBuffer.LogEntry) {
                     text = timeFmt.format(Date(entry.timestamp)),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ConsoleTextVariantColor,
                 )
                 Text(
                     text = entry.level.name.first().toString(),
@@ -286,7 +299,7 @@ private fun LogEntryRow(entry: DebugLogBuffer.LogEntry) {
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = ConsoleTextColor,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -294,7 +307,7 @@ private fun LogEntryRow(entry: DebugLogBuffer.LogEntry) {
                 text = entry.message,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = ConsoleTextColor,
             )
             if (entry.throwableString != null) {
                 Text(
@@ -316,5 +329,5 @@ private fun levelColor(level: LogLevel): Color = when (level) {
     LogLevel.INFO -> Color(0xFF4CAF50)     // green
     LogLevel.WARN -> Color(0xFFFF9800)     // orange
     LogLevel.ERROR -> Color(0xFFF44336)    // red
-    LogLevel.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
+    LogLevel.NONE -> ConsoleTextVariantColor
 }
