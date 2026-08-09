@@ -639,3 +639,24 @@
 - ✅ CI run 31341636467 started (commit 1f65e5d). Awaiting green.
 - Code-reviewed by sub-agent (Task 3-a): no critical or important issues. 6 minor issues (3 fixed: stale KDoc in DebugInit.kt, stale comment in DebugBubbleModule.kt, inaccurate comment in DebugSqlDriverWrapper.kt; 3 acceptable tradeoffs: indentation, raw Thread, ring buffer eviction).
 - Awaiting device verification: (1) reads should now appear in the DB Activity view (cyan-colored SELECT events); (2) the export buttons should produce `.log` files via the system file picker; (3) the filter toggle should correctly filter events; (4) the dual-line chart should show both reads + writes.
+
+## Session — feature/debug-bubble → main merge + branch cleanup
+
+### Merge
+- Fast-forward merged `feature/debug-bubble` (53 commits, 51 files, 8,706 insertions) into `main`.
+- The merge was a clean fast-forward (no conflicts) because `main` hadn't moved since the feature branch was created. The only remote-side commit was `30b2cb5` (user uploaded `DB.json` via the GitHub web interface) — rebased locally before pushing.
+- All debug bubble work (DB-1..DB-9, D-162..D-165) is now on `main`.
+
+### CI cleanup
+- Removed `feature/debug-bubble` from `build-apk.yml` push triggers (the branch is being deleted). Only `main` + tags trigger builds now.
+- The `deploy-dashboard.yml` workflow already only triggers on `main` — no change needed. The dashboard changes (DB Viewer page + debug-bubble page) in the merge will trigger a fresh GitHub Pages deployment.
+
+### Branch deletion
+- Deleted the local `feature/debug-bubble` branch.
+- Deleted the remote `origin/feature/debug-bubble` branch.
+
+### Status
+- ✅ `main` is at `0fcc850` (CI cleanup commit). Pushed to origin.
+- CI verification in progress (Build APK + Deploy Dashboard workflows triggered by the push to main).
+- The `feature/debug-bubble` branch is fully deleted.
+- Next: a new AI agent will take over for database optimization work.
