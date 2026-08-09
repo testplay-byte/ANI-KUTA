@@ -1211,7 +1211,7 @@ function DataGrid({
   return (
     <div className={`flex-1 overflow-auto min-h-0 ${isFullscreen ? "" : "max-h-[70vh]"}`}>
       <table
-        className="min-w-full border-collapse text-[12.5px]"
+        className="w-max border-collapse text-[12.5px]"
         style={{ tableLayout: "fixed" }}
       >
         <colgroup>
@@ -1233,7 +1233,7 @@ function DataGrid({
               <th
                 key={col}
                 scope="col"
-                className="relative bg-surface-alt border-b border-r last:border-r-0 border-border px-3 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary overflow-hidden"
+                className="relative bg-surface-alt border-b border-r last:border-r-0 border-border px-3 py-2 text-left text-[10.5px] font-semibold uppercase tracking-widest text-text-secondary"
               >
                 <span className="flex items-center gap-1.5 min-w-0 pr-3">
                   {imageShapeForColumn(col) && (
