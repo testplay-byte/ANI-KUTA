@@ -44,6 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Decisions", href: "/decisions/", icon: "decisions", desc: "Architecture decisions D-001..D-152 (all confirmed)" },
   { label: "Modules", href: "/modules/", icon: "modules", desc: "44 modules built — module hierarchy + tree view" },
   { label: "Database", href: "/database/", icon: "database", desc: "28 tables (26 active + 2 deferred), ER diagram, indexes, FK relationships" },
+  { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
   { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
