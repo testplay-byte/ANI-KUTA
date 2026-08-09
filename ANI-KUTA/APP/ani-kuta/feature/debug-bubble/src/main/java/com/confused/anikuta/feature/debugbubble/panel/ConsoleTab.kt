@@ -19,8 +19,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -65,6 +66,7 @@ import java.util.Locale
 @Composable
 fun ConsoleTab() {
     val buffer = koinInject<DebugLogBuffer>()
+    val context = LocalContext.current
 
     var entries by remember { mutableStateOf<List<DebugLogBuffer.LogEntry>>(emptyList()) }
     var tagFilter by remember { mutableStateOf("") }
@@ -137,8 +139,17 @@ fun ConsoleTab() {
                     )
                 }
             }
-            IconButton(onClick = { refreshTrigger++ }) {
-                Icon(Icons.Filled.Refresh, "Refresh", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(onClick = {
+                // Copy the filtered logs to the clipboard.
+                val text = filtered.joinToString("\n") { e ->
+                    "${SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(e.timestamp))} ${e.level.name.first()} ${e.tag}: ${e.message}" +
+                        (e.throwableString?.let { "\n$it" } ?: "")
+                }
+                val clipboard = android.content.ClipData.newPlainText("Debug logs", text)
+                val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(clipboard)
+            }) {
+                Icon(Icons.Filled.ContentCopy, "Copy", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = {
                 buffer.clear()

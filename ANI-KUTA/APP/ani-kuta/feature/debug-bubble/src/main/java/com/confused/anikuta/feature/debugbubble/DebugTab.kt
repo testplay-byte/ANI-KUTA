@@ -1,45 +1,36 @@
 package com.confused.anikuta.feature.debugbubble
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.ui.graphics.vector.ImageVector
+
 /**
  * The debug panel's tabs (Phase DB).
  *
- * The 5 default tabs. Tabs are flexible (D-163) — a screen's DebugContext can
- * declare additional screen-specific tabs or hide irrelevant ones in a future
- * phase. For DB-2, only [SCREEN] is implemented; the others are placeholders
- * that show "Coming in DB-X" until their phase.
+ * Each tab has a Material [ImageVector] icon (no emojis — per user) + a label.
  */
-enum class DebugTab(val label: String, val icon: String) {
-    SCREEN("Screen", "📱"),
-    DATABASE("Database", "🗄️"),
-    CONSOLE("Console", "📜"),
-    NETWORK("Network", "🌐"),
-    APP_INFO("App Info", "ℹ️"),
+enum class DebugTab(val label: String, val icon: ImageVector) {
+    SCREEN("Screen", Icons.Filled.PhoneAndroid),
+    DATABASE("Database", Icons.Filled.Storage),
+    CONSOLE("Console", Icons.Filled.Terminal),
+    NETWORK("Network", Icons.Filled.Wifi),
+    APP_INFO("App Info", Icons.Filled.Info),
 }
 
 /**
  * The direction the panel expands from the bubble (D-163).
- *
- * Determined by the bubble's position: the panel opens toward the side with
- * more space AND extends vertically away from the nearest edge — so it's always
- * fully visible. See [expandDirectionFor].
  */
 enum class ExpandDirection {
-    /** Bubble in the top-left → panel opens right + extends down. */
     RIGHT_DOWN,
-    /** Bubble in the top-right → panel opens left + extends down. */
     LEFT_DOWN,
-    /** Bubble in the bottom-left → panel opens right + extends up. */
     RIGHT_UP,
-    /** Bubble in the bottom-right → panel opens left + extends up. */
     LEFT_UP,
 }
 
-/**
- * Compute the expand direction from the bubble's position relative to screen center.
- *
- * - Horizontal: bubbleX < screenWidth/2 → RIGHT; else LEFT.
- * - Vertical: bubbleY < screenHeight/2 → DOWN (extends downward); else UP.
- */
 fun expandDirectionFor(
     bubbleX: Float,
     bubbleY: Float,

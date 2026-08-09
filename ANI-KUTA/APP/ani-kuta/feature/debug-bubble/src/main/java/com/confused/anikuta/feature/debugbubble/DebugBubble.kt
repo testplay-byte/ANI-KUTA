@@ -29,7 +29,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -109,12 +108,10 @@ fun DebugBubble(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Surface(
-            // Light white-to-grey tone — visible on both light + dark themes.
-            // Uses surface (a near-white in light theme, near-black in dark) with
-            // high alpha so the bubble is clearly visible but not jarring.
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+            // Theme-aware contrast: dark bubble in light mode, white bubble in dark
+            // mode (per user). onSurface is dark-in-light + light/white-in-dark.
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f),
             // Squircle: a rounded square (16dp corners on a 48dp box = ~33% radius).
-            // NOT a circle (RoundedCornerShape(50) = circle). D-163 revision.
             shape = RoundedCornerShape(16.dp),
             shadowElevation = 6.dp,
             modifier = Modifier
@@ -132,8 +129,7 @@ fun DebugBubble(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         pressed = true
-                        var totalDx = 0f
-                        var totalDy = 0f
+                        var lastPos = down.position()
                         var isDragging = false
 
                         // Track the gesture until the pointer is released.
@@ -146,18 +142,16 @@ fun DebugBubble(
                                 pressed = false
                                 if (!isDragging) {
                                     // Pure tap (total movement < threshold) → toggle the panel.
-                                    state.toggleExpanded()
-                                } else {
-                                    // Was a drag → nothing extra to do (offset already updated).
+                                    state.onBubbleTap()
                                 }
                                 break
                             }
-                            // Movement during the gesture.
-                            val dx = change.positionChange().x
-                            val dy = change.positionChange().y
-                            totalDx += dx
-                            totalDy += dy
-                            if (!isDragging && (abs(totalDx) > tapThresholdPx || abs(totalDy) > tapThresholdPx)) {
+                            // Movement during the gesture — compute delta from last position.
+                            val currentPos = change.position()
+                            val dx = currentPos.x - lastPos.x
+                            val dy = currentPos.y - lastPos.y
+                            lastPos = currentPos
+                            if (!isDragging && (abs(dx) > tapThresholdPx || abs(dy) > tapThresholdPx)) {
                                 // Crossed the threshold → this is a drag, not a tap.
                                 isDragging = true
                             }
@@ -178,8 +172,9 @@ fun DebugBubble(
                 Icon(
                     imageVector = Icons.Filled.BugReport,
                     contentDescription = "Debug bubble",
-                    // Dark icon on the light bubble (onSurface works for both themes).
-                    tint = MaterialTheme.colorScheme.onSurface,
+                    // Opposite contrast: surface is light-in-dark + dark-in-light
+                    // (inverse of the onSurface bubble color).
+                    tint = MaterialTheme.colorScheme.surface,
                     modifier = Modifier.size(BUBBLE_ICON_SIZE),
                 )
             }
@@ -188,7 +183,7 @@ fun DebugBubble(
         // ── The debug panel (DB-2) ──
         DebugPanel(
             state = state,
-            onDismiss = { state.collapse() },
+            onMinimize = { state.minimize() },
         )
     }
 }
