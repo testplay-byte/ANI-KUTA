@@ -98,15 +98,106 @@ fun NetworkTab(
             }
         }
 
-        // ── Bandwidth summary (4 stat cards: requests, received, sent, errors) ──
+        // ── Bandwidth summary (4 stat cards) ──
+        // In minimized mode: smaller text + compact layout.
+        val statFontSize = if (minimized) 11.sp else 14.sp
+        val statLabelSize = if (minimized) 8.sp else 9.sp
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            NetStatCard("Requests", snapshot.totalRequests.toString(), NetBlue, Modifier.weight(1f))
-            NetStatCard("Received", formatBytes(snapshot.totalBytesReceived), NetGreen, Modifier.weight(1f))
-            NetStatCard("Sent", formatBytes(snapshot.totalBytesSent), NetOrange, Modifier.weight(1f))
-            NetStatCard("Errors", snapshot.errorCount.toString(), NetRed, Modifier.weight(1f))
+            NetStatCard("Req", snapshot.totalRequests.toString(), NetBlue, Modifier.weight(1f), statFontSize, statLabelSize)
+            NetStatCard("Recv", formatBytes(snapshot.totalBytesReceived), NetGreen, Modifier.weight(1f), statFontSize, statLabelSize)
+            NetStatCard("Sent", formatBytes(snapshot.totalBytesSent), NetOrange, Modifier.weight(1f), statFontSize, statLabelSize)
+            NetStatCard("Err", snapshot.errorCount.toString(), NetRed, Modifier.weight(1f), statFontSize, statLabelSize)
+        }
+
+        // ── 5-minute graphs (requests + data usage) ──
+        // Two sparkline-style Canvas charts showing the last 5 minutes of activity.
+        if (snapshot.timeSeries.isNotEmpty()) {
+            // Requests over time graph.
+            NetSectionCard("Requests (5 min)") {
+                val maxReq = snapshot.timeSeries.maxOf { it.requestCount }.coerceAtLeast(1)
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (minimized) 30.dp else 50.dp),
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    val n = snapshot.timeSeries.size
+                    if (n > 1) {
+                        val stepX = w / (n - 1)
+                        val path = androidx.compose.ui.graphics.Path()
+                        snapshot.timeSeries.forEachIndexed { i, bucket ->
+                            val x = i * stepX
+                            val y = h - (bucket.requestCount.toFloat() / maxReq) * h
+                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        drawPath(path, color = NetBlue, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f))
+                        // Fill under the curve.
+                        val fillPath = androidx.compose.ui.graphics.Path()
+                        fillPath.moveTo(0f, h)
+                        snapshot.timeSeries.forEachIndexed { i, bucket ->
+                            val x = i * stepX
+                            val y = h - (bucket.requestCount.toFloat() / maxReq) * h
+                            fillPath.lineTo(x, y)
+                        }
+                        fillPath.lineTo(w, h)
+                        fillPath.close()
+                        drawPath(fillPath, color = NetBlue.copy(alpha = 0.15f))
+                    }
+                }
+                Text(
+                    text = "Peak: $maxReq req/s",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp,
+                    color = NetTextVariantColor,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+
+            // Data usage over time graph.
+            NetSectionCard("Data usage (5 min)") {
+                val maxBytes = snapshot.timeSeries.maxOf { it.bytesReceived }.coerceAtLeast(1L)
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (minimized) 30.dp else 50.dp),
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    val n = snapshot.timeSeries.size
+                    if (n > 1) {
+                        val stepX = w / (n - 1)
+                        val path = androidx.compose.ui.graphics.Path()
+                        snapshot.timeSeries.forEachIndexed { i, bucket ->
+                            val x = i * stepX
+                            val y = h - (bucket.bytesReceived.toFloat() / maxBytes) * h
+                            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        drawPath(path, color = NetGreen, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f))
+                        // Fill under the curve.
+                        val fillPath = androidx.compose.ui.graphics.Path()
+                        fillPath.moveTo(0f, h)
+                        snapshot.timeSeries.forEachIndexed { i, bucket ->
+                            val x = i * stepX
+                            val y = h - (bucket.bytesReceived.toFloat() / maxBytes) * h
+                            fillPath.lineTo(x, y)
+                        }
+                        fillPath.lineTo(w, h)
+                        fillPath.close()
+                        drawPath(fillPath, color = NetGreen.copy(alpha = 0.15f))
+                    }
+                }
+                Text(
+                    text = "Peak: ${formatBytes(maxBytes)}/s",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp,
+                    color = NetTextVariantColor,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
 
         // ── Status codes (compact bars) ──
@@ -221,16 +312,23 @@ fun NetworkTab(
 }
 
 @Composable
-private fun NetStatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+private fun NetStatCard(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    valueFontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+    labelFontSize: androidx.compose.ui.unit.TextUnit = 9.sp,
+) {
     Surface(
         color = NetCardColor,
         shape = RoundedCornerShape(8.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.4f)),
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text(value, fontFamily = RobotoFamily, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = NetTextColor)
-            Text(label, fontFamily = RobotoFamily, fontSize = 9.sp, color = NetTextVariantColor)
+        Column(modifier = Modifier.padding(6.dp)) {
+            Text(value, fontFamily = RobotoFamily, fontSize = valueFontSize, fontWeight = FontWeight.Bold, color = NetTextColor, maxLines = 1)
+            Text(label, fontFamily = RobotoFamily, fontSize = labelFontSize, color = NetTextVariantColor)
         }
     }
 }

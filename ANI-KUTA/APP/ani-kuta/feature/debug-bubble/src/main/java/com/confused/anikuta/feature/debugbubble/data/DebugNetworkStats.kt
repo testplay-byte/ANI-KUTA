@@ -23,15 +23,20 @@ import java.util.concurrent.atomic.AtomicLong
 class DebugNetworkStats : Interceptor {
 
     private val requestCount = AtomicLong(0)
-    private val totalBytesReceived = AtomicLong(0)  // response body bytes
-    private val totalBytesSent = AtomicLong(0)      // request body bytes
+    private val totalBytesReceived = AtomicLong(0)
+    private val totalBytesSent = AtomicLong(0)
     private val errorCount = AtomicLong(0)
-    private val statusBuckets = IntArray(5) // 2xx / 3xx / 4xx / 5xx / network-errors
-    private val categoryCounts = IntArray(4) // metadata / video / image / other
-    private val hostCounts = mutableMapOf<String, Int>()  // per-host request counts
+    private val statusBuckets = IntArray(5)
+    private val categoryCounts = IntArray(4)
+    private val hostCounts = mutableMapOf<String, Int>()
     private val recentRequests = ArrayDeque<RequestRecord>()
     private val lock = Any()
     private val maxRecent = 50
+
+    // Time-series: per-second buckets for the last 5 minutes (300 buckets).
+    // Each bucket stores request count + bytes received for that second.
+    private val timeSeries = ArrayDeque<TimeSeriesBucket>()
+    private val maxTimeSeriesBuckets = 300  // 5 minutes at 1-second resolution
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -53,6 +58,7 @@ class DebugNetworkStats : Interceptor {
                 statusBuckets[bucketFor(code)]++
                 categoryCounts[category.ordinal]++
                 hostCounts[host] = (hostCounts[host] ?: 0) + 1
+                recordTimeSeries(startMs, bytes)
             }
             addRecent(RequestRecord(
                 method = request.method,
@@ -87,6 +93,11 @@ class DebugNetworkStats : Interceptor {
     }
 
     fun snapshot(): NetworkSnapshot = synchronized(lock) {
+        // Prune old time-series buckets (older than 5 minutes).
+        val cutoff = System.currentTimeMillis() - 300_000
+        while (timeSeries.isNotEmpty() && timeSeries.first().timestamp < cutoff) {
+            timeSeries.removeFirst()
+        }
         NetworkSnapshot(
             totalRequests = requestCount.get(),
             totalBytesReceived = totalBytesReceived.get(),
@@ -96,6 +107,7 @@ class DebugNetworkStats : Interceptor {
             categoryCounts = categoryCounts.copyOf(),
             hostCounts = hostCounts.toMap(),
             recentRequests = recentRequests.toList(),
+            timeSeries = timeSeries.toList(),
         )
     }
 
@@ -109,7 +121,23 @@ class DebugNetworkStats : Interceptor {
             for (i in categoryCounts.indices) categoryCounts[i] = 0
             hostCounts.clear()
             recentRequests.clear()
+            timeSeries.clear()
         }
+    }
+
+    /** Record a request in the time-series (per-second bucket). */
+    private fun recordTimeSeries(timestamp: Long, bytes: Long) {
+        val secondBucket = timestamp / 1000 * 1000  // round down to the second
+        if (timeSeries.isNotEmpty() && timeSeries.last().timestamp == secondBucket) {
+            // Same second — update the existing bucket.
+            val last = timeSeries.removeLast()
+            timeSeries.addLast(last.copy(requestCount = last.requestCount + 1, bytesReceived = last.bytesReceived + bytes))
+        } else {
+            // New second — add a new bucket.
+            timeSeries.addLast(TimeSeriesBucket(timestamp = secondBucket, requestCount = 1, bytesReceived = bytes))
+        }
+        // Prune if exceeding max.
+        while (timeSeries.size > maxTimeSeriesBuckets) timeSeries.removeFirst()
     }
 
     private fun bucketFor(code: Int): Int = when (code / 100) {
@@ -168,11 +196,19 @@ class DebugNetworkStats : Interceptor {
         val categoryCounts: IntArray,
         val hostCounts: Map<String, Int>,
         val recentRequests: List<RequestRecord>,
+        val timeSeries: List<TimeSeriesBucket> = emptyList(),
     ) {
         val totalBytes: Long get() = totalBytesReceived + totalBytesSent
 
         companion object {
-            val EMPTY = NetworkSnapshot(0, 0, 0, 0, IntArray(5), IntArray(4), emptyMap(), emptyList())
+            val EMPTY = NetworkSnapshot(0, 0, 0, 0, IntArray(5), IntArray(4), emptyMap(), emptyList(), emptyList())
         }
     }
+
+    /** A per-second time-series bucket for the 5-minute graphs. */
+    data class TimeSeriesBucket(
+        val timestamp: Long,   // epoch millis, rounded to the second
+        val requestCount: Int,
+        val bytesReceived: Long,
+    )
 }
