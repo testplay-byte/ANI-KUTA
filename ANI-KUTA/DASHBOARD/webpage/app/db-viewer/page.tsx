@@ -683,28 +683,6 @@ export default function DBViewerPage() {
                 </span>
               </button>
             </div>
-
-            {/* Fullscreen banner with quick exit hint */}
-            {isFullscreen && (
-              <div
-                className="flex items-center gap-2 text-[11.5px] rounded-[8px] px-3 py-2"
-                style={{
-                  backgroundColor:
-                    "color-mix(in srgb, var(--c-primary) 8%, transparent)",
-                  color: "var(--c-primary)",
-                }}
-              >
-                <span
-                  className="inline-block w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: "var(--c-primary)" }}
-                />
-                Fullscreen mode — hero + sidebar hidden. Press{" "}
-                <kbd className="px-1.5 py-0.5 rounded-[4px] bg-surface border border-border font-mono text-[10.5px] text-text-primary">
-                  Esc
-                </kbd>{" "}
-                to exit.
-              </div>
-            )}
           </div>
 
           {/* Body: table selector + grid */}
@@ -1208,11 +1186,17 @@ function DataGrid({
     );
   }
 
+  // Compute the total table width = sum of all <col> widths.
+  // With tableLayout: "fixed" + an explicit width, <col> widths are AUTHORITATIVE
+  // (not proportional hints). The table won't stretch to fill the container, and
+  // cells won't push columns wider than their <col> width — content truncates.
+  const totalTableWidth = ROW_NUM_COL_WIDTH + columns.reduce((sum, col) => sum + getColWidth(col), 0);
+
   return (
     <div className={`flex-1 overflow-auto min-h-0 ${isFullscreen ? "" : "max-h-[70vh]"}`}>
       <table
-        className="w-max border-collapse text-[12.5px]"
-        style={{ tableLayout: "fixed" }}
+        className="border-collapse text-[12.5px]"
+        style={{ tableLayout: "fixed", width: totalTableWidth }}
       >
         <colgroup>
           <col style={{ width: ROW_NUM_COL_WIDTH }} />
@@ -1289,7 +1273,8 @@ function DataGrid({
                   return (
                     <td
                       key={col}
-                      className="border-b border-r last:border-r-0 border-border px-3 py-2 align-top text-text-primary overflow-hidden"
+                      className="border-b border-r last:border-r-0 border-border px-3 py-2 align-top text-text-primary"
+                      style={{ overflow: "hidden" }}
                     >
                       <Cell
                         value={value}
@@ -1402,7 +1387,7 @@ function Cell({
 
   return (
     <div
-      className={`flex items-start gap-2 ${isImg ? "" : "min-w-0"}`}
+      className={`flex items-start gap-2 min-w-0 overflow-hidden`}
       onClick={onCellClick}
       role="button"
       tabIndex={0}
