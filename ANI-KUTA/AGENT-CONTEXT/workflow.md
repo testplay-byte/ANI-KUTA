@@ -1,73 +1,187 @@
-# WORKFLOW — Task Execution Loop
+# WORKFLOW — The ANI-KUTA Agent Execution Process
 
-> The canonical procedure for doing any task. `master.md` and `CORE_RULES.md` point here.
-> If a task is trivial (one-line fix, typo), compress the loop mentally — but don't skip verify.
+> This file documents the **proven workflow** the agent follows for every task.
+> It is based on the successful 4-phase session (DB optimization + ratings + continue-watching + watch-progress fixes).
+> **Read this before starting any work. Follow it every time.**
 
 ---
 
-## The Loop
+## The Workflow (10 Steps)
 
 ```
-1. UNDERSTAND  →  2. VERIFY  →  3. IMPLEMENT  →  4. VERIFY  →  5. MOVE ON
+1. REFLECT  →  2. RESEARCH  →  3. PLAN  →  4. TODO LIST  →  5. EXECUTE
+                                                              ↓
+10. NOTIFY  ←  9. DOC UPDATE  ←  8. VERIFY (CI)  ←  7. VERIFY (REVIEW)  ←  6. COMMIT
 ```
 
-### 1. UNDERSTAND
-- Read the user's request fully. What do they want? How do they want it?
-- Read `master.md` + `memory/progress.md` to know current state.
-- Read `memory/lessons-learned.md` (grep for tags matching this task type).
-- Identify the **goal** in one sentence.
-- Identify **assumptions** — flag any that need user confirmation.
+### Step 1 — REFLECT (before executing anything)
 
-### 2. VERIFY (before building)
-- **Research**: read the code/docs the task touches. Trace the flow end-to-end.
-- **Comprehend**: confirm the whole task is understood. If anything is unclear → ask the user. No assumptions.
-- **Confirm**: for non-trivial changes, state your plan to the user in 1–3 lines and get a yes.
-- **Sub-agent review**: for big/complex tasks, launch a Plan sub-agent to find flaws in your plan. Verify their findings yourself before acting. Don't loop endlessly — one review pass, fix real flaws, discard false ones, proceed.
+**Before writing a single line of code, reflect back what you understood.**
 
-### 3. IMPLEMENT
-- Build **frontend first** (so the user can see progress), then backend.
-- Follow `CORE_RULES.md` §5 (Code Rules) and §7 (Architecture).
-- Apply `skills/ponytail.md`: simplest solution that works. Stdlib/native before new deps.
+- Summarize the user's request in your own words.
+- List what's working (don't break it), what's broken (fix it), what's new (build it).
+- Identify assumptions — flag any that need user confirmation.
+- If the request is ambiguous or feels off (speech-to-text error?): **stop and ask**. Don't guess.
+
+**Output:** A plain-text summary in the chat, so the user can confirm you understood correctly.
+
+> **Why this step exists:** Rushing into code without confirming understanding leads to wrong work. A 2-minute reflection saves hours of rework.
+
+### Step 2 — RESEARCH (understand before acting)
+
+**Read the code/docs the task touches. Trace flows end-to-end. Never guess.**
+
+- Read `memory/progress.md` (current state) + `memory/lessons-learned.md` (grep for tags matching the task type).
+- Read the specific files the task touches — trace the full code path (UI → ViewModel → Store → SQL).
+- Use **Explore sub-agents** for large investigations (read-only, parallelizable). They can read 10+ files and return a detailed report with exact line numbers.
+- If the task involves a third-party system (Aniyomi extensions, MPV, etc.), read the reference code in `REFERENCES/` + the relevant documentation.
+- Cross-reference against the old project (`REFERENCES/old-kuta/`) which compiles successfully — it's the proven pattern source.
+
+**Output:** A mental model of what exists, what touches what, and where the changes need to go. Don't write code yet.
+
+> **Why this step exists:** "Look before you write." The `lessons-learned.md` file exists because past sessions skipped this step and invented custom metadata keys, used wrong OkHttp versions, etc.
+
+### Step 3 — PLAN (design before building)
+
+**Design the solution. Split complex work into phases. Identify dependencies.**
+
+- For non-trivial work: split into **phases** with clear boundaries (Phase 1, Phase 2, etc.).
+- Order phases by **dependency** (if Phase 3 needs Phase 2's output, do Phase 2 first).
+- For each phase: identify the files to touch, the approach, the risks.
+- For big/complex phases: launch a **Plan sub-agent** to find flaws in your plan. Verify their findings yourself before acting. Don't loop endlessly — one review pass, fix real flaws, discard false ones, proceed.
+- Decide: can this phase be verified by CI alone, or does it need device testing?
+
+**Output:** A phase-by-phase plan, stated in the chat so the user can confirm before you execute.
+
+> **Why this step exists:** The 4-phase session succeeded because each phase had a clear scope + verification gate. No phase touched another phase's files unexpectedly.
+
+### Step 4 — TODO LIST (comprehensive, not random)
+
+**Create a comprehensive todo list AFTER research + planning. NOT at the start.**
+
+- Use `TodoWrite` to create the todo list.
+- Each todo should be a specific, actionable, verifiable step.
+- Include: code changes, sub-agent reviews, CI verification, doc updates, notifications.
+- Order todos by dependency (research before code, code before review, review before push, push before CI, CI before notify).
+- **Update the todo list after completing each task** — mark items `completed` as you go, add new items discovered during work.
+- Keep only ONE item `in_progress` at a time.
+
+**Output:** A todo list that covers every step from research to notification. The user can follow along by reading it.
+
+> **Why this step exists:** A random todo list created before research is guesswork. A comprehensive todo list created after research + planning is a roadmap. The 29-entry todo list from the 4-phase session was built this way — it covered every file, every review, every CI check, every notification.
+
+### Step 5 — EXECUTE (build, one phase at a time)
+
+**Build the code. Follow CORE_RULES §5 (Code Rules) + §7 (Architecture).**
+
+- **Frontend first** (so the user can see progress), then backend (CORE_RULES workflow.md step 3).
 - **Modular complexity**: split big work across multiple files. Document as you go.
-- Update `memory/progress.md` as items complete (don't batch at the end).
+- Use sub-agents for **read-only research** (Explore type) and **compile-error review** (Explore type — they can read files + compare against reference code).
+- **Do NOT use sub-agents for code changes** to `AGENT-CONTEXT/` — only the main agent touches AGENT-CONTEXT (CORE_RULES §14).
+- Sub-agents for webpage work: work ONLY in `DASHBOARD/webpage/`, never `AGENT-CONTEXT/` (CORE_RULES §14, §19).
+- Apply `skills/ponytail.md`: simplest solution that works. Stdlib/native before new deps.
+- **No assumptions.** If something is unclear after research: ask the user. Don't guess.
+- **No rash decisions.** Think through each change. A wrong edit costs more than a slow edit.
+- **No random edits.** Every edit should be deliberate, verified, and documented.
 
-### 4. VERIFY (after building)
-- **Lint / type-check / build** — whatever the project has.
-- **Agent-browser** for UI work — confirm it renders and interacts.
-- **Cross-check** against the original goal: did you build what was asked?
-- **Sub-agent review** the result if it's a big change.
-- If broken: fix root cause, not symptom. (See `skills/ponytail.md`.)
+**Output:** Code changes on the feature branch, ready for review.
 
-### 5. MOVE ON
-- **Update docs**: `memory/progress.md`, `memory/decisions.md` (if a decision was made), `memory/changelog.md` (if a phase advanced), relevant `knowledge/` files.
-- **Log lessons**: if you made/corrected a mistake → `memory/lessons-learned.md`.
-- **Notify**: send `ntfy.sh` notification (topic `TASKISDONE`) — see `CORE_RULES.md` §11.
-- **Summarize**: short, formatted summary to the user (see `CORE_RULES.md` §3).
-- Only then: move to the next task.
+### Step 6 — COMMIT (when a phase is complete)
+
+**Commit each phase as a separate commit with a clear message.**
+
+- Commit message format: `feat: Phase N — <description>` or `fix: <description>`.
+- Include a summary of what changed, why, and any notable decisions.
+- Reference decision IDs (D-NNN) if applicable.
+- Do NOT commit broken code. Verify (Step 7) before committing if possible.
+
+**Output:** A clean commit on the feature branch.
+
+### Step 7 — VERIFY (sub-agent review before push)
+
+**For non-trivial changes: launch an Explore sub-agent to review for compile errors.**
+
+- The sub-agent reads ALL changed files + checks: SQLDelight query interface usage, Kotlin type matching, import presence, method signatures, `.copy()` field preservation, Koin DI graph resolution.
+- The sub-agent reports: ✅ (clean), ❌ (compile error + fix), ⚠️ (concern but not definitely broken).
+- Fix all ❌ items before pushing. Address ⚠️ items if the concern is real.
+- **You CANNOT build locally** (CORE_RULES §8 — CI-only builds). Sub-agent review is the pre-push verification gate.
+
+**Output:** Confidence that the code will compile on CI. Not a guarantee — CI is the final judge.
+
+### Step 8 — VERIFY (CI — the final gate)
+
+**Push to the feature branch. Wait for CI to build. Read the result.**
+
+- Push: `git push origin <branch>`.
+- Poll the GitHub Actions API: `curl -s -H "Authorization: token $TOKEN" "https://api.github.com/repos/{owner}/{repo}/actions/runs?per_page=3"`.
+- Wait for the run to complete (typically 3-5 min for the build step).
+- If CI **GREEN** ✅: proceed to the next phase. Send a notification (Step 10).
+- If CI **RED** ❌: download the logs (`/actions/runs/{id}/logs` → unzip → grep for `^e:` or `error:`). Find the exact compile error. Fix it. Push again. Repeat until green.
+- **Never claim "CI green" without polling the API** (lessons-learned.md: D-156 — a previous session claimed green but CI had actually failed).
+
+**Output:** CI-verified code on the feature branch. APK artifact available for device testing.
+
+### Step 9 — DOC UPDATE (keep docs in sync — CORE_RULES §6, §26)
+
+**Update documentation in the SAME session as the work. Not "later."**
+
+- `memory/progress.md` — live status (current phase, what's done, what's next, blockers).
+- `memory/decisions.md` — new D-NNN entries for each significant decision.
+- `memory/changelog.md` — high-level history entry for the session.
+- `memory/lessons-learned.md` — new entries for mistakes, corrections, insights, patterns.
+- `SESSION.md` + `master.md` — update if the project state changed (branch, phase, open items).
+- `CORE_RULES.md` — promote a recurring lesson to a rule if it's a pattern.
+- **Dashboard data** (`DASHBOARD/webpage/lib/data.ts`) — update module count, decisions, phases if they changed (delegate to a full-stack-dev sub-agent per §19).
+
+**Output:** Docs that match reality. No drift. The next session can pick up immediately.
+
+### Step 10 — NOTIFY (close the loop — CORE_RULES §11)
+
+**Send a notification via `ntfy.sh` after each phase + at the end.**
+
+- Per-phase: `curl -fsSL -H "Title: ANI-KUTA Agent" -d "<short result>" https://ntfy.sh/TASKISDONE`.
+- At the end (if the user requested multiple notifications): send them one after another.
+- Topic: `TASKISDONE` (user-specified). No secrets in the message body.
+- **Never skip this.** The user relies on it to know when to check.
+
+**Output:** The user is notified. The feedback loop is closed.
 
 ---
 
-## Project Phases
+## Workflow Rules (Non-Negotiable)
 
-> High-level roadmap. Updated as scope clarifies.
+1. **Reflect before executing.** Always summarize your understanding first.
+2. **Research before planning.** Never plan based on assumptions.
+3. **Plan before building.** Split into phases. Identify dependencies.
+4. **Build a comprehensive todo list AFTER research.** Not a random one at the start.
+5. **Execute one phase at a time.** Verify each before moving to the next.
+6. **Sub-agent review before push.** Catch compile errors without building locally.
+7. **CI is the final judge.** Poll the API. Read failures. Fix. Repeat.
+8. **Update docs in the same session.** No drift.
+9. **Notify after each phase.** Close the loop.
+10. **Quality over speed.** Take as much time as needed. Don't rush. Don't skip steps.
 
-| # | Phase | Status |
-|---|-------|--------|
-| 0 | Environment & Rules Setup | ✅ done (demo CI green) |
-| 1 | App Architecture Planning | ⏳ pending (blocked: need old project ref) |
-| 2 | Core Modules (ui, data, network, storage) | ⏳ pending |
-| 3 | Feature Modules (one per feature) | ⏳ pending |
-| 4 | Customization System (theme engine) | ⏳ pending |
-| 5 | Web Dashboard (Next.js → GitHub Pages) | ⏳ pending |
-| 6 | Polish, Testing, Release | ⏳ pending |
+---
 
-### Per-Phase Template (when starting a new phase)
-For any non-trivial phase, write a short plan note (in chat or `memory/progress.md`):
-- **Goal** — one sentence.
-- **Steps** — bullet list.
-- **Assumptions** — flag any needing user confirmation.
-- **Risks** — what could go wrong.
-- **Sub-agent review** — run for big phases; record outcome.
+## Branch Discipline
+
+- **Create a feature branch** for each significant work session: `feature/<name>`.
+- **Stay on the branch** for the entire session. All commits go there.
+- **Do NOT merge to `main`** until the user explicitly says to. The user verifies on device first.
+- **Do NOT make changes to `main` directly.** Ever.
+- **Push frequently** — the sandbox is ephemeral (CORE_RULES §15). Unpushed work is lost.
+
+---
+
+## Session-End Checklist (CORE_RULES §15)
+
+- [ ] All work committed on the feature branch.
+- [ ] Pushed to GitHub.
+- [ ] `git status` is clean.
+- [ ] CI is green (verified via API, not assumed).
+- [ ] Docs updated (progress.md, decisions.md, changelog.md, lessons-learned.md).
+- [ ] ntfy.sh notification(s) sent.
+- [ ] Short formatted summary given to the user with a test checklist.
 
 ---
 
@@ -80,3 +194,9 @@ For any non-trivial phase, write a short plan note (in chat or `memory/progress.
 | Clear best practice, no user preference needed | ✅ Decide, document in `decisions.md` |
 | Something is broken and the fix is obvious | ✅ Fix it, mention it |
 | You're unsure | ❓ Ask — never guess |
+| Speech-to-text ambiguity | ❓ Stop and clarify |
+| Debug-build schema changes | ✅ Decide freely (see CORE_RULES §30) |
+
+---
+
+*This workflow is the proven process. Follow it. It produced 4 CI-green phases in one session without stopping. It will produce the same result again.*

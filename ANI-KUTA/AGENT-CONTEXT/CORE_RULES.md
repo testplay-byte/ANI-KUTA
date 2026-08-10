@@ -476,3 +476,20 @@ APP/ani-kuta/DOCUMENTATION/database/
 7. **Close button** clears the crash report + finishes the activity.
 8. **`ErrorActivity` registered in AndroidManifest** — `android:exported="false"`, same theme as `MainActivity`, `configChanges` to prevent recreation.
 9. **Ported from the old project** — `AnikutaCrashHandler.kt` + `ErrorActivity.kt` in `app/src/main/java/.../error/`.
+
+---
+
+## 30. Debug-Build Schema Freedom
+
+> The project is currently in **debug builds only**. There are no production users. There is no published APK. This gives us freedom to make complete schema changes without migration concerns.
+
+### Rules
+1. **Debug builds can rebuild the schema freely.** You CAN drop tables, add columns with NOT NULL, add CHECK constraints, change column types, restructure relationships — without writing migration scripts. The simplest approach (if a schema change is complex) is to bump the DB version + let SQLDelight recreate the tables. Existing dev-install data will be wiped — that's acceptable for debug builds.
+2. **No migration scripts needed for debug.** The `DatabaseDriverFactory.onOpen` migration pattern (ALTER TABLE + hasColumn checks) exists for PRODUCTION. For debug, you can skip it and just let `CREATE TABLE IF NOT EXISTS` handle fresh installs. If a dev install has stale schema, the user clears app data — that's the debug workflow.
+3. **When publishing approaches**, the user will explicitly tell you. At that point, you MUST write proper migrations (`.sqm` files or onOpen ALTERs) for every schema change that affects existing data. Do NOT assume publishing is imminent — wait for the user's signal.
+4. **SQLite version constraints still apply** (e.g., UPSERT requires 3.24+; API 24-28 ships 3.9-3.22). The debug freedom doesn't change the SQLite version on the device — it just means you don't need to preserve existing data.
+5. **CHECK constraints CAN be added** on debug builds (via table rebuild or fresh schema). The "can't ALTER TABLE to add CHECK" limitation is a SQLite constraint, not a project rule — work around it by recreating the table if needed.
+6. **This rule supersedes any "preserve existing data" guidance** in earlier decisions when the project is still in debug. Once the user signals production approach, this rule is suspended + migration discipline returns.
+
+### Why this rule exists
+Previous sessions deferred schema improvements (CHECK constraints, UPSERT migration, table restructuring) because "can't ALTER TABLE on existing installs." That's a production concern, not a debug concern. The user explicitly confirmed: debug builds can make complete changes. Don't let migration fear block schema quality during debug.

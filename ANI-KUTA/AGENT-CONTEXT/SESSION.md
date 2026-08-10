@@ -26,13 +26,18 @@ GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `AN
 
 ## 🔄 The Task Loop (full detail in `workflow.md`)
 ```
-UNDERSTAND → VERIFY → IMPLEMENT → VERIFY → MOVE ON
+REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (REVIEW) → VERIFY (CI) → DOC UPDATE → NOTIFY
 ```
-1. Understand the request. Read progress + lessons.
-2. Verify: research, comprehend, confirm with user for non-trivial changes. Sub-agent review for big tasks.
-3. Implement: frontend first, then backend. Modular. Document as you go.
-4. Verify: lint/build/agent-browser. Root-cause any bugs.
-5. Move on: update `progress.md`, `decisions.md`, `lessons-learned.md`. Notify via ntfy. Summarize to user.
+1. **Reflect** — summarize what you understood before executing.
+2. **Research** — read the code/docs the task touches. Use Explore sub-agents.
+3. **Plan** — split into phases. Identify dependencies.
+4. **Todo list** — build a comprehensive todo list AFTER research (not random at start).
+5. **Execute** — build one phase at a time. Frontend first, then backend.
+6. **Commit** — each phase as a separate commit.
+7. **Verify (review)** — sub-agent review for compile errors before push.
+8. **Verify (CI)** — push, poll GitHub Actions API, read failures, fix, repeat until green.
+9. **Doc update** — progress.md, decisions.md, changelog.md, lessons-learned.md in the SAME session.
+10. **Notify** — ntfy.sh after each phase + at the end.
 
 ## 📝 After Every Task (Update These)
 - `memory/progress.md` — live status.
