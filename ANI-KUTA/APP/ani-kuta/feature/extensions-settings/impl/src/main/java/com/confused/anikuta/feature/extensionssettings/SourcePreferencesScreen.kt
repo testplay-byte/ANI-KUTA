@@ -225,11 +225,15 @@ private fun SwitchPreferenceRenderer(
     val key = pref.key ?: return
     val title = pref.title?.toString() ?: ""
     val summary = pref.summary?.toString()
-    val defaultValue = (pref as? SwitchPreferenceCompat)?.defaultValue
-        ?: (pref as? CheckBoxPreference)?.defaultValue
+    // defaultValue is a protected property — use reflection-free approach.
+    val defaultBool = when (pref) {
+        is SwitchPreferenceCompat -> pref.getSharedPreferences()?.getBoolean(key, false) ?: false
+        is CheckBoxPreference -> pref.getSharedPreferences()?.getBoolean(key, false) ?: false
+        else -> false
+    }
 
     var checked by remember(key) {
-        mutableStateOf(sharedPreferences.getBoolean(key, defaultValue as? Boolean ?: false))
+        mutableStateOf(sharedPreferences.getBoolean(key, defaultBool))
     }
 
     PreferenceCard {
@@ -281,10 +285,10 @@ private fun ListPreferenceRenderer(
     val title = pref.title?.toString() ?: ""
     val entries = pref.entries ?: emptyArray()
     val entryValues = pref.entryValues ?: emptyArray()
-    val defaultValue = pref.defaultValue as? String ?: ""
+    val defaultStr = pref.getSharedPreferences()?.getString(key, null) ?: ""
 
     var currentValue by remember(key) {
-        mutableStateOf(sharedPreferences.getString(key, defaultValue) ?: defaultValue)
+        mutableStateOf(sharedPreferences.getString(key, defaultStr) ?: defaultStr)
     }
     var showDialog by remember { mutableStateOf(false) }
 
@@ -380,10 +384,10 @@ private fun EditTextPreferenceRenderer(
 ) {
     val key = pref.key ?: return
     val title = pref.title?.toString() ?: ""
-    val defaultValue = pref.defaultValue as? String ?: ""
+    val defaultStr = pref.getSharedPreferences()?.getString(key, null) ?: ""
 
     var currentValue by remember(key) {
-        mutableStateOf(sharedPreferences.getString(key, defaultValue) ?: defaultValue)
+        mutableStateOf(sharedPreferences.getString(key, defaultStr) ?: defaultStr)
     }
     var showDialog by remember { mutableStateOf(false) }
     var textValue by remember { mutableStateOf(currentValue) }
@@ -465,10 +469,10 @@ private fun SeekBarPreferenceRenderer(
     val title = pref.title?.toString() ?: ""
     val max = pref.max
     val min = 0
-    val defaultValue = pref.defaultValue as? Int ?: 0
+    val defaultInt = pref.getSharedPreferences()?.getInt(key, 0) ?: 0
 
     var currentValue by remember(key) {
-        mutableStateOf(sharedPreferences.getInt(key, defaultValue))
+        mutableStateOf(sharedPreferences.getInt(key, defaultInt))
     }
     var showDialog by remember { mutableStateOf(false) }
 
