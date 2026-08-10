@@ -1341,3 +1341,39 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** This is a recurring issue (the previous session hit the same thing and worked around it by replacing `AnimatedVisibility` with a plain `if` — losing the animation). The proper fix is extraction into a scope-less composable so the top-level overload is unambiguous.
 - **Status:** ✅ CI green (run 31422446992).
 - **Date:** this session.
+
+### D-177 — Profile UI v5: magnetic snap + gradient blur header
+- **What:** Added magnetic snap to the profile scroll: when the user lifts their finger after scrolling, `animateScrollToItem` snaps to either fully-expanded (item 0 at top) or fully-collapsed (item 1 at top) depending on whether the scroll fraction is < or > 0.5. Implemented via `snapshotFlow { listState.isScrollInProgress }.distinctUntilChanged().filter { !it }.collect { snap }`. Added a gradient blur scrim (20dp, `Brush.verticalGradient` background→transparent, smoothstep alpha) at the header's bottom edge that fades in when collapsed. Mini tab segments now use `Modifier.weight(1f)` + fixed 120dp pill width for equal-width segments.
+- **Why:** User wanted: (a) a magnetic "snap to that point" effect where a small scroll snaps to collapsed, (b) gradient blur on the minimized header, (c) equal-width mini tab segments.
+- **Status:** ✅ CI green (run 31428330476). Awaiting device verification.
+- **Date:** this session.
+
+### D-178 — Profile UI v5: Watch flow sidebar on LEFT + solid bg + complementary today color
+- **What:** Watch flow sidebar now appears from the LEFT side (`Alignment.TopStart` + `slideInHorizontally { -it }`), regardless of which bar is tapped. Solid background (`MaterialTheme.colorScheme.surface` + border, was transparent `primary.copy(alpha=0.10f)`). Taller (200dp, was 128dp). Tap-outside closes (clickable on bars Box). Scroll starts → closes (`snapshotFlow { listState.isScrollInProgress }.filter { it }`). Removed default per-bar count labels (count shown in sidebar only). Today's bar uses the complementary color (hue + 180° of primary, computed via `android.graphics.Color.RGBToHSV/HSVToColor`) — dynamic per theme.
+- **Why:** User wanted: sidebar from the left not right, solid (non-transparent) background, taller height, tap-outside/scroll to close, no default count labels, today's day colored with a complementing color based on the theme.
+- **Status:** ✅ CI green. Awaiting device verification.
+- **Date:** this session.
+
+### D-179 — Profile UI v5: Time DNA + Recently Watched split into separate cards
+- **What:** Split the combined Time DNA + Recently Watched card into two separate Surface cards. Time DNA: standalone donut with theme-tinted colors (`lerp(periodColor, primaryColor, 0.25f)` blends 25% primary into each period color), center shows current period, legend below. Recently Watched: vertical LIST format (was carousel) showing episode thumbnails (96×56dp landscape, from `data_cache_episode.thumbnail_url`, falls back to cover), title + EP number, tap → details page. ViewModel adds `episodeThumbnailUrl` to `RecentlyWatchedItem` + `DayWatchItem`, looked up via `database.dataCacheQueries.getEpisodeMetadataByNumber(mid, epNum.toDouble()).executeAsOneOrNull()?.thumbnail_url`.
+- **Why:** User wanted: proper separation between Time DNA and Recently Watched (own backgrounds), Recently Watched as a list not carousel, episode thumbnails (not content covers), tap → details, theme tint on DNA colors.
+- **Status:** ✅ CI green. Awaiting device verification.
+- **Date:** this session.
+
+### D-180 — Profile UI v5: Heatmap label padding + genre radar in-web highlight
+- **What:** (1) Heatmap: added `padding(bottom = 16.dp)` to the day-markers Column and increased the month-label Box height to 14dp with `TopCenter` alignment — fixes the bottom-half-cut-off issue. (2) Genre radar: selected genre now highlighted IN the web — thicker axis (3px, primary), halo ring (radius 12, alpha 0.3) around the data point, enlarged data point (7px vs 5px), and a highlighted label pill (primary background, black text, `drawRoundRect` + re-measured `TextLayoutResult`).
+- **Why:** User reported: heatmap labels' bottom half was cut off (needed padding to move text up); genre clicked in the web should be highlighted in the web itself (was only highlighted in the bottom legend).
+- **Status:** ✅ CI green. Awaiting device verification.
+- **Date:** this session.
+
+### D-181 — Profile UI v5: Avatar crop editor + URL state separation
+- **What:** (1) New `AvatarCropScreen.kt` — full-screen Dialog with pan/zoom (`detectTransformGestures`, 1×–5× scale, clamped offset), circular crop overlay (Path + EvenOdd fill for dark-with-hole), saves cropped square bitmap to `filesDir/avatar_<ts>.jpg` via `Bitmap.createBitmap`. Loads bitmap via `coil3.SingletonImageLoader.get(context).execute(request).image` → cast to `coil3.BitmapImage`. Crop math: `baseScale = max(framePx/iw, framePx/ih)` (ContentScale.Crop), `sourceSize = framePx / (baseScale * userScale)`, center offset mapped back to bitmap coords. (2) Settings sheet: separated `urlInput` (String, initialized from pref only if starts with "http") from `uploadedFileUri` (String, initialized from pref only if starts with "file://") — fixes mode-switch state leak where switching to URL mode showed a file:// path. Tap the preview image → opens crop editor. After crop, switches to upload mode with the cropped file:// URI.
+- **Why:** User wanted: ability to crop/zoom/align the avatar image (not just upload as-is), and URL paste not registering properly (state leak between modes).
+- **Status:** ✅ CI green (run 31428330476, commit 47196ad). Awaiting device verification.
+- **Date:** this session.
+
+### D-182 — Coil3 ImageResult API: result.image (not Success cast)
+- **What:** CI failed because `import coil3.request.Success` was unresolved in Coil 3.0.4 — `Success` is not a public top-level class in the `coil3.request` package (it's likely nested or the API changed). Fix: access `result.image` directly on the `ImageResult` interface (the `image: Image?` property is on the sealed interface, nullable — null on error). Removed the `Success` import entirely. Also fixed: `min(maxWidth, maxHeight)` → `minOf(maxWidth, maxHeight)` (kotlin.math.min doesn't work on Dp), and `val cropSource: String get() = ...` → regular `val` (local properties with custom getters have restrictions in @Composable scope).
+- **Why:** Three CI compile errors on first push. Root cause: guessed Coil3 API (`Success` top-level class) was wrong; `kotlin.math.min` only works on primitives; local property getters restricted in composable scope.
+- **Status:** ✅ CI green after fix (run 31428330476).
+- **Date:** this session.

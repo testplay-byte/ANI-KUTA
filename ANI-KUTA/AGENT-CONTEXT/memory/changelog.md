@@ -713,3 +713,19 @@
 - ✅ CI green (run 31422446992, commit abfe23a).
 - Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification.
 - Decisions: D-171..D-176. Lessons: 1 new (AnimatedVisibility RowScope-in-Box → extract to scope-less composable).
+
+### Profile UI v5 — Magnetic snap, watch flow sidebar left, donut tint, crop editor, genre highlight (D-177..D-182)
+- **Header:** Magnetic snap (animateScrollToItem on scroll-end, 50% threshold). Gradient blur scrim at header bottom (smoothstep fade). Equal-width mini tab segments (weight(1f) + 120dp pill).
+- **Watch flow:** Removed default per-bar count labels. Today's bar uses complementary color (hue + 180°). Sidebar from LEFT (TopStart + slideIn from left). Solid background (surface + border). Taller (200dp). Tap-outside + scroll → auto-close.
+- **Time DNA:** Split into standalone card. Colors tinted with primary via `lerp(color, primary, 0.25)`.
+- **Recently Watched:** Separate card, vertical LIST format. Episode thumbnails (from `data_cache_episode.thumbnail_url`, falls back to cover). Tap → details.
+- **Heatmap:** Fixed label bottom cut-off (16dp bottom padding on day-markers, 14dp month-label height).
+- **Genre radar:** Selected genre highlighted IN the web — thicker axis, halo ring, highlighted label pill.
+- **Avatar crop editor:** New `AvatarCropScreen.kt` — full-screen pan/zoom/crop Dialog. Pinch-to-zoom (1×–5×), pan, circular overlay, saves cropped bitmap to filesDir.
+- **Settings:** Separated URL/upload state (fixes mode-switch leak). Tap preview → crop editor.
+- **CI fix:** Coil3 `result.image` (not `Success` cast), `minOf` for Dp, regular `val cropSource`.
+
+### Status
+- ✅ CI green (run 31428330476, commit 47196ad).
+- Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification.
+- Decisions: D-177..D-182. Lessons: 2 new (Coil3 ImageResult API, local property getter restrictions).
