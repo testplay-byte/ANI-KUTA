@@ -20,24 +20,18 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,7 +50,11 @@ import com.confused.anikuta.settings.SegmentedToggle
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * My Profile screen — complete UI restructure with settings + tab animation.
+ * My Profile screen — WhatsApp-style scroll animation + redesigned sections.
+ *
+ * The tab bar (Stats/Timeline) smoothly shrinks and moves into the header
+ * as the user scrolls, similar to WhatsApp's contact info page.
+ * Settings button is at top-right; back button removed (use gesture/nav back).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,55 +66,96 @@ fun ProfileScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
-    val collapsed = listState.firstVisibleItemIndex > 0 ||
-        listState.firstVisibleItemScrollOffset > 20
+    val scrollOffset = remember { derivedStateOf {
+        if (listState.firstVisibleItemIndex > 0) 1f
+        else (listState.firstVisibleItemScrollOffset / 200f).coerceIn(0f, 1f)
+    }}
+    val collapsed = scrollOffset.value > 0.5f
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            CollapsingHeader(
-                title = "My Profile",
-                collapsed = collapsed,
-                actions = {
-                    // Settings gear icon
-                    Box(
-                        modifier = Modifier.size(36.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-                            .clickable { showSettings = true },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Filled.Settings,
-                            contentDescription = "Settings",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    BackAction(onBack)
-                },
-            )
+            // Header with settings button + animated tab overlay
+            Box {
+                CollapsingHeader(
+                    title = "My Profile",
+                    collapsed = collapsed,
+                    actions = {
+                        // Settings gear — always at top-right
+                        Box(
+                            modifier = Modifier.size(36.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                                .clickable { showSettings = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        }
+                    },
+                )
 
-            // Tab bar — animates: shrinks + moves to header when collapsed
-            val tabScale by animateFloatAsState(
+                // Animated tab overlay — slides into header as user scrolls
+                val tabAlpha by animateFloatAsState(
+                    targetValue = if (collapsed) 1f else 0f,
+                    animationSpec = tween(300), label = "tabAlpha",
+                )
+                val tabScale by animateFloatAsState(
+                    targetValue = if (collapsed) 1f else 1f,
+                    animationSpec = tween(300), label = "tabScale",
+                )
+                // When collapsed: show mini tabs in the header area (right side, before settings)
+                if (tabAlpha > 0.01f) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 16.dp)
+                            .graphicsLayer { alpha = tabAlpha },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Mini segmented toggle (smaller, fits in header)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Row(modifier = Modifier.padding(2.dp)) {
+                                listOf("Stats", "Timeline").forEachIndexed { idx, label ->
+                                    val isSelected = idx == selectedTab
+                                    Surface(
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.clickable { selectedTab = idx },
+                                    ) {
+                                        Text(label, fontFamily = RobotoFamily, fontSize = 10.sp,
+                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Full-size tab bar — visible when NOT collapsed, shrinks away when scrolling
+            val fullTabAlpha by animateFloatAsState(
                 targetValue = if (collapsed) 0f else 1f,
-                animationSpec = tween(300),
-                label = "tabScale",
+                animationSpec = tween(300), label = "fullTabAlpha",
             )
-            val tabHeight by animateFloatAsState(
-                targetValue = if (collapsed) 0f else 1f,
-                animationSpec = tween(300),
-                label = "tabHeight",
+            val fullTabScale by animateFloatAsState(
+                targetValue = if (collapsed) 0.7f else 1f,
+                animationSpec = tween(300), label = "fullTabScale",
             )
-            if (tabHeight > 0.01f) {
+            if (fullTabAlpha > 0.01f) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer {
-                            scaleX = tabScale
-                            scaleY = tabScale
-                            alpha = tabScale
+                            alpha = fullTabAlpha
+                            scaleX = fullTabScale
+                            scaleY = fullTabScale
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
                         }
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                 ) {
@@ -190,7 +229,7 @@ private fun StatsTab(
         item { ProfileHeader(state) }
         item { QuickStatsRow(state) }
         item { WatchFlowGraph(state.watchFlowByDay) }
-        item { TimeDnaCard(state.timeDna, onOpenTimeDna) }
+        item { TimeDnaCard(state.timeDna, state.recentlyWatched.firstOrNull(), onOpenTimeDna) }
         if (state.genreDistribution.isNotEmpty()) {
             item {
                 GenreRadarChart(
@@ -268,89 +307,5 @@ private fun QuickStatCard(label: String, value: String, modifier: Modifier = Mod
             Text(label, fontFamily = RobotoFamily, fontSize = 11.sp,
                 fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }
-}
-
-// ── Settings Sheet ────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProfileSettingsSheet(
-    state: ProfileUiState,
-    onDismiss: () -> Unit,
-    onUpdateName: (String) -> Unit,
-    onUpdateAvatar: (String) -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var nameInput by remember { mutableStateOf(state.displayName) }
-    var avatarInput by remember { mutableStateOf(state.avatarUrl ?: "") }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = null,
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
-            Text("Customize Profile", fontFamily = RobotoFamily, fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(20.dp))
-
-            // Display name
-            Text("Display Name", fontFamily = RobotoFamily, fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp))
-            OutlinedTextField(
-                value = nameInput,
-                onValueChange = { nameInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Enter your name", fontFamily = RobotoFamily) },
-            )
-            Spacer(Modifier.height(16.dp))
-
-            // Avatar URL
-            Text("Avatar URL", fontFamily = RobotoFamily, fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 8.dp))
-            OutlinedTextField(
-                value = avatarInput,
-                onValueChange = { avatarInput = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text("Paste image URL", fontFamily = RobotoFamily) },
-            )
-            Spacer(Modifier.height(24.dp))
-
-            // Save button
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().clickable {
-                    onUpdateName(nameInput.ifBlank { "Anime Fan" })
-                    onUpdateAvatar(avatarInput.ifBlank { null } ?: "")
-                    onDismiss()
-                },
-            ) {
-                Text("Save", fontFamily = RobotoFamily, fontSize = 16.sp,
-                    fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(vertical = 14.dp).align(Alignment.CenterHorizontally),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            }
-            Spacer(Modifier.height(20.dp))
-        }
-    }
-}
-
-// ── Back Action ───────────────────────────────────────────────────────────────
-
-@Composable
-private fun BackAction(onBack: () -> Unit) {
-    Box(modifier = Modifier.size(36.dp)
-        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-        .clickable(onClick = onBack), contentAlignment = Alignment.Center) {
-        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
