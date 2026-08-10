@@ -789,7 +789,7 @@ fun ProfileSettingsSheet(
     val scope = rememberCoroutineScope()
 
     // The image source for the crop editor (whichever mode is active).
-    val cropSource: String get() = if (avatarMode == "url") urlInput else uploadedFileUri
+    val cropSource = if (avatarMode == "url") urlInput else uploadedFileUri
 
     // Photo picker — copies the chosen image to app-internal storage.
     val photoPicker = rememberLauncherForActivityResult(

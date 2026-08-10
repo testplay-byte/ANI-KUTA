@@ -57,7 +57,6 @@ import coil3.BitmapImage
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
-import coil3.request.Success
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -102,7 +101,7 @@ fun AvatarCropScreen(
                 val loader = SingletonImageLoader.get(context)
                 val request = ImageRequest.Builder(context).data(imageUri).build()
                 val result = loader.execute(request)
-                (result as? Success)?.image?.let { (it as? BitmapImage)?.bitmap }
+                result.image?.let { (it as? BitmapImage)?.bitmap }
             } catch (e: Exception) {
                 null
             }
@@ -190,7 +189,7 @@ fun AvatarCropScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 val density = LocalDensity.current
-                val frameDp = min(maxWidth, maxHeight) * 0.85f
+                val frameDp = minOf(maxWidth, maxHeight) * 0.85f
                 val fPx = with(density) { frameDp.toPx() }
                 val bScale = (fPx / bitmap.width).coerceAtLeast(fPx / bitmap.height)
 
