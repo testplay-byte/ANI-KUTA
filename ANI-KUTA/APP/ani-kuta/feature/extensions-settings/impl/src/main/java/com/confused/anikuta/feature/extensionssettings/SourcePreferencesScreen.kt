@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.preference.CheckBoxPreference
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceScreen
@@ -162,7 +163,7 @@ private fun PreferenceList(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // Walk the preference screen children.
         val count = screen.preferenceCount
@@ -182,6 +183,7 @@ private fun PreferenceItemRenderer(
         is PreferenceCategory -> PreferenceCategoryRenderer(pref, sharedPreferences)
         is SwitchPreferenceCompat -> SwitchPreferenceRenderer(pref, sharedPreferences)
         is CheckBoxPreference -> SwitchPreferenceRenderer(pref, sharedPreferences, isCheckBox = true)
+        is MultiSelectListPreference -> MultiSelectListPreferenceRenderer(pref, sharedPreferences)
         is ListPreference -> ListPreferenceRenderer(pref, sharedPreferences)
         is EditTextPreference -> EditTextPreferenceRenderer(pref, sharedPreferences)
         is SeekBarPreference -> SeekBarPreferenceRenderer(pref, sharedPreferences)
@@ -367,6 +369,139 @@ private fun ListPreferenceRenderer(
                 }
             },
             confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
+    }
+}
+
+// ── MultiSelectList Preference (checkbox dialog — multiple selection) ─────────
+
+@Composable
+private fun MultiSelectListPreferenceRenderer(
+    pref: MultiSelectListPreference,
+    sharedPreferences: SharedPreferences,
+) {
+    val key = pref.key ?: return
+    val title = pref.title?.toString() ?: ""
+    val entries = pref.entries ?: emptyArray()
+    val entryValues = pref.entryValues ?: emptyArray()
+
+    var selectedValues by remember(key) {
+        mutableStateOf(
+            sharedPreferences.getStringSet(key, emptySet<String>()) ?: emptySet(),
+        )
+    }
+    var showDialog by remember { mutableStateOf(false) }
+
+    val selectedCount = selectedValues.size
+    val summaryText = if (selectedCount > 0) {
+        entries.filterIndexed { i, _ ->
+            entryValues.getOrNull(i)?.toString() in selectedValues
+        }.joinToString(", ") { it.toString() }
+    } else {
+        "None selected"
+    }
+
+    PreferenceCard {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { showDialog = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "$selectedCount selected: $summaryText",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = "Open",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+
+    if (showDialog) {
+        var workingSet by remember { mutableStateOf(selectedValues.toMutableSet()) }
+
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text(title, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = {
+                LazyColumn {
+                    items(entries.size) { index ->
+                        val entry = entries[index]
+                        val value = entryValues[index].toString()
+                        val isSelected = value in workingSet
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                workingSet = if (isSelected) {
+                                    workingSet - value
+                                } else {
+                                    workingSet + value
+                                }.toMutableSet()
+                            }.padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // Custom checkbox circle.
+                            Surface(
+                                shape = androidx.compose.foundation.shape.CircleShape,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.size(24.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (isSelected) {
+                                        Icon(
+                                            Icons.Filled.Check,
+                                            contentDescription = "Selected",
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.size(12.dp))
+                            Text(
+                                entry.toString(),
+                                fontFamily = RobotoFamily,
+                                fontSize = 15.sp,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    selectedValues = workingSet.toSet()
+                    sharedPreferences.edit().putStringSet(key, selectedValues).apply()
+                    showDialog = false
+                }) {
+                    Text("OK", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
                 TextButton(onClick = { showDialog = false }) {
                     Text("Cancel", fontFamily = RobotoFamily)
                 }

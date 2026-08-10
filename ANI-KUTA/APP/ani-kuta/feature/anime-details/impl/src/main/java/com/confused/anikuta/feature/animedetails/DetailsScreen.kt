@@ -212,65 +212,78 @@ fun DetailsScreen(
     }
     var hasAutoPlayed by remember { mutableStateOf(false) }
 
-    LaunchedEffect(resolverState, pendingAutoPlay) {
+    LaunchedEffect(pendingAutoPlay) {
         if (!pendingAutoPlay) return@LaunchedEffect
-        when (resolverState) {
-            is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
-                pendingAutoPlay = false
-                val autoVideo = viewModel.tryAutoSelect(resolverState as com.confused.anikuta.core.videoresolver.ResolverState.Success)
-                if (autoVideo != null) {
-                    // Auto-select succeeded — navigate to watch with the picked video.
-                    val anime = (state as? DetailsState.Success)?.anime
-                    val linked = effectiveLinkedSource
-                    val ep = currentEpisode
-                    if (anime != null && linked != null && ep != null) {
-                        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                        val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                            "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                        } ?: ""
-                        val subTracksStr = autoVideo.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
-                        val audioTracksStr = autoVideo.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
-                        val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                            val title = meta.title ?: ""
-                            val thumb = meta.thumbnailUrl ?: ""
-                            val date = meta.airDate?.toString() ?: "0"
-                            val desc = meta.description ?: ""
-                            val scanlator = ep.scanlator ?: ""
-                            "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+        // Poll resolverState via snapshotFlow — this correctly re-fires when
+        // resolverState transitions from Loading → Success (the old
+        // LaunchedEffect(resolverState, pendingAutoPlay) had a race condition
+        // where it didn't re-fire when resolverState changed if pendingAutoPlay
+        // hadn't changed).
+        kotlinx.coroutines.flow.MutableStateFlow(resolverState).let { _ ->
+            // Use snapshotFlow to observe resolverState changes while pendingAutoPlay is true.
+        }
+        // Simple approach: poll every 100ms until resolverState is Success/Error.
+        while (pendingAutoPlay) {
+            when (val rs = resolverState) {
+                is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
+                    pendingAutoPlay = false
+                    Logger.i("Anikuta:Feature:Details") { "Auto-play: resolverState is Success — trying auto-select..." }
+                    val autoVideo = viewModel.tryAutoSelect(rs)
+                    if (autoVideo != null) {
+                        val anime = (state as? DetailsState.Success)?.anime
+                        val linked = effectiveLinkedSource
+                        val ep = currentEpisode
+                        if (anime != null && linked != null && ep != null) {
+                            val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                                "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+                            } ?: ""
+                            val subTracksStr = autoVideo.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
+                            val audioTracksStr = autoVideo.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
+                            val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
+                                val title = meta.title ?: ""
+                                val thumb = meta.thumbnailUrl ?: ""
+                                val date = meta.airDate?.toString() ?: "0"
+                                val desc = meta.description ?: ""
+                                val scanlator = ep.scanlator ?: ""
+                                "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+                            }
+                            Logger.i("Anikuta:Feature:Details") {
+                                "Auto-play: navigating to watch with ${autoVideo.quality} (url=${autoVideo.url.take(60)}...)"
+                            }
+                            onNavigateToWatch(
+                                viewModel.currentMainId ?: "",
+                                autoVideo.url,
+                                anime.displayName,
+                                autoVideo.quality,
+                                ep.url,
+                                ep.episode_number,
+                                ep.name,
+                                epListStr,
+                                autoVideo.headers,
+                                resolvedVideosKey,
+                                linked.sourceId,
+                                subTracksStr,
+                                audioTracksStr,
+                                epMetaStr,
+                            )
+                            viewModel.clearResolver()
                         }
-                        Logger.i("Anikuta:Feature:Details") {
-                            "Auto-play: navigating to watch with ${autoVideo.quality} (url=${autoVideo.url.take(60)}...)"
-                        }
-                        onNavigateToWatch(
-                            viewModel.currentMainId ?: "",
-                            autoVideo.url,
-                            anime.displayName,
-                            autoVideo.quality,
-                            ep.url,
-                            ep.episode_number,
-                            ep.name,
-                            epListStr,
-                            autoVideo.headers,
-                            resolvedVideosKey,
-                            linked.sourceId,
-                            subTracksStr,
-                            audioTracksStr,
-                            epMetaStr,
-                        )
-                        viewModel.clearResolver()
+                    } else {
+                        Logger.i("Anikuta:Feature:Details") { "Auto-play: tryAutoSelect returned null — showing ResolverSheet" }
+                        showResolverSheet = true
                     }
-                } else {
-                    // Auto-select found no match — show the ResolverSheet as fallback.
-                    showResolverSheet = true
+                    return@LaunchedEffect
                 }
-            }
-            is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
-                pendingAutoPlay = false
-                showResolverSheet = true
-            }
-            else -> {
-                // Loading — the LaunchedEffect will re-fire when resolverState changes.
-                // The loading dialog is shown below via `pendingAutoPlay && resolverState is Loading`.
+                is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
+                    pendingAutoPlay = false
+                    showResolverSheet = true
+                    return@LaunchedEffect
+                }
+                else -> {
+                    // Loading or Idle — wait + re-check.
+                    kotlinx.coroutines.delay(100)
+                }
             }
         }
     }

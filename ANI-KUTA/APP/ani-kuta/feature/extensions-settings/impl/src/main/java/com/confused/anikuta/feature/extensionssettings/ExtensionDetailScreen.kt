@@ -76,6 +76,7 @@ fun ExtensionDetailScreen(
     extensionManager: ExtensionManager = koinInject(),
 ) {
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
+    val sourcesMap by extensionManager.sources.collectAsState()
     val ext = installedExtensions.find { it.pkgName == pkgName }
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -200,10 +201,19 @@ fun ExtensionDetailScreen(
                         items(ext.sources.size) { index ->
                             val source = ext.sources[index]
                             val isConfigurable = source is ConfigurableAnimeSource
+                            val isSourceEnabled = sourcesMap.containsKey(source.id)
                             SourceRow(
                                 name = source.name,
                                 lang = source.lang,
                                 isConfigurable = isConfigurable,
+                                isEnabled = isSourceEnabled,
+                                onToggleEnabled = {
+                                    if (isSourceEnabled) {
+                                        extensionManager.disableSource(source.id)
+                                    } else {
+                                        extensionManager.enableSource(source.id)
+                                    }
+                                },
                                 onOpenSettings = { onOpenSourcePreferences(source.id) },
                             )
                         }
@@ -399,6 +409,8 @@ private fun SourceRow(
     name: String,
     lang: String?,
     isConfigurable: Boolean,
+    isEnabled: Boolean,
+    onToggleEnabled: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     Surface(
@@ -418,7 +430,7 @@ private fun SourceRow(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
-                        lang?.uppercase()?.take(2) ?: "?",
+                        lang?.uppercase()?.take(2) ?: "all",
                         fontFamily = RobotoFamily,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -429,7 +441,7 @@ private fun SourceRow(
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    name,
+                    if (lang != null && lang != "all") "$name ($lang)" else name,
                     fontFamily = RobotoFamily,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -445,6 +457,12 @@ private fun SourceRow(
                     )
                 }
             }
+            // Phase 4: per-source enable/disable toggle.
+            Switch(
+                checked = isEnabled,
+                onCheckedChange = { onToggleEnabled() },
+                modifier = Modifier.padding(end = 4.dp),
+            )
             if (isConfigurable) {
                 Surface(
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),

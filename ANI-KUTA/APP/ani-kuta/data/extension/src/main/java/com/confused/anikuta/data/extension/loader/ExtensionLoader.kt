@@ -125,18 +125,17 @@ class ExtensionLoader(
         // Parse lib version (best-effort — may be null or out of range for untrusted extensions).
         val libVersion = versionName.substringBeforeLast('.').toDoubleOrNull() ?: 0.0
 
-        // Get signature fingerprint (needed for trust check — must come before lib-version validation).
+        // Get signature fingerprint (needed for security — extension must be signed).
         val signatureFingerprint = getSignatures(packageInfo)?.firstOrNull()
         if (signatureFingerprint == null) {
             Logger.w(TAG) { "Package $pkgName isn't signed" }
             return LoadResult.Error(pkgName, "Package not signed")
         }
 
-        // Check trust FIRST — untrusted extensions must appear in the untrusted list
-        // regardless of lib-version compatibility. The user needs to see them to decide
-        // whether to trust or delete. (Was: lib-version check before trust check →
-        // extensions with incompatible lib versions were silently dropped as Errors.)
-        if (!trustService.isTrusted(signatureFingerprint)) {
+        // Phase 3: Check trust PER-PACKAGE (not per-signer). The old by-signer model
+        // caused auto-propagation: trusting one extension auto-trusted ALL same-signer
+        // extensions. Now trust is stored by pkgName — each extension is trusted independently.
+        if (!trustService.isTrusted(pkgName)) {
             Logger.w(TAG) { "Extension $pkgName is untrusted (fingerprint: $signatureFingerprint)" }
             val icon = runCatching { appInfo.loadIcon(packageManager) }.getOrNull()
             return LoadResult.Untrusted(

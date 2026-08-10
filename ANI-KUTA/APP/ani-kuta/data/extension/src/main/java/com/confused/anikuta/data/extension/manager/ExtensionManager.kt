@@ -209,12 +209,11 @@ class ExtensionManager(
      * Trust an untrusted extension and load its sources.
      */
     fun trustExtension(extension: AnimeExtension.Untrusted) {
-        Logger.i(TAG) { "Trusting extension: ${extension.name}" }
+        Logger.i(TAG) { "Trusting extension: ${extension.name} (pkg: ${extension.pkgName})" }
 
-        extension.signatureHash.let { trustService.trust(it) }
-        // Phase DB-OPT: also enable this specific package (per-package control
-        // independent of signer-level trust). Other same-signer extensions stay
-        // untrusted until the user explicitly trusts them one-by-one.
+        // Phase 3: trust is PER-PACKAGE (not per-signer). Only this specific
+        // package gets trusted — other same-signer extensions stay untrusted.
+        trustService.trust(extension.pkgName)
         appPreferences.enableExtension(extension.pkgName)
 
         // Remove from untrusted.
@@ -237,13 +236,10 @@ class ExtensionManager(
      * Revoke trust for an extension (moves it back to untrusted).
      */
     fun untrustExtension(extension: AnimeExtension.Installed) {
-        Logger.i(TAG) { "Untrusting: ${extension.name} (fingerprint: ${extension.signatureHash})" }
-        // Actually revoke trust by fingerprint — without this, loadAll() would
-        // re-trust the same extension.
-        if (extension.signatureHash.isNotEmpty()) {
-            trustService.revoke(extension.signatureHash)
-        }
-        // Phase DB-OPT: also remove from enabled set (per-package).
+        Logger.i(TAG) { "Untrusting: ${extension.name} (pkg: ${extension.pkgName})" }
+        // Phase 3: revoke trust PER-PACKAGE. Only this extension gets untrusted —
+        // other same-signer extensions are unaffected.
+        trustService.revoke(extension.pkgName)
         appPreferences.disableExtension(extension.pkgName)
 
         // Remove from installed + remove its sources.
@@ -291,6 +287,26 @@ class ExtensionManager(
         }
         val sourceMap = _sources.value.toMutableMap()
         ext.sources.forEach { source -> sourceMap.remove(source.id) }
+        _sources.value = sourceMap
+    }
+
+    // ── Phase 4: Per-source enable/disable ──────────────────────────────────────
+
+    /** Enable a single source (by source ID) in the _sources map. */
+    fun enableSource(sourceId: Long) {
+        Logger.i(TAG) { "Enabling source: $sourceId" }
+        val ext = _installedExtensions.value.find { ext -> ext.sources.any { it.id == sourceId } } ?: return
+        val source = ext.sources.find { it.id == sourceId } ?: return
+        val sourceMap = _sources.value.toMutableMap()
+        sourceMap[sourceId] = source
+        _sources.value = sourceMap
+    }
+
+    /** Disable a single source (by source ID) from the _sources map. */
+    fun disableSource(sourceId: Long) {
+        Logger.i(TAG) { "Disabling source: $sourceId" }
+        val sourceMap = _sources.value.toMutableMap()
+        sourceMap.remove(sourceId)
         _sources.value = sourceMap
     }
 
