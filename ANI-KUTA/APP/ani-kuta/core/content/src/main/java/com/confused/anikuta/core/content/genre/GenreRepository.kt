@@ -70,8 +70,45 @@ class GenreRepository(
     }
 
     /**
-     * Set genres from a comma-separated string (for backward compat with the old TEXT columns).
+     * Backfill genres from the existing `anilist_detail.genres` TEXT column for
+     * all library items that don't have entries in the `content_genre` junction table.
+     *
+     * This is needed because the genre system was added after many anime were
+     * already in the library — their genres are stored as comma-separated TEXT
+     * in `anilist_detail.genres` but were never migrated to the junction table.
+     *
+     * Called from ProfileViewModel.loadStats() before computing genre counts.
      */
+    fun backfillGenresFromExistingData(database: com.confused.anikuta.core.database.AnikutaDatabase) {
+        try {
+            // Get all library items
+            val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
+            val libraryMainIds = libraryItems.map { it.main_id }.toSet()
+            if (libraryMainIds.isEmpty()) return
+
+            // Check which ones already have genre entries
+            val existingGenreMainIds = queries.getAllContentGenres().executeAsList()
+                .map { it.main_id }.toSet()
+
+            // For each library item without genre entries, backfill from anilist_detail.genres
+            var backfilled = 0
+            libraryMainIds.forEach { mainId ->
+                if (mainId !in existingGenreMainIds) {
+                    val anilistDetail = database.contentQueries.getAniListDetail(mainId).executeAsOneOrNull()
+                    if (anilistDetail != null && !anilistDetail.genres.isNullOrBlank()) {
+                        setGenresFromCsv(mainId, anilistDetail.genres, "anilist")
+                        backfilled++
+                    }
+                }
+            }
+
+            if (backfilled > 0) {
+                Logger.i(TAG) { "Backfilled genres for $backfilled library items from anilist_detail.genres" }
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "backfillGenresFromExistingData failed: ${e.message}" }
+        }
+    }
     fun setGenresFromCsv(mainId: String, csvGenres: String?, source: String = "anilist") {
         val normalized = CanonicalGenres.normalizeCsv(csvGenres)
         setGenresForContent(mainId, normalized, source)

@@ -81,7 +81,8 @@ class ProfileViewModel(
                 } else 0.0
                 val avgRatingFormatted = if (avgRating > 0) String.format("%.1f", avgRating / 10.0) else "—"
 
-                // Genre distribution
+                // Genre distribution — backfill from existing anilist_detail.genres first
+                genreRepository.backfillGenresFromExistingData(database)
                 val genreCounts = genreRepository.getLibraryGenreCounts(libraryMainIds)
                 val genreDistribution = genreCounts.associate { it.first to it.second }
 
@@ -145,7 +146,8 @@ class ProfileViewModel(
                     }
 
                 _state.value = ProfileUiState(
-                    displayName = "Anime Fan",
+                    displayName = preferenceStore.getString("profile_display_name", "Anime Fan"),
+                    avatarUrl = preferenceStore.getString("profile_avatar_url", "").takeIf { it.isNotBlank() },
                     anilistUsername = anilistUsername,
                     totalAnime = totalAnime,
                     totalEpisodesWatched = totalEpisodesWatched,
@@ -291,6 +293,16 @@ class ProfileViewModel(
 
     fun clearGenreSelection() {
         _state.value = _state.value.copy(selectedGenre = null, genreAnime = emptyList())
+    }
+
+    fun updateDisplayName(name: String) {
+        preferenceStore.putString("profile_display_name", name)
+        _state.value = _state.value.copy(displayName = name)
+    }
+
+    fun updateAvatarUrl(url: String) {
+        preferenceStore.putString("profile_avatar_url", url)
+        _state.value = _state.value.copy(avatarUrl = url.takeIf { it.isNotBlank() })
     }
 }
 
