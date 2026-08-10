@@ -120,7 +120,7 @@ fun WatchFlowGraph(watchFlowByDay: List<Int>) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.padding(horizontal = 2.dp)) {
                                 // Dynamic height: show count when selected
-                                AnimatedVisibility(visible = isSelected, enter = fadeIn(), exit = fadeOut(), modifier = Modifier) {
+                                if (isSelected) {
                                     Text("$count", fontFamily = RobotoFamily, fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold, color = primaryColor,
                                         modifier = Modifier.padding(bottom = 2.dp))
