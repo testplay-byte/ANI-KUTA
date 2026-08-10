@@ -188,6 +188,8 @@ fun DetailsScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
+    var resolverDownloadMode by remember { mutableStateOf(false) }
+    var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
 
     // Phase 2: Auto-select video — when the user clicks an episode, set pendingAutoPlay
     // instead of showResolverSheet. The LaunchedEffect below observes resolverState +
@@ -263,9 +265,6 @@ fun DetailsScreen(
             else -> {}
         }
     }
-    var resolverDownloadMode by remember { mutableStateOf(false) }
-    var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
-
     // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on the key,
     // auto-trigger the episode click when episodes are loaded. Uses the Phase 2
     // auto-resolve flow (pendingAutoPlay → tryAutoSelect → navigate to watch).
