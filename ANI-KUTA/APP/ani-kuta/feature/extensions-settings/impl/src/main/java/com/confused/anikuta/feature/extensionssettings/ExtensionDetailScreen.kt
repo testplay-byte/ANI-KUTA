@@ -217,7 +217,6 @@ fun ExtensionDetailScreen(
             ScrollBlurOverlay(
                 scrollOffset = { 0f },
                 backgroundColor = MaterialTheme.colorScheme.background,
-                modifier = Modifier.align(Alignment.TopCenter),
             )
         }
     }
