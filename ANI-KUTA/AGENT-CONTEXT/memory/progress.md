@@ -3,34 +3,29 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**ALL MAJOR PHASES COMPLETE — on `main` branch (merged from `download-system-plan` + `feature/watch-progress-history-updates`).**
+**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI — on `feature/db-optimization-ratings-cw` branch (awaiting user device verification before merge to `main`).**
 
-Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (per-anime + per-episode ratings), Phase NOTIF (notification system), and Phase CW (continue watching logic) are ALL DONE.
+Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), and the Debug Bubble are ALL DONE.
 
-The `download-system-plan` branch has been merged to `main` + deleted. The `feature/watch-progress-history-updates` branch has been merged to `main`. All work is now on `main`.
+**This session (DB optimization + ratings + continue-watching + watch-progress fixes):**
+- **Phase 1 (DB-OPT):** Deleted 2 dead `.sq` files (`extensions.sq`, `metadata.sq` — zero call sites). Enabled `PRAGMA foreign_keys = ON`. Dropped 6 redundant indexes. Added 8 missing indexes (continue-watching partial, retention purges, AniList JOIN, content extension lookup, library dedup). Fixed WP-B1 (`setAutoMarkSuppressed` now clears `completed_at` + INSERT-when-missing guard). Fixed audio-variants bug (added `source_name` + `scanlator` columns to `data_cache_episode`; preserved through enriched cache write; fixed offline-fallback URL bug). Fixed extension trust bug (per-package `isEnabled` flag; only enabled extensions' sources appear in pickers; backward-compat seeding). CI green (run 31348314200).
+- **Phase 2 (watch-progress fixes):** WP-B2 (resetAutoMarkSuppressed on FILE_LOADED — re-arms 85% auto-mark). WP-B3 (resume-seek — click same episode → plays from where you left). WP-B4 (save on episode switch). Progress bar in Details episodes list (thumbnail bottom edge, like YouTube). CI green (run 31348683710).
+- **Phase 3 (continue-watching UI):** Single-row carousel at top of Browse. Cover thumbnails, EP badges, progress bars, placeholder images. Tap → Details (resume kicks in on play via WP-B3). CI green (run 31348903899).
+- **Phase 4 (ratings UI):** Per-anime 10-star rating on Details (right of synopsis title). Per-episode 10-star rating on Watch (below currently playing episode text). Each star = 10 points (0-100 backend). Temporary testing implementation. CI pending.
 
-**Key recent work (this session):**
-- Swipe-to-toggle UI: background icon fade-in, haptic feedback, bidirectional swipe, smooth animation.
-- History page: day-grouped list, swipe-to-delete, clear all, ScrollBlurOverlay, layout improvements.
-- Updates page: combined-pill tab strip, ScrollBlurOverlay, smart update engine with backoff.
-- Schedule page: list view + calendar view (HorizontalPager, 1mo/1yr limits, day-detail sheet).
-- Download folder structure: episodes/ + subtitles/ subfolders. Subtitle naming without dot prefix.
-- Subtitle loading: disk-scan fallback when DB subtitleUris is empty.
-- Download state: episodeDownloadStates now combines queue + downloaded_episodes cache.
-- Nav3 completely removed (D-150). Hand-rolled navigation is the only nav.
-- Repo root cleanup: skills/ + worklog.md removed + gitignored.
-- Notification system: :core:notifications module, per-content config, AniList-based release triggers, dedup.
-- Calendar view: custom HorizontalPager with day cells, multi-dot indicators, day-detail bottom sheet.
-- Dashboard data refreshed: 44 modules, D-001..D-161, 28 DB tables, all phases marked done.
+**Branch:** `feature/db-optimization-ratings-cw` (all 4 phases on this branch). Awaiting user device verification before merge to `main`.
 
-**Latest session (calendar UX + notifications tri-state + library page):**
-- **Swipe + calendar toggle confirmed working** on device (user feedback).
-- **Calendar UX polish (D-157):** List/Calendar toggle restyled to match the Updates | Schedule pill + List/CalendarMonth icons. "Today" button (toggle shrinks left, button on right) → animates pager to the current month via a `scrollToTodayRequest` counter. Smooth height animation (`animateDpAsState` spring) when the month's week count changes.
-- **Notifications tri-state (D-158):** triggers upgraded Boolean → `TriggerState` (ON/SILENT/OFF, stored as INTEGER 0/1/2 — backward compatible); audio → `AudioPref` (SUB/DUB/BOTH, derived from 2 booleans). 3-way `SegmentedToggle` (matches download-settings style). Adapting descriptions per selection. Silent notifications use a new low-importance channel. `NotificationConfig`+enums moved to `:core:common` (broke the preferences↔notifications circular dep).
-- **Master-off hide (D-159):** the "New anime defaults" section smoothly collapses (`AnimatedVisibility` fade+expand/shrink) when the master toggle is off.
-- **Dedicated Library page (D-160):** per-anime config moved to `NotificationsLibraryScreen` — category filter chips (All + every library category) + per-anime list (Switch + chevron) + advanced-config bottom sheet (tri-state). `NotificationsLibraryKey` wired.
-- **CI:** 3 iterations (enum companion `this` issue, `getInt` Long/Int default, `var by` setValue import + AnimatedVisibility ColumnScope). Green at b55da53 (run 31277015651, artifact 53 MB).
-- Subtitles intentionally deferred per user (separate session).
+⚠️ **Known gaps (deferred per user):**
+- Proxy-churn re-resolve NOT wired (D-149) — deferred to future phase.
+- Outer retry loop not implemented — deferred.
+- Subtitle loading for downloaded episodes still not working on device (D-152 fixes are in but unverified; user deferred to a later session).
+- ✅ ~~Rating UI not built~~ — DONE (Phase 4, temporary 10-star implementation).
+- ✅ ~~Continue Watching UI not placed~~ — DONE (Phase 3, Browse carousel).
+- SQLite UPSERT migration NOT done (SQLite 3.24+ required; API 24-28 ships 3.9-3.22 — can't use `ON CONFLICT DO UPDATE` on minSdk 24). INSERT OR REPLACE kept; callers already read-then-write.
+- CHECK constraints for magic strings NOT added (can't ALTER TABLE to add CHECK on existing installs; would need table rebuild). Deferred.
+- Extension settings (extension's own preferences UI) — future task per user.
+
+**Next:** User device verification of all 4 phases. Then: merge to `main` + clean up the CI trigger (`feature/**` → `main` only). Then: subtitle loading investigation + Phase 6+ (ads, backup/restore, identity system).
 
 **Previous session (swipe / calendar / notifications):**
 - **Swipe background fixed (D-153):** the reveal background in `DetailsScreen.EpisodeRow` + `HistoryScreen.HistoryRow` was invisible because it used `fillMaxSize()` inside a wrap-content-height Box (resolves to 0 height). Switched to `matchParentSize()` (BoxScope) + always-compose with `graphicsLayer` alpha fade. The previous session's `fillMaxSize` "fix" was the regression.

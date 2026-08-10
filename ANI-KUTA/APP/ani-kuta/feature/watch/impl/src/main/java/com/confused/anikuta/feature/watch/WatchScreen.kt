@@ -155,18 +155,7 @@ fun WatchScreen(
     // switching, so downloaded episodes play offline (fd://) instead of trying
     // to resolve from the network source.
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
-    // Phase 4: per-episode rating
-    val ratingStore = koinInject<com.confused.anikuta.core.ratings.RatingStore>()
     val scope = rememberCoroutineScope()
-
-    // Phase 4: per-episode rating state (loaded once on entry, updated on star tap).
-    var episodeRating by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(watchKey.mainId, watchKey.episodeNumber) {
-        if (watchKey.mainId.isNotBlank()) {
-            val epKey = buildEpisodeKey(watchKey.mainId, watchKey.episodeNumber)
-            episodeRating = runCatching { ratingStore.getEpisodeRating(watchKey.mainId, epKey) }.getOrNull()
-        }
-    }
 
     // DB-7: provide debug context for the Current Screen tab.
     val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
@@ -1205,6 +1194,17 @@ private fun MinimizedMode(
     currentEpisodeTitle: String = "",
 ) {
     val listState = rememberLazyListState()
+
+    // Phase 4: per-episode rating state (self-contained in MinimizedMode).
+    val ratingStore = koinInject<com.confused.anikuta.core.ratings.RatingStore>()
+    val ratingScope = rememberCoroutineScope()
+    var episodeRating by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(watchKey.mainId, currentEpisodeNumber) {
+        if (watchKey.mainId.isNotBlank()) {
+            val epKey = buildEpisodeKey(watchKey.mainId, currentEpisodeNumber)
+            episodeRating = runCatching { ratingStore.getEpisodeRating(watchKey.mainId, epKey) }.getOrNull()
+        }
+    }
     // Wrap in derivedStateOf to prevent excessive recompositions.
     val collapsed by remember {
         derivedStateOf {
@@ -1385,8 +1385,8 @@ private fun MinimizedMode(
                         WatchStarRatingBar(
                             rating = episodeRating,
                             onRate = { stars ->
-                                val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
-                                scope.launch {
+                                val epKey = buildEpisodeKey(watchKey.mainId, currentEpisodeNumber)
+                                ratingScope.launch {
                                     if (stars <= 0) {
                                         ratingStore.deleteEpisodeRating(watchKey.mainId, epKey)
                                     } else {
