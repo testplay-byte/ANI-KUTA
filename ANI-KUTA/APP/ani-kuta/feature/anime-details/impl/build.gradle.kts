@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":core:data-cache"))
     implementation(project(":core:download"))
     implementation(project(":core:watch-progress"))
+    implementation(project(":core:ratings"))  // Phase 4: per-anime rating UI
     implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))

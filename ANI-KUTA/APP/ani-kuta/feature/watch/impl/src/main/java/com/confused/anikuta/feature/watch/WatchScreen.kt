@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Star  // Phase 4
+import androidx.compose.material.icons.filled.StarBorder  // Phase 4
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -153,7 +155,18 @@ fun WatchScreen(
     // switching, so downloaded episodes play offline (fd://) instead of trying
     // to resolve from the network source.
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+    // Phase 4: per-episode rating
+    val ratingStore = koinInject<com.confused.anikuta.core.ratings.RatingStore>()
     val scope = rememberCoroutineScope()
+
+    // Phase 4: per-episode rating state (loaded once on entry, updated on star tap).
+    var episodeRating by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(watchKey.mainId, watchKey.episodeNumber) {
+        if (watchKey.mainId.isNotBlank()) {
+            val epKey = buildEpisodeKey(watchKey.mainId, watchKey.episodeNumber)
+            episodeRating = runCatching { ratingStore.getEpisodeRating(watchKey.mainId, epKey) }.getOrNull()
+        }
+    }
 
     // DB-7: provide debug context for the Current Screen tab.
     val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
@@ -1367,6 +1380,22 @@ private fun MinimizedMode(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        // Phase 4: per-episode star rating (below the episode title text).
+                        Spacer(Modifier.height(6.dp))
+                        WatchStarRatingBar(
+                            rating = episodeRating,
+                            onRate = { stars ->
+                                val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+                                scope.launch {
+                                    if (stars <= 0) {
+                                        ratingStore.deleteEpisodeRating(watchKey.mainId, epKey)
+                                    } else {
+                                        ratingStore.setEpisodeRating(watchKey.mainId, epKey, stars * 10)
+                                    }
+                                    episodeRating = if (stars <= 0) null else stars * 10
+                                }
+                            },
+                        )
                         // Date + Audio pills
                         if (currentDateText != null || currentAudio.hasAny) {
                             Spacer(Modifier.height(6.dp))
@@ -1950,5 +1979,39 @@ private fun buildEpisodeKey(mainId: String, episodeNumber: Float): String {
         return "unknown|${String.format("%05d", episodeNumber.toInt())}"
     }
     return "$mainId|${String.format("%05d", episodeNumber.toInt())}"
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Phase 4: Star Rating Bar (TEMPORARY — for testing)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A row of 10 clickable stars for per-episode rating. Each star = 10 points.
+ * Tapping a star sets the rating. Tapping the same star again clears it.
+ */
+@Composable
+private fun WatchStarRatingBar(
+    rating: Int?,
+    onRate: (Int) -> Unit,
+) {
+    val currentStars = rating?.let { (it / 10).coerceIn(0, 10) } ?: 0
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (i in 1..10) {
+            Icon(
+                imageVector = if (i <= currentStars) Icons.Filled.Star else Icons.Filled.StarBorder,
+                contentDescription = "Rate $i stars",
+                tint = if (i <= currentStars) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable {
+                        if (i == currentStars) onRate(0) else onRate(i)
+                    },
+            )
+        }
+    }
 }
 

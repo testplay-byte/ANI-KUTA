@@ -72,6 +72,7 @@ class DetailsViewModel(
     private val dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
     private val downloadManager: com.confused.anikuta.core.download.DownloadManager,
     private val watchProgressStore: com.confused.anikuta.core.watchprogress.WatchProgressStore,
+    private val ratingStore: com.confused.anikuta.core.ratings.RatingStore,
 ) : ViewModel() {
 
     companion object {
@@ -225,6 +226,37 @@ class DetailsViewModel(
                 Logger.i(TAG) { "toggleWatched: episodeKey=$episodeKey" }
             }.onFailure { e ->
                 Logger.e(TAG, e) { "toggleWatched failed: ${e.message}" }
+            }
+        }
+    }
+
+    // ── Phase 4: Per-anime user rating ──
+    // Reactive: observes the user_rating table for the current anime.
+    // Rating scale: 0-100 (backend) / 0-10 stars (UI, each star = 10 points).
+    val animeRating: StateFlow<Int?> =
+        _mainIdFlow
+            .flatMapLatest { mainId ->
+                if (mainId != null) {
+                    ratingStore.observeAnimeRating(mainId)
+                } else {
+                    kotlinx.coroutines.flow.flowOf(null)
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Phase 4: Set the per-anime rating. [stars] is 0-10 (multiplied by 10 for the 0-100 backend). */
+    fun setAnimeRating(stars: Int) {
+        val mid = currentMainId ?: return
+        viewModelScope.launch {
+            runCatching {
+                if (stars <= 0) {
+                    ratingStore.deleteAnimeRating(mid)
+                } else {
+                    ratingStore.setAnimeRating(mid, stars * 10)
+                }
+                Logger.i(TAG) { "setAnimeRating: stars=$stars → rating=${stars * 10}" }
+            }.onFailure { e ->
+                Logger.e(TAG, e) { "setAnimeRating failed: ${e.message}" }
             }
         }
     }

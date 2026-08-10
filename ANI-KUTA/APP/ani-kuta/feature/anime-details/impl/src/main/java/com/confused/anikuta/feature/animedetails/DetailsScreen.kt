@@ -88,6 +88,8 @@ import androidx.compose.ui.input.pointer.pointerInput  // Phase WP: for swipe ge
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures  // Phase WP
 import androidx.compose.material.icons.filled.CheckCircle  // Phase WP
 import androidx.compose.material.icons.filled.VisibilityOff  // Phase WP
+import androidx.compose.material.icons.filled.Star  // Phase 4
+import androidx.compose.material.icons.filled.StarBorder  // Phase 4
 import androidx.compose.ui.graphics.ColorFilter  // Phase WP: grayscale
 import androidx.compose.ui.graphics.ColorMatrix  // Phase WP: grayscale
 
@@ -150,6 +152,9 @@ fun DetailsScreen(
     val downloadStates by viewModel.downloadStates.collectAsState()
     // Phase WP: watch progress for the episode list (watched state + swipe-to-toggle).
     val watchProgress by viewModel.watchProgress.collectAsState()
+
+    // Phase 4: per-anime user rating (0-100, null = unrated).
+    val animeRating by viewModel.animeRating.collectAsState()
 
     // D.FIX: Compute the effective linked source at the top level — used by both
     // the EpisodesSection (inside Success branch) AND the ResolverSheet (outside).
@@ -423,7 +428,7 @@ fun DetailsScreen(
 
                         // ── Synopsis ──
                         anime.description?.let { desc ->
-                            item { SynopsisSection(desc) }
+                            item { SynopsisSection(desc, animeRating, viewModel::setAnimeRating) }
                         }
 
                         // ── Episodes section ──
@@ -1106,17 +1111,28 @@ private fun GenresRow(genres: List<String>) {
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun SynopsisSection(description: String) {
+private fun SynopsisSection(
+    description: String,
+    rating: Int? = null,
+    onRate: (Int) -> Unit = {},
+) {
     var expanded by remember { mutableStateOf(false) }
     val cleanDesc = description.replace(Regex("<[^>]*>"), "")
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(
-            text = "Synopsis",
-            fontFamily = RobotoFamily,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Synopsis",
+                fontFamily = RobotoFamily,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            StarRatingBar(rating = rating, onRate = onRate)
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = cleanDesc,
@@ -2040,5 +2056,42 @@ private fun ThreeStagePullIndicator(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
         )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Phase 4: Star Rating Bar (TEMPORARY — for testing)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A row of 10 clickable stars. Each star = 10 points (0-100 backend scale).
+ * Tapping a star sets the rating. Tapping the same star again clears it (toggle).
+ *
+ * @param rating The current rating (0-100, null = unrated).
+ * @param onRate Called with the star count (0-10). 0 = clear rating.
+ */
+@Composable
+private fun StarRatingBar(
+    rating: Int?,
+    onRate: (Int) -> Unit,
+) {
+    val currentStars = rating?.let { (it / 10).coerceIn(0, 10) } ?: 0
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (i in 1..10) {
+            Icon(
+                imageVector = if (i <= currentStars) Icons.Filled.Star else Icons.Filled.StarBorder,
+                contentDescription = "Rate $i stars",
+                tint = if (i <= currentStars) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable {
+                        if (i == currentStars) onRate(0) else onRate(i)
+                    },
+            )
+        }
     }
 }
