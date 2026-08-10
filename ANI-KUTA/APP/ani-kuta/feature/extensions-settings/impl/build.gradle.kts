@@ -32,5 +32,9 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.kotlinx.coroutines.android)
 
+    // Phase 4: SourcePreferencesScreen (PreferenceFragmentCompat)
+    implementation("androidx.preference:preference-ktx:1.2.1")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
+
     debugImplementation(libs.androidx.ui.tooling)
 }

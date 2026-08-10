@@ -91,7 +91,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -516,9 +516,8 @@ fun AppRoot() {
                 onBack = pop,
                 onOpenSourcePreferences = { sourceId -> backstack.add(SourcePreferencesKey(sourceId)) },
             )
-            is SourcePreferencesKey -> PlaceholderScreen(
-                title = "Source Preferences",
-                description = "Extension source preferences rendering (PreferenceFragmentCompat) is pending implementation. The extension detail page + navigation are functional.",
+            is SourcePreferencesKey -> com.confused.anikuta.feature.extensionssettings.SourcePreferencesScreen(
+                sourceId = currentKey.sourceId,
                 onBack = pop,
             )
             is AppearanceKey -> AppearanceScreen(
