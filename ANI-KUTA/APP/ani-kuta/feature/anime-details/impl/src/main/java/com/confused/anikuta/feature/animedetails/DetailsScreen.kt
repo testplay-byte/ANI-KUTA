@@ -188,6 +188,71 @@ fun DetailsScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
+
+    // Phase 2: Auto-select video — when the user clicks an episode, set pendingAutoPlay
+    // instead of showResolverSheet. The LaunchedEffect below observes resolverState +
+    // when it becomes Success, tries auto-select. If a video is picked → navigate to
+    // watch directly (skip the ResolverSheet). If no match → show the ResolverSheet.
+    var pendingAutoPlay by remember { mutableStateOf(false) }
+    LaunchedEffect(resolverState, pendingAutoPlay) {
+        if (!pendingAutoPlay) return@LaunchedEffect
+        when (resolverState) {
+            is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
+                pendingAutoPlay = false
+                val autoVideo = viewModel.tryAutoSelect()
+                if (autoVideo != null) {
+                    // Auto-select succeeded — navigate to watch with the picked video.
+                    val anime = (state as? DetailsState.Success)?.anime
+                    val linked = effectiveLinkedSource
+                    val ep = currentEpisode
+                    if (anime != null && linked != null && ep != null) {
+                        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                        val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                            "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+                        } ?: ""
+                        val subTracksStr = autoVideo.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
+                        val audioTracksStr = autoVideo.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
+                        val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
+                            val title = meta.title ?: ""
+                            val thumb = meta.thumbnailUrl ?: ""
+                            val date = meta.airDate?.toString() ?: "0"
+                            val desc = meta.description ?: ""
+                            val scanlator = ep.scanlator ?: ""
+                            "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+                        }
+                        Logger.i("Anikuta:Feature:Details") {
+                            "Auto-play: navigating to watch with ${autoVideo.quality} (url=${autoVideo.url.take(60)}...)"
+                        }
+                        onNavigateToWatch(
+                            viewModel.currentMainId ?: "",
+                            autoVideo.url,
+                            anime.displayName,
+                            autoVideo.quality,
+                            ep.url,
+                            ep.episode_number,
+                            ep.name,
+                            epListStr,
+                            autoVideo.headers,
+                            resolvedVideosKey,
+                            linked.sourceId,
+                            subTracksStr,
+                            audioTracksStr,
+                            epMetaStr,
+                        )
+                        viewModel.clearResolver()
+                    }
+                } else {
+                    // Auto-select found no match — show the ResolverSheet as fallback.
+                    showResolverSheet = true
+                }
+            }
+            is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
+                pendingAutoPlay = false
+                showResolverSheet = true
+            }
+            else -> {}
+        }
+    }
     var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
 
@@ -491,9 +556,12 @@ fun DetailsScreen(
                                             }
                                         }
                                     }
-                                    // Not downloaded — resolve normally.
+                                    // Not downloaded — resolve + try auto-play (Phase 2).
+                                    // If autoSelectVideo is ON, the LaunchedEffect picks the best video
+                                    // + navigates to watch. If OFF, tryAutoSelect returns null → shows the
+                                    // ResolverSheet as fallback.
                                     viewModel.resolveEpisode(episode)
-                                    showResolverSheet = true
+                                    pendingAutoPlay = true
                                 },
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->

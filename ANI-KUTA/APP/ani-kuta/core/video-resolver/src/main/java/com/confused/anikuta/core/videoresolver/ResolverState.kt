@@ -21,6 +21,7 @@ sealed interface ResolverState {
     data class Success(
         val videos: List<ResolvedVideo>,
         val rawEntries: List<VideoEntry> = emptyList(),
+        val servers: List<ResolverServer> = emptyList(),
     ) : ResolverState
 
     /** Resolution failed. */

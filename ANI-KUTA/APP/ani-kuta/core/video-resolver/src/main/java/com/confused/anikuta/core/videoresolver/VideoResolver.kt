@@ -92,7 +92,10 @@ class VideoResolver {
 
             val totalSubs = resolvedVideos.sumOf { it.subtitleTracks.size }
             Logger.i(TAG) { "Resolved ${resolvedVideos.size} videos, total subtitle tracks: $totalSubs" }
-            emit(ResolverState.Success(resolvedVideos, validEntries))
+
+            // Phase 2: build structured servers here (avoids needing a second call to buildServers).
+            val servers = groupIntoServers(validEntries, sourceName)
+            emit(ResolverState.Success(resolvedVideos, validEntries, servers))
 
         } catch (e: Throwable) {
             Logger.e(TAG, e) {

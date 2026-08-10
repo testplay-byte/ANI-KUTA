@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -51,6 +52,7 @@ fun SettingsScreen(
     onOpenExtensions: () -> Unit,
     onOpenAutoLink: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onOpenPlayerSettings: () -> Unit,
     onBack: () -> Unit,
 ) {
     val lazyListState = rememberLazyListState()
@@ -111,6 +113,17 @@ fun SettingsScreen(
                             title = "Notifications",
                             subtitle = "New-episode alerts, per-anime config",
                             onClick = onOpenNotifications,
+                        )
+                    }
+
+                    // ── Player (Phase 2) ──
+                    item {
+                        SettingsSectionLabel("Player")
+                        SettingsNavRow(
+                            icon = Icons.Filled.PlayCircle,
+                            title = "Player",
+                            subtitle = "Auto-select video, playback preferences",
+                            onClick = onOpenPlayerSettings,
                         )
                     }
 

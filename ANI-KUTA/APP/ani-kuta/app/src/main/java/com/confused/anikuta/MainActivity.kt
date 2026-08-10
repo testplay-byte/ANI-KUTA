@@ -140,6 +140,9 @@ object AppearanceGeneralKey : NavKey
 @Serializable
 object EpisodeSettingsKey : NavKey
 
+@Serializable
+object PlayerSettingsKey : NavKey
+
 /**
  * Root tab keys — these are the 4 tabs that show the bottom nav.
  * Any other key (Details, Settings, Appearance, etc.) is a "sub-screen"
@@ -483,6 +486,7 @@ fun AppRoot() {
                 onOpenExtensions = { backstack.add(ExtensionsSettingsKey) },
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
                 onOpenNotifications = { backstack.add(NotificationsKey) },
+                onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onBack = pop,
             )
             is NotificationsKey -> NotificationsSettingsScreen(
@@ -513,6 +517,9 @@ fun AppRoot() {
             is EpisodeSettingsKey -> PlaceholderScreen(
                 title = "Episode settings",
                 description = "Episode display settings will be added in a future phase.",
+                onBack = pop,
+            )
+            is PlayerSettingsKey -> PlayerSettingsScreen(
                 onBack = pop,
             )
             is WatchKey -> WatchScreen(

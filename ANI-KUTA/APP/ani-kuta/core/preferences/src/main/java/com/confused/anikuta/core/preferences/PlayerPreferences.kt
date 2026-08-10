@@ -129,6 +129,69 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getInt(KEY_SUB_DELAY, 0)
         set(value) = store.putInt(KEY_SUB_DELAY, value)
 
+    // ── Phase 2: Auto-select video (mirror of DownloadPreferences) ───────────
+    //
+    // When autoSelectVideo is ON, the player auto-resolves the best video using
+    // these preferences (server, audio, quality, fallback) instead of showing
+    // the manual ResolverSheet. Mirrors the auto-download engine — uses the same
+    // AutoDownloadEngine.selectBestVideo() pure function.
+    //
+    // Difference from download: no DO_NOT_DOWNLOAD global fallback (playback must
+    // always pick something). Only BEST_EFFORT or ASK.
+
+    /** Whether to auto-select the video for playback (default: false = manual pick). */
+    val autoSelectVideo = store.preference(
+        "pref_player_auto_select", false, BooleanSerializer,
+    )
+
+    /** Ordered list of preferred qualities for auto-select (drag-reorderable). */
+    val preferredQualities = store.preference(
+        "pref_player_qualities", listOf("1080p", "720p", "480p", "360p"), StringListSerializer,
+    )
+
+    /** Fallback strategy when the preferred quality is unavailable. */
+    val qualityFallback = store.preference(
+        "pref_player_quality_fallback", "TRY_NEXT", StringSerializer,
+    )
+
+    /** Ordered list of preferred audio versions for auto-select (drag-reorderable). */
+    val preferredAudio = store.preference(
+        "pref_player_audio", listOf("SUB", "DUB", "HSUB"), StringListSerializer,
+    )
+
+    /** Fallback strategy when the preferred audio is unavailable. */
+    val audioFallback = store.preference(
+        "pref_player_audio_fallback", "TRY_NEXT", StringSerializer,
+    )
+
+    /** Ordered list of preferred servers for auto-select (drag-reorderable). */
+    val preferredServers = store.preference(
+        "pref_player_servers", listOf("Streamtape", "Vidstreaming", "Mp4Upload"), StringListSerializer,
+    )
+
+    /** Fallback strategy when the preferred server is unavailable. */
+    val serverFallback = store.preference(
+        "pref_player_server_fallback", "TRY_NEXT", StringSerializer,
+    )
+
+    /** The priority order of the 3 preference dimensions for auto-select. */
+    val dimensionPriority = store.preference(
+        "pref_player_dimension_priority",
+        listOf("AUDIO", "QUALITY", "SERVER"),
+        StringListSerializer,
+    )
+
+    /**
+     * What to do when NO candidate matches ANY preference:
+     *  - "BEST_EFFORT" — play the least-bad option (default).
+     *  - "ASK" — show the video picker sheet.
+     *
+     * (No DO_NOT_DOWNLOAD option — playback must always pick something.)
+     */
+    val globalFallback = store.preference(
+        "pref_player_global_fallback", "BEST_EFFORT", StringSerializer,
+    )
+
     // ── Player UI ──────────────────────────────────────────────────────────────
 
     /** Whether to use gesture controls (swipe to seek, brightness, volume) */

@@ -73,6 +73,7 @@ class DetailsViewModel(
     private val downloadManager: com.confused.anikuta.core.download.DownloadManager,
     private val watchProgressStore: com.confused.anikuta.core.watchprogress.WatchProgressStore,
     private val ratingStore: com.confused.anikuta.core.ratings.RatingStore,
+    private val playerPreferences: com.confused.anikuta.core.preferences.PlayerPreferences,
 ) : ViewModel() {
 
     companion object {
@@ -258,6 +259,57 @@ class DetailsViewModel(
             }.onFailure { e ->
                 Logger.e(TAG, e) { "setAnimeRating failed: ${e.message}" }
             }
+        }
+    }
+
+    // ── Phase 2: Auto-select video for playback ──
+    // When autoSelectVideo is ON, tries to auto-pick the best video using the
+    // PlayerPreferences (server, audio, quality, fallback). Returns the picked
+    // ResolvedVideo, or null if auto-select is off / no match found (→ show picker).
+    fun tryAutoSelect(): com.confused.anikuta.core.videoresolver.ResolvedVideo? {
+        if (!playerPreferences.autoSelectVideo.get()) return null
+        val success = resolverState.value as? com.confused.anikuta.core.videoresolver.ResolverState.Success ?: return null
+        if (success.servers.isEmpty()) return null
+
+        return try {
+            val selection = com.confused.anikuta.core.download.AutoDownloadEngine.selectBestVideo(
+                servers = success.servers,
+                dimensionPriority = playerPreferences.dimensionPriority.get()
+                    .map { com.confused.anikuta.core.download.AutoDownloadEngine.PreferenceDimension.valueOf(it) },
+                preferredAudio = playerPreferences.preferredAudio.get(),
+                preferredQualities = playerPreferences.preferredQualities.get(),
+                preferredServers = playerPreferences.preferredServers.get(),
+                audioFallback = com.confused.anikuta.core.download.AutoDownloadEngine.FallbackStrategy
+                    .valueOf(playerPreferences.audioFallback.get()),
+                qualityFallback = com.confused.anikuta.core.download.AutoDownloadEngine.FallbackStrategy
+                    .valueOf(playerPreferences.qualityFallback.get()),
+                serverFallback = com.confused.anikuta.core.download.AutoDownloadEngine.FallbackStrategy
+                    .valueOf(playerPreferences.serverFallback.get()),
+                globalFallback = com.confused.anikuta.core.download.AutoDownloadEngine.GlobalFallback
+                    .valueOf(playerPreferences.globalFallback.get()),
+            )
+            when (selection) {
+                is com.confused.anikuta.core.download.AutoDownloadEngine.Selection.Selected -> {
+                    val v = selection.candidate.video
+                    Logger.i(TAG) { "Auto-select: picked ${v.quality} on ${selection.candidate.server} (${selection.candidate.audio})" }
+                    com.confused.anikuta.core.videoresolver.ResolvedVideo(
+                        url = v.url,
+                        quality = v.quality,
+                        directUrl = v.directUrl,
+                        headers = v.videoHeaders ?: "",
+                        subtitleTracks = v.subtitleTracks,
+                        audioTracks = v.audioTracks,
+                    )
+                }
+                is com.confused.anikuta.core.download.AutoDownloadEngine.Selection.NoCandidates,
+                is com.confused.anikuta.core.download.AutoDownloadEngine.Selection.DoNotDownload -> {
+                    Logger.i(TAG) { "Auto-select: no perfect match — falling back to picker" }
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Auto-select failed: ${e.message}" }
+            null
         }
     }
 
