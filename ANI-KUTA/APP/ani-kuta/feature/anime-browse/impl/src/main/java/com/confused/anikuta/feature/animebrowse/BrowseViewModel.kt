@@ -5,10 +5,15 @@ import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.DataCacheRepository
+import com.confused.anikuta.core.watchprogress.WatchProgressStore
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +43,8 @@ import kotlinx.serialization.json.put
 class BrowseViewModel(
     private val anilistApi: AniListApi,
     private val dataCacheRepository: DataCacheRepository,
+    private val watchProgressStore: WatchProgressStore,
+    private val contentRepository: ContentRepository,
 ) : ViewModel() {
 
     companion object {
@@ -51,6 +58,38 @@ class BrowseViewModel(
     /** Whether a background refresh is in progress (shows a subtle indicator). */
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    // ── Phase 3: Continue Watching carousel ──────────────────────────────────
+    // Reactive list of in-progress episodes (completed=0, not suppressed, position>0).
+    // Enriched with content metadata (title, cover URL) for display.
+    // This is a TEMPORARY implementation for testing — easy to remove later when
+    // the Browse page is redesigned. See BrowseScreen.ContinueWatchingCarousel.
+    val continueWatching: StateFlow<List<ContinueWatchingItem>> =
+        watchProgressStore.observeContinueWatching(10)
+            .map { progressList ->
+                progressList.mapNotNull { progress ->
+                    val mid = progress.mainId ?: return@mapNotNull null
+                    val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
+                    val anilistDetail = contentRepository.getAniListDetail(mid)
+                    val extDetail = contentRepository.getExtensionDetail(mid)
+                    val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+                    val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+                    ContinueWatchingItem(
+                        mainId = mid,
+                        anilistId = anilistDetail?.anilistId,
+                        sourceId = extDetail?.sourceId ?: content.sourceId ?: 0L,
+                        animeUrl = content.animeUrl ?: extDetail?.animeUrl ?: "",
+                        title = content.title,
+                        coverUrl = coverUrl,
+                        episodeNumber = episodeNumber,
+                        progressFraction = progress.progressFraction,
+                        position = progress.position,
+                        duration = progress.duration,
+                        lastWatchedAt = progress.lastWatchedAt,
+                    )
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         loadTrending()
@@ -165,3 +204,26 @@ sealed interface BrowseState {
     data class Success(val anime: List<AniListAnime>) : BrowseState
     data class Error(val message: String) : BrowseState
 }
+
+/**
+ * Phase 3: A continue-watching carousel item (TEMPORARY — for testing).
+ *
+ * Enriched from [com.confused.anikuta.core.watchprogress.WatchProgress] with
+ * content metadata (title, cover URL) for display in the Browse carousel.
+ *
+ * @param anilistId Non-null if the content is linked to AniList (navigate via
+ *   AnimeDetailsKey.AniList). Null = extension-only (navigate via Extension).
+ */
+data class ContinueWatchingItem(
+    val mainId: String,
+    val anilistId: Int?,
+    val sourceId: Long,
+    val animeUrl: String,
+    val title: String,
+    val coverUrl: String?,
+    val episodeNumber: Int,
+    val progressFraction: Float,
+    val position: Long,
+    val duration: Long,
+    val lastWatchedAt: Long,
+)

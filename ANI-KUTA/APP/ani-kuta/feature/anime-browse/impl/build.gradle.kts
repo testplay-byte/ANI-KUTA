@@ -16,6 +16,9 @@ dependencies {
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
     implementation(project(":core:data-cache"))
+    // Phase 3: continue-watching carousel
+    implementation(project(":core:watch-progress"))
+    implementation(project(":core:content"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

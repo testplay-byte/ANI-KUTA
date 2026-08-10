@@ -11,19 +11,26 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -42,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.HapticHelper
@@ -80,6 +88,7 @@ fun BrowseScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val continueWatching by viewModel.continueWatching.collectAsState()
     val gridState = rememberLazyGridState()
     val collapsed = gridState.firstVisibleItemIndex > 0 ||
         gridState.firstVisibleItemScrollOffset > 20
@@ -123,6 +132,14 @@ fun BrowseScreen(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(title = "Browse", collapsed = collapsed)
+
+            // Phase 3: Continue Watching carousel (TEMPORARY — easy to remove later).
+            // Single horizontal row at the top of Browse. Shows cover thumbnail,
+            // title, episode number, and a progress bar. Tapping navigates to Details
+            // (the WP-B3 resume feature handles seeking to the saved position on play).
+            if (continueWatching.isNotEmpty()) {
+                ContinueWatchingCarousel(items = continueWatching, onNavigate = onNavigate)
+            }
 
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -259,5 +276,116 @@ private fun ErrorScreen(message: String, onRetry: () -> Unit) {
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+    }
+}
+
+// ── Phase 3: Continue Watching carousel (TEMPORARY — for testing) ──────────────
+// Single horizontal LazyRow at the top of Browse. Each item: cover image (or
+// placeholder), title, episode number, progress bar. Tapping navigates to the
+// Details page (the WP-B3 resume feature handles seeking on play).
+// EASY TO REMOVE: delete this composable + the call site in BrowseScreen +
+// the continueWatching StateFlow in BrowseViewModel + the 2 deps in build.gradle.kts.
+
+@Composable
+private fun ContinueWatchingCarousel(
+    items: List<ContinueWatchingItem>,
+    onNavigate: (NavKey) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(items, key = { "${it.mainId}|${it.episodeNumber}" }) { item ->
+            ContinueWatchingCard(item = item, onClick = {
+                if (item.anilistId != null) {
+                    onNavigate(AnimeDetailsKey.AniList(item.anilistId))
+                } else if (item.sourceId > 0 && item.animeUrl.isNotBlank()) {
+                    onNavigate(AnimeDetailsKey.Extension(item.sourceId, item.animeUrl, item.title, null))
+                }
+            })
+        }
+    }
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    item: ContinueWatchingItem,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(100.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        // Cover image (or placeholder) with progress bar overlay at the bottom.
+        Box(
+            modifier = Modifier
+                .size(width = 100.dp, height = 140.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        ) {
+            if (item.coverUrl != null) {
+                AsyncImage(
+                    model = item.coverUrl,
+                    contentDescription = item.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                // Placeholder: show the first letter of the title centered.
+                Text(
+                    text = item.title.firstOrNull()?.uppercase() ?: "?",
+                    fontFamily = RobotoFamily,
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+            // EP number badge (top-left, like the episode row).
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+            ) {
+                Text(
+                    text = "EP ${item.episodeNumber}",
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+            // Progress bar at the bottom (like YouTube).
+            if (item.progressFraction > 0f) {
+                LinearProgressIndicator(
+                    progress = { item.progressFraction },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        // Title (1 line, truncated).
+        Text(
+            text = item.title,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
