@@ -1305,3 +1305,39 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** User requested temporary testing implementations for ratings + continue-watching. The backend (store + schema + Koin) was already fully built for both — only the UI was missing.
 - **Status:** ✅ CI green (Phase 3: run 31348903899; Phase 4: pending). Awaiting device verification.
 - **Date:** this session.
+
+### D-171 — Profile UI v4: WhatsApp-style tab animation (continuous scroll-driven shrink)
+- **What:** Restructured `ProfileScreen` so the full-size tab bar (Stats/Timeline) is **item 0 in each tab's LazyColumn** (was a pinned box that height-animated). The shrink is driven **continuously** by the scroll offset via `graphicsLayer` lambdas (`alpha`, `scaleX`, `scaleY` — deferred reads, no recomposition on scroll) instead of a boolean `collapsed` toggle + `animateFloatAsState` (which caused the "jumping" effect). Mini tab pill moved into `CollapsingHeader`'s `actions` slot (right side, between title and settings gear — was at top-LEFT `CenterStart`), widened (fontSize 11sp, padding 12dp), each segment individually clickable. `ScrollBlurOverlay` removed entirely (the darkening blur no longer appears on slight scroll). Because the tabs are a real scroll item, once scrolled past the `ProfileHeader` (item 1) lands naturally at the top of the viewport — fully visible, not cut off. A `scrollFraction: () -> Float` lambda is shared between the `graphicsLayer` modifiers and the mini-pill alpha; the header title collapse still uses `derivedStateOf { fraction > 0.5 }` → `CollapsingHeader(collapsed=...)` (smooth `animateFloatAsState` for the font only).
+- **Why:** User reported the tab shrink was "jumping" not smooth, mini tabs appeared at top-left (should be right, between title and settings), too narrow, and the darkening blur appeared on slight scroll. Root cause: boolean-toggle + animateFloatAsState = stepped animation; `CenterStart` alignment = wrong position; `ScrollBlurOverlay` = unwanted blur.
+- **Status:** ✅ CI green (run 31422446992). Awaiting device verification.
+- **Date:** this session (feature/db-optimization-ratings-cw branch).
+
+### D-172 — Profile UI v4: Watch flow redesign (tall chart, grid, floating sidebar with covers)
+- **What:** Redesigned `WatchFlowGraph`: taller chart (128dp bars area), horizontal grid lines (3: 0/50/100%), y-axis labels (max/mid/0) on the left, wider bars (30dp) with rounded tops, per-bar count labels above each bar (bold+primary for today/selected, faint otherwise), today's bar colored primary@0.75 by default. Day labels moved BELOW the bars (no overlap). Tap a bar → floating right-side sidebar overlay (`AnimatedVisibility` slide+fade) with a themed primary-tinted background + border, showing: day name, "X ep • Ym" duration, and a vertical scrollable list of anime covers (28×40dp) + title + episode number. Tapping a different bar switches content (Saturday's sidebar is replaced by Sunday's — no close/reopen flicker); tapping the same bar closes. ViewModel computes per-day `DayWatchSummary` (count + totalDurationSec + items list capped at 12) by grouping `allProgress` by day-of-week.
+- **Why:** User reported the watch flow "looks way too bad," needs grids + taller height + extra padding, the sidebar mini-window was "not proper" (no thumbnails, no themed bg), and switching bars didn't auto-close the previous one.
+- **Status:** ✅ CI green (run 31422446992). Awaiting device verification.
+- **Date:** this session.
+
+### D-173 — Profile UI v4: Time DNA donut (stroke arcs) + layout restructure
+- **What:** `TimeDnaCard` now renders a true donut via `drawArc(useCenter=false, style=Stroke(width=outerR*0.26, cap=Butt))` (was a filled pie — the transparent `drawCircle` "hole punch" was a no-op). Center overlay shows the current time period's color dot + name. Legend (Morning/Afternoon/Evening/Night with %) moved BELOW the donut (was on the right). Right side is now a dedicated recently-watched anime section: a `LazyRow(reverseLayout=true)` of up to 6 covers so the **newest appears at the far right** and is visible by default (scroll left for older). Theme-adjacent colors kept (orange/amber/lime/white — warm→cool by time of day; evening = app primary lime).
+- **Why:** User reported it was a pie not a donut, center should show current period, legend should be below not on the right, right side should show anime with the most-recent at the far right (was at the bottom of a list), and colors looked "random" (actually the broken donut made the pie look messy).
+- **Status:** ✅ CI green (run 31422446992). Awaiting device verification.
+- **Date:** this session.
+
+### D-174 — Profile UI v4: Activity heatmap left day markers + bottom month labels
+- **What:** `ActivityHeatmapCard` now has a left day-marker column (M/T/W/T/F/S/S — single letters, 8sp, aligned with the 7 rows) outside the `LazyRow`. Bottom: each week column shows its month abbreviation (Jan/Feb/…) when it's the oldest week of that month (replaces the "Tap and scroll to see more →" text). Square 12dp cells, gray (onSurfaceVariant@0.12) for non-active days, scrollable (recent on right via `reverseLayout`). Each column = Mon..Sun (row 0 = Monday) computed from the Monday of the current week.
+- **Why:** User requested minimized day markers on the left (not full names) and month names at the bottom (not the "tap and scroll" text).
+- **Status:** ✅ CI green (run 31422446992). Awaiting device verification.
+- **Date:** this session.
+
+### D-175 — Profile UI v4: Settings image picker (PickVisualMedia → internal storage)
+- **What:** `ProfileSettingsSheet` "Choose Image" now launches `ActivityResultContracts.PickVisualMedia()` (was a `/* TODO: file picker */` placeholder). The picked image URI is copied to `context.filesDir/avatar_<timestamp>.jpg` on `Dispatchers.IO` (via `rememberCoroutineScope` + `withContext`) and stored as a `file://` URI in `profile_avatar_url` so it persists across launches (a `content://` SAF URI from the photo picker is only valid for the session — no persistable permission). URL mode trims input + live-previews via `AsyncImage(model = avatarInput.trim())`. The Coil `OkHttp` client already has a browser User-Agent (`HttpClientFactory`), so most URLs load; host-specific hotlink protection remains the only failure mode (noted honestly — can't be fixed without the specific URL/host).
+- **Why:** User reported "Choose Image" did nothing (TODO placeholder) and a `.jpg` URL didn't load while a non-extension URL did. The OkHttp client already sends a UA, so the `.jpg` failure is host-specific (hotlink protection / Referer requirement), not a UA issue.
+- **Status:** ✅ CI green (run 31422446992). Awaiting device verification.
+- **Date:** this session.
+
+### D-176 — AnimatedVisibility RowScope conflict (extract into top-level composable)
+- **What:** CI failed on `:app:compileDebugKotlin` — `AnimatedVisibility` called inside the watch-flow bars `Box` (which sits inside the chart `Row`) resolved to `RowScope.AnimatedVisibility` (the chart Row's receiver leaks into the Box's content lambda) and the compiler rejected it: "cannot be called in this context with an implicit receiver." Fix: extracted the `AnimatedVisibility` + sidebar into a top-level private composable `WatchFlowSidebarOverlay(visible, dayName, summary, onOpenAnime, onDismiss, modifier)`. Its body has NO scope receiver, so `AnimatedVisibility` resolves to the plain top-level overload. The `modifier` (with `Modifier.align(Alignment.TopEnd)` from the Box call site) is passed through.
+- **Why:** This is a recurring issue (the previous session hit the same thing and worked around it by replacing `AnimatedVisibility` with a plain `if` — losing the animation). The proper fix is extraction into a scope-less composable so the top-level overload is unambiguous.
+- **Status:** ✅ CI green (run 31422446992).
+- **Date:** this session.

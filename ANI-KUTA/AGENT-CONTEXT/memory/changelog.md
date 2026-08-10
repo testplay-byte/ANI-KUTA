@@ -700,3 +700,16 @@
 - ⚠️ Phase 4 CI: first push failed (5 unresolved reference errors in WatchScreen.kt — rating state in wrong composable scope). Fix pushed (ca4a345). CI green (run 31349493109).
 - Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification before merge to `main`.
 - Decisions: D-166..D-170. Lessons: 5 new entries (SQLite UPSERT constraint, extension trust by-signer, cache enrichment preservation, composable scope, INSERT-when-missing guard).
+
+### Profile UI v4 — Tab animation, watch flow redo, donut DNA, heatmap labels, image picker (D-171..D-176)
+- **Tab animation (WhatsApp contact-info style):** Full-size tab bar is now item 0 in each tab's LazyColumn (scrolls away naturally → ProfileHeader lands at top, visible). Shrink driven continuously by scroll offset via `graphicsLayer` lambdas (deferred — no recomposition, no "jump"). Mini tab pill moved to header `actions` slot (right side, between title + settings), widened, each segment clickable. `ScrollBlurOverlay` removed.
+- **Watch flow (redesigned):** Taller 128dp chart + horizontal grid + y-axis labels + 30dp bars + per-bar count labels + today color. Tap → floating right-side sidebar overlay (AnimatedVisibility slide+fade) with themed primary-tinted bg, anime covers + EP numbers + total duration. Switching bars switches content; tap same bar to close. ViewModel computes per-day `DayWatchSummary`.
+- **Time DNA (donut):** True donut via `drawArc(useCenter=false, style=Stroke)`. Center shows current period color + name. Legend below donut. Right side = recently-watched `LazyRow(reverseLayout=true)` so newest is at the far right.
+- **Activity heatmap:** Left day markers (M/T/W/T/F/S/S) + bottom month labels per week column (replaces "Tap and scroll" text). Square 12dp cells, gray empty.
+- **Settings image picker:** `PickVisualMedia` launcher → copies to `filesDir` → loads as `file://` URI (persists across launches). URL trimmed + live preview.
+- **CI fix:** `AnimatedVisibility` RowScope conflict — extracted `WatchFlowSidebarOverlay` top-level composable (D-176).
+
+### Status
+- ✅ CI green (run 31422446992, commit abfe23a).
+- Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification.
+- Decisions: D-171..D-176. Lessons: 1 new (AnimatedVisibility RowScope-in-Box → extract to scope-less composable).
