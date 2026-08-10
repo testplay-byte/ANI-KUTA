@@ -137,9 +137,35 @@ class SqlDelightWatchProgressStore(
     }
 
     override suspend fun setAutoMarkSuppressed(episodeKey: String) = withContext(dispatchers) {
-        // CF1: user un-marked → suppress auto-mark + clear completed + clear userMarkedWatched.
-        database.watchQueries.setAutoMarkSuppressed(1L, episodeKey)
-        Logger.i(TAG) { "setAutoMarkSuppressed (user un-marked): key=$episodeKey → isWatched=false" }
+        // CF1 + WP-B1: user un-marked → suppress auto-mark + clear completed + clear
+        // userMarkedWatched + clear completed_at (WP-B1: was leaving stale completed_at).
+        // FIX: if the row doesn't exist (user never watched the episode), INSERT it
+        // with the suppressed flag set + sensible defaults. The old UPDATE-only approach
+        // was a silent no-op when the row didn't exist — the swipe "didn't work".
+        val existing = database.watchQueries.getWatchProgress(episodeKey).executeAsOneOrNull()
+        if (existing == null) {
+            // Row doesn't exist — INSERT with suppressed flag + extract mainId from the key.
+            val mainId = episodeKey.substringBeforeLast('|').takeIf { it != episodeKey }
+            val now = System.currentTimeMillis()
+            database.watchQueries.upsertWatchProgress(
+                episode_key = episodeKey,
+                position = 0L,
+                duration = 0L,
+                completed = 0L,
+                completed_at = null,
+                last_watched_at = now,
+                main_id = mainId,
+                watch_count = 0L,
+                first_watched_at = null,
+                auto_mark_suppressed = 1L,
+                user_marked_watched = 0L,
+            )
+            Logger.i(TAG) { "setAutoMarkSuppressed — INSERTED new row (was no-op before): key=$episodeKey mainId=$mainId → isWatched=false (suppressed)" }
+        } else {
+            // Row exists — UPDATE (WP-B1: now clears completed_at too).
+            database.watchQueries.setAutoMarkSuppressed(1L, episodeKey)
+            Logger.i(TAG) { "setAutoMarkSuppressed (user un-marked): key=$episodeKey → isWatched=false (completed_at cleared)" }
+        }
     }
 
     override suspend fun setUserMarkedWatched(episodeKey: String) = withContext(dispatchers) {

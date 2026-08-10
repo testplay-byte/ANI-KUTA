@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS library_item (
 
 CREATE INDEX IF NOT EXISTS idx_library_item_main ON library_item(main_id);
 CREATE INDEX IF NOT EXISTS idx_library_item_category ON library_item(category_id);
+-- Phase DB-OPT: unique constraint to prevent duplicate (main_id, category_id) rows.
+-- Hardens the INSERT OR IGNORE dedup (currently relies on OR IGNORE alone).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_library_item_unique ON library_item(main_id, category_id);
 
 -- ============================================================================
 -- Queries: library_category

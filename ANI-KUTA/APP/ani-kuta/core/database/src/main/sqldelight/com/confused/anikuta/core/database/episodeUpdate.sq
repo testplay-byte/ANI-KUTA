@@ -19,7 +19,11 @@ CREATE TABLE IF NOT EXISTS episode_update (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_update_unique ON episode_update(main_id, episode_key, audio_variant);
 CREATE INDEX IF NOT EXISTS idx_episode_update_discovered ON episode_update(discovered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_episode_update_unack ON episode_update(acknowledged, discovered_at DESC);
-CREATE INDEX IF NOT EXISTS idx_episode_update_main_id ON episode_update(main_id);
+-- NOTE: idx_episode_update_main_id was dropped (Phase DB-OPT) — redundant with the
+-- leftmost column (main_id) of idx_episode_update_unique UNIQUE composite.
+-- Phase DB-OPT: partial index for fast retention purge (deleteOldAcknowledged).
+CREATE INDEX IF NOT EXISTS idx_episode_update_ack_at ON episode_update(acknowledged_at)
+    WHERE acknowledged = 1;
 
 -- Insert a new episode update (INSERT OR REPLACE — CF5: if the details-page hook already
 -- inserted with acknowledged=1, the worker's acknowledged=0 overwrites it... wait, that's

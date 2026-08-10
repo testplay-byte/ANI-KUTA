@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS notification_sent (
     sent_at INTEGER NOT NULL,
     PRIMARY KEY (main_id, episode_number, audio_variant, trigger_type)
 );
+-- Phase DB-OPT: index for fast retention purge (deleteOldSentNotifications).
+CREATE INDEX IF NOT EXISTS idx_notification_sent_at ON notification_sent(sent_at);
 
 -- Record a sent notification (for dedup).
 recordNotificationSent:

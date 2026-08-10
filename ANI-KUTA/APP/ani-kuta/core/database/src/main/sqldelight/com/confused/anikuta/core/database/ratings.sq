@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS user_episode_rating (
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_episode_rating_main ON user_episode_rating(main_id);
+-- NOTE: idx_episode_rating_main was dropped (Phase DB-OPT) — redundant with the
+-- leftmost column (main_id) of the composite PRIMARY KEY (main_id, episode_key).
 
 -- Upsert per-episode rating.
 upsertUserEpisodeRating:

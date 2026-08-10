@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS episode_schedule (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_unique ON episode_schedule(main_id, episode_number, audio_variant);
 CREATE INDEX IF NOT EXISTS idx_schedule_at ON episode_schedule(scheduled_at);
-CREATE INDEX IF NOT EXISTS idx_schedule_main ON episode_schedule(main_id);
+-- NOTE: idx_schedule_main was dropped (Phase DB-OPT) — redundant with the
+-- leftmost column (main_id) of idx_schedule_unique UNIQUE composite.
 
 -- Upsert a schedule entry.
 upsertEpisodeSchedule:

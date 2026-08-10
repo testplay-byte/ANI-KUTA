@@ -467,6 +467,8 @@ class DetailsViewModel(
                             airDate = if (ep.date_upload > 0) ep.date_upload else null,
                             fetchedAt = now,
                             episodeUrl = ep.url,
+                            sourceName = ep.name,
+                            scanlator = ep.scanlator,
                         )
                     }
                     dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
@@ -500,6 +502,8 @@ class DetailsViewModel(
                                 if (mainIdForCache != null) {
                                     val now = System.currentTimeMillis()
                                     val epNumToUrl = episodesForCache.associate { it.episode_number.toInt() to it.url }
+                                    val epNumToSourceName = episodesForCache.associate { it.episode_number.toInt() to it.name }
+                                    val epNumToScanlator = episodesForCache.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
                                     val enrichedCache = metadata.entries.map { (epNum, meta) ->
                                         com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                             mainId = mainIdForCache,
@@ -510,10 +514,12 @@ class DetailsViewModel(
                                             airDate = meta.airDate,
                                             fetchedAt = now,
                                             episodeUrl = epNumToUrl[epNum],
+                                            sourceName = epNumToSourceName[epNum],
+                                            scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
                                         )
                                     }
                                     dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
-                                    Logger.i(TAG) { "D.3 Stage 1: Wrote ${enrichedCache.size} enriched metadata entries to cache (episodeUrl preserved)" }
+                                    Logger.i(TAG) { "D.3 Stage 1: Wrote ${enrichedCache.size} enriched metadata entries to cache (episodeUrl + sourceName + scanlator preserved)" }
                                 }
                             } else {
                                 Logger.w(TAG) { "D.3 Stage 1: Episode metadata fetch returned empty — keeping existing metadata" }
@@ -762,10 +768,11 @@ class DetailsViewModel(
                 if (cachedEpisodes.isNotEmpty()) {
                     val episodes = cachedEpisodes.map { meta ->
                         SEpisode.create().apply {
-                            url = animeUrl
+                            url = meta.episodeUrl ?: animeUrl
                             episode_number = meta.episodeNumber
-                            name = meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
+                            name = meta.sourceName ?: meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
                             date_upload = meta.airDate ?: 0L
+                            scanlator = meta.scanlator
                         }
                     }.sortedByDescending { it.episode_number }
                     _episodeState.value = EpisodeState.Loaded(episodes)
@@ -1547,8 +1554,9 @@ class DetailsViewModel(
                         SEpisode.create().apply {
                             url = meta.episodeUrl ?: animeUrl
                             episode_number = meta.episodeNumber
-                            name = meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
+                            name = meta.sourceName ?: meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
                             date_upload = meta.airDate ?: 0L
+                            scanlator = meta.scanlator
                         }
                     }.sortedByDescending { it.episode_number }
                     _episodeState.value = EpisodeState.Loaded(episodes)
@@ -1629,6 +1637,8 @@ class DetailsViewModel(
                                 airDate = if (ep.date_upload > 0) ep.date_upload else null,
                                 fetchedAt = now,
                                 episodeUrl = ep.url,
+                                sourceName = ep.name,
+                                scanlator = ep.scanlator,
                             )
                         }
                         if (newCacheEntries.isNotEmpty()) {
@@ -1659,6 +1669,8 @@ class DetailsViewModel(
                                         // Update cache with enriched metadata for ALL episodes,
                                         // preserving episodeUrl from the fresh extension episodes.
                                         val epNumToUrl = freshEpisodes.associate { it.episode_number.toInt() to it.url }
+                                        val epNumToSourceName = freshEpisodes.associate { it.episode_number.toInt() to it.name }
+                                        val epNumToScanlator = freshEpisodes.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
                                         val enrichedCache = metadata.entries.map { (epNum, meta) ->
                                             com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                                 mainId = mainId,
@@ -1669,6 +1681,8 @@ class DetailsViewModel(
                                                 airDate = meta.airDate,
                                                 fetchedAt = now,
                                                 episodeUrl = epNumToUrl[epNum],
+                                                sourceName = epNumToSourceName[epNum],
+                                                scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
                                             )
                                         }
                                         dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
@@ -1721,6 +1735,8 @@ class DetailsViewModel(
                             airDate = if (ep.date_upload > 0) ep.date_upload else null,
                             fetchedAt = now,
                             episodeUrl = ep.url,
+                            sourceName = ep.name,
+                            scanlator = ep.scanlator,
                         )
                     }
                     dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
@@ -1757,6 +1773,8 @@ class DetailsViewModel(
                             if (mainId != null) {
                                 val now = System.currentTimeMillis()
                                 val epNumToUrl = episodes.associate { it.episode_number.toInt() to it.url }
+                                val epNumToSourceName = episodes.associate { it.episode_number.toInt() to it.name }
+                                val epNumToScanlator = episodes.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
                                 val enrichedCache = metadata.entries.map { (epNum, meta) ->
                                     com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                         mainId = mainId,
@@ -1767,10 +1785,12 @@ class DetailsViewModel(
                                         airDate = meta.airDate,
                                         fetchedAt = now,
                                         episodeUrl = epNumToUrl[epNum],
+                                        sourceName = epNumToSourceName[epNum],
+                                        scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
                                     )
                                 }
                                 dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
-                                Logger.i(TAG) { "Updated episode cache with enriched metadata (episodeUrl preserved for ${epNumToUrl.size} episodes)" }
+                                Logger.i(TAG) { "Updated episode cache with enriched metadata (episodeUrl + sourceName + scanlator preserved for ${epNumToUrl.size} episodes)" }
                             }
                         } catch (e: Exception) {
                             Logger.w(TAG) { "Episode metadata fetch failed: ${e.message}" }

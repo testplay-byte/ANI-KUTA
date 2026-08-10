@@ -26,7 +26,7 @@ val extensionModule = module {
     single { ExtensionRepoApi(get(named("extensionRepo"))) }
     single { AnimeExtensionApi(get(), get()) }
     single { ExtensionInstaller(get(), get(named("extensionRepo"))) }
-    single { ExtensionManager(get(), get(), get(), get(), get(named("extensionRepo"))) }
+    single { ExtensionManager(get(), get(), get(), get(), get(named("extensionRepo")), get()) }
 
     // Register ExtensionDetailsProvider (injected by DetailsViewModel directly)
     single { ExtensionDetailsProvider(get()) }

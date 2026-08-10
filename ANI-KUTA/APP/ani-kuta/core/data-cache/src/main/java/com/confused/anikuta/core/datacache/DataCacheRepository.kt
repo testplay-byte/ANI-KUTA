@@ -85,6 +85,8 @@ class DataCacheRepository(
                 airDate = it.air_date,
                 fetchedAt = it.fetched_at,
                 episodeUrl = it.episode_url,
+                sourceName = it.source_name,
+                scanlator = it.scanlator,
             )
         }
     }
@@ -99,6 +101,8 @@ class DataCacheRepository(
             airDate = meta.airDate,
             fetchedAt = meta.fetchedAt,
             episodeUrl = meta.episodeUrl,
+            sourceName = meta.sourceName,
+            scanlator = meta.scanlator,
         )
     }
 
@@ -114,6 +118,8 @@ class DataCacheRepository(
                     airDate = meta.airDate,
                     fetchedAt = meta.fetchedAt,
                     episodeUrl = meta.episodeUrl,
+                    sourceName = meta.sourceName,
+                    scanlator = meta.scanlator,
                 )
             }
         }

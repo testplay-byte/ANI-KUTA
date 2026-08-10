@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS watch_progress (
 
 CREATE INDEX IF NOT EXISTS idx_watch_progress_last_watched ON watch_progress(last_watched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id);
+-- Phase DB-OPT: partial index for getContinueWatching (O(log N) instead of O(N) table scan)
+CREATE INDEX IF NOT EXISTS idx_watch_progress_continue
+    ON watch_progress(last_watched_at DESC)
+    WHERE completed = 0 AND auto_mark_suppressed = 0 AND position > 0;
+-- Phase DB-OPT: index for getCompletedEpisodes (ORDER BY completed_at DESC)
+CREATE INDEX IF NOT EXISTS idx_watch_progress_completed_at ON watch_progress(completed_at DESC);
 
 -- Upsert progress (called by player via WatchProgressStore, batched every 10s + on pause/dispose)
 -- Uses named params (:paramName) so the generated Kotlin method has named args.
@@ -76,10 +82,11 @@ SET watch_count = watch_count + 1,
     first_watched_at = COALESCE(first_watched_at, ?)
 WHERE episode_key = ?;
 
--- Phase WP (CF1): user manually un-marked → suppress auto-mark + clear completed.
+-- Phase WP (CF1) + DB-OPT (WP-B1 fix): user manually un-marked → suppress auto-mark +
+-- clear completed + clear completed_at (was leaving stale completed_at on rows with position=0).
 setAutoMarkSuppressed:
 UPDATE watch_progress
-SET auto_mark_suppressed = ?, completed = 0, user_marked_watched = 0
+SET auto_mark_suppressed = ?, completed = 0, user_marked_watched = 0, completed_at = NULL
 WHERE episode_key = ?;
 
 -- Phase WP (CF1): user explicitly marked watched (sticky).

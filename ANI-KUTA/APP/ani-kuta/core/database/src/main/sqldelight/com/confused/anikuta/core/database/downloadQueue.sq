@@ -69,10 +69,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_download_queue_main_episode
 -- Fast lookup by state (for tryStartNext + UI filtering).
 CREATE INDEX IF NOT EXISTS idx_download_queue_state
     ON download_queue(state);
-
--- Fast lookup by mainId (for "is this content downloaded?" checks).
-CREATE INDEX IF NOT EXISTS idx_download_queue_main
-    ON download_queue(main_id);
+-- NOTE: idx_download_queue_main was dropped (Phase DB-OPT) — redundant with the
+-- leftmost column (main_id) of idx_download_queue_main_episode UNIQUE composite.
 
 -- ── Queries ────────────────────────────────────────────────────────────────
 

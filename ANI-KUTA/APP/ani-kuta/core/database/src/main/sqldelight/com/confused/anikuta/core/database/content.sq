@@ -138,6 +138,10 @@ CREATE TABLE IF NOT EXISTS other_source_detail (
 
 CREATE INDEX IF NOT EXISTS idx_other_source_main ON other_source_detail(main_id);
 CREATE INDEX IF NOT EXISTS idx_other_source_type ON other_source_detail(source_type, source_ref_id);
+-- Phase DB-OPT: index for getContentByAniListId (JOIN filter on anilist_id).
+CREATE INDEX IF NOT EXISTS idx_anilist_detail_anilist_id ON anilist_detail(anilist_id);
+-- Phase DB-OPT: composite index for getContentByExtension (filter on extension_id + anime_url).
+CREATE INDEX IF NOT EXISTS idx_content_extension_url ON content(extension_id, anime_url);
 
 -- ============================================================================
 -- Queries: data_source

@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS anime_update_state (
 -- S2: partial index — only due + enabled + releasing anime (the worker's query)
 CREATE INDEX IF NOT EXISTS idx_anime_update_due ON anime_update_state(next_check_at)
     WHERE auto_update_enabled = 1 AND status = 'RELEASING';
-CREATE INDEX IF NOT EXISTS idx_anime_update_status ON anime_update_state(status);
+-- NOTE: idx_anime_update_status was dropped (Phase DB-OPT) — no query filters on
+-- `status` alone (getDueAnime is covered by idx_anime_update_due partial index).
 
 -- Upsert (insert or replace — for when a new anime is added to the library).
 upsertAnimeUpdateState:

@@ -383,7 +383,7 @@ fun AppRoot() {
                                     meta.thumbnailUrl ?: "",
                                     (meta.airDate ?: 0L).toString(),
                                     meta.description ?: "",
-                                    "", // scanlator (not cached)
+                                    meta.scanlator ?: "", // Phase DB-OPT: now cached (audio-variants fix)
                                 ).joinToString(delim)
                             }
                         } else ""

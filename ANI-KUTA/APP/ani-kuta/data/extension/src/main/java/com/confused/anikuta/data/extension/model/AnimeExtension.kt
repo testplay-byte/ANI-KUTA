@@ -30,7 +30,17 @@ sealed class AnimeExtension {
     abstract val isNsfw: Boolean
     abstract val isTorrent: Boolean
 
-    /** A trusted, installed extension with live [AnimeSource] instances. */
+    /** A trusted, installed extension with live [AnimeSource] instances.
+     *
+     * Phase DB-OPT (extension trust fix): `isEnabled` is a per-package flag,
+     * independent of signer-level trust. Trust is by-signing-certificate-fingerprint
+     * (security gate — the signer must be trusted for the extension to LOAD at all).
+     * `isEnabled` is the user's per-package control — only enabled extensions' sources
+     * appear in pickers (Search source picker, Details manual search). This prevents
+     * "I trusted 2 extensions but all same-signer extensions show up" (the signer-trust
+     * auto-propagation issue). Default = true (backward compat — existing trusted
+     * extensions stay enabled unless the user explicitly disables them).
+     */
     data class Installed(
         override val name: String,
         override val pkgName: String,
@@ -46,6 +56,7 @@ sealed class AnimeExtension {
         val hasUpdate: Boolean = false,
         val isObsolete: Boolean = false,
         val repoUrl: String? = null,
+        val isEnabled: Boolean = true,
     ) : AnimeExtension()
 
     /** An extension listed in a repo but not yet installed. Sources are metadata only. */

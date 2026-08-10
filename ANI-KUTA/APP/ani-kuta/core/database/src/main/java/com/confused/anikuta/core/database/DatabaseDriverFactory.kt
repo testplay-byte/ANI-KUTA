@@ -35,6 +35,10 @@ class DatabaseDriverFactory(private val context: Context) {
             callback = object : AndroidSqliteDriver.Callback(AnikutaDatabase.Schema) {
                 override fun onOpen(db: SupportSQLiteDatabase) {
                     super.onOpen(db)
+                    // Phase DB-OPT: enable FK enforcement (was OFF by default in SQLite).
+                    // All ON DELETE CASCADE clauses are now active. Safe for existing data —
+                    // FK checks only apply to new INSERT/UPDATE/DELETE, not retroactively.
+                    db.execSQL("PRAGMA foreign_keys = ON")
                     migrateSchemaIfNeeded(db)
                 }
 
@@ -43,6 +47,15 @@ class DatabaseDriverFactory(private val context: Context) {
                  * This is idempotent — only adds columns that don't exist.
                  */
                 private fun migrateSchemaIfNeeded(db: SupportSQLiteDatabase) {
+                    // ── Phase DB-OPT: drop dead tables (extensions.sq + metadata.sq deleted) ──
+                    // installed_source + extension_repo were never used (zero Kotlin call sites).
+                    // content_metadata_cache + episode_metadata_cache were superseded by
+                    // anime_metadata_cache + data_cache_episode (dataCache.sq).
+                    db.execSQL("DROP TABLE IF EXISTS installed_source")
+                    db.execSQL("DROP TABLE IF EXISTS extension_repo")
+                    db.execSQL("DROP TABLE IF EXISTS content_metadata_cache")
+                    db.execSQL("DROP TABLE IF EXISTS episode_metadata_cache")
+
                     // ── download_queue: check for main_id (D.0 migration) ──
                     if (!hasColumn(db, "download_queue", "main_id")) {
                         // Old schema — drop + recreate the download tables.
@@ -58,6 +71,46 @@ class DatabaseDriverFactory(private val context: Context) {
                         // Add the episode_url column to the existing table.
                         db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN episode_url TEXT")
                     }
+
+                    // ── Phase DB-OPT (audio-variants fix): source_name + scanlator columns ──
+                    // These preserve the extension's original episode name + scanlator through
+                    // the AniList-enriched cache write, so audio pills (SUB/DUB/HSUB) show on
+                    // cache-first load (not just after a manual refresh).
+                    if (!hasColumn(db, "data_cache_episode", "source_name")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN source_name TEXT")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "scanlator")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN scanlator TEXT")
+                    }
+
+                    // ── Phase DB-OPT: drop redundant indexes (idempotent — IF EXISTS) ──
+                    // These duplicate the leftmost column of composite UNIQUE/PK indexes.
+                    db.execSQL("DROP INDEX IF EXISTS idx_data_cache_episode_main")
+                    db.execSQL("DROP INDEX IF EXISTS idx_download_queue_main")
+                    db.execSQL("DROP INDEX IF EXISTS idx_schedule_main")
+                    db.execSQL("DROP INDEX IF EXISTS idx_episode_update_main_id")
+                    db.execSQL("DROP INDEX IF EXISTS idx_episode_rating_main")
+                    db.execSQL("DROP INDEX IF EXISTS idx_anime_update_status")
+
+                    // ── Phase DB-OPT: create new indexes (idempotent — IF NOT EXISTS) ──
+                    // These add missing indexes for common query patterns.
+                    // watch_progress: continue-watching partial + completed_at
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_watch_progress_continue ON watch_progress(last_watched_at DESC) WHERE completed = 0 AND auto_mark_suppressed = 0 AND position > 0")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_watch_progress_completed_at ON watch_progress(completed_at DESC)")
+                    // episode_update: retention purge partial
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_episode_update_ack_at ON episode_update(acknowledged_at) WHERE acknowledged = 1")
+                    // notification_sent: retention purge
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_notification_sent_at ON notification_sent(sent_at)")
+                    // library_item: unique dedup
+                    // Dedupe any duplicate (main_id, category_id) rows before adding the
+                    // UNIQUE index (INSERT OR IGNORE without a UNIQUE constraint could have
+                    // created duplicates on existing installs). Keeps the lowest id per pair.
+                    db.execSQL("DELETE FROM library_item WHERE id NOT IN (SELECT MIN(id) FROM library_item GROUP BY main_id, category_id)")
+                    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_library_item_unique ON library_item(main_id, category_id)")
+                    // anilist_detail: JOIN filter
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_anilist_detail_anilist_id ON anilist_detail(anilist_id)")
+                    // content: extension lookup composite
+                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_extension_url ON content(extension_id, anime_url)")
 
                     // ── Phase WP: watch_progress new columns (PLAN §1.1, §1.8) ──
                     // The .sq CREATE TABLE is edited for fresh installs + codegen.

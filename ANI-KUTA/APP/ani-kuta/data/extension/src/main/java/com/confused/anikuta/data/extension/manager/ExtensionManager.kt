@@ -47,6 +47,7 @@ class ExtensionManager(
     private val api: AnimeExtensionApi,
     val installer: ExtensionInstaller,
     private val okhttpClient: OkHttpClient,
+    private val appPreferences: com.confused.anikuta.core.preferences.AppPreferences,
 ) {
 
     companion object {
@@ -98,6 +99,20 @@ class ExtensionManager(
         Logger.i(TAG) { "Loading all extensions..." }
 
         val results = loader.loadAll()
+
+        // Phase DB-OPT (backward compat): if the enabledExtensions set is empty
+        // (first launch after the upgrade that introduced per-package enable),
+        // seed it with all currently-trusted pkgNames. This prevents existing
+        // trusted extensions from being disabled on upgrade — they stay enabled
+        // until the user explicitly toggles them.
+        if (appPreferences.enabledExtensions.isEmpty()) {
+            val trustedPkgs = results.filterIsInstance<LoadResult.Success>()
+                .map { it.extension.pkgName }.toSet()
+            if (trustedPkgs.isNotEmpty()) {
+                appPreferences.enabledExtensions = trustedPkgs
+                Logger.i(TAG) { "Seeded enabledExtensions with ${trustedPkgs.size} existing trusted packages (backward compat)" }
+            }
+        }
         val trusted = mutableListOf<AnimeExtension.Installed>()
         val untrusted = mutableListOf<AnimeExtension.Untrusted>()
         val sourceMap = mutableMapOf<Long, AnimeSource>()
@@ -105,11 +120,20 @@ class ExtensionManager(
         for (result in results) {
             when (result) {
                 is LoadResult.Success -> {
+                    // Phase DB-OPT (extension trust fix): mark each Installed with
+                    // isEnabled from AppPreferences. Only enabled extensions' sources
+                    // are registered into _sources (shown in pickers).
                     val ext = result.extension
-                    trusted.add(ext)
-                    ext.sources.forEach { source ->
-                        sourceMap[source.id] = source
-                        Logger.d(TAG) { "Registered source: ${source.name} (id=${source.id})" }
+                    val enabled = appPreferences.isExtensionEnabled(ext.pkgName)
+                    val marked = if (ext.isEnabled != enabled) ext.copy(isEnabled = enabled) else ext
+                    trusted.add(marked)
+                    if (enabled) {
+                        marked.sources.forEach { source ->
+                            sourceMap[source.id] = source
+                            Logger.d(TAG) { "Registered source: ${source.name} (id=${source.id})" }
+                        }
+                    } else {
+                        Logger.d(TAG) { "Extension ${marked.name} is trusted but DISABLED — sources not registered" }
                     }
                 }
                 is LoadResult.Untrusted -> {
@@ -142,7 +166,7 @@ class ExtensionManager(
         updateInstalledStatuses()
 
         Logger.i(TAG) {
-            "Loaded ${trusted.size} trusted (${sourceMap.size} sources), ${untrusted.size} untrusted"
+            "Loaded ${trusted.size} trusted (${sourceMap.size} sources), ${untrusted.size} untrusted, ${trusted.count { !it.isEnabled }} disabled"
         }
     }
 
@@ -184,6 +208,10 @@ class ExtensionManager(
         Logger.i(TAG) { "Trusting extension: ${extension.name}" }
 
         extension.signatureHash.let { trustService.trust(it) }
+        // Phase DB-OPT: also enable this specific package (per-package control
+        // independent of signer-level trust). Other same-signer extensions stay
+        // untrusted until the user explicitly trusts them one-by-one.
+        appPreferences.enableExtension(extension.pkgName)
 
         // Remove from untrusted.
         _untrustedExtensions.value = _untrustedExtensions.value.filter { it.pkgName != extension.pkgName }
@@ -191,7 +219,7 @@ class ExtensionManager(
         // Re-load the extension to get its sources.
         val result = loader.loadExtension(extension.pkgName)
         if (result is LoadResult.Success) {
-            val installed = result.extension
+            val installed = result.extension.copy(isEnabled = true)
             _installedExtensions.value = _installedExtensions.value + installed
             val sourceMap = _sources.value.toMutableMap()
             installed.sources.forEach { source ->
@@ -211,6 +239,8 @@ class ExtensionManager(
         if (extension.signatureHash.isNotEmpty()) {
             trustService.revoke(extension.signatureHash)
         }
+        // Phase DB-OPT: also remove from enabled set (per-package).
+        appPreferences.disableExtension(extension.pkgName)
 
         // Remove from installed + remove its sources.
         _installedExtensions.value = _installedExtensions.value.filter { it.pkgName != extension.pkgName }
@@ -220,6 +250,44 @@ class ExtensionManager(
 
         // Reload to populate the untrusted list with this extension.
         loadAll()
+    }
+
+    // ── Phase DB-OPT (extension trust fix): per-package enable/disable ──────────
+
+    /**
+     * Enable an installed extension's sources (without re-trusting — the signer
+     * must already be trusted). Adds the package to the enabled set + registers
+     * its sources into [_sources]. The extension stays in _installedExtensions.
+     */
+    fun enableExtension(pkgName: String) {
+        Logger.i(TAG) { "Enabling extension: $pkgName" }
+        appPreferences.enableExtension(pkgName)
+        val ext = _installedExtensions.value.find { it.pkgName == pkgName } ?: return
+        if (ext.isEnabled) return
+        _installedExtensions.value = _installedExtensions.value.map {
+            if (it.pkgName == pkgName) it.copy(isEnabled = true) else it
+        }
+        val sourceMap = _sources.value.toMutableMap()
+        ext.sources.forEach { source -> sourceMap[source.id] = source }
+        _sources.value = sourceMap
+    }
+
+    /**
+     * Disable an installed extension's sources (without untrusting — the signer
+     * stays trusted, the extension stays loaded, but its sources are removed
+     * from [_sources] so they don't appear in pickers).
+     */
+    fun disableExtension(pkgName: String) {
+        Logger.i(TAG) { "Disabling extension: $pkgName" }
+        appPreferences.disableExtension(pkgName)
+        val ext = _installedExtensions.value.find { it.pkgName == pkgName } ?: return
+        if (!ext.isEnabled) return
+        _installedExtensions.value = _installedExtensions.value.map {
+            if (it.pkgName == pkgName) it.copy(isEnabled = false) else it
+        }
+        val sourceMap = _sources.value.toMutableMap()
+        ext.sources.forEach { source -> sourceMap.remove(source.id) }
+        _sources.value = sourceMap
     }
 
     // ── Install / Uninstall ────────────────────────────────────────────────────

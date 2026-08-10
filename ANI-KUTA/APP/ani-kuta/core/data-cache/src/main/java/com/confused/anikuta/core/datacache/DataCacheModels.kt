@@ -24,6 +24,12 @@ data class CachedAnimeMetadata(
 
 /**
  * Cached episode metadata.
+ *
+ * Phase DB-OPT (audio-variants fix): `sourceName` + `scanlator` preserve the
+ * extension's original episode name + scanlator through the AniList-enriched
+ * cache write. Audio pills (SUB/DUB/HSUB) are parsed from these fields; without
+ * them, the enriched cache overwrites `title` with the AniList title (no
+ * SUB/DUB markers) and `scanlator` is null → pills don't show on cache-first load.
  */
 data class CachedEpisodeMetadata(
     val mainId: String,
@@ -34,6 +40,8 @@ data class CachedEpisodeMetadata(
     val airDate: Long? = null,
     val fetchedAt: Long,
     val episodeUrl: String? = null,
+    val sourceName: String? = null,
+    val scanlator: String? = null,
 )
 
 /**

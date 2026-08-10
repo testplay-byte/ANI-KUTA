@@ -116,6 +116,14 @@ class PreferenceStore(context: Context) {
         preferenceFlow(key, { prefs.getStringSet(key, default) ?: default })
 
     /**
+     * Reads a Set<String> synchronously (Phase DB-OPT: added for extension
+     * enabled-packages — ExtensionManager needs a synchronous read at loadAll()
+     * time, not a Flow). Falls back to [default] if the key is absent.
+     */
+    fun getStringSet(key: String, default: Set<String> = emptySet()): Set<String> =
+        prefs.getStringSet(key, default) ?: default
+
+    /**
      * Stores a Set<String> (for ordered lists, use [putStringList] which
      * preserves order via a delimiter — Set doesn't preserve order).
      */

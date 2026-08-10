@@ -48,6 +48,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -249,6 +250,10 @@ fun ExtensionsSettingsScreen(
                                             }
                                         },
                                         onLongPress = { reorderMode = true },
+                                        onToggleEnabled = {
+                                            if (ext.isEnabled) extensionManager.disableExtension(ext.pkgName)
+                                            else extensionManager.enableExtension(ext.pkgName)
+                                        },
                                         onUntrust = { extensionManager.untrustExtension(ext) },
                                         onDelete = { extensionManager.uninstallExtension(ext) },
                                     )
@@ -445,6 +450,7 @@ private fun InstalledExtensionRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onLongPress: () -> Unit,
+    onToggleEnabled: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -510,6 +516,12 @@ private fun InstalledExtensionRow(
                 )
             }
             if (!isReordering) {
+                // Phase DB-OPT: enable/disable toggle (per-package control independent of signer trust).
+                Switch(
+                    checked = extension.isEnabled,
+                    onCheckedChange = { onToggleEnabled() },
+                    modifier = Modifier.padding(end = 4.dp),
+                )
                 ActionIconButton(
                     icon = Icons.Filled.VerifiedUser,
                     contentDescription = "Untrust",
