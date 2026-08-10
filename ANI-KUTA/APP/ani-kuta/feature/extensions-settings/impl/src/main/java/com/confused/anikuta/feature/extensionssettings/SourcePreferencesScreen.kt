@@ -348,7 +348,7 @@ private fun ListPreferenceRenderer(
                             color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(12.dp),
-                            border = border.BorderStroke(
+                            border = androidx.compose.foundation.BorderStroke(
                                 width = if (isSelected) 2.dp else 1.dp,
                                 color = if (isSelected) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.outlineVariant,
@@ -368,7 +368,7 @@ private fun ListPreferenceRenderer(
                                     shape = androidx.compose.foundation.shape.CircleShape,
                                     color = if (isSelected) MaterialTheme.colorScheme.primary
                                         else Color.Transparent,
-                                    border = border.BorderStroke(
+                                    border = androidx.compose.foundation.BorderStroke(
                                         width = 2.dp,
                                         color = if (isSelected) MaterialTheme.colorScheme.primary
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
