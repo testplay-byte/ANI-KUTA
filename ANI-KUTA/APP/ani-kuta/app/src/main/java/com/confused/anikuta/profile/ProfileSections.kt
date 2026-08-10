@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -46,11 +47,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +75,7 @@ import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.settings.SegmentedToggle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -78,11 +83,41 @@ import java.util.Calendar
 import kotlin.math.min
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Watch Flow — tall bar chart with grid, y-axis, per-bar counts, today color,
-//  and a floating right-side sidebar overlay with anime covers + duration.
+//  Color helpers
 // ════════════════════════════════════════════════════════════════════════════
 
-private const val BARS_HEIGHT_DP = 128 // bars-area height (chart card minus the day-label row)
+/**
+ * Returns the complementary color (hue + 180°) of [color], preserving
+ * saturation, value, and alpha. Used for the "today" highlight in the watch
+ * flow — it dynamically picks a color that complements the theme primary.
+ */
+private fun complementaryColor(color: Color): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.RGBToHSV(
+        (color.red * 255).toInt(),
+        (color.green * 255).toInt(),
+        (color.blue * 255).toInt(),
+        hsv,
+    )
+    hsv[0] = (hsv[0] + 180f) % 360f
+    val rgb = android.graphics.Color.HSVToColor(hsv)
+    return Color(
+        red = ((rgb shr 16) and 0xFF) / 255f,
+        green = ((rgb shr 8) and 0xFF) / 255f,
+        blue = (rgb and 0xFF) / 255f,
+        alpha = color.alpha,
+    )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Watch Flow — tall bar chart with grid, y-axis, today complementary color,
+//  and a floating LEFT-side sidebar overlay with anime covers + duration.
+//  No default count labels (count shown in sidebar only).
+// ════════════════════════════════════════════════════════════════════════════
+
+private const val BARS_HEIGHT_DP = 150
+private const val SIDEBAR_HEIGHT_DP = 200
+private const val SIDEBAR_WIDTH_DP = 160
 private const val BAR_WIDTH_DP = 30
 
 @Composable
@@ -90,6 +125,7 @@ fun WatchFlowGraph(
     watchFlowByDay: List<Int>,
     watchFlowDetail: List<DayWatchSummary>,
     onNavigateToAnime: (Int) -> Unit,
+    listState: LazyListState,
 ) {
     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
     val todayIdx = remember {
@@ -98,8 +134,16 @@ fun WatchFlowGraph(
     }
     val maxVal = (watchFlowByDay.maxOrNull() ?: 0).coerceAtLeast(1)
     val primaryColor = MaterialTheme.colorScheme.primary
+    val todayColor = remember(primaryColor) { complementaryColor(primaryColor) }
     val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
     var selectedDay by remember { mutableStateOf(-1) }
+
+    // Close the sidebar when the parent LazyColumn starts scrolling.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .filter { it }
+            .collect { selectedDay = -1 }
+    }
 
     val yLabels = remember(maxVal) { listOf(maxVal, maxVal / 2, 0) }
 
@@ -119,9 +163,7 @@ fun WatchFlowGraph(
                 Row(modifier = Modifier.fillMaxWidth()) {
                     // Y-axis labels (max / mid / 0), aligned to the bars area
                     Column(
-                        modifier = Modifier
-                            .width(26.dp)
-                            .height(BARS_HEIGHT_DP.dp),
+                        modifier = Modifier.width(26.dp).height(BARS_HEIGHT_DP.dp),
                         verticalArrangement = Arrangement.SpaceBetween,
                         horizontalAlignment = Alignment.End,
                     ) {
@@ -134,13 +176,18 @@ fun WatchFlowGraph(
                     }
                     Spacer(Modifier.width(6.dp))
 
-                    // Bars area: grid lines + bars, with floating sidebar overlay
-                    Box(modifier = Modifier.weight(1f).height(BARS_HEIGHT_DP.dp)) {
+                    // Bars area: grid lines + bars + floating sidebar overlay.
+                    // The whole Box is clickable to close the sidebar on tap-outside.
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(BARS_HEIGHT_DP.dp)
+                            .clickable { selectedDay = -1 },
+                    ) {
                         // Grid lines (drawn behind bars)
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val w = size.width
                             val h = size.height
-                            // 3 horizontal grid lines: top (max), middle, bottom (0)
                             listOf(0f, 0.5f, 1f).forEach { frac ->
                                 val y = h * (1f - frac)
                                 drawLine(
@@ -164,26 +211,17 @@ fun WatchFlowGraph(
                                 val barHeightFraction = (count.toFloat() / maxVal).coerceIn(0.03f, 1f)
                                 val barColor = when {
                                     isSelected -> primaryColor
-                                    isToday -> primaryColor.copy(alpha = 0.75f)
+                                    isToday -> todayColor
                                     else -> primaryColor.copy(alpha = 0.25f + 0.4f * count.toFloat() / maxVal)
                                 }
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier.width(BAR_WIDTH_DP.dp),
                                 ) {
-                                    // Count label above each bar (always visible)
-                                    Text(
-                                        "$count", fontFamily = RobotoFamily,
-                                        fontSize = if (isSelected || isToday) 11.sp else 9.sp,
-                                        fontWeight = if (isSelected || isToday) FontWeight.ExtraBold else FontWeight.Medium,
-                                        color = if (isSelected || isToday) primaryColor
-                                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    )
-                                    Spacer(Modifier.height(3.dp))
                                     Box(
                                         modifier = Modifier
                                             .width(BAR_WIDTH_DP.dp)
-                                            .height((barHeightFraction * (BARS_HEIGHT_DP - 20)).dp)
+                                            .height((barHeightFraction * (BARS_HEIGHT_DP - 16)).dp)
                                             .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
                                             .background(barColor)
                                             .clickable {
@@ -194,10 +232,26 @@ fun WatchFlowGraph(
                             }
                         }
 
-                        // Floating sidebar overlay (right side) — shows when a bar is tapped.
-                        // Extracted into a separate composable so AnimatedVisibility resolves to
-                        // the top-level overload (the chart Row's RowScope would otherwise shadow
-                        // it with RowScope.AnimatedVisibility, which can't be called here).
+                        // Day labels row at the bottom of the chart area
+                        Row(
+                            modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            days.forEachIndexed { index, label ->
+                                val isToday = index == todayIdx
+                                Text(
+                                    label, fontFamily = RobotoFamily,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
+                                    color = if (isToday) todayColor
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.width(BAR_WIDTH_DP.dp),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+
+                        // Floating sidebar overlay (LEFT side) — shows when a bar is tapped.
                         val detail = selectedDay.takeIf { it >= 0 }?.let { watchFlowDetail.getOrNull(it) }
                         WatchFlowSidebarOverlay(
                             visible = selectedDay >= 0 && detail != null,
@@ -208,14 +262,14 @@ fun WatchFlowGraph(
                                 onNavigateToAnime(anilistId)
                             },
                             onDismiss = { selectedDay = -1 },
-                            modifier = Modifier.align(Alignment.TopEnd),
+                            modifier = Modifier.align(Alignment.TopStart),
                         )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
                 // Day labels row — below the bars, aligned under each bar column
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    Spacer(Modifier.width(32.dp)) // offset matching y-axis (26) + spacing (6)
+                    Spacer(Modifier.width(32.dp))
                     Row(
                         modifier = Modifier.weight(1f),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -223,10 +277,9 @@ fun WatchFlowGraph(
                         days.forEachIndexed { index, label ->
                             val isToday = index == todayIdx
                             Text(
-                                label, fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
+                                label, fontFamily = RobotoFamily, fontSize = 10.sp,
                                 fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                                color = if (isToday) primaryColor
+                                color = if (isToday) todayColor
                                         else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.width(BAR_WIDTH_DP.dp),
                                 textAlign = TextAlign.Center,
@@ -242,8 +295,7 @@ fun WatchFlowGraph(
 /**
  * Wrapper that animates the watch-flow sidebar in/out. Extracted as a top-level
  * composable so [AnimatedVisibility] resolves to the plain (non-RowScope)
- * overload — calling it inline inside the chart's Row would otherwise resolve
- * to RowScope.AnimatedVisibility, which the compiler rejects here.
+ * overload. Slides in from the LEFT.
  */
 @Composable
 private fun WatchFlowSidebarOverlay(
@@ -256,8 +308,8 @@ private fun WatchFlowSidebarOverlay(
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = slideInHorizontally(animationSpec = tween(250)) { it } + fadeIn(tween(250)),
-        exit = slideOutHorizontally(animationSpec = tween(200)) { it } + fadeOut(tween(200)),
+        enter = slideInHorizontally(animationSpec = tween(250)) { -it } + fadeIn(tween(250)),
+        exit = slideOutHorizontally(animationSpec = tween(200)) { -it } + fadeOut(tween(200)),
         modifier = modifier,
     ) {
         if (summary != null) {
@@ -278,14 +330,17 @@ private fun WatchFlowSidebar(
     onOpenAnime: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // Distinct themed background (primary-tinted) so the sidebar stands out from the chart card.
+    // Solid (non-transparent) background so the sidebar is readable over the bars.
     Surface(
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+        color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(12.dp),
         border = androidx.compose.foundation.BorderStroke(
-            1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
-        shadowElevation = 10.dp,
-        modifier = Modifier.width(158.dp).height(BARS_HEIGHT_DP.dp),
+            1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+        shadowElevation = 12.dp,
+        modifier = Modifier
+            .width(SIDEBAR_WIDTH_DP.dp)
+            .height(SIDEBAR_HEIGHT_DP.dp)
+            .clickable { /* consume — don't close on sidebar tap */ },
     ) {
         Column(modifier = Modifier.fillMaxSize().padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -329,13 +384,14 @@ private fun WatchFlowSidebar(
                             },
                         ) {
                             Box(
-                                modifier = Modifier.size(width = 28.dp, height = 40.dp)
+                                modifier = Modifier.size(width = 32.dp, height = 44.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                             ) {
-                                if (item.coverUrl != null) {
+                                val thumb = item.episodeThumbnailUrl ?: item.coverUrl
+                                if (thumb != null) {
                                     AsyncImage(
-                                        model = item.coverUrl,
+                                        model = thumb,
                                         contentDescription = item.title,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop,
@@ -373,16 +429,12 @@ private fun formatDurationShort(seconds: Long): String {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Time DNA — donut chart (stroke arcs), current period in center, legend
-//  below donut, right side: recently-watched anime row (newest at far right).
+//  Time DNA — standalone donut card with themed-tinted colors.
+//  Center shows current period. Legend below.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-fun TimeDnaCard(
-    timeDna: TimeDnaData?,
-    recentlyWatched: List<RecentlyWatchedItem>,
-    onClick: () -> Unit,
-) {
+fun TimeDnaCard(timeDna: TimeDnaData?) {
     if (timeDna == null) return
 
     val morning = (6..11).sumOf { timeDna.hourlyCounts[it] }
@@ -391,11 +443,12 @@ fun TimeDnaCard(
     val night = (23..23).sumOf { timeDna.hourlyCounts[it] } + (0..5).sumOf { timeDna.hourlyCounts[it] }
     val total = (morning + afternoon + evening + night).coerceAtLeast(1)
 
-    // Theme-adjacent colors (warm → cool, matching time of day; evening = app primary lime).
-    val morningColor = Color(0xFFFFB74D)    // warm orange — sunrise
-    val afternoonColor = Color(0xFFFFE082)  // light amber — midday
-    val eveningColor = Color(0xFFB1F256)    // app primary (lime) — dusk
-    val nightColor = Color(0xFFECE6F5)      // soft white — night
+    val primaryColor = MaterialTheme.colorScheme.primary
+    // Theme-adjacent base colors, each blended 25% with the primary for a tint.
+    val morningColor = lerp(Color(0xFFFFB74D), primaryColor, 0.25f)
+    val afternoonColor = lerp(Color(0xFFFFE082), primaryColor, 0.25f)
+    val eveningColor = lerp(Color(0xFFB1F256), primaryColor, 0.25f)
+    val nightColor = lerp(Color(0xFFECE6F5), primaryColor, 0.25f)
 
     val periods = listOf(
         Triple("Morning", morning, morningColor),
@@ -404,7 +457,6 @@ fun TimeDnaCard(
         Triple("Night", night, nightColor),
     )
 
-    // Current period based on time of day
     val cal = Calendar.getInstance()
     val currentHour = cal.get(Calendar.HOUR_OF_DAY)
     val currentPeriodIdx = when (currentHour) {
@@ -424,128 +476,154 @@ fun TimeDnaCard(
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
             shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.Top,
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // ── Left: donut + legend below ──────────────────────────────────
-                Column(modifier = Modifier.width(140.dp)) {
-                    Box(modifier = Modifier.size(104.dp)) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val centerX = size.width / 2f
-                            val centerY = size.height / 2f
-                            val outerRadius = min(centerX, centerY) * 0.92f
-                            val strokeWidth = outerRadius * 0.26f
-                            var startAngle = -90f
-                            periods.forEach { (_, count, color) ->
-                                if (count > 0) {
-                                    val fraction = count.toFloat() / total
-                                    val sweepAngle = fraction * 360f
-                                    drawArc(
-                                        color = color,
-                                        startAngle = startAngle,
-                                        sweepAngle = sweepAngle,
-                                        useCenter = false,
-                                        topLeft = Offset(centerX - outerRadius, centerY - outerRadius),
-                                        size = Size(outerRadius * 2, outerRadius * 2),
-                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
-                                    )
-                                    startAngle += sweepAngle
-                                }
+                // Donut
+                Box(modifier = Modifier.size(120.dp)) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val centerX = size.width / 2f
+                        val centerY = size.height / 2f
+                        val outerRadius = min(centerX, centerY) * 0.92f
+                        val strokeWidth = outerRadius * 0.26f
+                        var startAngle = -90f
+                        periods.forEach { (_, count, color) ->
+                            if (count > 0) {
+                                val fraction = count.toFloat() / total
+                                val sweepAngle = fraction * 360f
+                                drawArc(
+                                    color = color,
+                                    startAngle = startAngle,
+                                    sweepAngle = sweepAngle,
+                                    useCenter = false,
+                                    topLeft = Offset(centerX - outerRadius, centerY - outerRadius),
+                                    size = Size(outerRadius * 2, outerRadius * 2),
+                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
+                                )
+                                startAngle += sweepAngle
                             }
-                        }
-                        // Center: current period color dot + name
-                        Column(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Surface(
-                                color = currentPeriod.third,
-                                shape = CircleShape,
-                                modifier = Modifier.size(12.dp),
-                            ) {}
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                currentPeriod.first, fontFamily = RobotoFamily, fontSize = 9.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    // Legend below donut — 2x2 grid
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        periods.forEachIndexed { idx, (name, count, color) ->
-                            val pct = if (total > 0) count * 100 / total else 0
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(color = color, shape = RoundedCornerShape(3.dp),
-                                    modifier = Modifier.size(10.dp)) {}
-                                Spacer(Modifier.width(6.dp))
-                                Text("$pct%", fontFamily = RobotoFamily, fontSize = 11.sp,
-                                    fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.width(34.dp))
-                                Text(name, fontFamily = RobotoFamily, fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                    // Center: current period color dot + name
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Surface(
+                            color = currentPeriod.third,
+                            shape = CircleShape,
+                            modifier = Modifier.size(12.dp),
+                        ) {}
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            currentPeriod.first, fontFamily = RobotoFamily, fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                // Legend below donut — 2-column grid
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    periods.forEachIndexed { idx, (name, count, color) ->
+                        val pct = if (total > 0) count * 100 / total else 0
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(color = color, shape = RoundedCornerShape(3.dp),
+                                modifier = Modifier.size(10.dp)) {}
+                            Spacer(Modifier.width(4.dp))
+                            Text("$pct%", fontFamily = RobotoFamily, fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
+                            Spacer(Modifier.width(4.dp))
+                            Text(name, fontFamily = RobotoFamily, fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
+            }
+        }
+    }
+}
 
-                // ── Right: recently-watched anime section (newest at far right) ──
-                Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(
-                        "Recently Watched", fontFamily = RobotoFamily, fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "${timeDna.totalSessions} sessions", fontFamily = RobotoFamily, fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    if (recentlyWatched.isEmpty()) {
-                        Text(
-                            "No anime yet", fontFamily = RobotoFamily, fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        // reverseLayout = true → first item (newest) appears at the far right,
-                        // visible by default; scroll left to reveal older items.
-                        LazyRow(
-                            reverseLayout = true,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+// ════════════════════════════════════════════════════════════════════════════
+//  Recently Watched — standalone card, vertical list, episode thumbnails.
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+fun RecentlyWatchedCard(
+    items: List<RecentlyWatchedItem>,
+    onNavigateToAnime: (Int) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            "Recently Watched", fontFamily = RobotoFamily, fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        if (items.isEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "No anime watched yet", fontFamily = RobotoFamily, fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(24.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                    items.take(6).forEachIndexed { idx, item ->
+                        if (idx > 0) Spacer(Modifier.height(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { item.anilistId?.let { onNavigateToAnime(it) } }
+                                .padding(4.dp),
                         ) {
-                            items(recentlyWatched.take(6)) { item ->
-                                Column(
-                                    modifier = Modifier.width(58.dp),
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(width = 58.dp, height = 82.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                    ) {
-                                        if (item.coverUrl != null) {
-                                            AsyncImage(
-                                                model = item.coverUrl,
-                                                contentDescription = item.title,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop,
-                                            )
-                                        }
-                                    }
-                                    Spacer(Modifier.height(3.dp))
-                                    Text(
-                                        item.title, fontFamily = RobotoFamily, fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        "EP ${item.episodeNumber}", fontFamily = RobotoFamily, fontSize = 8.sp,
-                                        color = MaterialTheme.colorScheme.primary,
+                            // Episode thumbnail (landscape) — fall back to cover
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 96.dp, height = 56.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            ) {
+                                val thumb = item.episodeThumbnailUrl ?: item.coverUrl
+                                if (thumb != null) {
+                                    AsyncImage(
+                                        model = thumb,
+                                        contentDescription = item.title,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
                                     )
                                 }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    item.title, fontFamily = RobotoFamily, fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "EP ${item.episodeNumber}", fontFamily = RobotoFamily, fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
+                                )
                             }
                         }
                     }
@@ -557,7 +635,7 @@ fun TimeDnaCard(
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Activity Heatmap — scrollable square cells, gray empty, left day markers
-//  (M/T/W/T/F/S/S), bottom month labels.
+//  (M/T/W/T/F/S/S), bottom month labels (with padding so bottom half isn't cut).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -568,15 +646,13 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
     val primaryColor = MaterialTheme.colorScheme.primary
     val emptyColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
 
-    // Monday of the current week (so each column = Mon..Sun, row 0 = Mon)
     val cal = Calendar.getInstance()
     cal.timeInMillis = todayStart
-    val todayDow = (cal.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7 // Mon=0..Sun=6
+    val todayDow = (cal.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7
     val thisMonday = todayStart - todayDow * oneDayMs
 
     val dayMarkers = listOf("M", "T", "W", "T", "F", "S", "S")
 
-    // Per-week month labels (label shown at the oldest week of each month)
     val weekMonthLabels = remember(thisMonday) {
         val c = Calendar.getInstance()
         val fmt = java.text.SimpleDateFormat("MMM", java.util.Locale.getDefault())
@@ -620,9 +696,9 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 Row {
-                    // Left: day markers (M/T/W/T/F/S/S), aligned with the 7 rows
+                    // Left: day markers — extra bottom padding so the label isn't cut.
                     Column(
-                        modifier = Modifier.width(14.dp),
+                        modifier = Modifier.width(14.dp).padding(bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(cellSpacing),
                     ) {
                         dayMarkers.forEach { label ->
@@ -641,7 +717,7 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                     // Scrollable weeks
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(cellSpacing),
-                        reverseLayout = true, // most recent week on the right
+                        reverseLayout = true,
                     ) {
                         items(53) { w ->
                             Column(
@@ -663,8 +739,11 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                                             .background(color),
                                     )
                                 }
-                                // Month label at the bottom of this column (if applicable)
-                                Box(modifier = Modifier.width(cellSize).height(12.dp)) {
+                                // Month label — extra height + centered so the bottom half shows.
+                                Box(
+                                    modifier = Modifier.width(cellSize).height(14.dp),
+                                    contentAlignment = Alignment.TopCenter,
+                                ) {
                                     weekMonthLabels.getOrNull(w)?.let { label ->
                                         Text(
                                             label, fontFamily = RobotoFamily, fontSize = 8.sp,
@@ -683,8 +762,8 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Settings Sheet — list format, Change Name, Change Picture (with real image
-//  picker + URL paste + live preview).
+//  Settings Sheet — list format, Change Name, Change Picture (image picker +
+//  URL paste + live preview + crop editor).
 // ════════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -696,17 +775,23 @@ fun ProfileSettingsSheet(
     onUpdateAvatar: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var currentScreen by remember { mutableStateOf("main") } // "main", "name", "picture"
+    var currentScreen by remember { mutableStateOf("main") }
     var nameInput by remember { mutableStateOf(state.displayName) }
-    var avatarInput by remember { mutableStateOf(state.avatarUrl ?: "") }
-    var avatarMode by remember { mutableStateOf("url") } // "url" or "upload"
+    // Separate URL input from uploaded file URI — prevents mode-switch state leak.
+    val currentAvatar = state.avatarUrl ?: ""
+    var urlInput by remember { mutableStateOf(if (currentAvatar.startsWith("http")) currentAvatar else "") }
+    var uploadedFileUri by remember { mutableStateOf(if (currentAvatar.startsWith("file://")) currentAvatar else "") }
+    var avatarMode by remember {
+        mutableStateOf(if (currentAvatar.startsWith("file://")) "upload" else "url")
+    }
+    var showCropEditor by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Photo picker — copies the chosen image to app-internal storage so it
-    // survives across launches (a content:// SAF URI is only valid for this
-    // session unless persistable permission is taken, which the photo picker
-    // does not grant). The saved file:// URI loads directly via Coil.
+    // The image source for the crop editor (whichever mode is active).
+    val cropSource: String get() = if (avatarMode == "url") urlInput else uploadedFileUri
+
+    // Photo picker — copies the chosen image to app-internal storage.
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri: Uri? ->
@@ -719,12 +804,11 @@ fun ProfileSettingsSheet(
                             dest.outputStream().use { output -> input.copyTo(output) }
                         }
                         "file://${dest.absolutePath}"
-                    } catch (e: Exception) {
-                        null
-                    }
+                    } catch (e: Exception) { null }
                 }
                 if (savedUri != null) {
-                    avatarInput = savedUri
+                    uploadedFileUri = savedUri
+                    showCropEditor = true
                 }
             }
         }
@@ -745,7 +829,6 @@ fun ProfileSettingsSheet(
                         fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(20.dp))
-                    // Change Name option
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         shape = RoundedCornerShape(12.dp),
@@ -763,7 +846,6 @@ fun ProfileSettingsSheet(
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    // Change Picture option
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                         shape = RoundedCornerShape(12.dp),
@@ -822,16 +904,19 @@ fun ProfileSettingsSheet(
                         fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(20.dp))
-                    // Preview section (golden-ratio-ish layout: avatar + label beside it)
+                    // Preview — tappable to open the crop editor
+                    val previewModel = if (avatarMode == "url") urlInput.trim() else uploadedFileUri
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            modifier = Modifier.size(72.dp),
+                            modifier = Modifier.size(72.dp).clickable(enabled = previewModel.isNotBlank()) {
+                                showCropEditor = true
+                            },
                         ) {
-                            if (avatarInput.isNotBlank()) {
+                            if (previewModel.isNotBlank()) {
                                 AsyncImage(
-                                    model = avatarInput.trim(),
+                                    model = previewModel,
                                     contentDescription = "Preview",
                                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                                     contentScale = ContentScale.Crop,
@@ -844,13 +929,13 @@ fun ProfileSettingsSheet(
                             }
                         }
                         Spacer(Modifier.width(16.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Custom Avatar", fontFamily = RobotoFamily, fontSize = 15.sp,
                                 fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
                             )
                             Text(
-                                if (avatarInput.isNotBlank()) "Image set" else "No image set",
+                                if (previewModel.isNotBlank()) "Tap image to crop" else "No image set",
                                 fontFamily = RobotoFamily, fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -901,13 +986,12 @@ fun ProfileSettingsSheet(
                     when (avatarMode) {
                         "url" -> {
                             OutlinedTextField(
-                                value = avatarInput, onValueChange = { avatarInput = it },
+                                value = urlInput, onValueChange = { urlInput = it },
                                 modifier = Modifier.fillMaxWidth(), singleLine = true,
                                 placeholder = { Text("Paste image URL", fontFamily = RobotoFamily) },
                             )
                         }
                         "upload" -> {
-                            // Real photo picker — launches the system photo picker.
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(12.dp),
@@ -939,7 +1023,8 @@ fun ProfileSettingsSheet(
                         Surface(
                             color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f).clickable {
-                                onUpdateAvatar(avatarInput.trim())
+                                val result = if (avatarMode == "url") urlInput.trim() else uploadedFileUri
+                                onUpdateAvatar(result)
                                 currentScreen = "main"
                             },
                         ) {
@@ -956,6 +1041,19 @@ fun ProfileSettingsSheet(
                 }
             }
         }
+    }
+
+    // Avatar crop editor — full-screen Dialog overlay
+    if (showCropEditor && cropSource.isNotBlank()) {
+        AvatarCropScreen(
+            imageUri = cropSource,
+            onDone = { croppedUri ->
+                uploadedFileUri = croppedUri
+                avatarMode = "upload"
+                showCropEditor = false
+            },
+            onCancel = { showCropEditor = false },
+        )
     }
 }
 
@@ -1016,7 +1114,7 @@ fun GenreAnimeSheet(
 @Composable
 fun TimelineTab(
     state: ProfileUiState,
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    listState: LazyListState,
     scrollFraction: () -> Float,
     onNavigateToAnime: (Int) -> Unit,
     onTabSelect: (Int) -> Unit,
@@ -1039,7 +1137,6 @@ fun TimelineTab(
             start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // Item 0: full-size tab bar — scrolls away + shrinks via graphicsLayer.
         item {
             Box(
                 modifier = Modifier

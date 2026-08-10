@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -35,9 +36,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -49,31 +53,33 @@ import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.settings.SegmentedToggle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * My Profile screen — WhatsApp-contact-info-style scroll animation.
+ * My Profile screen — WhatsApp-contact-info-style scroll animation with magnetic snap.
  *
  * Layout:
- * - Pinned [CollapsingHeader] with title "My Profile" + mini tab pill (fades in on
- *   scroll, sits between the title and the settings gear) + settings gear.
- * - A single [LazyColumn] per tab whose **first item is the full-size tab bar**.
- *   As the user scrolls, item 0 (the tabs) scrolls up and simultaneously shrinks
- *   + fades via a continuous [graphicsLayer] driven directly by the scroll offset
- *   (deferred read — no recomposition, no "jump"). The mini tab pill in the header
- *   fades in over the same fraction. Because the tabs are a real scroll item (not
- *   a height-animated pinned box), once they scroll past, the ProfileHeader lands
- *   naturally at the top of the viewport — fully visible, not cut off.
- *
- * Back button is intentionally absent (device back gesture / nav back is handled
- * globally in AppRoot). Settings is top-right.
+ * - Pinned [CollapsingHeader] with title "My Profile" + mini tab pill (equal-width
+ *   segments, fades in on scroll) + settings gear. A gradient blur scrim sits at
+ *   the header's bottom edge when collapsed, so content scrolling underneath
+ *   appears to fade into the header.
+ * - A [LazyColumn] per tab whose **first item is the full-size tab bar**. As the
+ *   user scrolls, item 0 shrinks + fades via a continuous [graphicsLayer] (deferred
+ *   read — no "jump"). Once scrolled past, the ProfileHeader lands naturally at the
+ *   top of the viewport — fully visible, not cut off.
+ * - **Magnetic snap:** when the user lifts their finger after scrolling, the list
+ *   animates to either fully-expanded (item 0 at top) or fully-collapsed (item 1
+ *   at top), depending on which side of 50% the scroll fraction landed. This gives
+ *   the "snap to that point" feel the user requested.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     @Suppress("UNUSED_PARAMETER") onBack: () -> Unit,
     onNavigateToAnime: (Int) -> Unit,
-    onOpenTimeDna: () -> Unit = {},
+    @Suppress("UNUSED_PARAMETER") onOpenTimeDna: () -> Unit = {},
     viewModel: ProfileViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -83,48 +89,62 @@ fun ProfileScreen(
     var showSettings by remember { mutableStateOf(false) }
 
     val density = LocalDensity.current
-    // Height of the full-size tab bar item (~52dp). Used as the scroll-to-collapse
-    // threshold: scrolling past this much fully collapses the tabs.
-    val collapseThresholdPx = with(density) { 120.dp.toPx() }
+    // Threshold = the full-size tab bar height (~56dp). Scrolling past this fully
+    // collapses the tabs. Also used as the magnetic-snap decision boundary.
+    val collapseThresholdPx = with(density) { 56.dp.toPx() }
+
+    val activeListState = if (selectedTab == 0) statsListState else timelineListState
 
     // Continuous scroll fraction [0..1] for the active tab. Read inside graphicsLayer
     // lambdas (deferred — no recomposition on scroll).
     val scrollFraction: () -> Float = {
-        val ls = if (selectedTab == 0) statsListState else timelineListState
+        val ls = activeListState
         val raw = if (ls.firstVisibleItemIndex > 0) collapseThresholdPx
                   else ls.firstVisibleItemScrollOffset.toFloat()
         (raw / collapseThresholdPx).coerceIn(0f, 1f)
     }
 
-    // Header title collapses past the half-way point (smooth animateFloatAsState
-    // inside CollapsingHeader). Reads both list states + selectedTab so it tracks
-    // the active tab correctly.
     val collapsed by remember {
-        derivedStateOf {
-            val ls = if (selectedTab == 0) statsListState else timelineListState
-            val raw = if (ls.firstVisibleItemIndex > 0) collapseThresholdPx
-                      else ls.firstVisibleItemScrollOffset.toFloat()
-            (raw / collapseThresholdPx) > 0.5f
-        }
+        derivedStateOf { scrollFraction() > 0.5f }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    // ── Magnetic snap ────────────────────────────────────────────────────────
+    // When the user stops scrolling, snap to expanded (item 0) or collapsed (item 1)
+    // depending on which side of 50% the fraction landed. This produces the "magnetic"
+    // feel: a small scroll down snaps to collapsed; scrolling back up past the midpoint
+    // snaps to expanded.
+    LaunchedEffect(activeListState) {
+        snapshotFlow { activeListState.isScrollInProgress }
+            .distinctUntilChanged()
+            .filter { !it } // only when scroll ENDS
+            .collect {
+                val f = scrollFraction()
+                if (f > 0.5f) {
+                    activeListState.animateScrollToItem(1, 0)
+                } else {
+                    activeListState.animateScrollToItem(0, 0)
+                }
+            }
+    }
+
+    val bgColor = MaterialTheme.colorScheme.background
+
+    Box(modifier = Modifier.fillMaxSize().background(bgColor)) {
         Column(modifier = Modifier.fillMaxSize()) {
             // ── Pinned header: title + mini tab pill + settings gear ──────────────
             CollapsingHeader(
                 title = "My Profile",
                 collapsed = collapsed,
                 actions = {
-                    // Mini tab pill — always composed (no layout jump), alpha driven
-                    // by scroll fraction so it fades in exactly as the full tabs fade
-                    // out. Sits to the LEFT of the settings gear (right side of title).
-                    // Each segment is individually clickable so the user can pick a tab
-                    // directly even when collapsed.
+                    // Mini tab pill — equal-width segments. Alpha driven by scroll
+                    // fraction so it fades in exactly as the full tabs fade out.
+                    // Sits to the LEFT of the settings gear.
                     Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                         shape = RoundedCornerShape(9.dp),
                         modifier = Modifier
-                            .graphicsLayer { alpha = scrollFraction() },
+                            .graphicsLayer { alpha = scrollFraction() }
+                            .width(120.dp),
                     ) {
                         Row(modifier = Modifier.padding(2.dp)) {
                             listOf("Stats", "Timeline").forEachIndexed { idx, label ->
@@ -133,7 +153,9 @@ fun ProfileScreen(
                                     color = if (isSelected) MaterialTheme.colorScheme.primary
                                             else androidx.compose.ui.graphics.Color.Transparent,
                                     shape = RoundedCornerShape(7.dp),
-                                    modifier = Modifier.clickable { selectedTab = idx },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { selectedTab = idx },
                                 ) {
                                     Text(
                                         text = label,
@@ -142,7 +164,8 @@ fun ProfileScreen(
                                         fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimary
                                                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.padding(vertical = 4.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                     )
                                 }
                             }
@@ -165,12 +188,39 @@ fun ProfileScreen(
                 },
             )
 
-            // ── Tab content ────────────────────────────────────────────────────────
+            // ── Tab content + gradient blur scrim ─────────────────────────────────
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
-                    0 -> StatsTab(state, statsListState, scrollFraction, viewModel, onNavigateToAnime, onOpenTimeDna) { selectedTab = it }
+                    0 -> StatsTab(state, statsListState, scrollFraction, viewModel, onNavigateToAnime) { selectedTab = it }
                     1 -> TimelineTab(state, timelineListState, scrollFraction, onNavigateToAnime) { selectedTab = it }
                 }
+
+                // Gradient blur scrim at the top edge — fades in when collapsed so
+                // content scrolling under the header appears to blur/fade into it.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(20.dp)
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer {
+                            val f = scrollFraction()
+                            alpha = (f * f * (3 - 2 * f)) // smoothstep
+                        }
+                        .drawBehind {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        bgColor,
+                                        bgColor.copy(alpha = 0.85f),
+                                        bgColor.copy(alpha = 0.4f),
+                                        bgColor.copy(alpha = 0.0f),
+                                    ),
+                                    startY = 0f,
+                                    endY = size.height,
+                                ),
+                            )
+                        },
+                )
             }
         }
     }
@@ -209,7 +259,6 @@ private fun StatsTab(
     scrollFraction: () -> Float,
     viewModel: ProfileViewModel,
     onNavigateToAnime: (Int) -> Unit,
-    onOpenTimeDna: () -> Unit,
     onTabSelect: (Int) -> Unit,
 ) {
     LazyColumn(
@@ -242,8 +291,9 @@ private fun StatsTab(
         }
         item { ProfileHeader(state) }
         item { QuickStatsRow(state) }
-        item { WatchFlowGraph(state.watchFlowByDay, state.watchFlowDetail, onNavigateToAnime) }
-        item { TimeDnaCard(state.timeDna, state.recentlyWatched, onOpenTimeDna) }
+        item { WatchFlowGraph(state.watchFlowByDay, state.watchFlowDetail, onNavigateToAnime, listState) }
+        item { TimeDnaCard(state.timeDna) }
+        item { RecentlyWatchedCard(state.recentlyWatched, onNavigateToAnime) }
         if (state.genreDistribution.isNotEmpty()) {
             item {
                 GenreRadarChart(

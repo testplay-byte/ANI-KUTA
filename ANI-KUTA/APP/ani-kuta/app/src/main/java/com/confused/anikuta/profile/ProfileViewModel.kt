@@ -113,11 +113,13 @@ class ProfileViewModel(
                             val mid = progress.mainId ?: return@mapNotNull null
                             val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
                             val anilistDetail = contentRepository.getAniListDetail(mid)
+                            val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                             DayWatchItem(
                                 anilistId = anilistDetail?.anilistId,
                                 title = content.title,
                                 coverUrl = anilistDetail?.coverUrl,
-                                episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0,
+                                episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: anilistDetail?.coverUrl,
+                                episodeNumber = epNum,
                             )
                         }
                     DayWatchSummary(
@@ -154,7 +156,7 @@ class ProfileViewModel(
                 // AniList username
                 val anilistUsername = preferenceStore.getString("anilist_username", "").takeIf { it.isNotBlank() }
 
-                // Recently watched (for genre sheet)
+                // Recently watched (for genre sheet + Recently Watched card)
                 val recentlyWatched = allProgress
                     .sortedByDescending { it.lastWatchedAt }
                     .take(10)
@@ -162,11 +164,13 @@ class ProfileViewModel(
                         val mid = progress.mainId ?: return@mapNotNull null
                         val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
                         val anilistDetail = contentRepository.getAniListDetail(mid)
+                        val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                         RecentlyWatchedItem(
                             anilistId = anilistDetail?.anilistId,
                             title = content.title,
                             coverUrl = anilistDetail?.coverUrl,
-                            episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0,
+                            episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: anilistDetail?.coverUrl,
+                            episodeNumber = epNum,
                             progressFraction = progress.progressFraction,
                             lastWatchedAt = progress.lastWatchedAt,
                         )
@@ -296,6 +300,22 @@ class ProfileViewModel(
         return timeline.sortedByDescending { it.timestamp }
     }
 
+    /**
+     * Look up the per-episode thumbnail URL from the data_cache_episode table.
+     * Returns null if not cached (caller falls back to the anime cover).
+     */
+    private fun getEpisodeThumbnail(mainId: String, episodeNumber: Int): String? {
+        if (episodeNumber <= 0) return null
+        return try {
+            database.dataCacheQueries
+                .getEpisodeMetadataByNumber(mainId, episodeNumber.toDouble())
+                .executeAsOneOrNull()
+                ?.thumbnail_url
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun onGenreClick(genre: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
@@ -379,6 +399,7 @@ data class RecentlyWatchedItem(
     val anilistId: Int?,
     val title: String,
     val coverUrl: String?,
+    val episodeThumbnailUrl: String? = null,
     val episodeNumber: Int,
     val progressFraction: Float,
     val lastWatchedAt: Long,
@@ -400,5 +421,6 @@ data class DayWatchItem(
     val anilistId: Int?,
     val title: String,
     val coverUrl: String?,
+    val episodeThumbnailUrl: String? = null,
     val episodeNumber: Int,
 )

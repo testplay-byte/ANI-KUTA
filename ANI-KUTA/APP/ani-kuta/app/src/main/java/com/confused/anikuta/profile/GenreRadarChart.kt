@@ -157,12 +157,20 @@ fun GenreRadarChart(
                     drawPath(path = ringPath, color = gridColor.copy(alpha = 0.5f), style = Stroke(width = 1.5f))
                 }
 
+                // Find the selected genre's index for in-web highlighting.
+                val selectedIdx = placedGenres.indexOfFirst { it.key == selectedGenre }
+
                 // Axes
                 for (i in 0 until n) {
                     val angle = (2.0 * PI * i / n) - PI / 2
                     val x = centerX + (radius * cos(angle)).toFloat()
                     val y = centerY + (radius * sin(angle)).toFloat()
-                    drawLine(color = genreColors[i].copy(alpha = 0.6f), start = Offset(centerX, centerY), end = Offset(x, y), strokeWidth = 1.5f)
+                    val isSelected = i == selectedIdx
+                    drawLine(
+                        color = if (isSelected) primaryColor else genreColors[i].copy(alpha = 0.6f),
+                        start = Offset(centerX, centerY), end = Offset(x, y),
+                        strokeWidth = if (isSelected) 3f else 1.5f,
+                    )
                 }
 
                 // Data polygon
@@ -186,7 +194,20 @@ fun GenreRadarChart(
                     val r = radius * value
                     val x = centerX + (r * cos(angle)).toFloat()
                     val y = centerY + (r * sin(angle)).toFloat()
-                    drawCircle(color = genreColors[i], radius = 5f, center = Offset(x, y))
+                    val isSelected = i == selectedIdx
+                    if (isSelected) {
+                        // Halo ring around the selected genre's data point
+                        drawCircle(
+                            color = primaryColor.copy(alpha = 0.3f),
+                            radius = 12f,
+                            center = Offset(x, y),
+                        )
+                    }
+                    drawCircle(
+                        color = genreColors[i],
+                        radius = if (isSelected) 7f else 5f,
+                        center = Offset(x, y),
+                    )
                 }
 
                 // Labels
@@ -199,7 +220,34 @@ fun GenreRadarChart(
                     val textH = textResult.size.height
                     val clampedX = (x - textW / 2f).coerceIn(2f, size.width - textW - 2f) + textW / 2f
                     val clampedY = (y - textH / 2f).coerceIn(2f, size.height - textH - 2f) + textH / 2f
-                    drawText(textLayoutResult = textResult, topLeft = Offset(clampedX - textW / 2f, clampedY - textH / 2f))
+                    val isSelected = i == selectedIdx
+                    if (isSelected) {
+                        // Highlighted pill behind the selected label
+                        drawRoundRect(
+                            color = primaryColor,
+                            topLeft = Offset(clampedX - textW / 2f - 6f, clampedY - textH / 2f - 3f),
+                            size = androidx.compose.ui.geometry.Size(textW + 12f, textH + 6f),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f),
+                        )
+                    }
+                    // Re-measure with the right color for the selected label (white on primary)
+                    if (isSelected) {
+                        val highlightedLabel = textMeasurer.measure(
+                            text = placedGenres[i].key,
+                            style = TextStyle(
+                                fontSize = labelFontSize,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                fontFamily = RobotoFamily,
+                            ),
+                        )
+                        drawText(
+                            textLayoutResult = highlightedLabel,
+                            topLeft = Offset(clampedX - textW / 2f, clampedY - textH / 2f),
+                        )
+                    } else {
+                        drawText(textLayoutResult = textResult, topLeft = Offset(clampedX - textW / 2f, clampedY - textH / 2f))
+                    }
                 }
             }
         }
