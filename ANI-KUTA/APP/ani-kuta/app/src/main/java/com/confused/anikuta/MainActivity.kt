@@ -173,6 +173,7 @@ private val rootTabKeys = setOf(
  * - All screens use MaterialTheme.colorScheme.background for proper theming
  *   in both light and dark mode.
  */
+@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun AppRoot() {
     val navItems = remember {
