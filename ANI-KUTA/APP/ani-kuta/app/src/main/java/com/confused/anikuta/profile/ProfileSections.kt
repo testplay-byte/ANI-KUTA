@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -119,7 +120,7 @@ fun WatchFlowGraph(watchFlowByDay: List<Int>) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.padding(horizontal = 2.dp)) {
                                 // Dynamic height: show count when selected
-                                AnimatedVisibility(visible = isSelected, enter = fadeIn(), exit = fadeOut()) {
+                                AnimatedVisibility(visible = isSelected, enter = fadeIn(), exit = fadeOut(), modifier = Modifier) {
                                     Text("$count", fontFamily = RobotoFamily, fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold, color = primaryColor,
                                         modifier = Modifier.padding(bottom = 2.dp))
@@ -445,7 +446,7 @@ fun ProfileSettingsSheet(
                             }) {
                             Text("Save", fontFamily = RobotoFamily, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(vertical = 14.dp).align(Alignment.CenterHorizontally),
+                                modifier = Modifier.padding(vertical = 14.dp),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         }
                     }
@@ -498,7 +499,7 @@ fun ProfileSettingsSheet(
                             shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f).clickable { avatarMode = "url" }) {
                             Text("URL", fontFamily = RobotoFamily, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold,
                                 color = if (avatarMode == "url") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 10.dp).align(Alignment.CenterHorizontally),
+                                modifier = Modifier.padding(vertical = 10.dp),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         }
                     }
@@ -535,7 +536,7 @@ fun ProfileSettingsSheet(
                             }) {
                             Text("Save", fontFamily = RobotoFamily, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(vertical = 14.dp).align(Alignment.CenterHorizontally),
+                                modifier = Modifier.padding(vertical = 14.dp),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         }
                     }
