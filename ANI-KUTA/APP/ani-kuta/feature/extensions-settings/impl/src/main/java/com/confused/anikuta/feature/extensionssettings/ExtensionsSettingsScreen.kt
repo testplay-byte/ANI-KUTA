@@ -218,21 +218,22 @@ fun ExtensionsSettingsScreen(
                 )
             }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                // ── Trusted Sources ──
-                item {
-                    ExtensionSectionCard(title = "Trusted Sources", count = filteredInstalled.size) {
-                        if (filteredInstalled.isEmpty()) {
-                            EmptySectionBody("No trusted sources. Install an extension to get started.")
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                filteredInstalled.forEachIndexed { index, ext ->
-                                    InstalledExtensionRow(
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    // ── Trusted Sources ──
+                    item {
+                        ExtensionSectionCard(title = "Trusted Sources", count = filteredInstalled.size) {
+                            if (filteredInstalled.isEmpty()) {
+                                EmptySectionBody("No trusted sources. Install an extension to get started.")
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    filteredInstalled.forEachIndexed { index, ext ->
+                                        InstalledExtensionRow(
                                         extension = ext,
                                         isReordering = reorderMode,
                                         canMoveUp = reorderMode && index > 0,
@@ -312,17 +313,18 @@ fun ExtensionsSettingsScreen(
                         }
                     }
                 }
+
+                // Phase 3: scroll blur overlay inside the Box (below the header, on top of the list).
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
             }
         }
-
-        ScrollBlurOverlay(
-            scrollOffset = {
-                if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
-                else listState.firstVisibleItemScrollOffset.toFloat()
-            },
-            backgroundColor = MaterialTheme.colorScheme.background,
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
     }
 }
 
