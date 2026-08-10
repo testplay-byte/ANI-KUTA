@@ -89,15 +89,42 @@ class ProfileViewModel(
                 // Current streak
                 val currentStreak = calculateCurrentStreak(allProgress)
 
-                // Watch flow by day of week (Mon=0, Sun=6)
+                // Watch flow by day of week (Mon=0, Sun=6) + per-day detail for sidebar
                 val watchFlowByDay = List(7) { 0 }.toMutableList()
+                val watchFlowDurationByDay = List(7) { 0L }.toMutableList()
+                // 7 buckets; each holds (progress) entries for that weekday
+                val dayBuckets = List(7) { mutableListOf<com.confused.anikuta.core.watchprogress.WatchProgress>() }
                 val calendar = Calendar.getInstance()
                 allProgress.forEach { progress ->
                     if (progress.lastWatchedAt > 0) {
                         calendar.timeInMillis = progress.lastWatchedAt
                         val dayOfWeek = (calendar.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7 // Mon=0, Sun=6
                         watchFlowByDay[dayOfWeek] = watchFlowByDay[dayOfWeek] + 1
+                        watchFlowDurationByDay[dayOfWeek] = watchFlowDurationByDay[dayOfWeek] + progress.duration
+                        dayBuckets[dayOfWeek].add(progress)
                     }
+                }
+                // Build per-day summary (newest-first within each day, capped at 12 items)
+                val watchFlowDetail = dayBuckets.mapIndexed { dayIdx, bucket ->
+                    val items = bucket
+                        .sortedByDescending { it.lastWatchedAt }
+                        .take(12)
+                        .mapNotNull { progress ->
+                            val mid = progress.mainId ?: return@mapNotNull null
+                            val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
+                            val anilistDetail = contentRepository.getAniListDetail(mid)
+                            DayWatchItem(
+                                anilistId = anilistDetail?.anilistId,
+                                title = content.title,
+                                coverUrl = anilistDetail?.coverUrl,
+                                episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0,
+                            )
+                        }
+                    DayWatchSummary(
+                        count = watchFlowByDay[dayIdx],
+                        totalDurationSec = watchFlowDurationByDay[dayIdx],
+                        items = items,
+                    )
                 }
 
                 // Time DNA (hourly distribution)
@@ -156,6 +183,7 @@ class ProfileViewModel(
                     currentStreak = currentStreak,
                     genreDistribution = genreDistribution,
                     watchFlowByDay = watchFlowByDay.toList(),
+                    watchFlowDetail = watchFlowDetail,
                     timeDna = timeDna,
                     activityData = activityData,
                     avgDailyWatchTime = avgDailyWatchTime,
@@ -321,6 +349,7 @@ data class ProfileUiState(
     val currentStreak: Int = 0,
     val genreDistribution: Map<String, Int> = emptyMap(),
     val watchFlowByDay: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0),
+    val watchFlowDetail: List<DayWatchSummary> = emptyList(),
     val timeDna: TimeDnaData? = null,
     val activityData: Map<Long, Int> = emptyMap(),
     val avgDailyWatchTime: String = "0m",
@@ -353,4 +382,23 @@ data class RecentlyWatchedItem(
     val episodeNumber: Int,
     val progressFraction: Float,
     val lastWatchedAt: Long,
+)
+
+/**
+ * Per-day-of-week watch summary for the Watch Flow sidebar.
+ * - [count]: total episodes watched that weekday (across all weeks).
+ * - [totalDurationSec]: total watch duration that weekday (sum of completed-episode durations).
+ * - [items]: the most-recent anime watched that weekday (newest-first, capped at 12).
+ */
+data class DayWatchSummary(
+    val count: Int,
+    val totalDurationSec: Long,
+    val items: List<DayWatchItem>,
+)
+
+data class DayWatchItem(
+    val anilistId: Int?,
+    val title: String,
+    val coverUrl: String?,
+    val episodeNumber: Int,
 )

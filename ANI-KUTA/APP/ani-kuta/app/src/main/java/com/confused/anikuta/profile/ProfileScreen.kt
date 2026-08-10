@@ -1,12 +1,11 @@
 package com.confused.anikuta.profile
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,150 +38,139 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
-import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.settings.SegmentedToggle
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * My Profile screen — WhatsApp-style scroll animation + redesigned sections.
+ * My Profile screen — WhatsApp-contact-info-style scroll animation.
  *
- * The tab bar (Stats/Timeline) smoothly shrinks and moves into the header
- * as the user scrolls, similar to WhatsApp's contact info page.
- * Settings button is at top-right; back button removed (use gesture/nav back).
+ * Layout:
+ * - Pinned [CollapsingHeader] with title "My Profile" + mini tab pill (fades in on
+ *   scroll, sits between the title and the settings gear) + settings gear.
+ * - A single [LazyColumn] per tab whose **first item is the full-size tab bar**.
+ *   As the user scrolls, item 0 (the tabs) scrolls up and simultaneously shrinks
+ *   + fades via a continuous [graphicsLayer] driven directly by the scroll offset
+ *   (deferred read — no recomposition, no "jump"). The mini tab pill in the header
+ *   fades in over the same fraction. Because the tabs are a real scroll item (not
+ *   a height-animated pinned box), once they scroll past, the ProfileHeader lands
+ *   naturally at the top of the viewport — fully visible, not cut off.
+ *
+ * Back button is intentionally absent (device back gesture / nav back is handled
+ * globally in AppRoot). Settings is top-right.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    onBack: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onBack: () -> Unit,
     onNavigateToAnime: (Int) -> Unit,
     onOpenTimeDna: () -> Unit = {},
     viewModel: ProfileViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    val listState = rememberLazyListState()
-    val scrollOffset = remember { derivedStateOf {
-        if (listState.firstVisibleItemIndex > 0) 1f
-        else (listState.firstVisibleItemScrollOffset / 200f).coerceIn(0f, 1f)
-    }}
-    val collapsed = scrollOffset.value > 0.5f
+    val statsListState = rememberLazyListState()
+    val timelineListState = rememberLazyListState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
 
+    val density = LocalDensity.current
+    // Height of the full-size tab bar item (~52dp). Used as the scroll-to-collapse
+    // threshold: scrolling past this much fully collapses the tabs.
+    val collapseThresholdPx = with(density) { 120.dp.toPx() }
+
+    // Continuous scroll fraction [0..1] for the active tab. Read inside graphicsLayer
+    // lambdas (deferred — no recomposition on scroll).
+    val scrollFraction: () -> Float = {
+        val ls = if (selectedTab == 0) statsListState else timelineListState
+        val raw = if (ls.firstVisibleItemIndex > 0) collapseThresholdPx
+                  else ls.firstVisibleItemScrollOffset.toFloat()
+        (raw / collapseThresholdPx).coerceIn(0f, 1f)
+    }
+
+    // Header title collapses past the half-way point (smooth animateFloatAsState
+    // inside CollapsingHeader). Reads both list states + selectedTab so it tracks
+    // the active tab correctly.
+    val collapsed by remember {
+        derivedStateOf {
+            val ls = if (selectedTab == 0) statsListState else timelineListState
+            val raw = if (ls.firstVisibleItemIndex > 0) collapseThresholdPx
+                      else ls.firstVisibleItemScrollOffset.toFloat()
+            (raw / collapseThresholdPx) > 0.5f
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header with settings button + animated tab overlay
-            Box {
-                CollapsingHeader(
-                    title = "My Profile",
-                    collapsed = collapsed,
-                    actions = {
-                        // Settings gear — always at top-right
-                        Box(
-                            modifier = Modifier.size(36.dp)
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-                                .clickable { showSettings = true },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Settings",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                        }
-                    },
-                )
-
-                // Animated tab overlay — slides into header as user scrolls
-                val tabAlpha by animateFloatAsState(
-                    targetValue = if (collapsed) 1f else 0f,
-                    animationSpec = tween(300), label = "tabAlpha",
-                )
-                val tabScale by animateFloatAsState(
-                    targetValue = if (collapsed) 1f else 1f,
-                    animationSpec = tween(300), label = "tabScale",
-                )
-                // When collapsed: show mini tabs in the header area (right side, before settings)
-                if (tabAlpha > 0.01f) {
-                    Row(
+            // ── Pinned header: title + mini tab pill + settings gear ──────────────
+            CollapsingHeader(
+                title = "My Profile",
+                collapsed = collapsed,
+                actions = {
+                    // Mini tab pill — always composed (no layout jump), alpha driven
+                    // by scroll fraction so it fades in exactly as the full tabs fade
+                    // out. Sits to the LEFT of the settings gear (right side of title).
+                    // Each segment is individually clickable so the user can pick a tab
+                    // directly even when collapsed.
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(9.dp),
                         modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(start = 16.dp)
-                            .graphicsLayer { alpha = tabAlpha },
-                        verticalAlignment = Alignment.CenterVertically,
+                            .graphicsLayer { alpha = scrollFraction() },
                     ) {
-                        // Mini segmented toggle (smaller, fits in header)
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Row(modifier = Modifier.padding(2.dp)) {
-                                listOf("Stats", "Timeline").forEachIndexed { idx, label ->
-                                    val isSelected = idx == selectedTab
-                                    Surface(
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
-                                        shape = RoundedCornerShape(6.dp),
-                                        modifier = Modifier.clickable { selectedTab = idx },
-                                    ) {
-                                        Text(label, fontFamily = RobotoFamily, fontSize = 10.sp,
-                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
-                                    }
+                        Row(modifier = Modifier.padding(2.dp)) {
+                            listOf("Stats", "Timeline").forEachIndexed { idx, label ->
+                                val isSelected = idx == selectedTab
+                                Surface(
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                            else androidx.compose.ui.graphics.Color.Transparent,
+                                    shape = RoundedCornerShape(7.dp),
+                                    modifier = Modifier.clickable { selectedTab = idx },
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                    )
                                 }
                             }
                         }
                     }
-                }
-            }
-
-            // Full-size tab bar — visible when NOT collapsed, shrinks away when scrolling
-            val fullTabAlpha by animateFloatAsState(
-                targetValue = if (collapsed) 0f else 1f,
-                animationSpec = tween(300), label = "fullTabAlpha",
+                    Spacer(Modifier.width(8.dp))
+                    // Settings gear — always at top-right
+                    Box(
+                        modifier = Modifier.size(36.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                            .clickable { showSettings = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Settings, contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                },
             )
-            val fullTabScale by animateFloatAsState(
-                targetValue = if (collapsed) 0.7f else 1f,
-                animationSpec = tween(300), label = "fullTabScale",
-            )
-            if (fullTabAlpha > 0.01f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            alpha = fullTabAlpha
-                            scaleX = fullTabScale
-                            scaleY = fullTabScale
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
-                        }
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                ) {
-                    SegmentedToggle(
-                        options = listOf("Stats", "Timeline"),
-                        selectedIndex = selectedTab,
-                        onSelect = { selectedTab = it },
-                    )
-                }
-            }
 
+            // ── Tab content ────────────────────────────────────────────────────────
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedTab) {
-                    0 -> StatsTab(state, listState, viewModel, onNavigateToAnime, onOpenTimeDna)
-                    1 -> TimelineTab(state, onNavigateToAnime)
+                    0 -> StatsTab(state, statsListState, scrollFraction, viewModel, onNavigateToAnime, onOpenTimeDna) { selectedTab = it }
+                    1 -> TimelineTab(state, timelineListState, scrollFraction, onNavigateToAnime) { selectedTab = it }
                 }
-
-                ScrollBlurOverlay(
-                    scrollOffset = {
-                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
-                        else listState.firstVisibleItemScrollOffset.toFloat()
-                    },
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                )
             }
         }
     }
@@ -216,21 +205,45 @@ fun ProfileScreen(
 @Composable
 private fun StatsTab(
     state: ProfileUiState,
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    listState: LazyListState,
+    scrollFraction: () -> Float,
     viewModel: ProfileViewModel,
     onNavigateToAnime: (Int) -> Unit,
     onOpenTimeDna: () -> Unit,
+    onTabSelect: (Int) -> Unit,
 ) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 110.dp),
+        contentPadding = PaddingValues(bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // Item 0: full-size tab bar — scrolls away + shrinks via graphicsLayer.
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        val f = scrollFraction()
+                        alpha = (1f - f).coerceIn(0f, 1f)
+                        val s = 1f - f * 0.25f
+                        scaleX = s
+                        scaleY = s
+                        transformOrigin = TransformOrigin.Center
+                    }
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                SegmentedToggle(
+                    options = listOf("Stats", "Timeline"),
+                    selectedIndex = 0,
+                    onSelect = onTabSelect,
+                )
+            }
+        }
         item { ProfileHeader(state) }
         item { QuickStatsRow(state) }
-        item { WatchFlowGraph(state.watchFlowByDay) }
-        item { TimeDnaCard(state.timeDna, state.recentlyWatched.firstOrNull(), onOpenTimeDna) }
+        item { WatchFlowGraph(state.watchFlowByDay, state.watchFlowDetail, onNavigateToAnime) }
+        item { TimeDnaCard(state.timeDna, state.recentlyWatched, onOpenTimeDna) }
         if (state.genreDistribution.isNotEmpty()) {
             item {
                 GenreRadarChart(
