@@ -152,6 +152,11 @@ class DatabaseDriverFactory(private val context: Context) {
                     if (!hasColumn(db, "notification_config", "main_id")) {
                         onCreate(db)
                     }
+
+                    // ── Genre System: create genre + content_genre tables if they don't exist ──
+                    if (!hasColumn(db, "genre", "id")) {
+                        onCreate(db)
+                    }
                 }
 
                 /**

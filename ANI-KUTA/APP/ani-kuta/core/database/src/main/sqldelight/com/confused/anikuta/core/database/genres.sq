@@ -1,0 +1,75 @@
+-- Genre system (Phase: Genre Management)
+-- Canonical genre lookup table + content-genre junction table.
+-- Replaces the free-text comma-separated `genres TEXT` columns with a
+-- normalized relational model.
+
+-- ── genre (lookup table) ──────────────────────────────────────────────────
+-- Seeded on first launch with AniList's canonical genre vocabulary (~40 items).
+-- `anilist_name` is the exact string AniList uses in its GraphQL response.
+-- `display_name` is what the UI shows (may differ for localization).
+-- `category` groups genres for the profile page / filter UI:
+--   'genre' = core genre (Action, Comedy, etc.)
+--   'theme' = thematic tag (Adult Cast, childcare, etc.)
+--   'demographic' = target audience (Shounen, Seinen, etc.)
+CREATE TABLE IF NOT EXISTS genre (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    anilist_name TEXT NOT NULL UNIQUE,       -- exact AniList string (e.g. "Sci-Fi")
+    display_name TEXT NOT NULL,              -- UI display name (same as anilist_name for now)
+    category TEXT NOT NULL DEFAULT 'genre',  -- 'genre' | 'theme' | 'demographic'
+    sort_key INTEGER NOT NULL DEFAULT 0,     -- for UI ordering
+    is_nsfw INTEGER NOT NULL DEFAULT 0       -- 1 for Ecchi, Erotica, Hentai
+);
+
+-- ── content_genre (junction table) ────────────────────────────────────────
+-- Links content to genres. Many-to-many: one content can have many genres,
+-- one genre can belong to many contents. The `source` column tracks where
+-- the genre came from ('anilist' or 'extension') for debugging/migration.
+CREATE TABLE IF NOT EXISTS content_genre (
+    main_id TEXT NOT NULL,
+    genre_id INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT 'anilist',  -- 'anilist' | 'extension'
+    PRIMARY KEY (main_id, genre_id),
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE,
+    FOREIGN KEY (genre_id) REFERENCES genre(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_genre_main ON content_genre(main_id);
+CREATE INDEX IF NOT EXISTS idx_content_genre_genre ON content_genre(genre_id);
+
+-- ── Queries: genre ────────────────────────────────────────────────────────
+getAllGenres:
+SELECT * FROM genre ORDER BY sort_key ASC, display_name ASC;
+
+getGenresByCategory:
+SELECT * FROM genre WHERE category = :category ORDER BY sort_key ASC;
+
+getGenreByAnilistName:
+SELECT * FROM genre WHERE anilist_name = :anilistName LIMIT 1;
+
+insertGenre:
+INSERT OR IGNORE INTO genre(anilist_name, display_name, category, sort_key, is_nsfw)
+VALUES (:anilistName, :displayName, :category, :sortKey, :isNsfw);
+
+-- ── Queries: content_genre ────────────────────────────────────────────────
+getGenresForContent:
+SELECT g.* FROM genre g
+JOIN content_genre cg ON g.id = cg.genre_id
+WHERE cg.main_id = :mainId
+ORDER BY g.sort_key ASC;
+
+getContentIdsByGenre:
+SELECT main_id FROM content_genre WHERE genre_id = :genreId;
+
+insertContentGenre:
+INSERT OR IGNORE INTO content_genre(main_id, genre_id, source)
+VALUES (:mainId, :genreId, :source);
+
+deleteContentGenres:
+DELETE FROM content_genre WHERE main_id = :mainId;
+
+getContentGenreCount:
+SELECT genre_id, COUNT(*) as count FROM content_genre
+GROUP BY genre_id ORDER BY count DESC;
+
+getAllContentGenres:
+SELECT * FROM content_genre;

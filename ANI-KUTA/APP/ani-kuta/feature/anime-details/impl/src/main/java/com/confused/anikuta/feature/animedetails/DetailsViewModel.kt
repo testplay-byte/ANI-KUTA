@@ -74,6 +74,7 @@ class DetailsViewModel(
     private val watchProgressStore: com.confused.anikuta.core.watchprogress.WatchProgressStore,
     private val ratingStore: com.confused.anikuta.core.ratings.RatingStore,
     private val playerPreferences: com.confused.anikuta.core.preferences.PlayerPreferences,
+    private val genreRepository: com.confused.anikuta.core.content.genre.GenreRepository,
 ) : ViewModel() {
 
     companion object {
@@ -1259,6 +1260,10 @@ class DetailsViewModel(
                     updatedAt = System.currentTimeMillis(),
                 )
                 contentResolver.linkAniList(mainId, anilistId, detail)
+                // Genre System: normalize + store genres in the junction table.
+                anilistData.genres?.let { genres ->
+                    genreRepository.setGenresForContent(mainId, genres, "anilist")
+                }
                 // Refresh the contentId (it changed after linking).
                 refreshContentId(mainId)
             }

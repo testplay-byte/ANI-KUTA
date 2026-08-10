@@ -223,6 +223,8 @@ fun DetailsScreen(
         while (pendingAutoPlay) {
             when (val rs = resolverState) {
                 is ResolverState.Success -> {
+                    // Ensure the loading dialog shows for at least 2 seconds for a good UX.
+                    kotlinx.coroutines.delay(2000)
                     pendingAutoPlay = false
                     Logger.i("Anikuta:Feature:Details") { "Auto-play: resolverState is Success — trying auto-select..." }
                     val autoVideo = viewModel.tryAutoSelect(rs)

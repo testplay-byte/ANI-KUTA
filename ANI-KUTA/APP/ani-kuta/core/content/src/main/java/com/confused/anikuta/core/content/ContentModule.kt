@@ -16,14 +16,19 @@ val contentModule = module {
     single { ContentRepository(get()) }
     single { ContentResolver(get()) }
     single { ContentSeeder(get()) }
+    single { com.confused.anikuta.core.content.genre.GenreRepository(get()) }
 }
 
 /**
  * Helper class that seeds the lookup tables + Default library category.
  * Called from [com.confused.anikuta.AnikutaApp.onCreate] after Koin starts.
  */
-class ContentSeeder(private val repo: ContentRepository) {
+class ContentSeeder(
+    private val repo: ContentRepository,
+    private val genreRepo: com.confused.anikuta.core.content.genre.GenreRepository,
+) {
     fun seed() {
         repo.seedDefaults()
+        genreRepo.seedIfEmpty()
     }
 }
