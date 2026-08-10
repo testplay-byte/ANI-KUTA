@@ -740,3 +740,9 @@
 - ✅ CI green (run 31431113076, commit 6945df6).
 - Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification before merge to `main`.
 - Decisions: D-183..D-186.
+
+### Merge to main (this session)
+- `feature/db-optimization-ratings-cw` (55 commits: DB optimization + ratings UI + continue-watching + watch-progress fixes + extension settings + genre system + Profile UI v3→v6) fast-forward merged into `main`.
+- No conflicts — `main` hadn't diverged (0 commits on main not on feature).
+- CI on `main` verified GREEN (run 31432557415, commit c15b1b8a).
+- Feature branch deleted (local + remote). Only `main` remains.

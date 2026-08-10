@@ -3,18 +3,22 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v6 — on `feature/db-optimization-ratings-cw` branch (awaiting user device verification before merge to `main`).**
+**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v6 — MERGED TO `main` (feature branch deleted).**
 
-Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, and the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor) are ALL DONE.
+Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, and the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor) are ALL DONE and on `main`.
 
-**Latest session — Profile UI v6 (D-183..D-186, commit 6945df6):**
-- **Magnetic snap guard:** Snap now only fires when `firstVisibleItemIndex == 0` (near top). Fixes the "scroll to bottom → auto-scrolls to top" bug — the snap was firing on every scroll end, even when the user was deep in content.
-- **Watch flow sidebar:** Taller (260dp, was 200dp — taller than the chart card). Moved overlay to card-level Box with a transparent scrim that captures tap-outside to close reliably (was inside the bars Box which didn't cover the full card).
-- **Time DNA + Recently Watched:** Merged back into ONE card with side-by-side Row — donut left (140dp, own Surface bg), recently watched list right (weight 1f, own Surface bg). Replaces the v5 two separate full-width cards (user said "looking way too bad in a single row" — wanted them side-by-side, not stacked).
-- **Heatmap labels:** Column bottom padding 24dp (was 16dp), month-label Box 18dp (was 14dp), day-markers bottom padding 20dp (was 16dp) — fixes the remaining bottom-half cut-off.
-- CI green (run 31431113076, commit 6945df6).
+**Merge completed (this session):**
+- `feature/db-optimization-ratings-cw` (55 commits) fast-forward merged into `main` — no conflicts (`main` hadn't diverged). `main` now at `c15b1b8`.
+- CI on `main` verified GREEN (run 31432557415, commit c15b1b8a) — the final gate before branch deletion.
+- Feature branch deleted (local + remote). Only `main` remains.
 
-**Previous session — Profile UI v5 (D-177..D-182, commit 47196ad):**
+**Profile UI v6 (D-183..D-186, commit 6945df6 — now on main):**
+- **Magnetic snap guard:** Snap now only fires when `firstVisibleItemIndex == 0` (near top). Fixes the "scroll to bottom → auto-scrolls to top" bug.
+- **Watch flow sidebar:** Taller (260dp). Card-level transparent scrim for reliable tap-outside close.
+- **Time DNA + Recently Watched:** Side-by-side in ONE card — donut left (own bg), recently watched list right (own bg).
+- **Heatmap labels:** Column bottom padding 24dp, month-label Box 18dp, day-markers bottom padding 20dp — fixes bottom-half cut-off.
+
+**Profile UI v5 (D-177..D-182, commit 47196ad — now on main):**
 - Magnetic snap + gradient blur + equal-width mini tabs. Watch flow: complementary today color, sidebar from LEFT, solid bg. Time DNA donut tint. Genre radar in-web highlight. Avatar crop editor (new AvatarCropScreen.kt). Settings URL/upload state separation. CI fix: Coil3 `result.image` API.
 
 **This session (DB optimization + ratings + continue-watching + watch-progress fixes):**
