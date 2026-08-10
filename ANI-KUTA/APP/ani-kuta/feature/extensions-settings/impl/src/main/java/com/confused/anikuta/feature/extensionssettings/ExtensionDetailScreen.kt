@@ -231,7 +231,6 @@ fun ExtensionDetailScreen(
                         }
                     }
                     }
-                }
 
                 ScrollBlurOverlay(
                     scrollOffset = {
@@ -239,6 +238,7 @@ fun ExtensionDetailScreen(
                         else listState.firstVisibleItemScrollOffset.toFloat()
                     },
                     backgroundColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.align(Alignment.TopCenter),
                 )
                 }
 
