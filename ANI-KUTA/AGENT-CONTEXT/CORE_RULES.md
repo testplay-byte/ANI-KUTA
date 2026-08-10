@@ -86,7 +86,7 @@ repo-root/
 - **Document with comments**: what lives where, what the relations are. Comments explain *why*, not *what*.
 - **One module = one responsibility.**
 - Reuse before you write. Look a few files over before implementing.
-- No unrequested abstractions (no interface with one impl, no factory for one product). **Exception:** an interface with one impl is OK when a future swap is explicitly planned (e.g. `WatchProgressStore` — in-memory now, SQLDelight later; or a player-host interface for MPV → ExoPlayer swap).
+- No unrequested abstractions (no interface with one impl, no factory for one product). **Exception:** an interface with one impl is OK when a future swap is explicitly planned (e.g. `WatchProgressStore` — was in-memory in Phase 5c, swapped to SQLDelight in Phase WP; or a player-host interface for MPV → ExoPlayer swap).
 - Mark deliberate simplifications with a `ponytail:` comment naming the ceiling + upgrade path.
 - **Player lifecycle scaffolding is NOT boilerplate.** `DisposableEffect`s (keep-screen-on, immersive mode, app-exit pause/resume), watchdogs (switching timeout, fatal-error, auto-hide controls), and periodic progress saves are load-bearing per ADR-025 + D-049. Do not delete them as "unnecessary complexity" without explicit user confirmation.
 
