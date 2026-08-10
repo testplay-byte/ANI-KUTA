@@ -1,9 +1,3 @@
-# ANI-KUTA — New Agent Setup Prompt
-
-> **Purpose:** This file is the onboarding prompt for a new AI agent taking over work on the ANI-KUTA project. It tells the agent exactly what to do to understand the project — and what NOT to do until given explicit task instructions.
-
----
-
 ## You are about to work on ANI-KUTA
 
 **ANI-KUTA** is an Android anime streaming/downloading app built with Kotlin + Jetpack Compose + MPV + SQLDelight + Koin. There is also a companion web dashboard (Next.js) that visualizes the project's architecture, decisions, and progress.
@@ -14,21 +8,9 @@
 
 ## Your instructions — follow these steps IN ORDER
 
-### Task 1 (your very first task): Download the repo and read CORE_RULES.md
+### Task 1 (your very first task): download and read CORE_RULES.md
 
-**Before you do anything else — before setting up your environment, before opening any code, before reading any other documentation — download the repository and read the core rules.**
-
-Clone the repo:
-
-```
-git clone https://github.com/testplay-byte/ANI-KUTA.git
-```
-
-Then immediately read this file **in full** — every section, no skimming:
-
-```
-ANI-KUTA/AGENT-CONTEXT/CORE_RULES.md
-```
+**Before you do anything else — before setting up your environment, before opening any code, before reading any other documentation — read the core rules. https://github.com/testplay-byte/ANI-KUTA/blob/main/ANI-KUTA/AGENT-CONTEXT/CORE_RULES.md**
 
 This file contains non-negotiable rules that supersede everything else in the project. Pay special attention to:
 
@@ -38,9 +20,9 @@ This file contains non-negotiable rules that supersede everything else in the pr
 - **§6 (Documentation Rules)** — documentation expectations
 - **§7 (Architecture)** — the modular "Lego" architecture
 
-**Do NOT skip this file. Do NOT skim it. Read every section before proceeding to Task 2.**
+**Do NOT skip this file. Do NOT skim it. Read every section before proceeding **
 
----
+after reading the file clone the whole complete GitHub repo inside a newly created folder as in the rules
 
 ### Task 2: Read the rest of AGENT-CONTEXT
 
@@ -84,7 +66,7 @@ After reading the documentation, explore the actual code structure:
 - `ANI-KUTA/APP/ani-kuta/app/` — the app module (wiring, MainActivity, navigation)
 - `ANI-KUTA/APP/ani-kuta/core/database/src/main/sqldelight/` — the SQLDelight `.sq` files (database schema)
 
-You don't need to read every Kotlin file — just understand the module layout and how things connect.
+You don't need to read every Kotlin file — just understand the module layout and how things connect. you can use multiple sub agents for this too
 
 ---
 
@@ -110,3 +92,8 @@ Once you have:
 - Built a complete understanding of the project
 
 **Stop.** Tell the user you've finished reading and understanding the project. Summarize what you've learned in a few sentences so the user can confirm you understand correctly. Then **wait** — the user will tell you what your task is and how they want it done. Do not start any work until given explicit instructions.
+
+
+
+
+and lastly here are the credentials.
