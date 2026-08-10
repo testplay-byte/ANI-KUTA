@@ -93,6 +93,7 @@ import org.koin.compose.koinInject
 
 class MainActivity : androidx.fragment.app.FragmentActivity() {
 
+    @androidx.compose.material3.ExperimentalMaterial3Api
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
