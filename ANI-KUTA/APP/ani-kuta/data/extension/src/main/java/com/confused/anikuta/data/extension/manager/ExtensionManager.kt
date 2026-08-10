@@ -94,11 +94,14 @@ class ExtensionManager(
 
     /**
      * Load all installed extensions. Called on app start + after package changes.
+     * Runs on Dispatchers.IO to avoid blocking the main thread (PackageManager
+     * queries are binder calls — expensive on devices with many packages).
      */
     fun loadAll() {
-        Logger.i(TAG) { "Loading all extensions..." }
+        scope.launch(Dispatchers.IO) {
+            Logger.i(TAG) { "Loading all extensions (background)..." }
 
-        val results = loader.loadAll()
+            val results = loader.loadAll()
 
         // Phase DB-OPT (backward compat): if the enabledExtensions set is empty
         // (first launch after the upgrade that introduced per-package enable),
@@ -168,6 +171,7 @@ class ExtensionManager(
         Logger.i(TAG) {
             "Loaded ${trusted.size} trusted (${sourceMap.size} sources), ${untrusted.size} untrusted, ${trusted.count { !it.isEnabled }} disabled"
         }
+        } // end scope.launch(Dispatchers.IO)
     }
 
     /**

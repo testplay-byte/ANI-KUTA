@@ -147,8 +147,16 @@ class SourcePreferencesFragment : PreferenceFragmentCompat(), org.koin.core.comp
 
     override fun getContext(): Context? {
         val superCtx = super.getContext() ?: return null
-        // Use the AndroidX preference theme overlay (avoids needing preferenceTheme in the activity theme).
-        return ContextThemeWrapper(superCtx, androidx.preference.R.style.PreferenceThemeOverlay)
+        // CRITICAL FIX: the app theme (android:Theme.Material.NoActionBar) doesn't have
+        // AppCompat dialog attributes (alertDialogStyle, alertDialogTheme) that
+        // AlertDialog.Builder (used internally by PreferenceDialogFragmentCompat for
+        // ListPreference, EditTextPreference, etc.) needs. Without this, changing any
+        // preference that opens a dialog crashes with Resources$NotFoundException: #0x0.
+        //
+        // Fix: chain two ContextThemeWrappers — first AppCompat (provides dialog attrs),
+        // then PreferenceThemeOverlay (provides preference styling).
+        val appCompatCtx = ContextThemeWrapper(superCtx, androidx.appcompat.R.style.ThemeOverlay_AppCompat)
+        return ContextThemeWrapper(appCompatCtx, androidx.preference.R.style.PreferenceThemeOverlay)
     }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {

@@ -270,14 +270,26 @@ class DetailsViewModel(
     /** Whether auto-select video is enabled (for the UI to decide flow). */
     fun isAutoSelectEnabled(): Boolean = playerPreferences.autoSelectVideo.get()
 
-    fun tryAutoSelect(): com.confused.anikuta.core.videoresolver.ResolvedVideo? {
-        if (!playerPreferences.autoSelectVideo.get()) return null
-        val success = resolverState.value as? com.confused.anikuta.core.videoresolver.ResolverState.Success ?: return null
-        if (success.servers.isEmpty()) return null
+    fun tryAutoSelect(success: com.confused.anikuta.core.videoresolver.ResolverState.Success? = null): com.confused.anikuta.core.videoresolver.ResolvedVideo? {
+        if (!playerPreferences.autoSelectVideo.get()) {
+            Logger.w(TAG) { "tryAutoSelect: autoSelectVideo is OFF" }
+            return null
+        }
+        // Use the passed-in Success state (from the LaunchedEffect) to avoid stale reads.
+        val successState = success ?: (resolverState.value as? com.confused.anikuta.core.videoresolver.ResolverState.Success)
+        if (successState == null) {
+            Logger.w(TAG) { "tryAutoSelect: resolverState is not Success (actual: ${resolverState.value::class.simpleName})" }
+            return null
+        }
+        if (successState.servers.isEmpty()) {
+            Logger.w(TAG) { "tryAutoSelect: servers list is empty (videos: ${successState.videos.size})" }
+            return null
+        }
+        Logger.i(TAG) { "tryAutoSelect: ${successState.servers.size} servers, ${successState.videos.size} videos — running engine..." }
 
         return try {
             val selection = com.confused.anikuta.core.download.AutoDownloadEngine.selectBestVideo(
-                servers = success.servers,
+                servers = successState.servers,
                 dimensionPriority = playerPreferences.dimensionPriority.get()
                     .map { com.confused.anikuta.core.download.AutoDownloadEngine.PreferenceDimension.valueOf(it) },
                 preferredAudio = playerPreferences.preferredAudio.get(),

@@ -211,7 +211,7 @@ fun DetailsScreen(
         when (resolverState) {
             is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
                 pendingAutoPlay = false
-                val autoVideo = viewModel.tryAutoSelect()
+                val autoVideo = viewModel.tryAutoSelect(resolverState as com.confused.anikuta.core.videoresolver.ResolverState.Success)
                 if (autoVideo != null) {
                     // Auto-select succeeded — navigate to watch with the picked video.
                     val anime = (state as? DetailsState.Success)?.anime

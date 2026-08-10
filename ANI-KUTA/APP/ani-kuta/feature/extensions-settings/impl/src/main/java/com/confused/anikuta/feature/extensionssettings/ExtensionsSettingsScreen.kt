@@ -124,7 +124,7 @@ fun ExtensionsSettingsScreen(
     var showFilters by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf(ExtensionSortMode.NAME) }
-    var showNsfw by remember { mutableStateOf(false) }
+    var showNsfw by remember { mutableStateOf(true) }
     var reorderMode by remember { mutableStateOf(false) }
     var reorderedInstalled by remember { mutableStateOf<List<AnimeExtension.Installed>>(emptyList()) }
 
