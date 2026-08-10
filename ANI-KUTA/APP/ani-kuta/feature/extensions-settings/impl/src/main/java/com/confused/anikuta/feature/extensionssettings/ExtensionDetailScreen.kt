@@ -79,20 +79,25 @@ fun ExtensionDetailScreen(
     val ext = installedExtensions.find { it.pkgName == pkgName }
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val collapsed = listState.firstVisibleItemIndex > 0 ||
+        listState.firstVisibleItemScrollOffset > 20
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(
-                title = ext?.name ?: "Extension",
-                collapsed = false,
+                title = "Extension Details",
+                collapsed = collapsed,
                 actions = { BackAction(onBack) },
             )
 
             if (ext != null) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 110.dp),
-                ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 110.dp),
+                    ) {
                     // ── Header: logo + name + version ──
                     item { ExtensionHeader(ext) }
 
@@ -178,28 +183,65 @@ fun ExtensionDetailScreen(
                         }
                     }
 
-                    // ── Sources list ──
-                    item {
-                        Text(
-                            "Sources (${ext.sources.size})",
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
+                    // ── Sources list (only if multiple sources) ──
+                    // Phase 2b: if the extension has only 1 source, hide the sources section
+                    // and show a single Settings button at the bottom instead.
+                    if (ext.sources.size > 1) {
+                        item {
+                            Text(
+                                "Sources (${ext.sources.size})",
+                                fontFamily = RobotoFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                        items(ext.sources.size) { index ->
+                            val source = ext.sources[index]
+                            val isConfigurable = source is ConfigurableAnimeSource
+                            SourceRow(
+                                name = source.name,
+                                lang = source.lang,
+                                isConfigurable = isConfigurable,
+                                onOpenSettings = { onOpenSourcePreferences(source.id) },
+                            )
+                        }
                     }
-                    items(ext.sources.size) { index ->
-                        val source = ext.sources[index]
-                        val isConfigurable = source is ConfigurableAnimeSource
-                        SourceRow(
-                            name = source.name,
-                            lang = source.lang,
-                            isConfigurable = isConfigurable,
-                            onOpenSettings = { onOpenSourcePreferences(source.id) },
-                        )
+
+                    // ── Settings button (for single-source extensions) ──
+                    // Phase 2b: if only 1 source, show a single Settings button at the bottom.
+                    if (ext.sources.size == 1) {
+                        val source = ext.sources.first()
+                        if (source is ConfigurableAnimeSource) {
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    ActionButton(
+                                        text = "Source Settings",
+                                        icon = Icons.Filled.Settings,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        onClick = { onOpenSourcePreferences(source.id) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     }
                 }
+
+                ScrollBlurOverlay(
+                    scrollOffset = {
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
+                    },
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                )
+                }
+
             } else {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -213,11 +255,6 @@ fun ExtensionDetailScreen(
                     )
                 }
             }
-
-            ScrollBlurOverlay(
-                scrollOffset = { 0f },
-                backgroundColor = MaterialTheme.colorScheme.background,
-            )
         }
     }
 

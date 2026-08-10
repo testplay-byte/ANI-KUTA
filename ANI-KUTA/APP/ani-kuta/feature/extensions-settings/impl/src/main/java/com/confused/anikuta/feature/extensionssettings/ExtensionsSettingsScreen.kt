@@ -62,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -152,6 +153,8 @@ fun ExtensionsSettingsScreen(
     val filteredInstalled = reorderedInstalled.filter { ext ->
         matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
     }.let { if (reorderMode) it else sortExtensions(it, sortMode) }
+        // Phase 2d: disabled extensions sorted to the bottom (enabled first).
+        .let { sorted -> if (reorderMode) sorted else sorted.sortedBy { !it.isEnabled } }
 
     val filteredUntrusted = untrustedExtensions.filter { ext ->
         matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
@@ -464,6 +467,7 @@ private fun InstalledExtensionRow(
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer { alpha = if (extension.isEnabled) 1f else 0.45f }
             .combinedClickable(
                 onClick = onClickExtension,
                 onLongClick = onLongPress,
@@ -519,12 +523,7 @@ private fun InstalledExtensionRow(
                 )
             }
             if (!isReordering) {
-                // Phase DB-OPT: enable/disable toggle (per-package control independent of signer trust).
-                Switch(
-                    checked = extension.isEnabled,
-                    onCheckedChange = { onToggleEnabled() },
-                    modifier = Modifier.padding(end = 4.dp),
-                )
+                // Phase 2c: enable/disable toggle removed from list — moved to detail page.
                 ActionIconButton(
                     icon = Icons.Filled.VerifiedUser,
                     contentDescription = "Untrust",
