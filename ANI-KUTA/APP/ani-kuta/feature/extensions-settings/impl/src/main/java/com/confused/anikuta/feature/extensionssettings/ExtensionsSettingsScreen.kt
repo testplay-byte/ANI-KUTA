@@ -108,6 +108,7 @@ import org.koin.compose.koinInject
 fun ExtensionsSettingsScreen(
     onBack: () -> Unit,
     onOpenRepoSettings: () -> Unit,
+    onOpenExtensionDetail: (String) -> Unit = {},
     extensionManager: ExtensionManager = koinInject(),
     repoRepository: ExtensionRepoRepository = koinInject(),
 ) {
@@ -250,6 +251,7 @@ fun ExtensionsSettingsScreen(
                                             }
                                         },
                                         onLongPress = { reorderMode = true },
+                                        onClickExtension = { onOpenExtensionDetail(ext.pkgName) },
                                         onToggleEnabled = {
                                             if (ext.isEnabled) extensionManager.disableExtension(ext.pkgName)
                                             else extensionManager.enableExtension(ext.pkgName)
@@ -450,6 +452,7 @@ private fun InstalledExtensionRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onLongPress: () -> Unit,
+    onClickExtension: () -> Unit,
     onToggleEnabled: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
@@ -462,7 +465,7 @@ private fun InstalledExtensionRow(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = {},
+                onClick = onClickExtension,
                 onLongClick = onLongPress,
             ),
     ) {

@@ -26,3 +26,20 @@ object ExtensionRepoSettingsKey : NavKey
  */
 @Serializable
 object AutoLinkSettingsKey : NavKey
+
+/**
+ * Phase 4: NavKey for the Extension Detail screen.
+ * Shows the extension's logo, version, package ID, enable/disable toggle,
+ * uninstall button, app info button, + the list of sources (with per-source
+ * settings buttons if the source is ConfigurableAnimeSource).
+ */
+@Serializable
+data class ExtensionDetailKey(val pkgName: String) : NavKey
+
+/**
+ * Phase 4: NavKey for the Source Preferences screen.
+ * Renders the extension's own settings via PreferenceFragmentCompat.
+ * (Placeholder for now — the full PreferenceFragmentCompat integration is pending.)
+ */
+@Serializable
+data class SourcePreferencesKey(val sourceId: Long) : NavKey

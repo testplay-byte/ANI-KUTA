@@ -67,7 +67,10 @@ import com.confused.anikuta.feature.download.DownloadedFilesScreen
 import com.confused.anikuta.feature.download.DownloadSettingsKey
 import com.confused.anikuta.feature.download.DownloadSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
+import com.confused.anikuta.feature.extensionssettings.ExtensionDetailKey
+import com.confused.anikuta.feature.extensionssettings.SourcePreferencesKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
+import com.confused.anikuta.feature.extensionssettings.ExtensionDetailScreen
 import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsKey
 import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
@@ -499,11 +502,22 @@ fun AppRoot() {
             is ExtensionsSettingsKey -> ExtensionsSettingsScreen(
                 onBack = pop,
                 onOpenRepoSettings = { backstack.add(ExtensionRepoSettingsKey) },
+                onOpenExtensionDetail = { backstack.add(ExtensionDetailKey(it)) },
             )
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
                 onBack = pop,
             )
             is AutoLinkSettingsKey -> AutoLinkSettingsScreen(
+                onBack = pop,
+            )
+            is ExtensionDetailKey -> ExtensionDetailScreen(
+                pkgName = currentKey.pkgName,
+                onBack = pop,
+                onOpenSourcePreferences = { sourceId -> backstack.add(SourcePreferencesKey(sourceId)) },
+            )
+            is SourcePreferencesKey -> PlaceholderScreen(
+                title = "Source Preferences",
+                description = "Extension source preferences rendering (PreferenceFragmentCompat) is pending implementation. The extension detail page + navigation are functional.",
                 onBack = pop,
             )
             is AppearanceKey -> AppearanceScreen(
