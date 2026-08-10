@@ -270,13 +270,13 @@ class DetailsViewModel(
     /** Whether auto-select video is enabled (for the UI to decide flow). */
     fun isAutoSelectEnabled(): Boolean = playerPreferences.autoSelectVideo.get()
 
-    fun tryAutoSelect(success: com.confused.anikuta.core.videoresolver.ResolverState.Success? = null): com.confused.anikuta.core.videoresolver.ResolvedVideo? {
+    fun tryAutoSelect(success: ResolverState.Success? = null): com.confused.anikuta.core.videoresolver.ResolvedVideo? {
         if (!playerPreferences.autoSelectVideo.get()) {
             Logger.w(TAG) { "tryAutoSelect: autoSelectVideo is OFF" }
             return null
         }
         // Use the passed-in Success state (from the LaunchedEffect) to avoid stale reads.
-        val successState = success ?: (resolverState.value as? com.confused.anikuta.core.videoresolver.ResolverState.Success)
+        val successState = success ?: (resolverState.value as? ResolverState.Success)
         if (successState == null) {
             Logger.w(TAG) { "tryAutoSelect: resolverState is not Success (actual: ${resolverState.value::class.simpleName})" }
             return null

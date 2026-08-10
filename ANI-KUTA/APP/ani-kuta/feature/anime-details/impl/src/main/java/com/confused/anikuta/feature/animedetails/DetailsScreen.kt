@@ -214,18 +214,15 @@ fun DetailsScreen(
 
     LaunchedEffect(pendingAutoPlay) {
         if (!pendingAutoPlay) return@LaunchedEffect
-        // Poll resolverState via snapshotFlow — this correctly re-fires when
-        // resolverState transitions from Loading → Success (the old
-        // LaunchedEffect(resolverState, pendingAutoPlay) had a race condition
-        // where it didn't re-fire when resolverState changed if pendingAutoPlay
-        // hadn't changed).
-        kotlinx.coroutines.flow.MutableStateFlow(resolverState).let { _ ->
-            // Use snapshotFlow to observe resolverState changes while pendingAutoPlay is true.
-        }
-        // Simple approach: poll every 100ms until resolverState is Success/Error.
+        // Poll resolverState every 100ms until it's Success or Error.
+        // (LaunchedEffect captures the Compose state value at composition time,
+        // but `resolverState` is collected via collectAsState() which updates
+        // the local val on recomposition — the LaunchedEffect coroutine reads
+        // the latest value each iteration because Compose state reads in
+        // coroutines are deferred to the snapshot.)
         while (pendingAutoPlay) {
             when (val rs = resolverState) {
-                is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
+                is ResolverState.Success -> {
                     pendingAutoPlay = false
                     Logger.i("Anikuta:Feature:Details") { "Auto-play: resolverState is Success — trying auto-select..." }
                     val autoVideo = viewModel.tryAutoSelect(rs)
@@ -275,7 +272,7 @@ fun DetailsScreen(
                     }
                     return@LaunchedEffect
                 }
-                is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
+                is ResolverState.Error -> {
                     pendingAutoPlay = false
                     showResolverSheet = true
                     return@LaunchedEffect
@@ -290,7 +287,7 @@ fun DetailsScreen(
 
     // Phase 2: Loading indicator for auto-select. Shows a beautiful animated dialog while resolving.
     val showAutoSelectLoading = pendingAutoPlay &&
-        resolverState is com.confused.anikuta.core.videoresolver.ResolverState.Loading
+        resolverState is ResolverState.Loading
     if (showAutoSelectLoading) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = {

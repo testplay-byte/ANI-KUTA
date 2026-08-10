@@ -198,7 +198,10 @@ private fun PreferenceCategoryRenderer(
     category: PreferenceCategory,
     sharedPreferences: SharedPreferences,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp)) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Text(
             text = category.title?.toString() ?: "",
             fontFamily = RobotoFamily,
@@ -334,34 +337,61 @@ private fun ListPreferenceRenderer(
     if (showDialog) {
         AlertDialog(
             onDismissRequest = { showDialog = false },
-            title = { Text(title, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            title = { Text(title, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp) },
             text = {
-                Column {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     entries.forEachIndexed { index, entry ->
                         val isSelected = entryValues[index] == currentValue
-                        Row(
+                        Surface(
+                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.border.BorderStroke(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                            ),
                             modifier = Modifier.fillMaxWidth().clickable {
                                 currentValue = entryValues[index].toString()
                                 sharedPreferences.edit().putString(key, currentValue).apply()
                                 showDialog = false
-                            }.padding(vertical = 12.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            },
                         ) {
-                            Text(
-                                entry.toString(),
-                                fontFamily = RobotoFamily,
-                                fontSize = 15.sp,
-                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (isSelected) {
-                                Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = "Selected",
-                                    tint = MaterialTheme.colorScheme.primary,
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // Radio circle indicator.
+                                Surface(
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else Color.Transparent,
+                                    border = androidx.compose.foundation.border.BorderStroke(
+                                        width = 2.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
                                     modifier = Modifier.size(20.dp),
+                                ) {
+                                    if (isSelected) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Surface(
+                                                shape = androidx.compose.foundation.shape.CircleShape,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(8.dp),
+                                            ) {}
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.size(12.dp))
+                                Text(
+                                    entry.toString(),
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f),
                                 )
                             }
                         }
