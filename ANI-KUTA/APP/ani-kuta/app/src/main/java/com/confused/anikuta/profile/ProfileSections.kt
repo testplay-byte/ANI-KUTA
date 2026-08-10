@@ -274,7 +274,7 @@ fun GenreAnimeSheet(genre: String, anime: List<RecentlyWatchedItem>,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         containerColor = MaterialTheme.colorScheme.surface, dragHandle = null) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            .androidx.compose.foundation.layout.navigationBarsPadding()) {
+            .navigationBarsPadding()) {
             Spacer(Modifier.height(16.dp))
             Text(genre, fontFamily = RobotoFamily, fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
