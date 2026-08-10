@@ -74,6 +74,11 @@ class BrowseViewModel(
                     val extDetail = contentRepository.getExtensionDetail(mid)
                     val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
                     val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+                    // Phase 3: look up episode thumbnail (fallback to cover).
+                    val epMeta = dataCacheRepository.getEpisodeMetadata(mid)
+                        .find { it.episodeNumber == episodeNumber.toFloat() }
+                    val thumbnailUrl = epMeta?.thumbnailUrl ?: coverUrl
+                    val episodeUrl = epMeta?.episodeUrl ?: ""
                     ContinueWatchingItem(
                         mainId = mid,
                         anilistId = anilistDetail?.anilistId,
@@ -81,6 +86,8 @@ class BrowseViewModel(
                         animeUrl = content.animeUrl ?: extDetail?.animeUrl ?: "",
                         title = content.title,
                         coverUrl = coverUrl,
+                        thumbnailUrl = thumbnailUrl,
+                        episodeUrl = episodeUrl,
                         episodeNumber = episodeNumber,
                         progressFraction = progress.progressFraction,
                         position = progress.position,
@@ -221,6 +228,8 @@ data class ContinueWatchingItem(
     val animeUrl: String,
     val title: String,
     val coverUrl: String?,
+    val thumbnailUrl: String?,
+    val episodeUrl: String?,
     val episodeNumber: Int,
     val progressFraction: Float,
     val position: Long,

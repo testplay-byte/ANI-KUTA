@@ -297,10 +297,12 @@ private fun ContinueWatchingCarousel(
     ) {
         items(items, key = { "${it.mainId}|${it.episodeNumber}" }) { item ->
             ContinueWatchingCard(item = item, onClick = {
+                // Phase 3: pass autoPlayEpisode so Details auto-triggers the episode click
+                // → Phase 2 auto-resolve → opens the player directly.
                 if (item.anilistId != null) {
-                    onNavigate(AnimeDetailsKey.AniList(item.anilistId))
+                    onNavigate(AnimeDetailsKey.AniList(item.anilistId, autoPlayEpisode = item.episodeNumber))
                 } else if (item.sourceId > 0 && item.animeUrl.isNotBlank()) {
-                    onNavigate(AnimeDetailsKey.Extension(item.sourceId, item.animeUrl, item.title, null))
+                    onNavigate(AnimeDetailsKey.Extension(item.sourceId, item.animeUrl, item.title, null, autoPlayEpisode = item.episodeNumber))
                 }
             })
         }
@@ -314,23 +316,24 @@ private fun ContinueWatchingCard(
 ) {
     Column(
         modifier = Modifier
-            .width(100.dp)
+            .width(160.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
             ),
     ) {
-        // Cover image (or placeholder) with progress bar overlay at the bottom.
+        // Phase 3: landscape thumbnail (160x90dp) — episode thumbnail with cover fallback.
         Box(
             modifier = Modifier
-                .size(width = 100.dp, height = 140.dp)
+                .size(width = 160.dp, height = 90.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
         ) {
-            if (item.coverUrl != null) {
+            val imageUrl = item.thumbnailUrl ?: item.coverUrl
+            if (imageUrl != null) {
                 AsyncImage(
-                    model = item.coverUrl,
+                    model = imageUrl,
                     contentDescription = item.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

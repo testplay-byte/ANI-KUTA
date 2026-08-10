@@ -194,6 +194,16 @@ fun DetailsScreen(
     // when it becomes Success, tries auto-select. If a video is picked → navigate to
     // watch directly (skip the ResolverSheet). If no match → show the ResolverSheet.
     var pendingAutoPlay by remember { mutableStateOf(false) }
+
+    // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on the key,
+    // auto-trigger the episode click when episodes are loaded. Uses the Phase 2
+    // auto-resolve flow (pendingAutoPlay → tryAutoSelect → navigate to watch).
+    val autoPlayEpisode = when (detailsKey) {
+        is AnimeDetailsKey.AniList -> detailsKey.autoPlayEpisode
+        is AnimeDetailsKey.Extension -> detailsKey.autoPlayEpisode
+    }
+    var hasAutoPlayed by remember { mutableStateOf(false) }
+
     LaunchedEffect(resolverState, pendingAutoPlay) {
         if (!pendingAutoPlay) return@LaunchedEffect
         when (resolverState) {
@@ -255,6 +265,26 @@ fun DetailsScreen(
     }
     var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
+
+    // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on the key,
+    // auto-trigger the episode click when episodes are loaded. Uses the Phase 2
+    // auto-resolve flow (pendingAutoPlay → tryAutoSelect → navigate to watch).
+    LaunchedEffect(episodeState, autoPlayEpisode, hasAutoPlayed) {
+        if (autoPlayEpisode == null || hasAutoPlayed) return@LaunchedEffect
+        val episodes = (episodeState as? EpisodeState.Loaded)?.episodes
+        if (episodes.isNullOrEmpty()) return@LaunchedEffect
+        val targetEp = episodes.find { it.episode_number.toInt() == autoPlayEpisode }
+        if (targetEp != null) {
+            hasAutoPlayed = true
+            Logger.i("Anikuta:Feature:Details") {
+                "Auto-play from Continue Watching: triggering episode $autoPlayEpisode"
+            }
+            currentEpisode = targetEp
+            resolverDownloadMode = false
+            viewModel.resolveEpisode(targetEp)
+            pendingAutoPlay = true
+        }
+    }
 
     // DB-7: provide debug context for the Current Screen tab.
     // Shows the anime's mainId, resolver state, + relevant DB rows.
