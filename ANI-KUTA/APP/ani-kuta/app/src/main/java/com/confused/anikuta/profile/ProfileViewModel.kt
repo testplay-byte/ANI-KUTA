@@ -12,22 +12,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import java.util.Calendar
 
 /**
  * ViewModel for the My Profile screen.
  *
- * Computes stats from the database:
- * - Total anime in library (library_item count)
- * - Total episodes watched (watch_progress where completed=1)
- * - Total watch time (sum of duration from watch_progress)
- * - Average rating given (user_rating average)
- * - Top genre (from content_genre via GenreRepository)
- * - Current streak (consecutive days with watch_progress entries)
- * - Genre distribution (genre → count, from GenreRepository)
- * - Recently watched (last 10 watch_progress entries, enriched with content data)
- * - Top rated (user_rating sorted by rating desc)
- * - Activity heatmap data (activity_event or watch_progress by day)
+ * Computes all stats from the database:
+ * - Quick stats: total anime, watch time, mean score, streak
+ * - Watch flow: episodes watched by day of week (Mon-Sun)
+ * - Time DNA: preferred watch time (morning/afternoon/evening/night)
+ * - Genre distribution: from GenreRepository
+ * - Activity heatmap: 365-day watch activity
+ * - Timeline: user's activity feed
  */
 class ProfileViewModel(
     private val database: AnikutaDatabase,
@@ -52,12 +48,11 @@ class ProfileViewModel(
             try {
                 Logger.i(TAG) { "Loading profile stats..." }
 
-                // Library count
                 val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
                 val totalAnime = libraryItems.map { it.main_id }.distinct().size
                 val libraryMainIds = libraryItems.map { it.main_id }.toSet()
 
-                // Watch progress stats — read directly from DB
+                // Watch progress
                 val allProgress = database.watchQueries.getAllWatchProgress().executeAsList().map { row ->
                     com.confused.anikuta.core.watchprogress.WatchProgress(
                         episodeKey = row.episode_key,
@@ -75,11 +70,9 @@ class ProfileViewModel(
                 }
                 val totalEpisodesWatched = allProgress.count { it.completed }
                 val totalWatchTimeSec = allProgress.filter { it.completed }.sumOf { it.duration }
-                val watchTimeHours = totalWatchTimeSec / 3600
-                val watchTimeMins = (totalWatchTimeSec % 3600) / 60
-                val watchTimeFormatted = if (watchTimeHours > 0) "${watchTimeHours}h ${watchTimeMins}m" else "${watchTimeMins}m"
+                val watchTimeFormatted = formatWatchTime(totalWatchTimeSec)
 
-                // Average rating — read directly from DB
+                // Average rating
                 val allRatings = database.ratingsQueries.getAllUserRatings().executeAsList()
                 val avgRating = if (allRatings.isNotEmpty()) {
                     allRatings.mapNotNull { it?.rating?.toInt() }.let { ratings ->
@@ -91,12 +84,49 @@ class ProfileViewModel(
                 // Genre distribution
                 val genreCounts = genreRepository.getLibraryGenreCounts(libraryMainIds)
                 val genreDistribution = genreCounts.associate { it.first to it.second }
-                val topGenre = genreCounts.firstOrNull()?.first
 
-                // Current streak (consecutive days with watch activity)
+                // Current streak
                 val currentStreak = calculateCurrentStreak(allProgress)
 
-                // Recently watched (last 10, enriched)
+                // Watch flow by day of week (Mon=0, Sun=6)
+                val watchFlowByDay = List(7) { 0 }.toMutableList()
+                val calendar = Calendar.getInstance()
+                allProgress.forEach { progress ->
+                    if (progress.lastWatchedAt > 0) {
+                        calendar.timeInMillis = progress.lastWatchedAt
+                        val dayOfWeek = (calendar.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7 // Mon=0, Sun=6
+                        watchFlowByDay[dayOfWeek] = watchFlowByDay[dayOfWeek] + 1
+                    }
+                }
+
+                // Time DNA (hourly distribution)
+                val hourlyCounts = IntArray(24)
+                allProgress.forEach { progress ->
+                    if (progress.lastWatchedAt > 0) {
+                        calendar.timeInMillis = progress.lastWatchedAt
+                        val hour = calendar.get(Calendar.HOUR_OF_DAY)
+                        hourlyCounts[hour]++
+                    }
+                }
+                val timeDna = buildTimeDna(hourlyCounts.toList(), allProgress.size)
+
+                // Activity heatmap data
+                val activityData = buildActivityData(allProgress)
+
+                // Avg daily watch time
+                val avgDailyWatchTimeSec = if (activityData.isNotEmpty()) {
+                    val activeDays = activityData.size
+                    totalWatchTimeSec / activeDays.coerceAtLeast(1)
+                } else 0
+                val avgDailyWatchTime = formatWatchTime(avgDailyWatchTimeSec)
+
+                // Timeline
+                val timeline = buildTimeline(allProgress, allRatings)
+
+                // AniList username
+                val anilistUsername = preferenceStore.getString("anilist_username", "").takeIf { it.isNotBlank() }
+
+                // Recently watched (for genre sheet)
                 val recentlyWatched = allProgress
                     .sortedByDescending { it.lastWatchedAt }
                     .take(10)
@@ -104,56 +134,31 @@ class ProfileViewModel(
                         val mid = progress.mainId ?: return@mapNotNull null
                         val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
                         val anilistDetail = contentRepository.getAniListDetail(mid)
-                        val coverUrl = anilistDetail?.coverUrl
-                        val anilistId = anilistDetail?.anilistId
-                        val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                         RecentlyWatchedItem(
-                            anilistId = anilistId,
+                            anilistId = anilistDetail?.anilistId,
                             title = content.title,
-                            coverUrl = coverUrl,
-                            episodeNumber = episodeNumber,
+                            coverUrl = anilistDetail?.coverUrl,
+                            episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0,
                             progressFraction = progress.progressFraction,
                             lastWatchedAt = progress.lastWatchedAt,
                         )
                     }
 
-                // Top rated
-                val topRated = allRatings.mapNotNull { rating ->
-                    val mid = rating.main_id ?: return@mapNotNull null
-                    val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
-                    val anilistDetail = contentRepository.getAniListDetail(mid)
-                    val anilistId = anilistDetail?.anilistId
-                    val coverUrl = anilistDetail?.coverUrl
-                    val ratingValue = rating.rating?.toInt() ?: 0
-                    if (anilistId != null) {
-                        TopRatedItem(
-                            anilistId = anilistId,
-                            title = content.title,
-                            coverUrl = coverUrl,
-                            rating = ratingValue,
-                        )
-                    } else null
-                }.sortedByDescending { it.rating }.take(10)
-
-                // Activity heatmap data (watch_progress by day)
-                val activityData = buildActivityData(allProgress)
-
-                // AniList username (from preferences)
-                val anilistUsername = preferenceStore.getString("anilist_username", "").takeIf { it.isNotBlank() }
-
                 _state.value = ProfileUiState(
-                    displayName = "Anime Fan", // TODO: make editable
+                    displayName = "Anime Fan",
                     anilistUsername = anilistUsername,
                     totalAnime = totalAnime,
                     totalEpisodesWatched = totalEpisodesWatched,
                     watchTimeFormatted = watchTimeFormatted,
                     avgRatingFormatted = avgRatingFormatted,
-                    topGenre = topGenre,
                     currentStreak = currentStreak,
                     genreDistribution = genreDistribution,
-                    recentlyWatched = recentlyWatched,
-                    topRated = topRated,
+                    watchFlowByDay = watchFlowByDay.toList(),
+                    timeDna = timeDna,
                     activityData = activityData,
+                    avgDailyWatchTime = avgDailyWatchTime,
+                    timeline = timeline,
+                    recentlyWatched = recentlyWatched,
                 )
 
                 Logger.i(TAG) { "Profile stats loaded: $totalAnime anime, $totalEpisodesWatched episodes, ${genreCounts.size} genres" }
@@ -163,26 +168,51 @@ class ProfileViewModel(
         }
     }
 
+    private fun formatWatchTime(seconds: Long): String {
+        if (seconds <= 0) return "0m"
+        val days = seconds / 86400
+        val hours = (seconds % 86400) / 3600
+        val mins = (seconds % 3600) / 60
+        return when {
+            days > 0 -> "${days}d ${hours}h"
+            hours > 0 -> "${hours}h ${mins}m"
+            else -> "${mins}m"
+        }
+    }
+
     private fun calculateCurrentStreak(progress: List<com.confused.anikuta.core.watchprogress.WatchProgress>): Int {
         if (progress.isEmpty()) return 0
-        val now = System.currentTimeMillis()
         val oneDayMs = 24 * 60 * 60 * 1000L
-        val todayStart = (now / oneDayMs) * oneDayMs
-
-        // Get unique days with watch activity
+        val todayStart = (System.currentTimeMillis() / oneDayMs) * oneDayMs
         val activeDays = progress.map { it.lastWatchedAt / oneDayMs }.toSet().sortedDescending()
-
         var streak = 0
         var checkDay = todayStart / oneDayMs
         for (day in activeDays) {
-            if (day == checkDay) {
-                streak++
-                checkDay--
-            } else if (day < checkDay) {
-                break
-            }
+            if (day == checkDay) { streak++; checkDay-- }
+            else if (day < checkDay) break
         }
         return streak
+    }
+
+    private fun buildTimeDna(hourlyCounts: List<Int>, totalSessions: Int): TimeDnaData {
+        // Find the peak time period
+        val morning = (6..11).sumOf { hourlyCounts[it] }
+        val afternoon = (12..17).sumOf { hourlyCounts[it] }
+        val evening = (18..22).sumOf { hourlyCounts[it] }
+        val night = (23..23).sumOf { hourlyCounts[it] } + (0..5).sumOf { hourlyCounts[it] }
+
+        val preferredTimeLabel = when (maxOf(morning, afternoon, evening, night)) {
+            morning -> "Morning"
+            afternoon -> "Afternoon"
+            evening -> "Evening"
+            else -> "Night"
+        }
+
+        return TimeDnaData(
+            hourlyCounts = hourlyCounts,
+            preferredTimeLabel = preferredTimeLabel,
+            totalSessions = totalSessions,
+        )
     }
 
     private fun buildActivityData(progress: List<com.confused.anikuta.core.watchprogress.WatchProgress>): Map<Long, Int> {
@@ -193,14 +223,53 @@ class ProfileViewModel(
             .mapValues { it.value.size }
     }
 
-    // ── Genre click ──
+    private fun buildTimeline(
+        progress: List<com.confused.anikuta.core.watchprogress.WatchProgress>,
+        ratings: List<Any>,
+    ): List<TimelineItem> {
+        val timeline = mutableListOf<TimelineItem>()
+
+        // Watch events
+        progress.filter { it.lastWatchedAt > 0 }.sortedByDescending { it.lastWatchedAt }.take(50).forEach { p ->
+            val mid = p.mainId ?: return@forEach
+            val content = contentRepository.getContentByMainId(mid) ?: return@forEach
+            val anilistDetail = contentRepository.getAniListDetail(mid)
+            val epNum = p.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+            timeline.add(TimelineItem(
+                anilistId = anilistDetail?.anilistId,
+                title = content.title,
+                coverUrl = anilistDetail?.coverUrl,
+                description = "Watched EP $epNum" + if (p.completed) " (completed)" else "",
+                timestamp = p.lastWatchedAt,
+                type = "watch",
+                rating = null,
+            ))
+        }
+
+        // Rating events
+        ratings.forEach { rating ->
+            val r = rating as? com.confused.anikuta.core.database.User_rating ?: return@forEach
+            val mid = r.main_id ?: return@forEach
+            val content = contentRepository.getContentByMainId(mid) ?: return@forEach
+            val anilistDetail = contentRepository.getAniListDetail(mid)
+            timeline.add(TimelineItem(
+                anilistId = anilistDetail?.anilistId,
+                title = content.title,
+                coverUrl = anilistDetail?.coverUrl,
+                description = "Rated ${r.rating?.toInt()?.div(10)}/10",
+                timestamp = r.rated_at ?: 0,
+                type = "rating",
+                rating = r.rating?.toInt(),
+            ))
+        }
+
+        return timeline.sortedByDescending { it.timestamp }
+    }
 
     fun onGenreClick(genre: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
             val libraryMainIds = libraryItems.map { it.main_id }.toSet()
-
-            // Get all content with this genre
             val genreAnime = libraryMainIds.mapNotNull { mid ->
                 val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
                 val anilistDetail = contentRepository.getAniListDetail(mid) ?: return@mapNotNull null
@@ -216,11 +285,7 @@ class ProfileViewModel(
                     )
                 } else null
             }
-
-            _state.value = _state.value.copy(
-                selectedGenre = genre,
-                genreAnime = genreAnime,
-            )
+            _state.value = _state.value.copy(selectedGenre = genre, genreAnime = genreAnime)
         }
     }
 
@@ -229,21 +294,44 @@ class ProfileViewModel(
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  Data Models
+// ════════════════════════════════════════════════════════════════════════════
+
 data class ProfileUiState(
     val displayName: String = "Anime Fan",
+    val avatarUrl: String? = null,
     val anilistUsername: String? = null,
     val totalAnime: Int = 0,
     val totalEpisodesWatched: Int = 0,
     val watchTimeFormatted: String = "0m",
     val avgRatingFormatted: String = "—",
-    val topGenre: String? = null,
     val currentStreak: Int = 0,
     val genreDistribution: Map<String, Int> = emptyMap(),
-    val recentlyWatched: List<RecentlyWatchedItem> = emptyList(),
-    val topRated: List<TopRatedItem> = emptyList(),
+    val watchFlowByDay: List<Int> = listOf(0, 0, 0, 0, 0, 0, 0),
+    val timeDna: TimeDnaData? = null,
     val activityData: Map<Long, Int> = emptyMap(),
+    val avgDailyWatchTime: String = "0m",
+    val timeline: List<TimelineItem> = emptyList(),
+    val recentlyWatched: List<RecentlyWatchedItem> = emptyList(),
     val selectedGenre: String? = null,
     val genreAnime: List<RecentlyWatchedItem> = emptyList(),
+)
+
+data class TimeDnaData(
+    val hourlyCounts: List<Int>,
+    val preferredTimeLabel: String,
+    val totalSessions: Int,
+)
+
+data class TimelineItem(
+    val anilistId: Int?,
+    val title: String,
+    val coverUrl: String?,
+    val description: String,
+    val timestamp: Long,
+    val type: String,
+    val rating: Int?,
 )
 
 data class RecentlyWatchedItem(
@@ -253,11 +341,4 @@ data class RecentlyWatchedItem(
     val episodeNumber: Int,
     val progressFraction: Float,
     val lastWatchedAt: Long,
-)
-
-data class TopRatedItem(
-    val anilistId: Int,
-    val title: String,
-    val coverUrl: String?,
-    val rating: Int,  // 0-100
 )
