@@ -313,6 +313,7 @@ fun ExtensionsSettingsScreen(
                         }
                     }
                 }
+                }
 
                 // Phase 3: scroll blur overlay inside the Box (below the header, on top of the list).
                 ScrollBlurOverlay(
