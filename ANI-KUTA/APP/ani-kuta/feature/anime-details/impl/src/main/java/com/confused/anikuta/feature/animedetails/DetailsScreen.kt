@@ -2,8 +2,14 @@ package com.confused.anikuta.feature.animedetails
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -269,7 +275,7 @@ fun DetailsScreen(
         }
     }
 
-    // Phase 1c: Loading indicator for auto-select. Shows a small dialog while resolving.
+    // Phase 2: Loading indicator for auto-select. Shows a beautiful animated dialog while resolving.
     val showAutoSelectLoading = pendingAutoPlay &&
         resolverState is com.confused.anikuta.core.videoresolver.ResolverState.Loading
     if (showAutoSelectLoading) {
@@ -281,20 +287,45 @@ fun DetailsScreen(
             confirmButton = {},
             title = null,
             text = {
-                androidx.compose.foundation.layout.Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                androidx.compose.foundation.layout.Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 ) {
-                    androidx.compose.material3.CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(28.dp),
+                    // Animated loading spinner with pulse effect.
+                    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "auto_select")
+                    val scale by infiniteTransition.animateFloat(
+                        initialValue = 0.85f,
+                        targetValue = 1.15f,
+                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                            animation = androidx.compose.animation.core.tween(800, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                        ),
+                        label = "scale",
                     )
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.size(56.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 4.dp,
+                            modifier = Modifier.size(48.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
                     Text(
-                        "Auto-selecting video...",
+                        "Auto-selecting video",
                         fontFamily = RobotoFamily,
-                        fontSize = 15.sp,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Finding the best server, audio, and quality...",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },
