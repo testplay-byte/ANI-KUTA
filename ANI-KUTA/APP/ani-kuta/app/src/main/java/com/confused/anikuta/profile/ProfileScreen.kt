@@ -109,20 +109,22 @@ fun ProfileScreen(
     }
 
     // ── Magnetic snap ────────────────────────────────────────────────────────
-    // When the user stops scrolling, snap to expanded (item 0) or collapsed (item 1)
-    // depending on which side of 50% the fraction landed. This produces the "magnetic"
-    // feel: a small scroll down snaps to collapsed; scrolling back up past the midpoint
-    // snaps to expanded.
+    // Only snaps when the user is near the TOP of the list (firstVisibleItemIndex == 0).
+    // This prevents the snap from firing when the user is deep in content (which would
+    // jump them back to the top). The snap area is limited to the tab-bar threshold.
     LaunchedEffect(activeListState) {
         snapshotFlow { activeListState.isScrollInProgress }
             .distinctUntilChanged()
             .filter { !it } // only when scroll ENDS
             .collect {
-                val f = scrollFraction()
-                if (f > 0.5f) {
-                    activeListState.animateScrollToItem(1, 0)
-                } else {
-                    activeListState.animateScrollToItem(0, 0)
+                // Only snap if the user is at item 0 (near the top, in the tab-bar area).
+                if (activeListState.firstVisibleItemIndex == 0) {
+                    val f = scrollFraction()
+                    if (f > 0.5f) {
+                        activeListState.animateScrollToItem(1, 0)
+                    } else {
+                        activeListState.animateScrollToItem(0, 0)
+                    }
                 }
             }
     }
@@ -292,8 +294,7 @@ private fun StatsTab(
         item { ProfileHeader(state) }
         item { QuickStatsRow(state) }
         item { WatchFlowGraph(state.watchFlowByDay, state.watchFlowDetail, onNavigateToAnime, listState) }
-        item { TimeDnaCard(state.timeDna) }
-        item { RecentlyWatchedCard(state.recentlyWatched, onNavigateToAnime) }
+        item { TimeDnaAndRecentCard(state.timeDna, state.recentlyWatched, onNavigateToAnime) }
         if (state.genreDistribution.isNotEmpty()) {
             item {
                 GenreRadarChart(

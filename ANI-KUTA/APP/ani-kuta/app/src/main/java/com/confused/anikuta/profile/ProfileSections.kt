@@ -116,7 +116,7 @@ private fun complementaryColor(color: Color): Color {
 // ════════════════════════════════════════════════════════════════════════════
 
 private const val BARS_HEIGHT_DP = 150
-private const val SIDEBAR_HEIGHT_DP = 200
+private const val SIDEBAR_HEIGHT_DP = 260
 private const val SIDEBAR_WIDTH_DP = 160
 private const val BAR_WIDTH_DP = 30
 
@@ -159,89 +159,112 @@ fun WatchFlowGraph(
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    // Y-axis labels (max / mid / 0), aligned to the bars area
-                    Column(
-                        modifier = Modifier.width(26.dp).height(BARS_HEIGHT_DP.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
-                        horizontalAlignment = Alignment.End,
-                    ) {
-                        yLabels.forEach { label ->
-                            Text(
-                                "$label", fontFamily = RobotoFamily, fontSize = 9.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(6.dp))
-
-                    // Bars area: grid lines + bars + floating sidebar overlay.
-                    // The whole Box is clickable to close the sidebar on tap-outside.
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(BARS_HEIGHT_DP.dp)
-                            .clickable { selectedDay = -1 },
-                    ) {
-                        // Grid lines (drawn behind bars)
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val w = size.width
-                            val h = size.height
-                            listOf(0f, 0.5f, 1f).forEach { frac ->
-                                val y = h * (1f - frac)
-                                drawLine(
-                                    color = gridColor,
-                                    start = Offset(0f, y),
-                                    end = Offset(w, y),
-                                    strokeWidth = 1f,
+            // Card-level Box: chart content + transparent scrim (tap-outside close)
+            // + floating sidebar overlay (taller than the bars area).
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        // Y-axis labels (max / mid / 0), aligned to the bars area
+                        Column(
+                            modifier = Modifier.width(26.dp).height(BARS_HEIGHT_DP.dp),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                            horizontalAlignment = Alignment.End,
+                        ) {
+                            yLabels.forEach { label ->
+                                Text(
+                                    "$label", fontFamily = RobotoFamily, fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
+                        Spacer(Modifier.width(6.dp))
 
-                        // Bars
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.Bottom,
+                        // Bars area: grid lines + bars.
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(BARS_HEIGHT_DP.dp),
                         ) {
-                            watchFlowByDay.forEachIndexed { index, count ->
-                                val isToday = index == todayIdx
-                                val isSelected = index == selectedDay
-                                val barHeightFraction = (count.toFloat() / maxVal).coerceIn(0.03f, 1f)
-                                val barColor = when {
-                                    isSelected -> primaryColor
-                                    isToday -> todayColor
-                                    else -> primaryColor.copy(alpha = 0.25f + 0.4f * count.toFloat() / maxVal)
+                            // Grid lines (drawn behind bars)
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val w = size.width
+                                val h = size.height
+                                listOf(0f, 0.5f, 1f).forEach { frac ->
+                                    val y = h * (1f - frac)
+                                    drawLine(
+                                        color = gridColor,
+                                        start = Offset(0f, y),
+                                        end = Offset(w, y),
+                                        strokeWidth = 1f,
+                                    )
                                 }
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.width(BAR_WIDTH_DP.dp),
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(BAR_WIDTH_DP.dp)
-                                            .height((barHeightFraction * (BARS_HEIGHT_DP - 16)).dp)
-                                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                            .background(barColor)
-                                            .clickable {
-                                                selectedDay = if (selectedDay == index) -1 else index
-                                            },
+                            }
+
+                            // Bars
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                watchFlowByDay.forEachIndexed { index, count ->
+                                    val isToday = index == todayIdx
+                                    val isSelected = index == selectedDay
+                                    val barHeightFraction = (count.toFloat() / maxVal).coerceIn(0.03f, 1f)
+                                    val barColor = when {
+                                        isSelected -> primaryColor
+                                        isToday -> todayColor
+                                        else -> primaryColor.copy(alpha = 0.25f + 0.4f * count.toFloat() / maxVal)
+                                    }
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.width(BAR_WIDTH_DP.dp),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(BAR_WIDTH_DP.dp)
+                                                .height((barHeightFraction * (BARS_HEIGHT_DP - 16)).dp)
+                                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                                .background(barColor)
+                                                .clickable {
+                                                    selectedDay = if (selectedDay == index) -1 else index
+                                                },
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Day labels row at the bottom of the chart area
+                            Row(
+                                modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                            ) {
+                                days.forEachIndexed { index, label ->
+                                    val isToday = index == todayIdx
+                                    Text(
+                                        label, fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
+                                        color = if (isToday) todayColor
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.width(BAR_WIDTH_DP.dp),
+                                        textAlign = TextAlign.Center,
                                     )
                                 }
                             }
                         }
-
-                        // Day labels row at the bottom of the chart area
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    // Day labels row — below the bars, aligned under each bar column
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Spacer(Modifier.width(32.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter),
+                            modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                         ) {
                             days.forEachIndexed { index, label ->
                                 val isToday = index == todayIdx
                                 Text(
-                                    label, fontFamily = RobotoFamily,
-                                    fontSize = 10.sp,
+                                    label, fontFamily = RobotoFamily, fontSize = 10.sp,
                                     fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
                                     color = if (isToday) todayColor
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -250,43 +273,33 @@ fun WatchFlowGraph(
                                 )
                             }
                         }
+                    }
+                }
 
-                        // Floating sidebar overlay (LEFT side) — shows when a bar is tapped.
-                        val detail = selectedDay.takeIf { it >= 0 }?.let { watchFlowDetail.getOrNull(it) }
-                        WatchFlowSidebarOverlay(
-                            visible = selectedDay >= 0 && detail != null,
-                            dayName = days.getOrNull(selectedDay) ?: "",
-                            summary = detail,
-                            onOpenAnime = { anilistId ->
-                                selectedDay = -1
-                                onNavigateToAnime(anilistId)
-                            },
-                            onDismiss = { selectedDay = -1 },
-                            modifier = Modifier.align(Alignment.TopStart),
-                        )
-                    }
+                // Transparent scrim — shown when sidebar is visible. Captures all taps
+                // on the card (outside the sidebar) and closes the sidebar.
+                val detail = selectedDay.takeIf { it >= 0 }?.let { watchFlowDetail.getOrNull(it) }
+                if (selectedDay >= 0 && detail != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable { selectedDay = -1 },
+                    )
                 }
-                Spacer(Modifier.height(4.dp))
-                // Day labels row — below the bars, aligned under each bar column
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Spacer(Modifier.width(32.dp))
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        days.forEachIndexed { index, label ->
-                            val isToday = index == todayIdx
-                            Text(
-                                label, fontFamily = RobotoFamily, fontSize = 10.sp,
-                                fontWeight = if (isToday) FontWeight.ExtraBold else FontWeight.Bold,
-                                color = if (isToday) todayColor
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(BAR_WIDTH_DP.dp),
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
-                }
+
+                // Floating sidebar overlay (LEFT side) — taller than the chart card.
+                // Drawn ON TOP of the scrim so its own taps are consumed (not closed).
+                WatchFlowSidebarOverlay(
+                    visible = selectedDay >= 0 && detail != null,
+                    dayName = days.getOrNull(selectedDay) ?: "",
+                    summary = detail,
+                    onOpenAnime = { anilistId ->
+                        selectedDay = -1
+                        onNavigateToAnime(anilistId)
+                    },
+                    onDismiss = { selectedDay = -1 },
+                    modifier = Modifier.align(Alignment.TopStart),
+                )
             }
         }
     }
@@ -429,12 +442,16 @@ private fun formatDurationShort(seconds: Long): String {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Time DNA — standalone donut card with themed-tinted colors.
-//  Center shows current period. Legend below.
+//  Time DNA + Recently Watched — side-by-side in one card.
+//  Left: donut chart (own background). Right: recently watched list (own background).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-fun TimeDnaCard(timeDna: TimeDnaData?) {
+fun TimeDnaAndRecentCard(
+    timeDna: TimeDnaData?,
+    recentlyWatched: List<RecentlyWatchedItem>,
+    onNavigateToAnime: (Int) -> Unit,
+) {
     if (timeDna == null) return
 
     val morning = (6..11).sumOf { timeDna.hourlyCounts[it] }
@@ -469,161 +486,152 @@ fun TimeDnaCard(timeDna: TimeDnaData?) {
 
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
-            "Time DNA", fontFamily = RobotoFamily, fontSize = 14.sp,
+            "Time DNA & Recently Watched", fontFamily = RobotoFamily, fontSize = 14.sp,
             fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 8.dp),
         )
+        // Outer card
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                // Donut
-                Box(modifier = Modifier.size(120.dp)) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val centerX = size.width / 2f
-                        val centerY = size.height / 2f
-                        val outerRadius = min(centerX, centerY) * 0.92f
-                        val strokeWidth = outerRadius * 0.26f
-                        var startAngle = -90f
-                        periods.forEach { (_, count, color) ->
-                            if (count > 0) {
-                                val fraction = count.toFloat() / total
-                                val sweepAngle = fraction * 360f
-                                drawArc(
-                                    color = color,
-                                    startAngle = startAngle,
-                                    sweepAngle = sweepAngle,
-                                    useCenter = false,
-                                    topLeft = Offset(centerX - outerRadius, centerY - outerRadius),
-                                    size = Size(outerRadius * 2, outerRadius * 2),
-                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
-                                )
-                                startAngle += sweepAngle
-                            }
-                        }
-                    }
-                    // Center: current period color dot + name
+            Row(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                // ── Left: Time DNA donut (own background) ──────────────────────
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.width(140.dp),
+                ) {
                     Column(
-                        modifier = Modifier.align(Alignment.Center),
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Surface(
-                            color = currentPeriod.third,
-                            shape = CircleShape,
-                            modifier = Modifier.size(12.dp),
-                        ) {}
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            currentPeriod.first, fontFamily = RobotoFamily, fontSize = 9.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                // Legend below donut — 2-column grid
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    periods.forEachIndexed { idx, (name, count, color) ->
-                        val pct = if (total > 0) count * 100 / total else 0
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(color = color, shape = RoundedCornerShape(3.dp),
-                                modifier = Modifier.size(10.dp)) {}
-                            Spacer(Modifier.width(4.dp))
-                            Text("$pct%", fontFamily = RobotoFamily, fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(Modifier.width(4.dp))
-                            Text(name, fontFamily = RobotoFamily, fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // Donut
+                        Box(modifier = Modifier.size(100.dp)) {
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val centerX = size.width / 2f
+                                val centerY = size.height / 2f
+                                val outerRadius = min(centerX, centerY) * 0.92f
+                                val strokeWidth = outerRadius * 0.26f
+                                var startAngle = -90f
+                                periods.forEach { (_, count, color) ->
+                                    if (count > 0) {
+                                        val fraction = count.toFloat() / total
+                                        val sweepAngle = fraction * 360f
+                                        drawArc(
+                                            color = color,
+                                            startAngle = startAngle,
+                                            sweepAngle = sweepAngle,
+                                            useCenter = false,
+                                            topLeft = Offset(centerX - outerRadius, centerY - outerRadius),
+                                            size = Size(outerRadius * 2, outerRadius * 2),
+                                            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
+                                        )
+                                        startAngle += sweepAngle
+                                    }
+                                }
+                            }
+                            // Center: current period color dot + name
+                            Column(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Surface(
+                                    color = currentPeriod.third,
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(10.dp),
+                                ) {}
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    currentPeriod.first, fontFamily = RobotoFamily, fontSize = 8.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        // Legend below donut — 2 rows of 2
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            periods.forEach { (name, count, color) ->
+                                val pct = if (total > 0) count * 100 / total else 0
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(color = color, shape = RoundedCornerShape(3.dp),
+                                        modifier = Modifier.size(8.dp)) {}
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("$pct%", fontFamily = RobotoFamily, fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
+                                    Spacer(Modifier.width(3.dp))
+                                    Text(name, fontFamily = RobotoFamily, fontSize = 9.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
-    }
-}
 
-// ════════════════════════════════════════════════════════════════════════════
-//  Recently Watched — standalone card, vertical list, episode thumbnails.
-// ════════════════════════════════════════════════════════════════════════════
+                Spacer(Modifier.width(8.dp))
 
-@Composable
-fun RecentlyWatchedCard(
-    items: List<RecentlyWatchedItem>,
-    onNavigateToAnime: (Int) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(
-            "Recently Watched", fontFamily = RobotoFamily, fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-        if (items.isEmpty()) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    "No anime watched yet", fontFamily = RobotoFamily, fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(24.dp),
-                    textAlign = TextAlign.Center,
-                )
-            }
-        } else {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                    items.take(6).forEachIndexed { idx, item ->
-                        if (idx > 0) Spacer(Modifier.height(8.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { item.anilistId?.let { onNavigateToAnime(it) } }
-                                .padding(4.dp),
-                        ) {
-                            // Episode thumbnail (landscape) — fall back to cover
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 96.dp, height = 56.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                            ) {
-                                val thumb = item.episodeThumbnailUrl ?: item.coverUrl
-                                if (thumb != null) {
-                                    AsyncImage(
-                                        model = thumb,
-                                        contentDescription = item.title,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop,
-                                    )
+                // ── Right: Recently Watched list (own background) ──────────────
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                        Text(
+                            "Recently Watched", fontFamily = RobotoFamily, fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                        if (recentlyWatched.isEmpty()) {
+                            Text(
+                                "No anime yet", fontFamily = RobotoFamily, fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 20.dp),
+                                textAlign = TextAlign.Center,
+                            )
+                        } else {
+                            recentlyWatched.take(4).forEachIndexed { idx, item ->
+                                if (idx > 0) Spacer(Modifier.height(6.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable { item.anilistId?.let { onNavigateToAnime(it) } }
+                                        .padding(2.dp),
+                                ) {
+                                    // Episode thumbnail (landscape) — fall back to cover
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 64.dp, height = 38.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                    ) {
+                                        val thumb = item.episodeThumbnailUrl ?: item.coverUrl
+                                        if (thumb != null) {
+                                            AsyncImage(
+                                                model = thumb,
+                                                contentDescription = item.title,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop,
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            item.title, fontFamily = RobotoFamily, fontSize = 11.sp,
+                                            fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "EP ${item.episodeNumber}", fontFamily = RobotoFamily, fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
+                                        )
+                                    }
                                 }
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    item.title, fontFamily = RobotoFamily, fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    "EP ${item.episodeNumber}", fontFamily = RobotoFamily, fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold,
-                                )
                             }
                         }
                     }
@@ -694,11 +702,11 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 24.dp)) {
                 Row {
-                    // Left: day markers — extra bottom padding so the label isn't cut.
+                    // Left: day markers — bottom padding accounts for the month-label row.
                     Column(
-                        modifier = Modifier.width(14.dp).padding(bottom = 16.dp),
+                        modifier = Modifier.width(14.dp).padding(bottom = 20.dp),
                         verticalArrangement = Arrangement.spacedBy(cellSpacing),
                     ) {
                         dayMarkers.forEach { label ->
@@ -739,9 +747,9 @@ fun ActivityHeatmapCard(activityData: Map<Long, Int>, avgDailyWatchTime: String)
                                             .background(color),
                                     )
                                 }
-                                // Month label — extra height + centered so the bottom half shows.
+                                // Month label — taller Box so the text isn't clipped at the bottom.
                                 Box(
-                                    modifier = Modifier.width(cellSize).height(14.dp),
+                                    modifier = Modifier.width(cellSize).height(18.dp),
                                     contentAlignment = Alignment.TopCenter,
                                 ) {
                                     weekMonthLabels.getOrNull(w)?.let { label ->
