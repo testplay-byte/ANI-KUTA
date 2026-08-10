@@ -68,8 +68,8 @@ deleteContentGenres:
 DELETE FROM content_genre WHERE main_id = :mainId;
 
 getContentGenreCount:
-SELECT genre_id, COUNT(*) as count FROM content_genre
-GROUP BY genre_id ORDER BY count DESC;
+SELECT genre_id, COUNT(*) as genre_count FROM content_genre
+GROUP BY genre_id ORDER BY genre_count DESC;
 
 getAllContentGenres:
 SELECT * FROM content_genre;
