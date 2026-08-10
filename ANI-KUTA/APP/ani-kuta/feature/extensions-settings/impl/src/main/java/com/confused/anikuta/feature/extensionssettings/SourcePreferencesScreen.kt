@@ -21,7 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +45,8 @@ import com.confused.anikuta.feature.extensionssettings.preference.SharedPreferen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.sourcePreferences
 import org.koin.compose.koinInject
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Phase 4: Source Preferences screen.
@@ -141,7 +143,7 @@ private fun FragmentContainer(
  */
 class SourcePreferencesFragment : PreferenceFragmentCompat(), org.koin.core.component.KoinComponent {
 
-    private val extensionManager: ExtensionManager by org.koin.core.component.inject()
+    private val extensionManager: ExtensionManager by inject()
 
     override fun getContext(): Context? {
         val superCtx = super.getContext() ?: return null
