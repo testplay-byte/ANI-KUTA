@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -342,7 +343,7 @@ fun GenreAnimeSheet(
         Column(
             modifier = Modifier.fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .androidx_navigationBarsPadding(),
+                .navigationBarsPadding(),
         ) {
             Spacer(Modifier.height(16.dp))
             Text(
@@ -401,9 +402,3 @@ fun GenreAnimeSheet(
         }
     }
 }
-
-// Helper for navigation bars padding
-private fun Modifier.androidx_navigationBarsPadding(): Modifier =
-    this.then(androidx.compose.foundation.layout.WindowInsets.navigationBars.let {
-        androidx.compose.foundation.layout.windowInsetsPadding(it)
-    })

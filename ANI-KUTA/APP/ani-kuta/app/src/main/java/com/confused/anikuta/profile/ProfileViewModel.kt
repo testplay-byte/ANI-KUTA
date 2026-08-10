@@ -7,8 +7,6 @@ import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.genre.GenreRepository
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.preferences.PreferenceStore
-import com.confused.anikuta.core.ratings.RatingStore
-import com.confused.anikuta.core.watchprogress.WatchProgressStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,8 +33,6 @@ class ProfileViewModel(
     private val database: AnikutaDatabase,
     private val contentRepository: ContentRepository,
     private val genreRepository: GenreRepository,
-    private val ratingStore: RatingStore,
-    private val watchProgressStore: WatchProgressStore,
     private val preferenceStore: PreferenceStore,
 ) : ViewModel() {
 
@@ -61,18 +57,32 @@ class ProfileViewModel(
                 val totalAnime = libraryItems.map { it.main_id }.distinct().size
                 val libraryMainIds = libraryItems.map { it.main_id }.toSet()
 
-                // Watch progress stats
-                val allProgress = watchProgressStore.getAllWatchProgress()
+                // Watch progress stats — read directly from DB
+                val allProgress = database.watchQueries.getAllWatchProgress().executeAsList().map { row ->
+                    com.confused.anikuta.core.watchprogress.WatchProgress(
+                        episodeKey = row.episode_key,
+                        mainId = row.main_id,
+                        position = row.position,
+                        duration = row.duration,
+                        completed = row.completed == 1L,
+                        completedAt = row.completed_at,
+                        lastWatchedAt = row.last_watched_at,
+                        watchCount = row.watch_count?.toInt() ?: 0,
+                        firstWatchedAt = row.first_watched_at,
+                        autoMarkSuppressed = row.auto_mark_suppressed == 1L,
+                        userMarkedWatched = row.user_marked_watched == 1L,
+                    )
+                }
                 val totalEpisodesWatched = allProgress.count { it.completed }
-                val totalWatchTimeSec = allProgress.sumOf { it.duration * (if (it.completed) 1 else 0) }
+                val totalWatchTimeSec = allProgress.filter { it.completed }.sumOf { it.duration }
                 val watchTimeHours = totalWatchTimeSec / 3600
                 val watchTimeMins = (totalWatchTimeSec % 3600) / 60
                 val watchTimeFormatted = if (watchTimeHours > 0) "${watchTimeHours}h ${watchTimeMins}m" else "${watchTimeMins}m"
 
-                // Average rating
-                val allRatings = ratingStore.getAllUserRatings()
+                // Average rating — read directly from DB
+                val allRatings = database.ratingsQueries.getAllUserRatings().executeAsList()
                 val avgRating = if (allRatings.isNotEmpty()) {
-                    allRatings.mapNotNull { it?.rating?.toInt() ?: it?.rating?.toInt() }.let { ratings ->
+                    allRatings.mapNotNull { it?.rating?.toInt() }.let { ratings ->
                         if (ratings.isNotEmpty()) ratings.average() else 0.0
                     }
                 } else 0.0
@@ -109,7 +119,7 @@ class ProfileViewModel(
 
                 // Top rated
                 val topRated = allRatings.mapNotNull { rating ->
-                    val mid = rating?.main_id ?: return@mapNotNull null
+                    val mid = rating.main_id ?: return@mapNotNull null
                     val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
                     val anilistDetail = contentRepository.getAniListDetail(mid)
                     val anilistId = anilistDetail?.anilistId
@@ -129,7 +139,7 @@ class ProfileViewModel(
                 val activityData = buildActivityData(allProgress)
 
                 // AniList username (from preferences)
-                val anilistUsername = preferenceStore.getString("anilist_username", null)
+                val anilistUsername = preferenceStore.getString("anilist_username", "").takeIf { it.isNotBlank() }
 
                 _state.value = ProfileUiState(
                     displayName = "Anime Fan", // TODO: make editable
