@@ -195,25 +195,21 @@ fun WatchFlowGraph(
                         }
 
                         // Floating sidebar overlay (right side) — shows when a bar is tapped.
+                        // Extracted into a separate composable so AnimatedVisibility resolves to
+                        // the top-level overload (the chart Row's RowScope would otherwise shadow
+                        // it with RowScope.AnimatedVisibility, which can't be called here).
                         val detail = selectedDay.takeIf { it >= 0 }?.let { watchFlowDetail.getOrNull(it) }
-                        AnimatedVisibility(
+                        WatchFlowSidebarOverlay(
                             visible = selectedDay >= 0 && detail != null,
-                            enter = slideInHorizontally(animationSpec = tween(250)) { it } + fadeIn(tween(250)),
-                            exit = slideOutHorizontally(animationSpec = tween(200)) { it } + fadeOut(tween(200)),
+                            dayName = days.getOrNull(selectedDay) ?: "",
+                            summary = detail,
+                            onOpenAnime = { anilistId ->
+                                selectedDay = -1
+                                onNavigateToAnime(anilistId)
+                            },
+                            onDismiss = { selectedDay = -1 },
                             modifier = Modifier.align(Alignment.TopEnd),
-                        ) {
-                            if (detail != null) {
-                                WatchFlowSidebar(
-                                    dayName = days.getOrNull(selectedDay) ?: "",
-                                    summary = detail,
-                                    onOpenAnime = { anilistId ->
-                                        selectedDay = -1
-                                        onNavigateToAnime(anilistId)
-                                    },
-                                    onDismiss = { selectedDay = -1 },
-                                )
-                            }
-                        }
+                        )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -239,6 +235,38 @@ fun WatchFlowGraph(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Wrapper that animates the watch-flow sidebar in/out. Extracted as a top-level
+ * composable so [AnimatedVisibility] resolves to the plain (non-RowScope)
+ * overload — calling it inline inside the chart's Row would otherwise resolve
+ * to RowScope.AnimatedVisibility, which the compiler rejects here.
+ */
+@Composable
+private fun WatchFlowSidebarOverlay(
+    visible: Boolean,
+    dayName: String,
+    summary: DayWatchSummary?,
+    onOpenAnime: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInHorizontally(animationSpec = tween(250)) { it } + fadeIn(tween(250)),
+        exit = slideOutHorizontally(animationSpec = tween(200)) { it } + fadeOut(tween(200)),
+        modifier = modifier,
+    ) {
+        if (summary != null) {
+            WatchFlowSidebar(
+                dayName = dayName,
+                summary = summary,
+                onOpenAnime = onOpenAnime,
+                onDismiss = onDismiss,
+            )
         }
     }
 }
