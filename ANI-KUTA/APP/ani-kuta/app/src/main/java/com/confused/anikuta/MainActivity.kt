@@ -82,6 +82,7 @@ import com.confused.anikuta.download.EnqueueResult
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
+import com.confused.anikuta.settings.PlayerSettingsScreen
 import com.confused.anikuta.settings.NotificationsSettingsScreen
 import com.confused.anikuta.settings.NotificationsLibraryScreen
 import com.confused.anikuta.settings.ThemeMode
