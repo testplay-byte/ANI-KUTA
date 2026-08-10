@@ -15,7 +15,7 @@ import org.koin.dsl.module
 val contentModule = module {
     single { ContentRepository(get()) }
     single { ContentResolver(get()) }
-    single { ContentSeeder(get()) }
+    single { ContentSeeder(get(), get()) }
     single { com.confused.anikuta.core.content.genre.GenreRepository(get()) }
 }
 
