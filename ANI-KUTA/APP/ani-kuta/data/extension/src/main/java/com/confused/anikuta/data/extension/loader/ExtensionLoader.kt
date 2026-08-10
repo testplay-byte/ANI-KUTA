@@ -122,21 +122,20 @@ class ExtensionLoader(
         }
         val versionCode = getLongVersionCode(packageInfo)
 
-        // Validate lib version.
-        val libVersion = versionName.substringBeforeLast('.').toDoubleOrNull()
-        if (libVersion == null || libVersion < LIB_VERSION_MIN || libVersion > LIB_VERSION_MAX) {
-            Logger.w(TAG) { "Lib version $libVersion out of range for $extName" }
-            return LoadResult.Error(pkgName, "Lib version $libVersion out of range")
-        }
+        // Parse lib version (best-effort — may be null or out of range for untrusted extensions).
+        val libVersion = versionName.substringBeforeLast('.').toDoubleOrNull() ?: 0.0
 
-        // Get signature fingerprint.
+        // Get signature fingerprint (needed for trust check — must come before lib-version validation).
         val signatureFingerprint = getSignatures(packageInfo)?.firstOrNull()
         if (signatureFingerprint == null) {
             Logger.w(TAG) { "Package $pkgName isn't signed" }
             return LoadResult.Error(pkgName, "Package not signed")
         }
 
-        // Check trust.
+        // Check trust FIRST — untrusted extensions must appear in the untrusted list
+        // regardless of lib-version compatibility. The user needs to see them to decide
+        // whether to trust or delete. (Was: lib-version check before trust check →
+        // extensions with incompatible lib versions were silently dropped as Errors.)
         if (!trustService.isTrusted(signatureFingerprint)) {
             Logger.w(TAG) { "Extension $pkgName is untrusted (fingerprint: $signatureFingerprint)" }
             val icon = runCatching { appInfo.loadIcon(packageManager) }.getOrNull()
@@ -151,6 +150,13 @@ class ExtensionLoader(
                     icon = icon,
                 )
             )
+        }
+
+        // Validate lib version (only for TRUSTED extensions — an incompatible lib version
+        // means the extension can't be loaded even if trusted).
+        if (libVersion < LIB_VERSION_MIN || libVersion > LIB_VERSION_MAX) {
+            Logger.w(TAG) { "Lib version $libVersion out of range for $extName (trusted but incompatible)" }
+            return LoadResult.Error(pkgName, "Lib version $libVersion out of range (trusted but incompatible)")
         }
 
         // Read metadata.

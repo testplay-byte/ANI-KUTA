@@ -204,7 +204,12 @@ class SqlDelightWatchProgressStore(
         val current = get(episodeKey)
         val isWatched = current?.isWatched ?: false
         if (isWatched) {
-            setAutoMarkSuppressed(episodeKey)
+            // User un-marked a watched episode → DELETE the watch progress entirely
+            // (was: setAutoMarkSuppressed — kept position/duration/watch_count).
+            // Per user request: "If the user marks a watched episode as unwatched
+            // then all of its watch progress will be deleted." Resets to "never opened".
+            delete(episodeKey)
+            Logger.i(TAG) { "toggleWatched — UNMARKED: key=$episodeKey → progress deleted (reset to never-opened)" }
             false
         } else {
             setUserMarkedWatched(episodeKey)

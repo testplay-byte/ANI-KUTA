@@ -94,7 +94,8 @@ class SearchViewModel(
     val sourceIcons: StateFlow<Map<Long, android.graphics.drawable.Drawable>> =
         extensionManager.installedExtensions.map { extensions ->
             buildMap {
-                extensions.forEach { ext ->
+                // Phase 1c: only include icons for ENABLED extensions (was: ALL trusted).
+                extensions.filter { it.isEnabled }.forEach { ext ->
                     ext.sources.forEach { source ->
                         ext.icon?.let { put(source.id, it) }
                     }
