@@ -60,6 +60,7 @@ import org.koin.compose.viewmodel.koinViewModel
  * Timeline tab:
  * - User's activity feed (anime watched, episodes, ratings, timestamps)
  */
+@androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit,

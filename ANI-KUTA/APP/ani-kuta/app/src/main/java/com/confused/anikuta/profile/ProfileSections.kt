@@ -10,10 +10,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
@@ -268,7 +271,7 @@ fun GenreAnimeSheet(
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                .androidx.compose.foundation.layout.navigationBarsPadding(),
+                .navigationBarsPadding(),
         ) {
             Spacer(Modifier.height(16.dp))
             Text(
@@ -433,12 +436,4 @@ private fun TimelineRow(
             }
         }
     }
-}
-
-// Helper for LazyColumn items
-private fun androidx.compose.foundation.lazy.LazyListScope.items(
-    count: Int,
-    itemContent: @Composable (Int) -> Unit,
-) {
-    items(count) { index -> itemContent(index) }
 }
