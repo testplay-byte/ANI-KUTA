@@ -660,3 +660,43 @@
 - CI verification in progress (Build APK + Deploy Dashboard workflows triggered by the push to main).
 - The `feature/debug-bubble` branch is fully deleted.
 - Next: a new AI agent will take over for database optimization work.
+
+## Session — DB Optimization + Ratings UI + Continue Watching + Watch-Progress Fixes (feature/db-optimization-ratings-cw branch)
+
+### Phase 1 — Database Optimization (D-166)
+- Deleted dead `extensions.sq` + `metadata.sq` (zero Kotlin call sites). DROP TABLE IF EXISTS in onOpen migration.
+- Enabled `PRAGMA foreign_keys = ON` (all ON DELETE CASCADE clauses now active).
+- Dropped 6 redundant indexes (leftmost-column of composite UNIQUE/PK). Dropped via DROP INDEX IF EXISTS in onOpen.
+- Added 8 missing indexes: continue-watching partial, completed_at, episode_update retention purge partial, notification_sent_at, library_item unique, anilist_detail.anilist_id, content(extension_id, anime_url). All via CREATE INDEX IF NOT EXISTS in onOpen.
+- Dedupe DELETE before library_item UNIQUE index creation (hardens migration on existing installs).
+- SQLite UPSERT NOT migrated (requires 3.24+; API 24-28 has 3.9-3.22). INSERT OR REPLACE kept.
+- CHECK constraints NOT added (can't ALTER TABLE to add CHECK on existing installs). Deferred.
+
+### Phase 1 — Bug Fixes (D-167, D-168, WP-B1)
+- **Audio-variants fix (D-167):** Added `source_name` + `scanlator` columns to `data_cache_episode`. Enriched cache write now preserves extension's `ep.name` + `ep.scanlator` via lookup maps. Cache-read SEpisode reconstruction uses `sourceName ?: title`. Fixed offline-fallback `url = animeUrl` → `meta.episodeUrl ?: animeUrl`. Fixed Downloads→Watch scanlator handoff (was hardcoded `""`).
+- **Extension trust fix (D-168):** Added per-package `isEnabled` flag to `AnimeExtension.Installed` (independent of signer-level trust). `loadAll()` filters `_sources` by `isEnabled`. `trustExtension()` also `enableExtension(pkgName)`. `untrustExtension()` also `disableExtension(pkgName)`. Switch toggle in ExtensionsSettingsScreen. Backward compat: seed enabled set with all trusted pkgNames on first launch.
+- **WP-B1:** `setAutoMarkSuppressed` SQL now clears `completed_at` (was leaving stale data). Added INSERT-when-missing guard (was silent no-op if row didn't exist).
+
+### Phase 2 — Watch-Progress Bug Fixes (D-169)
+- **WP-B2:** `resetAutoMarkSuppressed` now called on every FILE_LOADED via `LaunchedEffect(loadingState)` in WatchScreen (was NEVER called → CF1 re-arm broken).
+- **WP-B3:** Resume-seek — WatchScreen looks up saved position from `watchProgressStore` on initial FILE_LOADED + seeks via `MPVLib.command(seek, absolute)`. Only on initial load (`hasResumed` flag). Added `startPosition: Long = 0L` to `WatchKey`.
+- **WP-B4:** Save old episode's progress at top of `onEpisodeSwitch` before `updateCurrentEpisode` overwrites state.
+- **Progress bar:** `LinearProgressIndicator` at bottom of episode thumbnail in Details (like YouTube). Only when partially watched.
+
+### Phase 3 — Continue Watching UI (D-170)
+- `ContinueWatchingCarousel` at top of Browse — single horizontal `LazyRow`. Cover thumbnails (or first-letter placeholder), EP badges, progress bars, title.
+- `BrowseViewModel.continueWatching` enriches `observeContinueWatching(10)` with content metadata via `ContentRepository`.
+- Tap → `AnimeDetailsKey` (resume kicks in on play via WP-B3). TEMPORARY — easy to remove.
+
+### Phase 4 — Ratings UI (D-170)
+- Per-anime 10-star `StarRatingBar` on Details synopsis title row (right side). `DetailsViewModel.animeRating` reactive via `ratingStore.observeAnimeRating`. Each star = 10 points (0-100 backend). Tap same star → clear.
+- Per-episode 10-star `WatchStarRatingBar` below "Currently playing episode" text in WatchScreen (MinimizedMode). Self-contained `koinInject` + local state.
+- CI fix: moved rating state from `WatchScreen` into `MinimizedMode` (was unresolved reference — variables not in scope in child composable).
+
+### Status
+- ✅ Phase 1 CI green (run 31348314200).
+- ✅ Phase 2 CI green (run 31348683710).
+- ✅ Phase 3 CI green (run 31348903899).
+- ⚠️ Phase 4 CI: first push failed (5 unresolved reference errors in WatchScreen.kt — rating state in wrong composable scope). Fix pushed (ca4a345). CI green (run 31349493109).
+- Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification before merge to `main`.
+- Decisions: D-166..D-170. Lessons: 5 new entries (SQLite UPSERT constraint, extension trust by-signer, cache enrichment preservation, composable scope, INSERT-when-missing guard).
