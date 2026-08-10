@@ -96,8 +96,7 @@ class GenreRepository(
      */
     fun getLibraryGenreCounts(libraryMainIds: Set<String>): List<Pair<String, Int>> {
         if (libraryMainIds.isEmpty()) return emptyList()
-        val allCounts = queries.getContentGenreCount().executeAsList()
-        // Filter to only library contents.
+        // Compute genre counts in Kotlin (SQLDelight doesn't support COUNT alias in ORDER BY).
         val libraryGenreMap = mutableMapOf<Long, Int>()
         queries.getAllContentGenres().executeAsList().forEach { cg ->
             if (cg.main_id in libraryMainIds) {
