@@ -729,3 +729,14 @@
 - ✅ CI green (run 31428330476, commit 47196ad).
 - Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification.
 - Decisions: D-177..D-182. Lessons: 2 new (Coil3 ImageResult API, local property getter restrictions).
+
+### Profile UI v6 — Snap guard, sidebar taller+scrim, Time DNA+Recent side-by-side, heatmap fix (D-183..D-186)
+- **Snap guard:** Magnetic snap now only fires when `firstVisibleItemIndex == 0` (near top). Fixes "scroll to bottom → auto-scrolls to top" bug.
+- **Watch flow sidebar:** Taller (260dp, taller than chart card). Card-level transparent scrim for reliable tap-outside close.
+- **Time DNA + Recently Watched:** Merged into ONE card, side-by-side Row — donut left (own bg), recently watched list right (own bg).
+- **Heatmap:** Column bottom padding 24dp, month-label Box 18dp, day-markers bottom padding 20dp — fixes remaining label cut-off.
+
+### Status
+- ✅ CI green (run 31431113076, commit 6945df6).
+- Branch: `feature/db-optimization-ratings-cw`. Awaiting user device verification before merge to `main`.
+- Decisions: D-183..D-186.

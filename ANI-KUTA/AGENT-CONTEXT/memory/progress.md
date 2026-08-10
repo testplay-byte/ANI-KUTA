@@ -3,20 +3,19 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v5 — on `feature/db-optimization-ratings-cw` branch (awaiting user device verification before merge to `main`).**
+**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v6 — on `feature/db-optimization-ratings-cw` branch (awaiting user device verification before merge to `main`).**
 
 Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, and the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor) are ALL DONE.
 
-**Latest session — Profile UI v5 (D-177..D-182, commit 47196ad):**
-- **Header:** Magnetic snap (animateScrollToItem on scroll-end, 50% threshold — small scroll snaps to collapsed, scroll back past midpoint snaps to expanded). Gradient blur scrim at header bottom (smoothstep fade). Equal-width mini tab segments (weight(1f) + 120dp pill).
-- **Watch flow:** Removed default per-bar count labels. Today's bar uses complementary color (hue + 180° of primary — dynamic per theme). Sidebar from LEFT (TopStart + slideIn from left). Solid background (surface + border, was transparent). Taller (200dp). Tap-outside + scroll → auto-close. Episode thumbnails in sidebar.
-- **Time DNA:** Split into standalone card (was combined with Recently Watched). Colors tinted with primary via `lerp(color, primary, 0.25)`. Donut + legend only.
-- **Recently Watched:** Separate card, vertical LIST format (was carousel). Episode thumbnails (from `data_cache_episode.thumbnail_url`, falls back to cover). Tap → details page.
-- **Heatmap:** Fixed label bottom cut-off (16dp bottom padding on day-markers, 14dp month-label Box height with TopCenter alignment).
-- **Genre radar:** Selected genre highlighted IN the web — thicker axis (3px), halo ring (radius 12), enlarged data point (7px), highlighted label pill (primary bg + black text via drawRoundRect + re-measured TextLayoutResult).
-- **Avatar crop editor (new AvatarCropScreen.kt):** Full-screen Dialog with pan/zoom (detectTransformGestures, 1×–5×), circular crop overlay (Path + EvenOdd fill), saves cropped bitmap to filesDir → file:// URI. Tap the live preview in settings → opens crop editor.
-- **Settings:** Separated urlInput/uploadFileUri state (fixes mode-switch leak — URL field no longer shows file:// path). URL mode saves raw trimmed value.
-- **CI fix (D-182):** Coil3 `result.image` (not `Success` cast — `coil3.request.Success` not public in 3.0.4), `minOf` for Dp, regular `val cropSource` (not local getter). CI green (run 31428330476, commit 47196ad).
+**Latest session — Profile UI v6 (D-183..D-186, commit 6945df6):**
+- **Magnetic snap guard:** Snap now only fires when `firstVisibleItemIndex == 0` (near top). Fixes the "scroll to bottom → auto-scrolls to top" bug — the snap was firing on every scroll end, even when the user was deep in content.
+- **Watch flow sidebar:** Taller (260dp, was 200dp — taller than the chart card). Moved overlay to card-level Box with a transparent scrim that captures tap-outside to close reliably (was inside the bars Box which didn't cover the full card).
+- **Time DNA + Recently Watched:** Merged back into ONE card with side-by-side Row — donut left (140dp, own Surface bg), recently watched list right (weight 1f, own Surface bg). Replaces the v5 two separate full-width cards (user said "looking way too bad in a single row" — wanted them side-by-side, not stacked).
+- **Heatmap labels:** Column bottom padding 24dp (was 16dp), month-label Box 18dp (was 14dp), day-markers bottom padding 20dp (was 16dp) — fixes the remaining bottom-half cut-off.
+- CI green (run 31431113076, commit 6945df6).
+
+**Previous session — Profile UI v5 (D-177..D-182, commit 47196ad):**
+- Magnetic snap + gradient blur + equal-width mini tabs. Watch flow: complementary today color, sidebar from LEFT, solid bg. Time DNA donut tint. Genre radar in-web highlight. Avatar crop editor (new AvatarCropScreen.kt). Settings URL/upload state separation. CI fix: Coil3 `result.image` API.
 
 **This session (DB optimization + ratings + continue-watching + watch-progress fixes):**
 - **Phase 1 (DB-OPT):** Deleted 2 dead `.sq` files (`extensions.sq`, `metadata.sq` — zero call sites). Enabled `PRAGMA foreign_keys = ON`. Dropped 6 redundant indexes. Added 8 missing indexes (continue-watching partial, retention purges, AniList JOIN, content extension lookup, library dedup). Fixed WP-B1 (`setAutoMarkSuppressed` now clears `completed_at` + INSERT-when-missing guard). Fixed audio-variants bug (added `source_name` + `scanlator` columns to `data_cache_episode`; preserved through enriched cache write; fixed offline-fallback URL bug). Fixed extension trust bug (per-package `isEnabled` flag; only enabled extensions' sources appear in pickers; backward-compat seeding). CI green (run 31348314200).

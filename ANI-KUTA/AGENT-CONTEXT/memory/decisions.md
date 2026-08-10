@@ -1377,3 +1377,27 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** Three CI compile errors on first push. Root cause: guessed Coil3 API (`Success` top-level class) was wrong; `kotlin.math.min` only works on primitives; local property getters restricted in composable scope.
 - **Status:** ✅ CI green after fix (run 31428330476).
 - **Date:** this session.
+
+### D-183 — Profile UI v6: magnetic snap guard (top-area only)
+- **What:** The magnetic snap now only fires when `activeListState.firstVisibleItemIndex == 0` (user is near the top, in the tab-bar threshold area). If `firstVisibleItemIndex > 0` (user is deep in content), the snap is skipped entirely. Previously, the snap fired on EVERY scroll end — when the user scrolled deep into content, `scrollFraction()` returned 1.0 (because `firstVisibleItemIndex > 0`), so it snapped to item 1, jumping the user back to the top.
+- **Why:** User reported: "if I scroll up and scroll way too much to the very bottom, then it auto scrolls to the very top. That is something which I need you to handle properly. It should still work only in a limited area." Root cause: no guard on scroll position — snap fired everywhere.
+- **Status:** ✅ CI green (run 31431113076, commit 6945df6). Awaiting device verification.
+- **Date:** this session.
+
+### D-184 — Profile UI v6: watch flow sidebar taller + card-level scrim
+- **What:** Watch flow sidebar height increased from 200dp to 260dp (taller than the entire chart card). The sidebar overlay moved from inside the bars Box (150dp) to the card-level Box, so it can overflow the bars area and be as tall as needed. A transparent scrim `Box(Modifier.fillMaxSize().clickable { selectedDay = -1 })` is shown when the sidebar is visible — it captures all taps on the card (outside the sidebar) and closes the sidebar reliably. The sidebar is drawn ON TOP of the scrim and consumes its own taps (via `.clickable { /* consume */ }`).
+- **Why:** User reported: "the menu was supposed to be a bit taller. It could take up more space than the actual watch and flow section" and "if the user taps anywhere outside of the menu then the menu will automatically close by itself." The old bars-Box-level clickable didn't cover the full card area (y-axis labels, day labels, padding were outside it).
+- **Status:** ✅ CI green. Awaiting device verification.
+- **Date:** this session.
+
+### D-185 — Profile UI v6: Time DNA + Recently Watched side-by-side
+- **What:** Merged the two separate full-width cards (`TimeDnaCard` + `RecentlyWatchedCard`) back into a single `TimeDnaAndRecentCard` with a side-by-side `Row` layout: left = donut chart (140dp fixed width, own `Surface` background with `alpha=0.4f`), right = recently watched list (`weight(1f)`, own `Surface` background). The donut is 100dp (was 120dp) to fit the narrower left column. The recently watched list shows up to 4 items (was 6) with smaller thumbnails (64×38dp, was 96×56dp) to fit the narrower right column. Each side has its own `RoundedCornerShape(10.dp)` Surface for visual separation.
+- **Why:** User reported: "now it is looking way too bad in a single row. There was supposed to be the time DNA on the left side and on the right side there was supposed to be recently watched." The v5 split into two full-width stacked cards wasn't what the user wanted — they wanted them side-by-side with their own backgrounds.
+- **Status:** ✅ CI green. Awaiting device verification.
+- **Date:** this session.
+
+### D-186 — Profile UI v6: heatmap label padding fix (final)
+- **What:** Increased the heatmap Column bottom padding from 16dp to 24dp, the month-label Box height from 14dp to 18dp, and the day-markers Column bottom padding from 16dp to 20dp. This gives the 8sp month-label text enough room so its bottom half is fully visible (not clipped by the Surface's rounded corners or the Column's content area).
+- **Why:** User reported: "the text was being cut off at the bottom, like there was something interfering with it." The v5 fix (16dp bottom padding, 14dp Box height) wasn't enough — the text was still clipped.
+- **Status:** ✅ CI green (run 31431113076, commit 6945df6). Awaiting device verification.
+- **Date:** this session.
