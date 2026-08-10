@@ -35,6 +35,8 @@ dependencies {
     // Phase 4: SourcePreferencesScreen (PreferenceFragmentCompat)
     implementation("androidx.preference:preference-ktx:1.2.1")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.core:core-ktx:1.15.0")
 
     debugImplementation(libs.androidx.ui.tooling)
 }
