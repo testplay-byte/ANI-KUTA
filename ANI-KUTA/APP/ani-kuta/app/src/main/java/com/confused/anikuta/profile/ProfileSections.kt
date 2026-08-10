@@ -141,12 +141,7 @@ fun WatchFlowGraph(watchFlowByDay: List<Int>) {
                     }
 
                     // Sidebar (appears when a bar is tapped)
-                    AnimatedVisibility(
-                        visible = showSidebar && selectedDay >= 0,
-                        enter = slideInHorizontally { it } + fadeIn(),
-                        exit = slideOutHorizontally { it } + fadeOut(),
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    ) {
+                    if (showSidebar && selectedDay >= 0) {
                         WatchFlowSidebar(
                             dayName = if (selectedDay >= 0) days[selectedDay] else "",
                             count = if (selectedDay >= 0) watchFlowByDay[selectedDay] else 0,
