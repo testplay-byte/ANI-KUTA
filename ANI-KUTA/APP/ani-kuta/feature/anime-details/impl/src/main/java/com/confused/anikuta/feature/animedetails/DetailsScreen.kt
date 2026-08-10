@@ -40,6 +40,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -1413,6 +1414,7 @@ private fun EpisodesSection(
                             onDelete = { onDeleteDownloadedEpisode(episode) },
                             onPlayDownloaded = { onEpisodeClick(episode) },
                             isWatched = isWatched,
+                            progressFraction = progress?.progressFraction ?: 0f,
                             onToggleWatched = { epKey?.let { onToggleWatched(it) } },
                         )
                     }
@@ -1448,6 +1450,7 @@ private fun EpisodeRow(
     onPlayDownloaded: () -> Unit = {},
     // Phase WP: watched state + swipe-to-toggle.
     isWatched: Boolean = false,
+    progressFraction: Float = 0f,
     onToggleWatched: () -> Unit = {},
 ) {
     // ── Parse display values ──
@@ -1628,6 +1631,20 @@ private fun EpisodeRow(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 maxLines = 1,
                                 softWrap = false,
+                            )
+                        }
+                        // Phase 2d: watch progress bar at the bottom of the thumbnail (like YouTube).
+                        // Only shows when the episode is partially watched (not when fully watched —
+                        // fully watched is indicated by grayscale + alpha fade instead).
+                        if (progressFraction > 0f && !isWatched) {
+                            LinearProgressIndicator(
+                                progress = { progressFraction },
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .fillMaxWidth()
+                                    .height(3.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
                             )
                         }
                     }

@@ -76,6 +76,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.AnikutaMPVView
 import com.confused.anikuta.core.player.PlayerInitializer
+import com.confused.anikuta.core.player.PlayerLoadingState
 import com.confused.anikuta.core.player.PlayerMode
 import com.confused.anikuta.core.player.PlayerObserver
 import com.confused.anikuta.core.player.PlayerStateHolder
@@ -398,7 +399,39 @@ fun WatchScreen(
         }
     }
 
-    // ── Resolved servers (for QualitySheet) — reactive to episode switches ──
+    // ── WP-B2 + WP-B3: On FILE_LOADED (READY transition), reset auto-mark + seek to resume position ──
+    // WP-B2: resetAutoMarkSuppressed re-arms the 85% auto-mark (was NEVER called → CF1 broken).
+    // WP-B3: seek to saved startPosition (only on the initial load, not on quality/episode switch).
+    val loadingState by stateHolder.loadingState.collectAsState()
+    var hasResumed by remember { mutableStateOf(false) }
+    LaunchedEffect(loadingState) {
+        if (loadingState == PlayerLoadingState.READY && mpvInitialized) {
+            val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+            // WP-B2: re-arm the 85% auto-mark on every FILE_LOADED.
+            scope.launch {
+                runCatching { watchProgressStore.resetAutoMarkSuppressed(epKey) }
+                    .onFailure { Logger.w(TAG) { "resetAutoMarkSuppressed failed: ${it.message}" } }
+                    .onSuccess { Logger.d(TAG) { "resetAutoMarkSuppressed: key=$epKey (re-armed)" } }
+            }
+            // WP-B3: seek to the saved resume position (only on the initial load).
+            // If watchKey.startPosition is > 0 (passed from DetailsScreen), use it.
+            // Otherwise look up from the watch progress store directly.
+            if (!hasResumed) {
+                hasResumed = true
+                val resumePos = if (watchKey.startPosition > 0) {
+                    watchKey.startPosition
+                } else {
+                    val initialEpKey = buildEpisodeKey(watchKey.mainId, watchKey.episodeNumber)
+                    runCatching { watchProgressStore.get(initialEpKey) }.getOrNull()?.position ?: 0L
+                }
+                if (resumePos > 0) {
+                    delay(300L) // ensure MPV has fully processed FILE_LOADED before seeking
+                    MPVLib.command(arrayOf("seek", resumePos.toString(), "absolute"))
+                    Logger.i(TAG) { "WP-B3: Resumed from position ${resumePos}s" }
+                }
+            }
+        }
+    }
     // Reads from the state holder's currentResolvedVideosKey so the QualitySheet
     // shows the CURRENT episode's servers after a switch (not the old episode's).
     val resolvedServers = remember(currentResolvedVideosKey) {
@@ -766,6 +799,32 @@ fun WatchScreen(
     val onEpisodeSwitch: (SimpleEpisode) -> Unit = { ep ->
         Logger.i(TAG) { "=== EPISODE SWITCH ===" }
         Logger.i(TAG) { "New episode: ${ep.name} (num: ${ep.episodeNumber}, url: ${ep.url})" }
+
+        // WP-B4: Save the OLD episode's progress BEFORE switching (was only saved
+        // on the 10s timer + onDispose — if the user switched within 10s, up to
+        // 10s of progress was lost). Reads the current state before
+        // updateCurrentEpisode overwrites it with the new episode's data.
+        val oldPos = stateHolder.position.value
+        val oldDur = stateHolder.duration.value
+        val oldEpUrl = stateHolder.currentEpisodeUrl.value
+        val oldEpNum = stateHolder.currentEpisodeNumber.value
+        if (oldDur > 0 && oldEpUrl.isNotBlank() && watchKey.mainId.isNotBlank()) {
+            val oldKey = buildEpisodeKey(watchKey.mainId, oldEpNum)
+            val oldProgress = WatchProgress(
+                episodeKey = oldKey,
+                mainId = watchKey.mainId,
+                position = oldPos.toLong(),
+                duration = oldDur.toLong(),
+                completed = false,
+                completedAt = null,
+                lastWatchedAt = System.currentTimeMillis(),
+            )
+            scope.launch {
+                runCatching { watchProgressStore.save(oldKey, oldProgress) }
+                    .onFailure { Logger.w(TAG) { "Pre-switch progress save failed: ${it.message}" } }
+                    .onSuccess { Logger.d(TAG) { "Pre-switch progress saved: key=$oldKey pos=${oldPos}s dur=${oldDur}s" } }
+            }
+        }
 
         // D.FIX: Check if the target episode is downloaded — if so, play it offline
         // (fd://) instead of trying to resolve from the network source. This is

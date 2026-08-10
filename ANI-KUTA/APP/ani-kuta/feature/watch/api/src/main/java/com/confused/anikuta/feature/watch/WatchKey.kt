@@ -77,6 +77,12 @@ data class WatchKey(
      *  Format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
      *  Empty string = no metadata available (episode list shows basic rows). */
     val episodeMetadataSerialized: String = "",
+
+    /** Resume position in seconds (from saved WatchProgress).
+     *  0 = no resume (start from beginning). WatchScreen seeks to this position
+     *  after FILE_LOADED (only on the initial load, not on quality/episode switch).
+     *  Phase WP-B3: enables "click same episode → plays from where you left off". */
+    val startPosition: Long = 0L,
 ) : NavKey {
 
     /**
