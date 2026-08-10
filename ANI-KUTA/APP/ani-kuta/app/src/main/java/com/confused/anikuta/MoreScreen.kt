@@ -44,6 +44,7 @@ fun MoreScreen(
     onOpenDownloads: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenUpdates: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -122,7 +123,7 @@ fun MoreScreen(
                             icon = Icons.Filled.Person,
                             title = "Profile",
                             subtitle = "Stats and trackers",
-                            onClick = { /* Phase 4c: navigate to Profile */ },
+                            onClick = onOpenProfile,
                         )
                     }
                     item {

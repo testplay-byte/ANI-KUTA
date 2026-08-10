@@ -219,6 +219,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)
             viewModelOf(::NotificationsLibraryViewModel)
+            viewModelOf(::com.confused.anikuta.profile.ProfileViewModel)
 
             // D.2: Download orchestrator + re-resolver (bridges :core:video-resolver + :core:download)
             single { com.confused.anikuta.download.ReResolver(get<com.confused.anikuta.core.videoresolver.VideoResolver>()) }

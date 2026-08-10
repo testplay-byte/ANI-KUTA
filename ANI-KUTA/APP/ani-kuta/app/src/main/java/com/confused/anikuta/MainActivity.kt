@@ -127,6 +127,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 object MoreKey : NavKey
 
 @Serializable
+object ProfileKey : NavKey
+
+@Serializable
 object SettingsKey : NavKey
 
 @Serializable
@@ -326,6 +329,7 @@ fun AppRoot() {
                 onOpenDownloads = { backstack.add(DownloadsKey) },
                 onOpenHistory = { backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey) },
                 onOpenUpdates = { backstack.add(com.confused.anikuta.feature.updates.UpdatesKey) },
+                onOpenProfile = { backstack.add(ProfileKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
@@ -535,6 +539,12 @@ fun AppRoot() {
             )
             is PlayerSettingsKey -> PlayerSettingsScreen(
                 onBack = pop,
+            )
+            is ProfileKey -> com.confused.anikuta.profile.ProfileScreen(
+                onBack = pop,
+                onNavigateToAnime = { anilistId ->
+                    backstack.add(AnimeDetailsKey.AniList(anilistId))
+                },
             )
             is WatchKey -> WatchScreen(
                 watchKey = currentKey,
