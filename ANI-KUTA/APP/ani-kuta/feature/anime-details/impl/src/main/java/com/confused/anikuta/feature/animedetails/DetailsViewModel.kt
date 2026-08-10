@@ -266,6 +266,10 @@ class DetailsViewModel(
     // When autoSelectVideo is ON, tries to auto-pick the best video using the
     // PlayerPreferences (server, audio, quality, fallback). Returns the picked
     // ResolvedVideo, or null if auto-select is off / no match found (→ show picker).
+
+    /** Whether auto-select video is enabled (for the UI to decide flow). */
+    fun isAutoSelectEnabled(): Boolean = playerPreferences.autoSelectVideo.get()
+
     fun tryAutoSelect(): com.confused.anikuta.core.videoresolver.ResolvedVideo? {
         if (!playerPreferences.autoSelectVideo.get()) return null
         val success = resolverState.value as? com.confused.anikuta.core.videoresolver.ResolverState.Success ?: return null

@@ -262,8 +262,43 @@ fun DetailsScreen(
                 pendingAutoPlay = false
                 showResolverSheet = true
             }
-            else -> {}
+            else -> {
+                // Loading — the LaunchedEffect will re-fire when resolverState changes.
+                // The loading dialog is shown below via `pendingAutoPlay && resolverState is Loading`.
+            }
         }
+    }
+
+    // Phase 1c: Loading indicator for auto-select. Shows a small dialog while resolving.
+    val showAutoSelectLoading = pendingAutoPlay &&
+        resolverState is com.confused.anikuta.core.videoresolver.ResolverState.Loading
+    if (showAutoSelectLoading) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {
+                pendingAutoPlay = false
+                viewModel.clearResolver()
+            },
+            confirmButton = {},
+            title = null,
+            text = {
+                androidx.compose.foundation.layout.Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 3.dp,
+                        modifier = Modifier.size(28.dp),
+                    )
+                    Text(
+                        "Auto-selecting video...",
+                        fontFamily = RobotoFamily,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            },
+        )
     }
     // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on the key,
     // auto-trigger the episode click when episodes are loaded. Uses the Phase 2
@@ -586,11 +621,16 @@ fun DetailsScreen(
                                         }
                                     }
                                     // Not downloaded — resolve + try auto-play (Phase 2).
-                                    // If autoSelectVideo is ON, the LaunchedEffect picks the best video
-                                    // + navigates to watch. If OFF, tryAutoSelect returns null → shows the
-                                    // ResolverSheet as fallback.
+                                    // If autoSelectVideo is ON: clear resolver (avoid stale state),
+                                    // set pendingAutoPlay → LaunchedEffect handles auto-select.
+                                    // If OFF: just show the ResolverSheet directly (original behavior).
+                                    viewModel.clearResolver()
                                     viewModel.resolveEpisode(episode)
-                                    pendingAutoPlay = true
+                                    if (viewModel.isAutoSelectEnabled()) {
+                                        pendingAutoPlay = true
+                                    } else {
+                                        showResolverSheet = true
+                                    }
                                 },
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->
