@@ -147,13 +147,53 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 | 11 | **Dashboard `schema.ts` uses planned Phase-1 table names** not actual current schema | Low | ~2-3h | Changes DB page UI. Deferred (dashboard polish). |
 
 ## Last Updated
-- Session: **doc-debt sweep + deferred-concerns registry** (Z.ai Code sandbox).
-- By: main agent (all AGENT-CONTEXT/ + APP/ani-kuta/ doc updates + code-comment cleanup) + full-stack-dev sub-agent (DASHBOARD/webpage/ data update).
-- Branch: `docs/doc-debt-sweep` (feature branch — awaiting user verification before merge to `main`).
-- CI: pending push (docs + comment-only code changes — expected green).
-- Note: D-001..D-186 decisions. All major phases complete + on `main`. This session: comprehensive doc-debt sweep (knowledge/* fully rewritten, master/SESSION/navigation updated, CORE_RULES §8 + §30 clarified, code comments cleaned, dashboard data updated across 14 pages). Deferred Concerns registry established (11 items). Next focus: **Database management + quality** — user will provide a fresh DB export after a clean-install test run.
+- Session: **D-189 FK crash fix** (Z.ai Code sandbox) — user hit `SQLiteConstraintException` when linking an extension source to an AniList anime during the DB test-checklist run.
+- By: main agent (root-cause analysis + schema fix) + Explore sub-agent (review — clean).
+- Branch: `feature/fix-fk-crash` (awaiting user device verification before merge to `main`).
+- CI: pending push (1 .sq edit + 1 KDoc fix — expected green; sub-agent review PASSED).
+- Note: D-001..D-189 decisions. All major phases complete + on `main`. Previous session (doc-debt sweep, D-187/D-188) MERGED to `main` + branch deleted. This session: fixed the D-166 FK-enforcement side-effect crash. Next: user reinstalls + re-runs the DB test checklist, then provides the DB export for the DB-quality analysis.
 
-## Session — Doc-Debt Sweep + Deferred-Concerns Registry (this session)
+## Session — D-189 FK Crash Fix (this session)
+### What happened
+- User ran the DB test checklist (from the previous session). On Phase 2, after opening an AniList anime + linking an extension source via the three-dot menu → "Link source", the app **crashed**:
+  ```
+  android.database.sqlite.SQLiteConstraintException: FOREIGN KEY constraint failed (code 787 SQLITE_CONSTRAINT_FOREIGNKEY)
+    at ...ContentQueries.updateContentSources(ContentQueries.kt:788)
+    at ...ContentRepository.updateContentSources(ContentRepository.kt:172)
+    at ...ContentResolver.linkExtensionToExisting(ContentResolver.kt:246)
+    at ...DetailsViewModel.linkSource(DetailsViewModel.kt:1565)
+  ```
+
+### Root cause (thorough investigation)
+- The `content.extension_id` column had `FOREIGN KEY (extension_id) REFERENCES content_ext(id)`.
+- `content_ext` table is **NEVER populated** — `ContentRepository.getOrCreateExtension()` (line 312) exists but has **ZERO callers**. The table is dead.
+- The code consistently passes `extensionId = source.id` (the Aniyomi INTERNAL source ID, e.g. 12345) — NOT a `content_ext.id` (DB row ID). All 6 call sites in `DetailsViewModel.kt` (lines 979, 988, 1011, 1025, 1565, 1586) do this.
+- Pre-D-166 (FKs OFF), this silently stored a dangling value. D-166 enabled `PRAGMA foreign_keys = ON` → the dangling FK now crashes on any non-null `extension_id` UPDATE/INSERT.
+- The same bug existed on `extension_detail.extension_id` → `content_ext.id` (same FK, same root cause). `upsertExtensionDetail` would crash too, but `updateContentSources` crashes first.
+- Verified safe: all OTHER FKs in `content.sq` (`data_source_id` → seeded `data_source`, `system_id` → seeded `system`, `extension_repo_id` → nullable, `main_id` → `content`) are correctly populated + won't crash.
+- Verified: zero JOINs against `content_ext`, zero `DELETE FROM content_ext` — the `ON DELETE SET NULL` / `ON DELETE CASCADE` actions never fired. Removing the FK is a pure no-op behaviorally.
+
+### The fix (D-189)
+- **`content.sq`**: removed `FOREIGN KEY (extension_id) REFERENCES content_ext(id) ON DELETE SET NULL` from the `content` table. Removed `FOREIGN KEY (extension_id) REFERENCES content_ext(id) ON DELETE CASCADE` from the `extension_detail` table. Added explanatory D-189 comments on both tables. Kept the `extension_id` columns (now plain INTEGERs storing Aniyomi source.id). Kept the `content_ext` table itself (dead but harmless — to be analyzed during the DB-quality phase).
+- **`ContentDataJson.kt`**: fixed 1 stale KDoc line (`@param extensionId FK to content_ext table` → accurate "Aniyomi internal source.id (plain INTEGER; NOT a FK post-D-189)").
+- **No code changes needed** — the code already works correctly with `extension_id = source.id`. The FK was the only problem.
+- **Sub-agent review (Task i8)**: ✅ READY TO PUSH. Zero ❌ issues. 7 ✅ items verified (SQL syntax, remaining FKs intact, no code depends on removed ON DELETE behavior, no JOINs against content_ext, fix resolves crash, no other latent FK issues, D-189 comments well-formed). 3 ⚠️ concerns (all non-blocking: existing installs need reinstall per §30, stale KDoc fixed, dead content_ext table deferred to DB-quality phase).
+
+### Why this approach (drop FK) vs. the alternative (wire up content_ext)
+- **Alternative considered**: wire up `content_ext` properly — call `getOrCreateExtension()` at all 6 sites to get a real `content_ext.id`, change `getContentByExtension` callers (4 sites) to pass `content_ext.id` instead of `source.id`. This is the "code matches schema" fix.
+- **Chosen (drop FK)**: the "schema matches code" fix. Simpler, lower-risk, matches the actual data model. The code has ALWAYS treated `extension_id` as `source.id` (never as `content_ext.id`). The `content_ext` table was a Phase C design that was never wired up. Dropping the FK makes the schema honest about how the code works.
+- **Future (DB-quality phase)**: decide the fate of `content_ext` — either (a) wire it up properly (re-introduce the FK with a back-fill migration that creates content_ext rows for every distinct source.id), or (b) drop the table + `getOrCreateExtension` entirely. Deferred to the DB-quality analysis the user is about to do.
+
+### CI status
+- Awaiting push to `feature/fix-fk-crash`. 1 .sq edit + 1 KDoc fix — expected green.
+
+### What's next
+- User reinstalls the app (uninstall + install the new APK with the fix — **required**: the fix is a schema change that only takes effect on fresh install per CORE_RULES §30).
+- User re-runs the DB test checklist from Phase 2 (link extension source) to verify the crash is gone.
+- User continues the checklist → exports the DB via debug bubble → provides it.
+- Agent analyzes the DB for flaws + proposes improvements (the "DB management + quality" phase).
+
+## Session — Doc-Debt Sweep + Deferred-Concerns Registry (previous session — MERGED to main)
 ### What was done
 - **Comprehensive doc-debt sweep** — all stale documentation updated to match actual project state:
   - `knowledge/architecture.md` — fully rewritten (46-module graph, SQLDelight 28 tables, hand-rolled nav, DI wiring, known debt).

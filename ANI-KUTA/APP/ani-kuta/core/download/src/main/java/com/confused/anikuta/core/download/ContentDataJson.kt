@@ -50,7 +50,7 @@ import kotlinx.serialization.json.Json
  * @param dataSourceId FK to `data_source` table (nullable — AniList, TMDB, etc.).
  * @param systemId FK to `system` table (nullable — Aniyomi, CloudStream, etc.).
  * @param extensionRepoId FK to `content_ext_repo` table (nullable).
- * @param extensionId FK to `content_ext` table (nullable).
+ * @param extensionId Aniyomi internal source.id (plain INTEGER; NOT a FK post-D-189 — content_ext table is unused).
  * @param sourceId The internal source ID within the extension (nullable).
  * @param animeUrl The content's URL on the source (nullable).
  * @param displaySource "extension" | "anilist" | "tmdb" | ...

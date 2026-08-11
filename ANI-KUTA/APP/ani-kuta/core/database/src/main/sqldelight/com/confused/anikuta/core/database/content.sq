@@ -60,6 +60,16 @@ CREATE INDEX IF NOT EXISTS idx_content_ext_pkg ON content_ext(pkg_name);
 -- ── Main: content ─────────────────────────────────────────────────────────
 -- The central content record. One row per anime.
 -- mainId = stable UUID (never changes). contentId = structured string (changes).
+--
+-- NOTE (D-189): `extension_id` stores the Aniyomi INTERNAL source.id (a plain
+-- integer assigned by the extension), NOT a FK to `content_ext.id`. The
+-- `content_ext` table is currently unused (zero callers of getOrCreateExtension).
+-- The original FK to content_ext(id) was semantically wrong — the code has
+-- always passed source.id here. It was silently dangling pre-D-166 (FKs OFF);
+-- D-166 enabled PRAGMA foreign_keys = ON → the dangling FK crashed on link.
+-- Fix: FK removed (D-189). The column is a plain INTEGER (Aniyomi source.id).
+-- Future: if content_ext is wired up, re-introduce the FK with a migration that
+-- back-fills content_ext rows for every distinct source.id in this column.
 CREATE TABLE IF NOT EXISTS content (
     main_id TEXT NOT NULL PRIMARY KEY,
     content_id TEXT NOT NULL,
@@ -78,8 +88,7 @@ CREATE TABLE IF NOT EXISTS content (
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (data_source_id) REFERENCES data_source(id) ON DELETE SET NULL,
     FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE SET NULL,
-    FOREIGN KEY (extension_repo_id) REFERENCES content_ext_repo(id) ON DELETE SET NULL,
-    FOREIGN KEY (extension_id) REFERENCES content_ext(id) ON DELETE SET NULL
+    FOREIGN KEY (extension_repo_id) REFERENCES content_ext_repo(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_content_content_id ON content(content_id);
@@ -107,6 +116,11 @@ CREATE TABLE IF NOT EXISTS anilist_detail (
 
 -- ── Detail: extension_details ─────────────────────────────────────────────
 -- Extension-specific metadata. One row per content (if linked to an extension).
+--
+-- NOTE (D-189): `extension_id` stores the Aniyomi INTERNAL source.id (NOT a FK
+-- to content_ext.id). See the content table note above for full context.
+-- FK to content_ext(id) removed — it was semantically wrong + crashed on link
+-- after D-166 enabled PRAGMA foreign_keys = ON.
 CREATE TABLE IF NOT EXISTS extension_detail (
     main_id TEXT NOT NULL PRIMARY KEY,
     extension_id INTEGER NOT NULL,
@@ -119,8 +133,7 @@ CREATE TABLE IF NOT EXISTS extension_detail (
     artist TEXT,
     thumbnail_url TEXT,
     updated_at INTEGER NOT NULL,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE,
-    FOREIGN KEY (extension_id) REFERENCES content_ext(id) ON DELETE CASCADE
+    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
 -- ── Detail: other_source_details ──────────────────────────────────────────

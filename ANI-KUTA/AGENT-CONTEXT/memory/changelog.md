@@ -772,3 +772,30 @@
 ### Next focus
 - **Database management + quality** — user will delete app + reinstall (fresh DB), run through a comprehensive ordered test checklist, export the DB via debug bubble, and provide it. Agent will analyze for flaws + propose improvements.
 
+
+## Session — D-189 FK Crash Fix (feature/fix-fk-crash branch)
+
+### Crash
+- User ran the DB test checklist. On Phase 2 (link extension source to AniList anime), app crashed:
+  `SQLiteConstraintException: FOREIGN KEY constraint failed` in `ContentQueries.updateContentSources` ← `ContentResolver.linkExtensionToExisting` ← `DetailsViewModel.linkSource`.
+
+### Root cause
+- D-166 enabled `PRAGMA foreign_keys = ON`. The `content.extension_id` FK to `content_ext(id)` was semantically wrong — `content_ext` is never populated (zero callers of `getOrCreateExtension`), and the code passes `extensionId = source.id` (Aniyomi internal) at all 6 link/upsert sites. Pre-D-166 (FKs OFF) this was silently dangling; D-166 exposed it. Same bug on `extension_detail.extension_id` → `content_ext(id)`.
+
+### Fix (D-189)
+- `content.sq`: removed FK `content.extension_id` → `content_ext(id)` + FK `extension_detail.extension_id` → `content_ext(id)`. Kept columns (plain INTEGERs storing source.id). Kept `content_ext` table (dead, deferred to DB-quality phase). Added D-189 comments.
+- `ContentDataJson.kt`: fixed 1 stale KDoc line.
+- No code changes — the code already works correctly with `extension_id = source.id`; the FK was the only problem.
+
+### Sub-agent review
+- Task i8: ✅ READY TO PUSH. 7 ✅ items, 0 ❌ issues, 3 ⚠️ non-blocking concerns.
+
+### Status
+- Branch: `feature/fix-fk-crash` (awaiting user device verification before merge to `main`).
+- CI: pending push.
+- Decisions: D-189.
+
+### Next
+- User reinstalls (required — schema change, fresh install per §30).
+- User re-runs Phase 2 of the DB test checklist to verify the crash is gone.
+- User continues the checklist → exports DB → provides it for the DB-quality analysis.
