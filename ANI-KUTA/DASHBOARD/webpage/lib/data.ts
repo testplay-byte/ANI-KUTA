@@ -1,17 +1,20 @@
 /*
- * ANI-KUTA dashboard data (v6 — ALL PHASES DONE, 44 modules built).
+ * ANI-KUTA dashboard data (v7 — ALL PHASES DONE, 46 modules built).
  *
  * Sources:
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md (43 planned)
  *  - APP/ani-kuta/DESIGN-LANGUAGE.md (app design language — lime/dark)
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 plan)
- *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-152)
- *  - AGENT-CONTEXT/memory/progress.md (Phase 0–5 done + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW done)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-186)
+ *  - AGENT-CONTEXT/memory/progress.md (Phase 0–5 done + Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB done + Profile UI v1–v6)
  *
- * Status: All phases complete + CI verified GREEN on branch
- * feature/watch-progress-history-updates. 44 modules built across
- * :app, :core (25), :data (1), :feature (17). Nav3 REMOVED (D-150) — hand-rolled
- * navigation. 28 DB tables (26 active + 2 deferred).
+ * Status: All phases complete + CI verified GREEN on branch `main` (all
+ * feature branches merged + deleted). 46 modules built across :app (1),
+ * :core (26), :data (1), :feature (18 — api/impl splits count as separate
+ * Gradle modules). Nav3 REMOVED (D-150) — hand-rolled navigation via
+ * `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch; R7 (process-
+ * death backstack survival) accepted as known limitation. 28 DB tables
+ * across 15 .sq files (SQLDelight 2.0.2). 315 Kotlin files in APP/ani-kuta/.
  *
  * Hardcoded for the static demo — no API calls.
  */
@@ -41,8 +44,8 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Module tree, dependency rules, data flow, identity, multi-extension (D-150: Nav3 removed)" },
-  { label: "Modules", href: "/modules/", icon: "modules", desc: "44 modules built — module hierarchy + tree view" },
-  { label: "Database", href: "/database/", icon: "database", desc: "28 tables (26 active + 2 deferred), ER diagram, indexes, FK relationships" },
+  { label: "Modules", href: "/modules/", icon: "modules", desc: "46 modules built — module hierarchy + tree view" },
+  { label: "Database", href: "/database/", icon: "database", desc: "28 tables across 15 .sq files, ER diagram, indexes, FK relationships" },
   { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
   { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
@@ -51,9 +54,12 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 /* ---------------------------------------------------------------------------
- * Full module tree (44 modules — ALL BUILT).
- * Source: 16-phase1-architecture-plan.md §3 + Phase WP/HI/UP/SC/TR/NOTIF/CW/DL
- * additions (D-001..D-152). Nav3 REMOVED (D-150) — hand-rolled NavigationController.
+ * Full module list (46 modules — ALL BUILT).
+ * Source: settings.gradle.kts — 1 :app + 26 :core:* + 1 :data:extension +
+ * 18 :feature:* (api/impl splits count as separate Gradle modules).
+ * D-001..D-186 confirmed. Nav3 REMOVED (D-150) — hand-rolled navigation via
+ * `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch (R7 process-death
+ * backstack survival accepted as known limitation).
  * ------------------------------------------------------------------------- */
 
 export interface ModuleInfo {
@@ -66,23 +72,24 @@ export interface ModuleInfo {
 }
 
 /**
- * The 44 Gradle modules currently in the project. All built + CI verified GREEN
- * on branch feature/watch-progress-history-updates. The `status` field tags
- * the phase the module was built in (scaffold = Phase 2, phase3 = Phase 3,
- * phase4 = Phase 4 feature screens, phase5 = Phase 5 watch/details/extensions).
- * Phase 6 (ads + activity tracker) is still deferred. Manga (phase7) + novels
- * (phase8) are future.
+ * The 46 Gradle modules currently in the project. All built + CI verified GREEN
+ * on branch `main` (all feature branches merged + deleted). The `status` field
+ * tags the phase the module was built in (scaffold = Phase 2, phase3 = Phase 3,
+ * phase4 = Phase 4 feature screens, phase5 = Phase 5 watch/details/extensions +
+ * Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL + Phase DB debug-bubble + Profile UI
+ * v1–v6). Phase 6 (ads + activity tracker) is still deferred. Manga (phase7) +
+ * novels (phase8) are future.
  */
 export const MODULES: ModuleInfo[] = [
   // --- :app (1) ---
-  { name: ":app", job: "App shell — Application (Koin + Logger init), MainActivity (single Activity + hand-rolled NavigationController, D-150 removed Nav3)", dependsOn: ["all feature :impl", ":core:*", ":data:*"], layer: "app", files: 24, status: "scaffold" },
+  { name: ":app", job: "App shell — Application (Koin + Logger init), MainActivity (single Activity + hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch — D-150 removed Nav3; R7 process-death backstack survival accepted as known limitation)", dependsOn: ["all feature :impl", ":core:*", ":data:*"], layer: "app", files: 24, status: "scaffold" },
 
   // --- :core (26 modules — infrastructure, no UI screens) ---
   { name: ":core:common", job: "Logger (lambda-based, zero-overhead), Dispatchers, Result, ContentType enum, base models", dependsOn: [], layer: "core", files: 14, status: "scaffold" },
   { name: ":core:designsystem", job: "Compose theme engine + reusable components (atoms + molecules — :core:ui merged here)", dependsOn: [":core:common"], layer: "core", files: 42, status: "scaffold" },
-  { name: ":core:database", job: "SQLDelight schema (28 tables — content, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
+  { name: ":core:database", job: "SQLDelight schema (28 tables across 15 .sq files — content, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations (onOpen idempotent — D-166) + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
   { name: ":core:preferences", job: "PreferenceStore (reactive Flow<T> API — D.0), ThemePreferences, SettingsPreferences, WatchPreferences (Phase WP)", dependsOn: [], layer: "core", files: 16, status: "scaffold" },
-  { name: ":core:navigation-api", job: "NavKey sealed-class contracts (D-150: hand-rolled, Nav3 removed), ContentMode, Saver helpers", dependsOn: [":core:common"], layer: "core", files: 9, status: "scaffold" },
+  { name: ":core:navigation-api", job: "NavKey sealed-class contracts (D-150: hand-rolled, Nav3 removed — `mutableStateListOf<NavKey>` backstack; NOT rememberSaveable, NOT StateFlow), ContentMode, Saver helpers", dependsOn: [":core:common"], layer: "core", files: 9, status: "scaffold" },
   { name: ":core:network", job: "OkHttp + ktor client + shared interceptors + timeouts (incl. qualified 'download' OkHttpClient — D.0)", dependsOn: [":core:common"], layer: "core", files: 12, status: "scaffold" },
   { name: ":core:anilist", job: "AniList GraphQL client + MetadataProvider impl (browse, details, schedule — Phase SC)", dependsOn: [":core:network", ":core:common"], layer: "core", files: 30, status: "scaffold" },
   { name: ":core:watch-progress", job: "WatchProgressStore contract — SqlDelightWatchProgressStore impl (Phase WP): episode_key standardization, 85% auto-mark, two-flag state machine", dependsOn: [":core:common", ":core:database"], layer: "core", files: 12, status: "phase5" },
@@ -95,7 +102,7 @@ export const MODULES: ModuleInfo[] = [
   { name: ":core:download", job: "Download manager — 7-state machine, SAF/data.json storage, AutoDownloadEngine (5-step pure-function pipeline), foreground service, HttpDownloader + HlsDownloader. Phase DL — all 9 phases (D.0–D.8) done", dependsOn: [":core:database", ":core:network", ":core:preferences", ":core:content"], layer: "core", files: 96, status: "phase5" },
   { name: ":core:metadata", job: "AnimeMetadataCache + EpisodeMetadataCache repositories (Phase D — local-first, never expires)", dependsOn: [":core:database", ":core:anilist"], layer: "core", files: 18, status: "phase5" },
   { name: ":core:tracker-api", job: "Tracker contracts (TrackSyncManager, Tracker interface) — impls in :core:tracker-anilist", dependsOn: [":core:common"], layer: "core", files: 10, status: "phase3" },
-  { name: ":core:tracker-anilist", job: "AniList tracker impl (OAuth, sync state, token in Keystore)", dependsOn: [":core:tracker-api", ":core:anilist"], layer: "core", files: 22, status: "phase3" },
+  { name: ":core:tracker-anilist", job: "AniList tracker impl — OAuth placeholder (login stores code as token; syncEntry returns true without API call; search/fetch return empty/null). Expected — full tracker not yet implemented.", dependsOn: [":core:tracker-api", ":core:anilist"], layer: "core", files: 22, status: "phase3" },
   { name: ":core:smart-matcher", job: "Auto-link system (Phase B) — fuzzy matching engine for content + episode identity (match_key-based)", dependsOn: [":core:database", ":core:common"], layer: "core", files: 20, status: "phase5" },
   { name: ":core:content", job: "Content identity system (Phase C) — ContentRecord, mainId, ContentRepository, AnilistDetailRepository", dependsOn: [":core:database", ":core:common"], layer: "core", files: 24, status: "phase5" },
   { name: ":core:data-cache", job: "BrowseDataCache repository (Phase D) — section_key-keyed, 6-hour auto-expire (homepage only)", dependsOn: [":core:database"], layer: "core", files: 12, status: "phase5" },
@@ -103,11 +110,12 @@ export const MODULES: ModuleInfo[] = [
   { name: ":core:schedule", job: "ScheduleEngine (Phase SC) — AniList airing API, live countdown, ActualReleaseUpdater interface (SC-2 actual-release tracking)", dependsOn: [":core:database", ":core:anilist", ":core:updates"], layer: "core", files: 22, status: "phase5" },
   { name: ":core:ratings", job: "RatingStore (Phase TR) — per-anime + per-episode user ratings (0-100)", dependsOn: [":core:database"], layer: "core", files: 14, status: "phase5" },
   { name: ":core:notifications", job: "NotificationManager + per-anime config (Phase NOTIF) — release/schedule/download/system channels, dedup via notification_sent", dependsOn: [":core:database", ":core:updates", ":core:schedule"], layer: "core", files: 26, status: "phase5" },
+  { name: ":core:debug-api", job: "Debug contracts (Phase DB) — debug-bubble module API surface, DebugBuildInfo, log buffer + network stats interfaces (debugImplementation only — excluded from release classpath)", dependsOn: [":core:common"], layer: "core", files: 8, status: "phase5" },
 
   // --- :data (1 module — repository implementations, glue :core ↔ :core:database) ---
   { name: ":data:extension", job: "Aniyomi extension loader/installer/manager (Injekt isolated, ChildFirstPathClassLoader) + repo management. Future: Mangayomi/Cloudstream/Kotatsu providers (D-027)", dependsOn: [":core:source-api", ":core:provider-api"], layer: "data", files: 48, status: "phase3" },
 
-  // --- :feature (16 modules — UI screens, split api/impl per navigable feature) ---
+  // --- :feature (18 modules — UI screens, split api/impl per navigable feature; api/impl count as separate Gradle modules) ---
   { name: ":feature:anime-browse:api", job: "NavKey + contracts (visible to :app for ContentMap)", dependsOn: [":core:navigation-api", ":core:common"], layer: "feature", files: 4, status: "scaffold" },
   { name: ":feature:anime-browse:impl", job: "Browse screen (AniList trending/seasonal) — Phase D: reads from browse_cache, 6hr auto-update (homepage only)", dependsOn: [":feature:anime-browse:api", ":core:anilist", ":core:data-cache", ":core:designsystem"], layer: "feature", files: 22, status: "scaffold" },
   { name: ":feature:anime-details:api", job: "NavKey + contracts", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "scaffold" },
@@ -125,6 +133,7 @@ export const MODULES: ModuleInfo[] = [
   { name: ":feature:anime-history:impl", job: "History screen (Phase HI) — day-grouped LazyColumn (Today/Yesterday/This Week/Earlier), swipe-left-to-delete, Clear all dialog, watched styling", dependsOn: [":feature:anime-history:api", ":core:watch-progress", ":core:content", ":core:designsystem"], layer: "feature", files: 28, status: "phase5" },
   { name: ":feature:updates:api", job: "NavKey + contracts (Phase UP)", dependsOn: [":core:navigation-api"], layer: "feature", files: 4, status: "phase5" },
   { name: ":feature:updates:impl", job: "Updates screen (Phase UP + SC) — New/Earlier sections, Updates|Schedule tab strip, live countdown, smart-engine-driven", dependsOn: [":feature:updates:api", ":core:updates", ":core:schedule", ":core:designsystem"], layer: "feature", files: 44, status: "phase5" },
+  { name: ":feature:debug-bubble", job: "Debug Bubble UI (Phase DB DB-1..DB-9) — floating overlay with Network / DB / Logs / Build info tabs; debugImplementation only — excluded from release classpath", dependsOn: [":core:debug-api", ":core:designsystem"], layer: "feature", files: 36, status: "phase5" },
 ];
 
 export interface TreeNode {
@@ -135,20 +144,22 @@ export interface TreeNode {
 }
 
 /**
- * Visual tree mirroring the actual 44-module project structure. All built +
- * CI verified GREEN on branch feature/watch-progress-history-updates.
- * D-150: Nav3 removed — hand-rolled NavigationController + sealed-class NavKeys.
+ * Visual tree mirroring the actual 46-module project structure. All built +
+ * CI verified GREEN on branch `main` (all feature branches merged + deleted).
+ * D-150: Nav3 removed — hand-rolled nav via `mutableStateListOf<NavKey>` +
+ * `when(currentKey)` dispatch; R7 process-death backstack survival accepted
+ * as known limitation.
  */
 export const MODULE_TREE: TreeNode[] = [
   {
     label: ":app",
     layer: "app",
-    note: "App shell — DI, hand-rolled NavigationController, single Activity",
+    note: "App shell — DI, hand-rolled nav (mutableStateListOf<NavKey> + when dispatch), single Activity",
     children: [
       {
         label: ":build-logic (meta-module)",
         layer: "build-logic",
-        note: "Gradle convention plugins (not counted in the 44 runtime modules)",
+        note: "Gradle convention plugins (not counted in the 46 runtime modules)",
         children: [
           { label: "anikuta.android.application.gradle.kts", layer: "build-logic" },
           { label: "anikuta.android.application.compose.gradle.kts", layer: "build-logic" },
@@ -157,28 +168,28 @@ export const MODULE_TREE: TreeNode[] = [
         ],
       },
       {
-        label: ":core (25)",
+        label: ":core (26)",
         layer: "core",
-        note: "Infrastructure (no UI screens) — 25 modules",
+        note: "Infrastructure (no UI screens) — 26 modules",
         children: [
           { label: "common", layer: "core", note: "Logger, Dispatchers, Result, ContentType" },
           { label: "designsystem", layer: "core", note: "Theme engine + components (:core:ui merged)" },
-          { label: "database", layer: "core", note: "SQLDelight schema — 28 tables (incl. Phase WP/UP/SC/TR/NOTIF additions)" },
+          { label: "database", layer: "core", note: "SQLDelight schema — 28 tables across 15 .sq files (incl. Phase WP/UP/SC/TR/NOTIF additions + D-166 optimization)" },
           { label: "preferences", layer: "core", note: "PreferenceStore (reactive Flow<T> — D.0) + Theme/Settings/Watch prefs" },
-          { label: "navigation-api", layer: "core", note: "NavKey sealed classes (D-150: Nav3 REMOVED — hand-rolled) + ContentMode" },
-          { label: "network", layer: "core", note: "OkHttp + ktor + shared interceptors (incl. 'download' qualified client)" },
+          { label: "navigation-api", layer: "core", note: "NavKey sealed classes (D-150: Nav3 REMOVED — `mutableStateListOf<NavKey>` backstack; NOT rememberSaveable, NOT StateFlow) + ContentMode" },
+          { label: "network", layer: "core", note: "OkHttp 5.0.0-alpha.14 + ktor + shared interceptors (incl. 'download' qualified client)" },
           { label: "anilist", layer: "core", note: "AniList GraphQL + MetadataProvider (browse/details/schedule)" },
           { label: "watch-progress", layer: "core", note: "SqlDelightWatchProgressStore — episode_key standardization, 85% auto-mark (Phase WP)" },
           { label: "activity-tracker", layer: "core", note: "ActivityDetector + event-log (365-day/unlimited) — built early per D-039" },
           { label: "provider-api", layer: "core", note: "ExtensionProvider + Video/Image/Text sub-interfaces" },
           { label: "source-api", layer: "core", note: "Aniyomi-compat (Injekt isolated)" },
-          { label: "player-mpv-lib", layer: "core", note: "MPV Android library wrapper (aniyomi-mpv-lib reused)" },
+          { label: "player-mpv-lib", layer: "core", note: "MPV Android library wrapper (aniyomi-mpv-lib 1.18.n reused)" },
           { label: "player", layer: "core", note: "AnikutaMPVView (Compose AndroidView) + controls + progress writer" },
           { label: "video-resolver", layer: "core", note: "Extract playable URL · D-149: directUrl field (proxy-churn Layer 1)" },
           { label: "download", layer: "core", note: "7-state machine + SAF/data.json + AutoDownloadEngine + foreground service (Phase DL D.0–D.8)" },
           { label: "metadata", layer: "core", note: "AnimeMetadataCache + EpisodeMetadataCache (Phase D — local-first, never expires)" },
           { label: "tracker-api", layer: "core", note: "Tracker contracts (TrackSyncManager, Tracker interface)" },
-          { label: "tracker-anilist", layer: "core", note: "AniList tracker impl (OAuth, sync state, Keystore token)" },
+          { label: "tracker-anilist", layer: "core", note: "AniList tracker impl — placeholder (OAuth stub, sync returns true). Deferred concern." },
           { label: "smart-matcher", layer: "core", note: "Auto-link system (Phase B) — fuzzy match_key-based matching engine" },
           { label: "content", layer: "core", note: "Content identity system (Phase C) — ContentRecord, mainId, repositories" },
           { label: "data-cache", layer: "core", note: "BrowseDataCache (Phase D) — section_key-keyed, 6hr auto-expire (homepage only)" },
@@ -186,6 +197,7 @@ export const MODULE_TREE: TreeNode[] = [
           { label: "schedule", layer: "core", note: "ScheduleEngine (Phase SC) — AniList airing API + ActualReleaseUpdater (SC-2)" },
           { label: "ratings", layer: "core", note: "RatingStore (Phase TR) — per-anime + per-episode user ratings (0-100)" },
           { label: "notifications", layer: "core", note: "NotificationManager + per-anime config (Phase NOTIF) — 4 channels, dedup via notification_sent" },
+          { label: "debug-api", layer: "core", note: "Debug contracts (Phase DB) — DebugBuildInfo + log buffer + network stats interfaces (debugImplementation only)" },
         ],
       },
       {
@@ -197,9 +209,9 @@ export const MODULE_TREE: TreeNode[] = [
         ],
       },
       {
-        label: ":feature (16)",
+        label: ":feature (18)",
         layer: "feature",
-        note: "UI screens — split api/impl per navigable feature",
+        note: "UI screens — split api/impl per navigable feature (api/impl count as separate Gradle modules)",
         children: [
           { label: "anime-browse:{api,impl}", layer: "feature", note: "Browse screen — Phase D: reads from browse_cache, 6hr auto-update (homepage only)" },
           { label: "anime-details:{api,impl}", layer: "feature", note: "Detail page — multi-stage refresh (Phase D) + EpisodeDownloadControl (Phase DL D.6)" },
@@ -210,6 +222,7 @@ export const MODULE_TREE: TreeNode[] = [
           { label: "watch:{api,impl}", layer: "feature", note: "WatchScreen (Phase 5c) — embeds :core:player MPV, AppController offline short-circuit (D.6)" },
           { label: "anime-history:{api,impl}", layer: "feature", note: "History screen (Phase HI) — day-grouped, swipe-delete, Clear all, watched styling" },
           { label: "updates:{api,impl}", layer: "feature", note: "Updates screen (Phase UP + SC) — New/Earlier sections + Updates|Schedule tab strip + countdown" },
+          { label: "debug-bubble", layer: "feature", note: "Debug Bubble UI (Phase DB DB-1..DB-9) — floating overlay, Network/DB/Logs/Build tabs; debugImplementation only" },
         ],
       },
     ],
@@ -263,7 +276,7 @@ export interface DataFlowStep {
 }
 
 export const DATA_FLOW_STEPS: DataFlowStep[] = [
-  { n: 1, module: ":app:AppController", desc: "Hand-rolled NavigationController (D-150: Nav3 REMOVED). Bottom nav: Browse | Library | Search | More. Mode: AnimeMode (future: Manga, Novel)." },
+  { n: 1, module: ":app:AppRoot", desc: "Hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch (D-150: Nav3 REMOVED). Bottom nav: Browse | Library | Search | More. Mode: AnimeMode (future: Manga, Novel). R7: backstack uses `remember` not `rememberSaveable` — process death drops the stack (accepted limitation)." },
   { n: 2, module: ":feature:anime-browse:impl", desc: "Reads trending/seasonal from browse_cache (Phase D — local-first, 6hr auto-update on homepage only)." },
   { n: 3, module: ":core:anilist", desc: "AniList GraphQL API (browse, details, schedule)." },
   { n: 4, module: ":feature:anime-details:impl", desc: "AnimeDetailsViewModel uses AnimeDetailsProviderRegistry (List<MetadataProvider>). 3-stage multi-stage refresh (Phase D): episodes → metadata → all. + EpisodeDownloadControl (Phase DL D.6)." },
@@ -350,7 +363,7 @@ export interface ScaffoldModule {
 
 export const PHASE2_SCAFFOLD: ScaffoldModule[] = [
   { n: 1, name: ":build-logic", job: "Convention plugins" },
-  { n: 2, name: ":app", job: "Application class (Koin setup, Logger init), MainActivity (single Activity + Nav3 AppRoot)" },
+  { n: 2, name: ":app", job: "Application class (Koin setup, Logger init), MainActivity (single Activity — originally Nav3 AppRoot, later hand-rolled per D-150)" },
   { n: 3, name: ":core:common", job: "Logger (lambda-based), Dispatchers, Result, ContentType enum, base models" },
   { n: 4, name: ":core:designsystem", job: "Theme engine + base Compose components (atoms + molecules — merged :core:ui)" },
   { n: 5, name: ":core:database", job: "SQLDelight schema (content_uid, external_reference, episode_uid, episode_external_ref)" },
@@ -607,12 +620,12 @@ export const PHASES: Phase[] = [
     summary: "Built the minimal viable structure to validate the architecture. 12 Gradle modules, every one exercised — no dead code (Ponytail).",
     done: [
       ":build-logic — convention plugins.",
-      ":app — Application (Koin + Logger init), MainActivity (single Activity + Nav3).",
+      ":app — Application (Koin + Logger init), MainActivity (single Activity — originally Nav3, later hand-rolled per D-150).",
       ":core:common — Logger (lambda-based), Dispatchers, Result, ContentType enum.",
       ":core:designsystem — theme engine + base Compose components (:core:ui merged).",
       ":core:database — SQLDelight schema (content_uid, external_reference, episode_uid, episode_external_ref).",
       ":core:preferences — PreferenceStore, ThemePreferences.",
-      ":core:navigation-api — Nav3 NavKey contracts, ContentMode, Savers.",
+      ":core:navigation-api — NavKey contracts (originally Nav3, later hand-rolled per D-150), ContentMode, Savers.",
       ":core:network — OkHttp + ktor + shared interceptors.",
       ":core:anilist — AniList GraphQL client (browse + details).",
       ":feature:anime-browse:{api,impl} — first screen (AniList trending).",
@@ -690,7 +703,7 @@ export const PHASES: Phase[] = [
     id: 10,
     name: "Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL (post-Phase-5 work)",
     status: "done",
-    summary: "All post-Phase-5 phases COMPLETE + CI verified GREEN on branch feature/watch-progress-history-updates. Auto-link system (Phase B), content identity (Phase C), data management + caching (Phase D), watch progress + watched status (Phase WP), history page (Phase HI), updates + WorkManager smart engine (Phase UP), schedule + actual-release (Phase SC), ratings (Phase TR), notifications (Phase NOTIF), continue watching (Phase CW), download system (Phase DL — all 9 sub-phases D.0–D.8). Nav3 REMOVED (D-150) — hand-rolled NavigationController.",
+    summary: "All post-Phase-5 phases COMPLETE + CI verified GREEN on branch `main` (all feature branches merged + deleted). Auto-link system (Phase B), content identity (Phase C), data management + caching (Phase D), watch progress + watched status (Phase WP), history page (Phase HI), updates + WorkManager smart engine (Phase UP), schedule + actual-release (Phase SC), ratings (Phase TR), notifications (Phase NOTIF), continue watching (Phase CW), download system (Phase DL — all 9 sub-phases D.0–D.8), debug bubble (Phase DB DB-1..DB-9), Profile UI v1–v6 (D-171..D-186). Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`.",
     done: [
       "Phase B — Auto-link system: :core:smart-matcher (fuzzy match_key-based matching engine).",
       "Phase C — Content identity system: :core:content (ContentRecord, mainId, ContentRepository, AnilistDetailRepository).",
@@ -702,8 +715,11 @@ export const PHASES: Phase[] = [
       "Phase TR — Ratings: :core:ratings + RatingStore. New tables: user_rating, user_episode_rating.",
       "Phase NOTIF — Notification system: :core:notifications. 4 channels (release/schedule/download/system), per-anime config, dedup via notification_sent. New tables: notification_config, notification_sent.",
       "Phase CW — Continue Watching logic: getContinueWatching query + observeContinueWatching Flow (UI deferred).",
-      "Phase DL — Download system: ALL 9 phases (D.0–D.8) implemented + CI GREEN. 7-state machine, SAF/data.json storage, AutoDownloadEngine (5-step pure-function pipeline), foreground service + Coil 3 thumbnails + dual notification channels, 528-line DownloadSettingsScreen replication + Priority order section, Downloads page UI + EpisodeDownloadControl + player offline short-circuit, QoL features (auto-retry, auto-resume, auto-pause metered, verification, orphan cleanup, 10s auto-clear), REVIEW-6 polish pass. D-148 (download system shipped), D-149 (proxy-churn gap Layer 1+2 fix), D-151 (future-phase scope boundary), D-152 (subtitle fixes).",
-      "D-150 — Nav3 REMOVED: hand-rolled NavigationController + sealed-class NavKeys (replaces Jetpack Nav3 from D-036). Back-stack invariant preserved (StateFlow<List<NavKey>> + rememberSaveable).",
+      "Phase DL — Download system: ALL 9 phases (D.0–D.8) implemented + CI GREEN. 7-state machine, SAF/data.json storage, AutoDownloadEngine (5-step pure-function pipeline), foreground service + Coil 3 thumbnails + dual notification channels, 528-line DownloadSettingsScreen replication + Priority order section, Downloads page UI + EpisodeDownloadControl + player offline short-circuit, QoL features (auto-retry, auto-resume, auto-pause metered, verification, orphan cleanup, 10s auto-clear), REVIEW-6 polish pass. D-148 (download system shipped), D-149 (proxy-churn gap Layer 1+2 fix — :app ReResolver orphaned, deferred), D-151 (future-phase scope boundary), D-152 (subtitle fixes).",
+      "D-150 — Nav3 REMOVED: hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch (replaces Jetpack Nav3 from D-036). R7 (process-death backstack survival) accepted as known limitation — backstack uses `remember` not `rememberSaveable`.",
+      "Phase DB — Debug Bubble (DB-1..DB-9): :core:debug-api + :feature:debug-bubble. Floating overlay with Network / DB / Logs / Build info tabs. debugImplementation only — excluded from release classpath.",
+      "Profile UI v1–v6 (D-171..D-186): profile screen refinements across 16 decisions — UI polish, layout tweaks, settings re-organization, accent presets, dynamic theming integration.",
+      "D-166 — DB optimization: schema cleanup (extensions.sq + metadata.sq deleted), migrations consolidated into idempotent `onOpen` path, index pruning.",
     ],
     next: [],
     blockers: [],
@@ -820,7 +836,7 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
     phaseName: "Scaffold (12 modules)",
     items: [
       { text: ":build-logic — convention plugins", done: true },
-      { text: ":app — Application (Koin + Logger init), MainActivity (Nav3)", done: true },
+      { text: ":app — Application (Koin + Logger init), MainActivity (originally Nav3, later hand-rolled per D-150)", done: true },
       { text: ":core:common — Logger (lambda-based), Dispatchers, Result, ContentType", done: true },
       { text: ":core:designsystem — theme engine + components", done: true },
       { text: ":core:database — SQLDelight schema (content_uid, external_reference)", done: true },
@@ -830,7 +846,7 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
       { text: ":core:anilist — AniList GraphQL client", done: true },
       { text: ":feature:anime-browse:{api,impl} — first screen", done: true },
       { text: ":feature:anime-details:{api,impl} — second screen", done: true },
-      { text: "App builds via CI, launches, Nav3 back-stack survives recreate", done: true },
+      { text: "App builds via CI, launches, back-stack survives Activity recreate (originally Nav3 guarantee; later hand-rolled per D-150; R7 process-death backstack survival NOT preserved — accepted limitation)", done: true },
     ],
   },
   {
@@ -844,7 +860,7 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
       { text: "Identity system (ContentUID + ExternalReference + matching engine) live", done: true },
       { text: "Aniyomi extensions loadable — can install + browse sources", done: true },
       { text: "Video pipeline (resolve → MPV play → save progress) working end-to-end", done: true },
-      { text: "CI green across all 44 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL additions)", done: true },
+      { text: "CI green across all 46 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6)", done: true },
     ],
   },
   {
@@ -890,7 +906,10 @@ export const PHASE_CHECKLISTS: PhaseChecklist[] = [
       { text: "Phase NOTIF — Notification system: :core:notifications + notification_config/notification_sent tables", done: true },
       { text: "Phase CW — Continue Watching logic (UI deferred)", done: true },
       { text: "Phase DL — Download system: ALL 9 phases D.0–D.8 implemented + CI GREEN (D-148, D-149, D-151, D-152)", done: true },
-      { text: "D-150 — Nav3 REMOVED: hand-rolled NavigationController + sealed-class NavKeys", done: true },
+      { text: "D-150 — Nav3 REMOVED: hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch; R7 accepted limitation", done: true },
+      { text: "Phase DB — Debug Bubble DB-1..DB-9 implemented (D-167..D-170 batch + :feature:debug-bubble)", done: true },
+      { text: "Profile UI v1–v6 (D-171..D-186) — 16 decisions across profile screen refinements", done: true },
+      { text: "D-166 — DB optimization (extensions.sq + metadata.sq deleted, idempotent onOpen migrations)", done: true },
     ],
   },
 ];
@@ -933,35 +952,35 @@ export interface MetricCardData {
 export const METRIC_CARDS: MetricCardData[] = [
   {
     label: "Modules Built",
-    value: "44",
-    sublabel: "1 app + 25 core + 1 data + 17 feature · ALL BUILT + CI GREEN",
+    value: "46",
+    sublabel: "1 app + 26 core + 1 data + 18 feature · ALL BUILT + CI GREEN",
     accent: "var(--c-primary)",
-    sparkline: [4, 6, 8, 12, 18, 22, 26, 31, 38, 44],
+    sparkline: [4, 6, 8, 12, 18, 22, 26, 31, 38, 44, 46],
     trend: "up",
     href: "/modules/",
   },
   {
     label: "Decisions Confirmed",
-    value: "152/152",
-    sublabel: "D-001..D-152 · all confirmed (incl. D-148..D-152 download + Nav3 removal)",
+    value: "186/186",
+    sublabel: "D-001..D-186 · all confirmed (incl. D-148..D-152 download + Nav3 removal + D-166 DB opt + D-171..D-186 Profile UI v4–v6)",
     accent: "var(--c-success)",
-    sparkline: [0, 18, 28, 41, 54, 70, 95, 120, 140, 152],
+    sparkline: [0, 18, 28, 41, 54, 70, 95, 120, 140, 152, 170, 186],
     trend: "up",
     href: "/decisions/",
   },
   {
     label: "Phases Done",
     value: "✓",
-    sublabel: "Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL — all complete + CI GREEN",
+    sublabel: "Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB + Profile UI v1–v6 — all complete + CI GREEN on `main`",
     accent: "var(--c-success)",
-    sparkline: [0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 10, 12],
+    sparkline: [0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 10, 12, 14],
     trend: "up",
     href: "/progress/",
   },
   {
     label: "DB Tables",
     value: "28",
-    sublabel: "26 active + 2 deferred · 13 logical groups (incl. Updates/Ratings/Notifications)",
+    sublabel: "28 tables across 15 .sq files · 13 logical groups (incl. Updates/Ratings/Notifications)",
     accent: "var(--c-warning)",
     sparkline: [4, 6, 11, 15, 19, 21, 21, 21, 24, 26, 28],
     trend: "up",
@@ -974,13 +993,14 @@ export const METRIC_CARDS: MetricCardData[] = [
  * ------------------------------------------------------------------------- */
 
 export const QUICK_STATS = {
-  modules: 44,
-  modulesPlanned: 44, // all planned modules now built
+  modules: 46,
+  modulesPlanned: 46, // all planned modules now built
   scaffoldModules: PHASE2_SCAFFOLD.length,
   phase3Modules: 15,
   totalFiles: MODULES.reduce((sum, m) => sum + m.files, 0),
-  decisions: 152,
-  decisionsConfirmed: 152,
+  kotlinFiles: 315, // actual .kt files in APP/ani-kuta/ (excluding /build/)
+  decisions: 186,
+  decisionsConfirmed: 186,
   decisionsNeedsInput: 0,
   phases: PHASES.length,
   phasesDone: PHASES.filter((p) => p.status === "done").length,
@@ -1084,7 +1104,7 @@ export interface Task {
 
 export const TASKS: Task[] = [
   { id: "T-01", title: "Build :build-logic convention plugins", desc: "android.application / library / compose + AndroidConfig + ProjectExtensions", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
-  { id: "T-02", title: "Wire :app Application + MainActivity", desc: "Koin setup, Logger.setEnabled(BuildConfig.DEBUG), Nav3 AppRoot", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
+  { id: "T-02", title: "Wire :app Application + MainActivity", desc: "Koin setup, Logger.setEnabled(BuildConfig.DEBUG), originally Nav3 AppRoot (later hand-rolled per D-150)", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
   { id: "T-03", title: "Implement :core:common", desc: "Logger (lambda-based), Dispatchers, Result, ContentType enum", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
   { id: "T-04", title: "Implement :core:designsystem", desc: "Theme engine + reusable Compose components (atoms + molecules)", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
   { id: "T-05", title: "Define :core:database schema", desc: "SQLDelight content_uid + external_reference + episode tables", priority: "high", status: "done", tag: "scaffold", assignee: "AK" },
@@ -1099,7 +1119,10 @@ export const TASKS: Task[] = [
   { id: "T-14", title: "Phase B/C/D — Auto-link + Content identity + Data caching", desc: ":core:smart-matcher (Phase B) + :core:content (Phase C) + :core:metadata + :core:data-cache + 3 new tables (Phase D, all 5 milestones D.1–D.5 done)", priority: "high", status: "done", tag: "phase-bcd", assignee: "AK" },
   { id: "T-15", title: "Phase WP/HI/UP/SC/TR/NOTIF/CW — Watch progress + History + Updates + Schedule + Ratings + Notifications + Continue Watching", desc: "SqlDelightWatchProgressStore (WP) + :feature:anime-history (HI) + :core:updates + WorkManager + :feature:updates (UP) + :core:schedule (SC) + :core:ratings (TR) + :core:notifications (NOTIF) + getContinueWatching query (CW). 7 new DB tables.", priority: "high", status: "done", tag: "phase-wp-to-cw", assignee: "AK" },
   { id: "T-16", title: "Phase DL — Download system (all 9 phases D.0–D.8)", desc: "7-state machine + SAF/data.json storage + AutoDownloadEngine (5-step pipeline) + foreground service + Coil 3 thumbnails + dual notification channels + 528-line DownloadSettingsScreen replication + Priority order section + Downloads page UI + EpisodeDownloadControl + player offline short-circuit + QoL features (auto-retry, auto-resume, auto-pause metered, verification, orphan cleanup, 10s auto-clear) + REVIEW-6 polish pass. D-148..D-152.", priority: "high", status: "done", tag: "phase-dl", assignee: "AK" },
-  { id: "T-17", title: "D-150 — Nav3 REMOVED, hand-rolled NavigationController", desc: "Replaced Jetpack Nav3 (D-036) with hand-rolled NavigationController + sealed-class NavKeys. Back-stack invariant preserved (StateFlow<List<NavKey>> + rememberSaveable).", priority: "med", status: "done", tag: "decision", assignee: "AK" },
+  { id: "T-17", title: "D-150 — Nav3 REMOVED, hand-rolled nav", desc: "Replaced Jetpack Nav3 (D-036) with hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch. R7 (process-death backstack survival) accepted as known limitation — backstack uses `remember` not `rememberSaveable`. NOT StateFlow<List<NavKey>>.", priority: "med", status: "done", tag: "decision", assignee: "AK" },
+  { id: "T-18", title: "Phase DB — Debug Bubble (DB-1..DB-9)", desc: ":core:debug-api + :feature:debug-bubble. Floating overlay with Network / DB / Logs / Build info tabs. debugImplementation only — excluded from release classpath. D-167..D-170 batch + DB-1..DB-9 sub-phases.", priority: "med", status: "done", tag: "phase-db", assignee: "AK" },
+  { id: "T-19", title: "Profile UI v1–v6 (D-171..D-186)", desc: "16 decisions across profile screen refinements — UI polish, layout tweaks, settings re-organization, accent presets, dynamic theming integration. Shipped on `main`.", priority: "med", status: "done", tag: "profile-ui", assignee: "AK" },
+  { id: "T-20", title: "D-166 — DB optimization", desc: "Schema cleanup (extensions.sq + metadata.sq deleted), migrations consolidated into idempotent `onOpen` path (DatabaseDriverFactory), index pruning. SQLDelight 2.0.2.", priority: "low", status: "done", tag: "decision", assignee: "AK" },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -1118,11 +1141,11 @@ export const ADRS: ADR[] = [
   { id: "ADR-002", title: "Restrict ABIs to ARM64 + armeabi-v7a", status: "accepted", summary: "No x86/x86_64. Matches target devices, keeps APK small." },
   { id: "ADR-003", title: "AGENT-CONTEXT versioned in repo", status: "accepted", summary: "Lives inside ANIKUTA-PROJECT/ so any agent can clone and continue." },
   { id: "ADR-004", title: "Frontend/backend separation", status: "accepted", summary: "UI and data layers independent, communicating via contracts. UI never imports :data:*." },
-  { id: "ADR-005", title: "Modular app structure (44 built — ALL PLANNED MODULES BUILT)", status: "accepted", summary: "Independent modules across :app (1), :core (25), :data (1), :feature (17) = 44 runtime modules. All built + CI verified GREEN on branch feature/watch-progress-history-updates. Nav3 REMOVED (D-150) — hand-rolled NavigationController." },
+  { id: "ADR-005", title: "Modular app structure (46 built — ALL PLANNED MODULES BUILT)", status: "accepted", summary: "Independent modules across :app (1), :core (26), :data (1), :feature (18 — api/impl splits count as separate Gradle modules) = 46 runtime modules. All built + CI verified GREEN on branch `main` (all feature branches merged + deleted). Nav3 REMOVED (D-150) — hand-rolled nav via `mutableStateListOf<NavKey>`." },
   { id: "ADR-006", title: "Companion web dashboard", status: "accepted", summary: "Next.js project → GitHub Pages, visual documentation for the user." },
   { id: "ADR-007", title: "App ID = com.confused.anikuta", status: "accepted", summary: "User-chosen applicationId / namespace." },
-  { id: "ADR-008", title: "SDK levels: min 24, target 35, JDK 17", status: "accepted", summary: "minSdk 24, targetSdk/compileSdk 35, JDK 17 for CI." },
-  { id: "ADR-009", title: "Tech stack: Kotlin + Compose + Koin + SQLDelight + hand-rolled NavigationController (Nav3 REMOVED D-150)", status: "accepted", summary: "Koin 4.x + Annotations 2.x + Injekt (isolated). SQLDelight 2.x. Hand-rolled NavigationController + sealed-class NavKeys (D-150: replaced Jetpack Nav3 from D-036). MPV player. (Supersedes original Hilt+Room+Retrofit plan + the Nav3 choice.)" },
+  { id: "ADR-008", title: "SDK levels: min 24, target 36, JDK 17", status: "accepted", summary: "minSdk 24, targetSdk/compileSdk 36 (JDK 17 for CI). ABIs: arm64-v8a + armeabi-v7a ONLY — CI-verified, no x86/x86_64." },
+  { id: "ADR-009", title: "Tech stack: Kotlin 2.2.0 + Compose + Koin + SQLDelight + hand-rolled nav (Nav3 REMOVED D-150)", status: "accepted", summary: "Kotlin 2.2.0, AGP 8.9.1, Gradle 8.11.1, Compose BOM 2025.03.00. Koin 4.2.2 + Annotations + Injekt (isolated). SQLDelight 2.0.2. OkHttp 5.0.0-alpha.14 (Aniyomi ext binary compat). Coil 3.0.4. MPV aniyomi-mpv-lib 1.18.n. Hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch (D-150: replaced Jetpack Nav3 from D-036). (Supersedes original Hilt+Room+Retrofit plan + the Nav3 choice.)" },
   { id: "ADR-010", title: "Dashboard design language (MEMORY OS)", status: "accepted", summary: "Warm canvas, rounded corners, dark mode toggle. Strictly followed. Separate from the APP's design language." },
   { id: "ADR-011", title: "Graph-based identity (ContentUID + ExternalReference)", status: "accepted", summary: "Multi-ecosystem, tracker-optional, confidence levels, user merge/split. Flexible + switchable. See D-032." },
   { id: "ADR-012", title: "Aniyomi extension compatibility (multi-ecosystem)", status: "accepted", summary: "ExtensionProvider abstraction + Video/Image/Text sub-interfaces. Aniyomi now, Mangayomi/Cloudstream/Kotatsu later. See D-027." },

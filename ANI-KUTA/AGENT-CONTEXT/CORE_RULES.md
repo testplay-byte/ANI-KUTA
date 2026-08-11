@@ -137,9 +137,10 @@ repo-root/
   5. Push to CI and read the failure annotations from the GitHub API (`/repos/{owner}/{repo}/check-runs/{id}/annotations`).
   6. Iterate: fix → push → read CI annotations → fix again. This is the ONLY loop.
 - **ONLY** `arm64-v8a` + `armeabi-v7a` ABIs. No x86/x86_64.
-  - Set in `APP/ani-kuta/app/build.gradle.kts` (`ndk.abiFilters`).
-  - Verified post-build in CI (fails on any forbidden `lib/<abi>/`).
+  - Set in `build-logic/.../AndroidConfig.kt` (`abiFilters`), applied via the `anikuta.android.application` convention plugin.
+  - Verified post-build in CI (the `build-apk.yml` "Verify ABIs" step inspects every APK's `lib/` folder and fails on any forbidden `lib/<abi>/`).
 - App ID: `com.confused.anikuta`.
+- **compileSdk = 36** (kept at 36 for Compose BOM 2025.03.00 + future-proofing; was originally bumped for Nav3, but Nav3 was removed in D-150 — the SDK stays at 36 because reverting would touch `AndroidConfig.kt` only + provides no benefit).
 
 ---
 
@@ -493,3 +494,6 @@ APP/ani-kuta/DOCUMENTATION/database/
 
 ### Why this rule exists
 Previous sessions deferred schema improvements (CHECK constraints, UPSERT migration, table restructuring) because "can't ALTER TABLE on existing installs." That's a production concern, not a debug concern. The user explicitly confirmed: debug builds can make complete changes. Don't let migration fear block schema quality during debug.
+
+### User clarification (this session)
+The user reaffirmed: **we are currently working on the project in debug mode. We are NOT going to worry about database migration.** When the schema needs to change, we create new schema files and use them; the old database is completely deleted and recreated. The `DatabaseDriverFactory.onOpen` idempotent-migration pattern (hasColumn + DROP/CREATE INDEX IF [NOT] EXISTS) is acceptable as a lightweight runtime guard, but it is NOT a migration system — it's a "make sure indexes exist" convenience. Do not invest time in `.sqm` migration files or `user_version` tracking until the user explicitly signals production approach. The testing workflow is: delete the app → reinstall → fresh DB → test. If a dev install has stale data, the user clears app data. That's the debug workflow.

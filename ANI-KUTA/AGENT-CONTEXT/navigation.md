@@ -7,7 +7,7 @@
 |------|---------|
 | `SESSION.md` | 60-second session bootstrap: key rules + the loop + end-of-session checklist. **Read first.** |
 | `master.md` | Project orientation: what ANI-KUTA is, folder layout, what to read. |
-| `CORE_RULES.md` | Non-negotiable rules (**29 sections**). Wins over everything. |
+| `CORE_RULES.md` | Non-negotiable rules (**30 sections**). Wins over everything. |
 | `workflow.md` | The task execution loop (Understand→Verify→Implement→Verify→Move On) + project phases. |
 
 ## 🌐 Workspace-Level
@@ -26,26 +26,37 @@
 ## 📚 knowledge/
 | File | Purpose |
 |------|---------|
-| `knowledge/project-overview.md` | What ANI-KUTA is, goals, scope. |
-| `knowledge/tech-stack.md` | Chosen technologies + versions. |
-| `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, module graph, UI/backend separation. |
-| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's UI design language (canonical, ~140 lines — colors, typography, floating pill nav, translucent cards, scroll blur). NOTE: an older 1882-line version was deleted + rebuilt fresh; references to `knowledge/app-design-language.md` are stale (that file does not exist). |
-| `knowledge/module-map.md` | Every module: name, job, dependencies. |
-| `knowledge/ui-customization.md` | How UI customization works. |
-| `knowledge/dashboard.md` | Dashboard approach: purpose, content, deployment, update process, sub-agent rules. |
-| `knowledge/old-vs-new.md` | Comparison with the old project (when available). |
+| `knowledge/project-overview.md` | What ANI-KUTA is, goals, scope, current status. |
+| `knowledge/tech-stack.md` | Actual technologies + versions (verified against `libs.versions.toml`). |
+| `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, actual 46-module graph, nav, DB, DI wiring, known debt. |
+| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's UI design language (canonical ~140 lines — lime accent, warm darks, translucent cards, floating pill nav, scroll blur). |
+| `knowledge/module-map.md` | All 46 modules: name, job, dependencies, key files. |
+| `knowledge/ui-customization.md` | How UI customization works (theme tokens, component variants, layout, behavior toggles, subtitle settings). |
+| `knowledge/dashboard.md` | Dashboard approach: 14 pages, data files, deployment, update process, sub-agent rules. |
+| `knowledge/old-vs-new.md` | Old project (REFERENCES/old-kuta/) vs new project comparison + migration notes. |
 
-## 📁 REFERENCES/ (old project)
+## 📁 REFERENCES/ (read-only references)
 | Path | Purpose |
 |------|---------|
-| `REFERENCES/old-kuta/ANIKUTA/` | Old project source (read-only reference). |
-| `REFERENCES/old-kuta/DOCUMENTATION/` | Old project analysis docs (`01-09` + README). |
+| `REFERENCES/old-kuta/ANIKUTA/` | Old project source (~643 files, 36 modules, package `app.confused.anikuta`). |
+| `REFERENCES/old-kuta/DOCUMENTATION/` | Old project analysis docs (`01-09` + README — 5326 lines). |
+| `REFERENCES/animiru/` | Animiru reference repo (~1553 files — anime-only Aniyomi fork, player + ext patterns). |
+| `REFERENCES/animiru/documentation/` | Animiru documentation (8,101 lines — read-only reference, D-065). |
+| `REFERENCES/webview-cloudflare-captcha/` | Small reference (README only). |
+
+## 📁 AGENT-CONTEXT/download-research/ (download system design)
+| Path | Purpose |
+|------|---------|
+| `download-research/00-16` | 17 download-system research docs (workflow, queue, state machine, storage, downloaders, notifications, settings, UI, player, DB, DI, implementation plan, auto-download, UI/bug analysis, QoL). |
+| `download-research/REVIEW-1..5` | 5 review rounds with 72 MUST-FIX items. |
+| `download-research/REVIEW-D0.md` | Foundations review. |
+| `download-research/FUTURE-PHASE-DL-GAPS.md` | Consolidated deferred download gaps (D-149, D-151) + RetryPolicy sketch. |
 
 ## 📁 APP/ani-kuta/ (new project)
 | Path | Purpose |
 |------|---------|
-| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's design language (canonical, ~140 lines — see note above). |
-| `APP/ani-kuta/DOCUMENTATION/` | New project architecture/research docs (`10-20` + README + `planning/` subfolders). Includes phase plans (Phase 1, 3, 5, 5c-watch, PHASE-D), research (db/di/nav/ads/backup), + database schema docs. |
+| `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's design language (canonical ~140 lines — see above). |
+| `APP/ani-kuta/DOCUMENTATION/` | New project architecture/research docs (`10-20` + README + `planning/` subfolders + `download-device-testing-checklist.md`). Historical: research (10-15), Phase 1 plan (16), DB schema (17 — note: says "21 tables", actual 28), Phase 3/5 plans (18-20). Planning: data-management/PHASE-D-PLAN, debug-bubble/PLAN, extension-details-page/{ARCHITECTURE-PLAN,FLOW-DIAGRAM,PHASE-C-PLAN}, watch-history-updates/PLAN. |
 
 ## 🛠️ skills/
 | File | Purpose |

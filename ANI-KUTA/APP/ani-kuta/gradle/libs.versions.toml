@@ -10,7 +10,7 @@ activityCompose = "1.10.1"
 lifecycle = "2.8.7"
 composeBom = "2025.03.00"
 
-# Navigation 3 (Nav3 — stable since Nov 2025)
+# Navigation — hand-rolled (D-150): Nav3 (androidx.navigation3) REMOVED. No nav dependency.
 
 # DI
 koin = "4.2.2"
@@ -74,7 +74,7 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 
-# Navigation 3
+# Navigation — hand-rolled (D-150): no Nav3 dependency.
 
 # Koin
 koin-bom = { group = "io.insert-koin", name = "koin-bom", version.ref = "koin" }

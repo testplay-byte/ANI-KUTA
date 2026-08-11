@@ -81,9 +81,9 @@ export default function TestingPage() {
             A comprehensive, ordered testing guide for the features built on
             the{" "}
             <code className="font-mono text-text-primary">
-              feature/watch-progress-history-updates
+              main
             </code>{" "}
-            branch. Work through each section top-to-bottom — watch progress,
+            branch (all feature branches merged + deleted). Work through each section top-to-bottom — watch progress,
             history, updates, schedule, downloads. Checkmarks persist in your
             browser via <code className="font-mono">localStorage</code>, so you
             can close this tab and come back to it. When something doesn&apos;t

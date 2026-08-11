@@ -1860,7 +1860,7 @@ export const IMPLEMENTATION_PHASES: ImplementationPhase[] = [
 ];
 
 export const IMPLEMENTATION_TOTAL_ESTIMATE =
-  "Total: 30-40 days estimated · ALL 9 PHASES (D.0–D.8) NOW IMPLEMENTED + CI VERIFIED GREEN on branch feature/watch-progress-history-updates. D.5 + D.6 ran in parallel (different files); D.7 ran parallel to D.5/D.6 (different module). The REVIEW-6 re-review pass landed + the known bugs (DOWNLOADING-on-restart, AnimatedContent, notification action buttons, deep-link) all shipped.";
+  "Total: 30-40 days estimated · ALL 9 PHASES (D.0–D.8) NOW IMPLEMENTED + CI VERIFIED GREEN on branch `main` (all feature branches merged + deleted). D.5 + D.6 ran in parallel (different files); D.7 ran parallel to D.5/D.6 (different module). The REVIEW-6 re-review pass landed + the known bugs (DOWNLOADING-on-restart, AnimatedContent, notification action buttons, deep-link) all shipped.";
 
 /* ---------------------------------------------------------------------------
  * Design Decisions — D1..D7 (from 13-implementation-plan.md §4)

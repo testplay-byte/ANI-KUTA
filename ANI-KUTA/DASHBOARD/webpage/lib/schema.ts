@@ -1,10 +1,14 @@
 /*
- * ANI-KUTA database schema — visual data (Phase 3 foundation + Phase WP/UP/SC/TR/NOTIF additions).
+ * ANI-KUTA database schema — visual data (Phase 3 foundation + Phase WP/UP/SC/TR/NOTIF + D-166 DB optimization).
  *
- * Source: APP/ani-kuta/DOCUMENTATION/17-database-schema.md
+ * Source: APP/ani-kuta/DOCUMENTATION/17-database-schema.md + core/database/src/main/sqldelight/
  *
- * 28 tables (26 active + 2 deferred) across 13 logical groups.
- * Hardcoded for the static dashboard demo — no API calls.
+ * 28 tables across 15 .sq files (13 logical groups for visualization). The 28 tables
+ * below are the PLANNED Phase 1 schema representation — the dashboard visualizes the
+ * schema as originally designed. The actual current schema (post-D-166) has the same
+ * 28-table count but uses different table names (content, content_ext, anilist_detail,
+ * etc. rather than content_uid, external_reference, etc.) — see AGENT-CONTEXT for the
+ * canonical list. Hardcoded for the static dashboard demo — no API calls.
  *
  * Each table entry mirrors the SQL CREATE TABLE statement in the doc:
  *  - columns: ordered (name, type, constraints, isPK, isFK, fkTarget, desc)
@@ -187,7 +191,7 @@ export const SCHEMA_GROUPS: GroupMeta[] = [
 ];
 
 /* ---------------------------------------------------------------------------
- * 28 tables — hardcoded from 17-database-schema.md + Phase WP/UP/SC/TR/NOTIF additions.
+ * 28 tables (planned Phase 1 schema representation) — hardcoded from 17-database-schema.md + Phase WP/UP/SC/TR/NOTIF additions + D-166 DB optimization (extensions.sq + metadata.sq deleted — neither appears below). The actual current schema post-D-166 has the same 28-table count across 15 .sq files but uses different table names (see AGENT-CONTEXT/memory/decisions.md D-166).
  * ------------------------------------------------------------------------- */
 
 export const SCHEMA_TABLES: SchemaTable[] = [
@@ -686,6 +690,7 @@ export const SCHEMA_SUMMARY = {
   activeTables: SCHEMA_TABLES.filter((t) => !t.deferred).length, // 26
   deferredTables: SCHEMA_TABLES.filter((t) => t.deferred).length, // 2
   totalGroups: SCHEMA_GROUPS.length, // 13
+  totalSqFiles: 15, // actual .sq files in core/database/src/main/sqldelight/
   totalColumns: SCHEMA_TABLES.reduce((acc, t) => acc + t.columns.length, 0),
   totalIndexes: SCHEMA_TABLES.reduce(
     (acc, t) => acc + (t.indexes?.length ?? 0),

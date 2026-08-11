@@ -31,7 +31,7 @@ export default function OverviewPage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              ALL PHASES DONE · 44 modules built · Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL complete + CI GREEN
+              ALL PHASES DONE · 46 modules built · Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + CI GREEN
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -41,14 +41,17 @@ export default function OverviewPage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living dashboard for the ANI-KUTA project: 44 modules
-            built (1 app + 25 core + 1 data + 17 feature — ALL PLANNED MODULES
-            BUILT), all phases 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL complete,
-            28 DB tables (26 active + 2 deferred) across 13 logical groups, +
-            CI verified GREEN on branch feature/watch-progress-history-updates.
-            Phase DL (download system — all 9 phases D.0–D.8) + Phase WP/HI/UP/SC/TR/NOTIF/CW
-            all shipped. Nav3 REMOVED (D-150) — hand-rolled NavigationController.
-            All decisions D-001..D-152 confirmed. Kept in sync with{" "}
+            A calm, living dashboard for the ANI-KUTA project: 46 modules
+            built (1 app + 26 core + 1 data + 18 feature — ALL PLANNED MODULES
+            BUILT), all phases 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete
+            + Profile UI v1–v6, 28 DB tables across 15 .sq files (13 logical
+            groups), + CI verified GREEN on branch {`main`} (all feature branches
+            merged + deleted). Phase DL (download system — all 9 phases D.0–D.8)
+            + Phase WP/HI/UP/SC/TR/NOTIF/CW + Phase DB debug-bubble all shipped.
+            Nav3 REMOVED (D-150) — hand-rolled nav via {`mutableStateListOf<NavKey>`}
+            + {`when(currentKey)`} dispatch (R7 process-death backstack survival
+            accepted as known limitation). All decisions D-001..D-186 confirmed.
+            Kept in sync with{" "}
             <code className="font-mono text-text-primary">AGENT-CONTEXT/</code>{" "}
             on every push.
           </p>
@@ -164,9 +167,7 @@ export default function OverviewPage() {
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
                 <span>28 tables</span>
                 <span className="opacity-50">·</span>
-                <span>26 active</span>
-                <span className="opacity-50">·</span>
-                <span>2 deferred</span>
+                <span>15 .sq files</span>
                 <span className="opacity-50">·</span>
                 <span>13 groups</span>
               </div>
@@ -213,7 +214,7 @@ export default function OverviewPage() {
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
                     style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
-                    44 modules — all built ✓
+                    46 modules — all built ✓
                   </div>
                 </div>
                 {/* mini grid glyph */}
@@ -235,9 +236,9 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>44 planned</span>
+                <span>46 planned</span>
                 <span className="opacity-50">·</span>
-                <span>44 built ✓</span>
+                <span>46 built ✓</span>
                 <span className="opacity-50">·</span>
                 <span>4 layers</span>
               </div>
@@ -251,8 +252,8 @@ export default function OverviewPage() {
                 detail cards with file counts.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Modules" value="44" />
-                <MiniStat label="Built" value="44" />
+                <MiniStat label="Modules" value="46" />
+                <MiniStat label="Built" value="46" />
                 <MiniStat label="Layers" value="4" />
               </div>
               <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-success)] group-hover:underline">
@@ -447,15 +448,19 @@ export default function OverviewPage() {
         </div>
 
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          D-001 through D-152 — covering the foundational choices (repo layout,
+          D-001 through D-186 — covering the foundational choices (repo layout,
           app ID, base app, extension compat, identity system, DI, DB, navigation,
           backup, design language, Phase 4 polish, Phase 5 re-order) AND the later
           work: watch progress persistence (WP), history page (HI), updates +
           WorkManager smart engine (UP), schedule + actual-release (SC), ratings
           (TR), notifications (NOTIF), continue watching (CW), download system
           (D-148 — all 9 phases D.0–D.8 shipped), proxy-churn gap (D-149), Nav3
-          REMOVED — hand-rolled NavigationController (D-150), download future-phase
-          scope (D-151), + subtitle fixes (D-152).
+          REMOVED — hand-rolled nav via {`mutableStateListOf<NavKey>`} (D-150; R7
+          process-death backstack survival accepted as known limitation),
+          download future-phase scope (D-151), subtitle fixes (D-152), DB
+          optimization (D-166), audio variants (D-167), extension trust (D-168),
+          watch-progress fixes (D-169), ratings + continue-watching UI (D-170),
+          + Profile UI v4–v6 (D-171..D-186).
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

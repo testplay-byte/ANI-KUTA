@@ -9,9 +9,10 @@ import {
 } from "@/lib/data";
 
 /**
- * Progress page (v7) — ALL PHASES DONE. Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL
- * complete + CI verified GREEN on branch feature/watch-progress-history-updates.
- * 44 modules built, 28 DB tables, 152 decisions confirmed.
+ * Progress page (v8) — ALL PHASES DONE. Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB
+ * complete + Profile UI v1–v6 + CI verified GREEN on branch `main` (all feature
+ * branches merged + deleted). 46 modules built, 28 DB tables across 15 .sq
+ * files, 186 decisions confirmed.
  *
  * Sections:
  *  1. Header card + legend.
@@ -19,7 +20,7 @@ import {
  *  3. Phase 3 wrap-up (15 modules across 4 sub-phases — all built).
  *  4. Phase 4 wrap-up (feature screens + accent palette — COMPLETE).
  *  5. Phase 5 wrap-up (5a–5e DONE — 5f deferred).
- *  6. Phase 10 wrap-up (B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL — all DONE).
+ *  6. Phase 10 wrap-up (B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB — all DONE).
  *  7. Current phase checklist.
  *  8. Full phase list (detailed, with done/next/blockers per phase).
  */
@@ -53,14 +54,16 @@ export default function ProgressPage() {
           </span>
         </div>
         <p className="text-[13px] text-text-secondary leading-relaxed max-w-2xl">
-          ALL PHASES COMPLETE + CI verified GREEN on branch feature/watch-progress-history-updates.
+          ALL PHASES COMPLETE + CI verified GREEN on branch {`main`} (all feature branches merged + deleted).
           Phase 0 (setup), Phase 1 (architecture plan + design language), Phase 2
           (scaffold — 12 modules), Phase 3 (15 core modules across 4 sub-phases),
           Phase 4 (feature screens + accent palette), Phase 5 (5a–5e — 5f deferred),
           and Phase 10 (post-Phase-5 work: B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL) are
-          all done. 44 modules built (1 app + 25 core + 1 data + 17 feature),
-          28 DB tables (26 active + 2 deferred), 152 decisions confirmed
-          (D-001..D-152). Nav3 REMOVED (D-150) — hand-rolled NavigationController.
+          all done. 46 modules built (1 app + 26 core + 1 data + 18 feature),
+          28 DB tables across 15 .sq files, 186 decisions confirmed
+          (D-001..D-186). Nav3 REMOVED (D-150) — hand-rolled nav via
+          {`mutableStateListOf<NavKey>`} + {`when(currentKey)`} dispatch (R7
+          process-death backstack survival accepted as known limitation).
           Live status — kept in sync with{" "}
           <code className="font-mono text-text-primary">memory/progress.md</code>.
         </p>
@@ -122,7 +125,7 @@ export default function ProgressPage() {
             <li>· Video pipeline working — resolve URL → play via MPV → save progress.</li>
             <li>· Download manager (HTTP + HLS + resume) operational.</li>
             <li>· AniList tracker sync wired (tracker-api + tracker-anilist).</li>
-            <li>· <strong>CI green across all 44 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL additions).</strong></li>
+            <li>· <strong>CI green across all 46 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6).</strong></li>
           </ul>
         </div>
       </Card>
@@ -257,12 +260,14 @@ export default function ProgressPage() {
               Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL — all shipped + CI GREEN
             </h3>
             <p className="text-[12.5px] text-text-secondary leading-relaxed mt-1.5 max-w-2xl">
-              The post-Phase-5 work shipped on branch feature/watch-progress-history-updates.
+              The post-Phase-5 work shipped on branch `main` (all feature
+              branches merged + deleted).
               Auto-link system (B), content identity (C), data management + caching (D),
               watch progress + watched status (WP), history page (HI), updates + WorkManager
               smart engine (UP), schedule + actual-release (SC), ratings (TR), notifications
               (NOTIF), continue watching (CW), download system (DL — all 9 phases D.0–D.8).
-              Nav3 REMOVED (D-150) — hand-rolled NavigationController. 7 new DB tables.
+              Nav3 REMOVED (D-150) — hand-rolled nav via {`mutableStateListOf<NavKey>`}.
+              7 new DB tables (Phase WP/UP/SC/TR/NOTIF additions).
               All CI verified GREEN.
             </p>
           </div>
@@ -290,7 +295,7 @@ export default function ProgressPage() {
           <Phase4DoneRow label="Phase NOTIF — Notifications" desc=":core:notifications + 2 new tables (notification_config, notification_sent) · 4 channels · dedup" />
           <Phase4DoneRow label="Phase CW — Continue Watching" desc="getContinueWatching query + observeContinueWatching Flow (UI deferred)" />
           <Phase4DoneRow label="Phase DL — Download system" desc="ALL 9 phases D.0–D.8 implemented + CI GREEN · D-148..D-152 · 7-state machine · SAF/data.json · AutoDownloadEngine" />
-          <Phase4DoneRow label="D-150 — Nav3 REMOVED" desc="Hand-rolled NavigationController + sealed-class NavKeys (replaces Jetpack Nav3 from D-036)" />
+          <Phase4DoneRow label="D-150 — Nav3 REMOVED" desc="Hand-rolled nav via mutableStateListOf + when(currentKey) dispatch (replaces Jetpack Nav3 from D-036; R7 accepted limitation)" />
         </div>
       </Card>
 

@@ -106,7 +106,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation(libs.androidx.ui.tooling)
 
-    // Navigation 3
+    // Navigation — hand-rolled (D-150): mutableStateListOf<NavKey> + when(currentKey).
+    // Nav3 (androidx.navigation3) was removed; no navigation dependency here.
 
     // Koin
     implementation(platform(libs.koin.bom))

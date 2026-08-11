@@ -89,13 +89,13 @@ export default function DatabasePage() {
             </span>
             <StatusDot color="var(--c-primary)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              SQLDelight schema · the engine room every module depends on · 28 tables across 13 groups
+              SQLDelight schema · the engine room every module depends on · 28 tables across 15 .sq files (13 groups)
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
             Database Schema{" "}
             <span className="text-text-secondary font-medium">
-              — 28 tables, 13 groups
+              — 28 tables, 15 .sq files
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
@@ -104,7 +104,8 @@ export default function DatabasePage() {
             app_metadata, plus Phase WP/UP/SC/TR/NOTIF additions (episode_update,
             anime_update_state, episode_schedule, user_rating, user_episode_rating,
             notification_config, notification_sent), plus 2 deferred (activity + ads).
-            Documented in{" "}
+            D-166 optimization removed extensions.sq + metadata.sq. The dashboard
+            visualizes the planned Phase 1 schema representation. Documented in{" "}
             <code className="font-mono text-text-primary">
               17-database-schema.md
             </code>
@@ -132,6 +133,11 @@ export default function DatabasePage() {
               label="Groups"
               value={String(SCHEMA_SUMMARY.totalGroups)}
               accent="var(--c-warning)"
+            />
+            <SummaryStat
+              label=".sq files"
+              value={String(SCHEMA_SUMMARY.totalSqFiles)}
+              accent="var(--c-secondary)"
             />
             <SummaryStat
               label="Columns"

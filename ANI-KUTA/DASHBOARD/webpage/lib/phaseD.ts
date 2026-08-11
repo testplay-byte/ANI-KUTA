@@ -25,7 +25,7 @@ export const PHASE_D_HERO = {
   status: "IMPLEMENTED — ALL MILESTONES DONE",
   statusColor: "var(--c-success)",
   summary:
-    "Phase D introduces a local-first data layer for the app. All metadata (anime info, episode info, covers) is stored locally in the database — the network is only used for refresh or opening new content. A multi-stage refresh system on the details page (episodes list → metadata → full refresh) provides fine-grained control with vibration feedback. A 6-hour auto-update runs on the homepage only. Image caching via Coil's disk cache (500MB, persistent) ensures covers + thumbnails survive restart. Status: COMPLETE — all 5 milestones (D.1–D.5) implemented + CI verified GREEN on branch feature/watch-progress-history-updates.",
+    "Phase D introduces a local-first data layer for the app. All metadata (anime info, episode info, covers) is stored locally in the database — the network is only used for refresh or opening new content. A multi-stage refresh system on the details page (episodes list → metadata → full refresh) provides fine-grained control with vibration feedback. A 6-hour auto-update runs on the homepage only. Image caching via Coil's disk cache (500MB, persistent) ensures covers + thumbnails survive restart. Status: COMPLETE — all 5 milestones (D.1–D.5) implemented + CI verified GREEN on branch `main` (all feature branches merged + deleted).",
 } as const;
 
 /* ---------------------------------------------------------------------------

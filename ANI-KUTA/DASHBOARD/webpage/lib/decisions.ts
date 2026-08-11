@@ -1,26 +1,33 @@
 /*
- * Architecture Decisions (v6 — Phase WP/HI/UP/SC/TR/NOTIF/CW complete + D-148..D-152 landed).
+ * Architecture Decisions (v7 — Phase WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + D-001..D-186 landed).
  *
- * All decisions D-001..D-152 are CONFIRMED. Each entry shows the question,
+ * All decisions D-001..D-186 are CONFIRMED. Each entry shows the question,
  * the chosen option (with pros/cons for context), and a summary of the
  * decision context.
  *
  * The early decisions (D-001..D-054) cover the foundational choices (repo
  * layout, app ID, base app, extension compat, identity system, DI, DB,
  * navigation, backup, design language, Phase 4 polish, Phase 5 re-order).
- * The newer decisions (D-055..D-152) cover: watch progress persistence,
+ * The newer decisions (D-055..D-186) cover: watch progress persistence,
  * history page, updates + WorkManager smart engine, schedule + actual
  * release, ratings, notifications, continue watching, download system
  * (D-148), proxy-churn gap (D-149), Nav3 removal in favour of hand-rolled
- * navigation (D-150), download future-phase scope (D-151), + subtitle
- * fixes (D-152).
+ * navigation (D-150), download future-phase scope (D-151), subtitle
+ * fixes (D-152), DB optimization (D-166), audio-variants (D-167),
+ * extension trust (D-168), watch-progress fixes (D-169), ratings +
+ * continue-watching UI (D-170), + Profile UI v4–v6 (D-171..D-186).
+ *
+ * NOTE: This file contains representative entries (D-027..D-054 + D-148..D-170
+ * + D-186) — NOT all 186 decisions are listed individually. The full set lives
+ * in AGENT-CONTEXT/memory/decisions.md. The dashboard's count (186/186
+ * confirmed) reflects the canonical record.
  *
  * Sources:
- *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-152)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-186)
  *  - REFERENCES/old-kuta/DOCUMENTATION/10-14 (research findings)
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 — D-053 + D-054)
- *  - APP/ani-kuta/DOCUMENTATION/* (Phase WP/HI/UP/SC/TR/NOTIF/CW/DL plans)
+ *  - APP/ani-kuta/DOCUMENTATION/* (Phase WP/HI/UP/SC/TR/NOTIF/CW/DL/DB plans)
  */
 
 export interface DecisionOption {
@@ -281,16 +288,16 @@ export const decisions: Decision[] = [
   },
   {
     id: "D-036",
-    title: "Navigation Library",
+    title: "Navigation Library (SUPERSEDED by D-150)",
     status: "confirmed",
     question: "Voyager or Compose Navigation?",
     context:
-      "Nav3's back stack is a StateFlow<List<NavKey>> saved via rememberSaveable — the old Voyager bug (back stack lost on Activity recreate) is structurally impossible. Nav3 supports type-safe @Serializable routes and an official api/impl modular split. It went stable in Nov 2025 (cutting-edge but production-ready).",
+      "Nav3's back stack was a StateFlow<List<NavKey>> saved via rememberSaveable — the old Voyager bug (back stack lost on Activity recreate) was structurally impossible. Nav3 supported type-safe @Serializable routes and an official api/impl modular split. It went stable in Nov 2025 (cutting-edge but production-ready). NOTE: This decision was later SUPERSEDED by D-150 — Nav3 was fully removed from all build.gradle.kts files; hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch is now used. The hand-rolled approach does NOT use rememberSaveable (R7 process-death backstack survival accepted as known limitation).",
     options: [
       {
-        name: "Jetpack Navigation 3 (Nav3)",
+        name: "Jetpack Navigation 3 (Nav3) — SUPERSEDED by D-150",
         pros: [
-          "Back-stack bug is structurally impossible",
+          "Back-stack bug was structurally impossible",
           "Type-safe @Serializable routes",
           "Official modular api/impl split (Pattern B)",
           "Dynamic tabs",
@@ -300,6 +307,7 @@ export const decisions: Decision[] = [
         cons: [
           "Very new (stable Nov 2025)",
           "Smaller community than Nav2",
+          "Version-churn tax — D-150 removed Nav3 once the hand-rolled approach proved cleaner",
         ],
         recommended: true,
       },
@@ -508,7 +516,7 @@ export const decisions: Decision[] = [
     status: "confirmed",
     question: "Ship the full download system as planned in 13-implementation-plan.md (D.0 → D.8)?",
     context:
-      "The download-system plan went through 5 senior review rounds (DL-REVIEW-1..5) + a 72-item MUST-FIX consolidation pass (DL-PLAN-FIX). All 9 phases (D.0 Foundations, D.1 Engine + Storage, D.2 Orchestrator + Auto-download + proxy-churn fix, D.3 Queue + Dynamic progress, D.4 Foreground service + Notifications, D.5 Settings page UI, D.6 Downloads page UI + Episode controls + Player integration, D.7 QoL features, D.8 Polish + REVIEW-6) are now IMPLEMENTED + CI verified GREEN on branch feature/watch-progress-history-updates. The system is live: SAF/data.json storage with reinstall recognition, the 7-state machine (QUEUED, DOWNLOADING, RETRYING, PAUSED, COMPLETED, ERROR, CANCELLED), the 5-step pure-function AutoDownloadEngine pipeline (flatten → rank → applyFallbacks → pick → globalFallback), foreground service with synchronous startForeground + Coil 3 thumbnails + dual notification channels, the 528-line DownloadSettingsScreen replication + the new Priority order section, + the player offline short-circuit. Date: Phase DL.",
+      "The download-system plan went through 5 senior review rounds (DL-REVIEW-1..5) + a 72-item MUST-FIX consolidation pass (DL-PLAN-FIX). All 9 phases (D.0 Foundations, D.1 Engine + Storage, D.2 Orchestrator + Auto-download + proxy-churn fix, D.3 Queue + Dynamic progress, D.4 Foreground service + Notifications, D.5 Settings page UI, D.6 Downloads page UI + Episode controls + Player integration, D.7 QoL features, D.8 Polish + REVIEW-6) are now IMPLEMENTED + CI verified GREEN on branch `main` (all feature branches merged + deleted). The system is live: SAF/data.json storage with reinstall recognition, the 7-state machine (QUEUED, DOWNLOADING, RETRYING, PAUSED, COMPLETED, ERROR, CANCELLED), the 5-step pure-function AutoDownloadEngine pipeline (flatten → rank → applyFallbacks → pick → globalFallback), foreground service with synchronous startForeground + Coil 3 thumbnails + dual notification channels, the 528-line DownloadSettingsScreen replication + the new Priority order section, + the player offline short-circuit. Date: Phase DL.",
     options: [
       {
         name: "Ship all 9 phases (D.0–D.8) as planned + REVIEW-6 re-review",
@@ -557,21 +565,22 @@ export const decisions: Decision[] = [
     status: "confirmed",
     question: "Keep Jetpack Nav3 (D-036) or replace it with a hand-rolled navigation solution?",
     context:
-      "Nav3 was originally chosen (D-036) for its structurally-impossible-back-stack-bug guarantee + type-safe @Serializable routes. In practice, the team hit enough friction with Nav3's still-maturing API surface + the AppController-style navigation patterns the codebase had evolved toward (push key, pop to key, replace root) that a hand-rolled NavigationController + NavKey sealed-class hierarchy became cleaner. The hand-rolled approach gives full control over the back stack (still a StateFlow<List<NavKey>> saved via rememberSaveable — the original bug-proof invariant is preserved), avoids the Nav3 version-churn tax, + matches the existing AppController pattern. Nav3 dependencies removed. Date: post-Phase 5c, after Watch screen landed.",
+      "Nav3 was originally chosen (D-036) for its structurally-impossible-back-stack-bug guarantee + type-safe @Serializable routes. In practice, the team hit enough friction with Nav3's still-maturing API surface + the AppController-style navigation patterns the codebase had evolved toward (push key, pop to key, replace root) that a hand-rolled nav solution + NavKey sealed-class hierarchy became cleaner. The hand-rolled approach gives full control over the back stack via `mutableStateListOf<NavKey>` (a Compose snapshot state list) + `when(currentKey)` dispatch in AppRoot — NOT a StateFlow<List<NavKey>>, NOT saved via rememberSaveable. R7 (process-death backstack survival) is accepted as a known limitation: the backstack uses `remember { mutableStateListOf(...) }`, so on process death the entire nav stack is lost and the user lands back on Browse. A future hybrid fix (e.g. rememberSaveable + custom Saver) is possible but deferred. Nav3 dependencies completely removed from all build.gradle.kts files. Date: post-Phase 5c, after Watch screen landed.",
     options: [
       {
-        name: "Remove Nav3 — use hand-rolled NavigationController + NavKey sealed classes",
+        name: "Remove Nav3 — use hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch",
         pros: [
           "Full control over back-stack semantics (push, pop, popTo, replace) — matches the AppController pattern",
           "No Nav3 version-churn tax — the library was still maturing + breaking changes were frequent",
-          "Back-stack bug invariant preserved (StateFlow<List<NavKey>> + rememberSaveable — same shape as Nav3)",
           "Type-safe routing preserved via sealed-class NavKey hierarchies (one per feature)",
           "Fewer dependencies, smaller APK, faster builds",
+          "All @Serializable NavKeys kept (future-proof if a Saver-based hybrid is added later)",
         ],
         cons: [
+          "R7: backstack does NOT survive process death — `remember` (not `rememberSaveable`) drops the stack on kill",
           "Lose Nav3's official support + future KMP-friendly nav features",
           "Deep-linking has to be hand-rolled (currently minimal — anikuta://downloads deep-link from notifications only)",
-          "Pattern moves away from a documented Jetpack library — agents need to read AppController.kt instead",
+          "Pattern moves away from a documented Jetpack library — agents need to read AppRoot/AppController instead",
         ],
         recommended: true,
       },
@@ -619,6 +628,175 @@ export const decisions: Decision[] = [
         cons: [
           "More files per content folder (one VTT per language per episode) — disk usage slightly higher",
           "Some sources serve subtitles as embedded MKV tracks, not external VTT — those need an extract step (deferred to a follow-up)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-166",
+    title: "DB optimization — schema cleanup + idempotent migrations",
+    status: "confirmed",
+    question: "How to handle the accumulating schema drift (deleted .sq files, redundant indexes, missing columns on existing installs)?",
+    context:
+      "Post-Phase-DL the database had accumulated drift: extensions.sq + metadata.sq were no longer used (their tables were either replaced by content.sq tables or never populated), several redundant indexes duplicated columns already covered by composite indexes, and existing installs were missing columns added after their initial creation (since SQLDelight derives the schema version from .sqm files and there were no .sqm files, version stayed at 1 + onUpgrade never fired). D-166 consolidates: (1) delete extensions.sq + metadata.sq outright; (2) move schema evolution into an idempotent `onOpen` migration path in DatabaseDriverFactory (hasColumn-guarded ALTER TABLE ADD COLUMN, DROP TABLE IF EXISTS for dead tables, CREATE INDEX IF NOT EXISTS for new indexes, CREATE UNIQUE INDEX IF NOT EXISTS for library dedup); (3) prune redundant indexes. Limitations: no PRAGMA user_version tracking, so forward migrations aren't detectable; onCreate(db) is called from migrateSchemaIfNeeded as a 'create missing tables' fallback (works only because every CREATE uses IF NOT EXISTS). Date: post-Phase DL.",
+    options: [
+      {
+        name: "Delete dead .sq files + idempotent onOpen migrations + index pruning",
+        pros: [
+          "Dead code (extensions.sq, metadata.sq) removed — less surface area",
+          "Existing installs get the new columns + indexes without a .sqm migration story",
+          "All migration statements are idempotent (DROP/CREATE IF EXISTS, hasColumn guards)",
+          "Library dedup UNIQUE INDEX catches existing duplicates on next launch",
+        ],
+        cons: [
+          "Using `onOpen` (runs every launch) for schema evolution instead of versioned .sqm migrations — pays hasColumn cost on every launch",
+          "No PRAGMA user_version tracking means forward migrations aren't detectable",
+          "FK enforcement for `watch_progress.main_id` only applies to fresh installs — existing installs get app-level enforcement only",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-167",
+    title: "Audio variants — multi-audio-track download + selection",
+    status: "confirmed",
+    question: "How to handle episodes with multiple audio tracks (dub + sub, multiple languages)?",
+    context:
+      "Some sources serve episodes with multiple audio tracks (e.g. Japanese + English dub). The old project's download flow dropped all but the default audio track. D-167 extends the D-152 subtitle approach to audio: DownloadRequest carries audioTracks (List<Track>) alongside the video URL + subtitle tracks. DownloadStorageProvider writes the audio files (or extracts embedded tracks) into the content folder (video/<E00001>/audio/<lang>.mka) + records them in data.json. The offline short-circuit builds a WatchRequest with the local content:// audio URIs + MPV renders them via its existing audio-track switching. The Track shape is shared between resolver + download + player (consistent with D-152's subtitle handling). Date: Phase DL follow-up.",
+    options: [
+      {
+        name: "Bundle audio files in the content folder + pass local URIs to the player (mirrors D-152 subtitle approach)",
+        pros: [
+          "Multi-audio episodes render correctly on offline playback",
+          "data.json records audio metadata (lang, default flag) so the player can pre-select the right track",
+          "Track type is shared across resolver + download + player (same pattern as subtitles)",
+          "Reinstall recognition re-discovers the audio files alongside the video",
+        ],
+        cons: [
+          "More files per content folder (one MKA per language per episode) — disk usage higher for multi-audio content",
+          "Some sources embed audio in MKV containers — those need an extract step (deferred)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-168",
+    title: "Extension trust — signature fingerprint + user-confirmed trust",
+    status: "confirmed",
+    question: "How to verify that an installed extension is trusted (not a malicious fork)?",
+    context:
+      "Aniyomi extensions are unsigned APKs loaded via ChildFirstPathClassLoader. Without a trust mechanism, a malicious extension could exfiltrate data or hijack network calls. D-168 introduces: (1) SHA-256 signature_fingerprint column on installed_source (S10 in the schema); (2) a trust flow that prompts the user the first time an extension is loaded — they explicitly confirm the fingerprint matches the expected one (from the repo's index); (3) is_enabled=0 by default for untrusted extensions — they install but don't run until trusted; (4) a per-extension 'Always trust this author' option that auto-trusts subsequent extensions signed by the same fingerprint. Trust state is persisted in installed_source. Date: Phase 5a follow-up.",
+    options: [
+      {
+        name: "SHA-256 fingerprint + user-confirmed trust + per-author 'always trust'",
+        pros: [
+          "User has explicit control over which extensions run",
+          "Fingerprint mismatch is detectable (e.g. a fork repackaged under a known extension's package name)",
+          "Per-author trust reduces prompt fatigue for trusted extension maintainers",
+          "Disabled-by-default for untrusted extensions means a malicious install doesn't immediately exfiltrate",
+        ],
+        cons: [
+          "Trust prompt adds friction to the first install",
+          "Users may blindly trust without verifying the fingerprint (the prompt is only as good as the user's diligence)",
+          "No revocation mechanism if a trusted author goes rogue",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-169",
+    title: "Watch-progress fixes — episode_key standardization + completion edge cases",
+    status: "confirmed",
+    question: "How to fix the watch-progress edge cases (incorrect completion at 85%, episode_key mismatches across sources, watched flag not toggling)?",
+    context:
+      "Phase WP shipped the SqlDelightWatchProgressStore with an 85%-position auto-mark-completed rule, but several edge cases emerged: (1) episode_key standardization — sources use different episode number formats (5, 5.0, 5.5 for OVAs), causing the same episode to be tracked under different keys; (2) the 85% rule fired on episodes shorter than 60s (always completed immediately); (3) the watched flag didn't toggle correctly when the user manually marked an episode unwatched after auto-completion (state machine had only one flag). D-169 fixes: (1) episode_key normalization (parse to Double, canonicalize 5.0 → 5, 5.5 stays); (2) minimum-duration guard on the 85% rule (episodes < 60s require manual completion); (3) two-flag state machine (auto_completed + user_completed — user override wins); (4) swipe-to-toggle updates both flags atomically. Date: Phase WP follow-up.",
+    options: [
+      {
+        name: "episode_key normalization + min-duration guard + two-flag state machine",
+        pros: [
+          "Same episode tracked under one key across sources (no duplicate watch progress)",
+          "Short-clip false completions eliminated",
+          "User override (unwatch) survives auto-completion",
+          "Swipe-to-toggle is atomic + consistent",
+        ],
+        cons: [
+          "Two-flag state machine is more complex than a single boolean",
+          "episode_key normalization may need source-specific parsers (e.g. 'Special 1' vs 'S1')",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-170",
+    title: "Ratings + continue-watching UI — RatingStore + observeContinueWatching Flow",
+    status: "confirmed",
+    question: "How to surface ratings + continue-watching in the UI (Phase TR + Phase CW)?",
+    context:
+      "Phase TR shipped the RatingStore (per-anime user_rating + per-episode user_episode_rating) but the UI integration was deferred. Phase CW shipped the getContinueWatching query + observeContinueWatching Flow but the UI was also deferred. D-170 lands both UI integrations: (1) DetailsScreen gets a rating slider (0-100) bound to RatingStore.setUserRating(contentUid, score) — persists immediately + shows the user's existing rating; (2) WatchScreen gets a per-episode rating chip (rated / unraveled state, tap to rate); (3) BrowseScreen gets a 'Continue Watching' carousel bound to watchProgressStore.observeContinueWatching(limit=10) — reactive Flow updates as the user watches; (4) LibraryScreen gets a 'Continue' filter chip. Date: post-Phase TR + CW.",
+    options: [
+      {
+        name: "Rating slider on DetailsScreen + per-episode chip on WatchScreen + Continue Watching carousel on Browse/Library",
+        pros: [
+          "User ratings are first-class UI (not just a database column)",
+          "Continue Watching is reactive — updates live as the user watches",
+          "Per-episode ratings enable granular feedback ('this episode was great, the next was filler')",
+          "Carousel + filter chip cover both browse + library surfaces",
+        ],
+        cons: [
+          "Rating slider takes vertical space on DetailsScreen — collapsed state needed",
+          "Continue Watching carousel adds a network call on Browse cold start (mitigated by 6hr cache)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-171",
+    title: "Profile UI v4 — profile screen redesign (D-171..D-186 batch)",
+    status: "confirmed",
+    question: "How to evolve the profile screen across versions 4, 5, and 6 (16 sub-decisions)?",
+    context:
+      "The Profile screen had accumulated UI debt across earlier phases. D-171..D-186 is a 16-decision batch covering Profile UI v4-v6: layout re-organization (D-171), avatar + display name section (D-172), stats card grid (D-173), accent presets inline preview (D-174), dynamic theming integration (D-175), settings re-grouping (D-176), backup/restore entry point (D-177), tracker account links (D-178), about app section (D-179), debug bubble toggle (D-180), notifications preferences entry (D-181), downloads preferences shortcut (D-182), player preferences shortcut (D-183), appearance preferences shortcut (D-184), advanced settings collapse (D-185), + final visual polish (D-186). All 16 are confirmed + shipped on `main`. The full per-decision detail lives in AGENT-CONTEXT/memory/decisions.md. Date: Profile UI v4-v6 batch.",
+    options: [
+      {
+        name: "16-decision Profile UI v4-v6 batch — re-organization + new sections + settings regrouping + visual polish",
+        pros: [
+          "Profile screen is now a coherent hub (not a flat settings list)",
+          "Settings re-grouping puts related prefs together (appearance / player / downloads / notifications)",
+          "Tracker + backup entry points are first-class (not buried)",
+          "Debug bubble toggle is reachable from Profile (debug builds only)",
+        ],
+        cons: [
+          "16 decisions is a large batch — risk of mid-batch rework if early decisions shifted direction",
+          "Some entries (D-184, D-185) are minor refinements that could have been merged",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-186",
+    title: "Profile UI v6 final polish — visual refinements + final ship",
+    status: "confirmed",
+    question: "Final visual polish pass for Profile UI v6?",
+    context:
+      "D-186 is the final decision in the Profile UI v4-v6 batch. It bundles: (1) spacing audit (consistent 16dp/24dp rhythm); (2) typography audit (ExtraBold for headings, Medium for body, labelMedium for section labels); (3) color audit (accent presets use lerp-derived containers, not solid fills); (4) icon audit (Material Icons only, no emojis — per D-053); (5) accessibility audit (44dp min touch targets, content descriptions for icons). With D-186 confirmed, the Profile UI v4-v6 batch is complete + shipped on `main`. All 186 decisions (D-001..D-186) are now confirmed. Date: Profile UI v6 final polish.",
+    options: [
+      {
+        name: "Final visual polish pass — spacing + typography + color + icon + accessibility audits",
+        pros: [
+          "Consistent spacing rhythm across the Profile screen",
+          "Typography hierarchy is enforced (ExtraBold headings, Medium body)",
+          "Accent presets get lerp-derived containers (matches design language D-053)",
+          "Accessibility (44dp targets, content descriptions) verified",
+        ],
+        cons: [
+          "Polish passes are subjective — what 'looks right' may shift in future audits",
         ],
         recommended: true,
       },

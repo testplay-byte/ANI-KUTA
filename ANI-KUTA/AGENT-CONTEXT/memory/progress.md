@@ -109,26 +109,84 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 - Custom color picker (palette editor) deferred to Phase 5f.
 
 ## Known doc debt
-- **master.md** — ✅ UPDATED this session (was: "Phase 1 blocked" false, nonexistent `knowledge/app-design-language.md` ref, "16 sections" wrong, `ANIKUTA-PROJECT/` path wrong).
-- **navigation.md** — ✅ UPDATED this session (was: nonexistent `knowledge/app-design-language.md` ref, "1882 lines" wrong, "21 sections" wrong, "10-16" doc range wrong).
-- **progress.md top header** — ✅ UPDATED this session (was stale "Phase 5c"; now reflects Phase DL + the download system).
-- **download-research/13-implementation-plan.md** — ✅ UPDATED this session (added status table marking DL.0-DL.8 as implemented + Phase-D disambiguation note).
-- **changelog.md** — ✅ UPDATED this session (added Phase DL download-system entries).
-- **decisions.md** — ✅ ADDED D-148 (download system) + D-149 (proxy-churn gap) this session. STILL DEFERRED: D-121 missing, D-037/D-038 out of order, D-008 compileSdk 35 (actual 36), D-009 should be superseded by D-034/D-035.
-- **knowledge/module-map.md + architecture.md** — DEFERRED. Describe "proposed" 8 core modules (actual 38 Gradle modules). Marked "Draft (finalized in Phase 1)" — never finalized. Big rewrite; do after Nav3 decision.
-- **knowledge/tech-stack.md** — DEFERRED. Says compileSdk/targetSdk = 35 (actual 36); OkHttp "TBD" (actual 5.0.0-alpha.14); missing Koin 4.2.2, SQLDelight 2.0.2, Nav3 1.1.5, aniyomi-mpv-lib 1.18.n, Coil 3.0.4.
-- **knowledge/old-vs-new.md** — DEFERRED. Says old project location "unknown" (actual: `REFERENCES/old-kuta/ANIKUTA/`, 36 modules, 631 files, 10-file docs).
-- **knowledge/dashboard.md** — DEFERRED. Says "5 pages" (recount from actual dashboard).
-- **Two "Phase D" tracks collide** — ✅ ADDRESSED this session: data-management Phase D (D-141..D-147) vs download-system Phase D.0-D.8. Going forward, download-system phases are written **"Phase DL.0-DL.8"** to disambiguate. The `download-research/` docs retain "Phase D.0-D.8" historically (with a disambiguation note at the top of 13-implementation-plan.md). Historical REVIEW files unchanged.
-- **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + 234KB `worklog.md` committed on both branches — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
+- **master.md** — ✅ UPDATED (was: "Phase 1 blocked" false, nonexistent `knowledge/app-design-language.md` ref, "16 sections" wrong, `ANIKUTA-PROJECT/` path wrong). ✅ RE-UPDATED this session (46 modules/28 tables, 30 sections, D-186, Nav3 fully removed, current focus = DB management).
+- **navigation.md** — ✅ UPDATED (was: nonexistent ref, "1882 lines" wrong, "21 sections" wrong, "10-16" doc range wrong). ✅ RE-UPDATED this session (30 sections, REFERENCES/ expanded, download-research/ section added, all knowledge/ descriptions current).
+- **progress.md top header** — ✅ UPDATED (was stale "Phase 5c"). ✅ RE-UPDATED this session (Deferred Concerns section added, Known doc debt refreshed, session entry prepended).
+- **download-research/13-implementation-plan.md** — ✅ UPDATED (status table marking DL.0-DL.8 as implemented + Phase-D disambiguation note).
+- **changelog.md** — ✅ UPDATED (Phase DL entries). ✅ RE-UPDATED this session (doc-debt-sweep entry added).
+- **decisions.md** — ✅ D-148 (download) + D-149 (proxy-churn gap) added. ✅ D-187 (doc-debt sweep) + D-188 (deferred concerns registry) added this session. STILL DEFERRED: D-121 missing, D-037/D-038 out of order, D-008 compileSdk 35 (actual 36), D-009 should be superseded by D-034/D-035 — minor numbering cleanup, not blocking.
+- **knowledge/module-map.md** — ✅ FULLY REWRITTEN this session (all 46 modules with jobs + deps + key files).
+- **knowledge/architecture.md** — ✅ FULLY REWRITTEN this session (actual 46-module graph, SQLDelight 28 tables, hand-rolled nav, DI wiring, known debt).
+- **knowledge/tech-stack.md** — ✅ FULLY REWRITTEN this session (actual versions verified against libs.versions.toml; Nav3 removed; SQLite constraints documented).
+- **knowledge/old-vs-new.md** — ✅ FULLY REWRITTEN this session (old project in REFERENCES/old-kuta/ANIKUTA/, 36 modules/643 files; full comparison table + migration notes).
+- **knowledge/dashboard.md** — ✅ FULLY REWRITTEN this session (14 pages, data files, update process, known dashboard debt).
+- **knowledge/project-overview.md** — ✅ FULLY REWRITTEN this session (Q1/Q2/Q10 answered, current status, key facts).
+- **knowledge/ui-customization.md** — ✅ FULLY REWRITTEN this session (5 customization layers all built, subtitle settings, live data verification).
+- **SESSION.md** — ✅ RE-UPDATED this session (D-186, 46 modules, Deferred Concerns, doc-debt sweep done, DB management = next focus).
+- **Two "Phase D" tracks collide** — ✅ ADDRESSED: data-management Phase D vs download-system Phase DL.0-DL.8.
+- **Code comments** — ✅ CLEANED this session: `AndroidConfig.kt` (Nav3 comment → accurate), `app/build.gradle.kts` (orphaned `// Navigation 3` → accurate), `libs.versions.toml` (2 orphaned `# Navigation 3` → accurate).
+- **DASHBOARD/webpage/ data** — ✅ UPDATED this session (full-stack-dev sub-agent): 13 files updated, 46 modules / 26 core / 18 feature / D-001..D-186 / 28 tables / 15 .sq files / Nav3 removed / main branch across all 14 pages + Footer. Build PASSED. REMAINING: `lib/schema.ts` SCHEMA_TABLES array still uses planned Phase-1 table names (content_uid etc.) not actual — deferred (changes DB page UI).
+- **17-database-schema.md** — ⚠️ STILL STALE (says "21 tables"; actual 28). Historical doc — left as-is with a note in navigation.md. A full rewrite would change the design history; deferred.
+- **Repo root pollution** (discrepancy D001): `skills/` (69 generic Z.ai skills) + large `worklog.md` committed on main — violates CORE_RULES §4. DEFERRED per user (not a concern right now).
+
+## Deferred Concerns
+> Tracked issues deferred to future phases per user. NOT bugs to fix now — they are known + accepted.
+
+| # | Concern | Severity | Est. Effort | Dependencies / Notes |
+|---|---------|----------|-------------|----------------------|
+| 1 | **AniList tracker is a placeholder** (`AniListTracker.kt`) — OAuth stores code as token, syncEntry returns true without API call, fetchEntry/search return null/empty | Expected | ~4-6h | Not yet implemented. Full AniList GraphQL integration deferred. |
+| 2 | **HttpDownloader.reResolver orphaned** (D-149) — built but not wired; `:app ReResolver` built by Koin but never injected; signatures mismatched (`json:String` vs `context,source,episode`) | Medium | ~6-8h | Group with #4 + #5. Plan in `download-research/FUTURE-PHASE-DL-GAPS.md`. |
+| 3 | **Main-thread runBlocking in Downloads→Watch** (`MainActivity.kt:428`) — `scanSubtitleFilesOnDisk` SAF enumeration on UI thread; ANR risk | Medium | ~1-2h | Move to Dispatchers.IO + async feed-back. Standalone fix. |
+| 4 | **Dead/unwired download code** (D-151) — `DownloadVideoPickerSheet` (zero callers), `setRetryingStatus` (zero callers, RETRYING state never set), 2 re-resolve bugs in dead code | Low | ~6-8h | Group with #2. Delete or wire; design RetryPolicy. |
+| 5 | **Outer retry loop not implemented** (D-151) — `RetryPolicy` class referenced in KDoc but doesn't exist; failed downloads go straight to ERROR | Medium | ~3-4h | Group with #2 + #4. |
+| 6 | **WatchKey god-object** (15 fields, 5 pre-serialized \u001F-delimited strings) — Bundle size risk, single-responsibility violation, MainActivity bloat (127-line inline serialization) | Medium-High | ~3-5h | Refactor to identifier-only (mainId + episodeNumber + videoUrl + startPosition); fetch rest by ID. Needs design + sub-agent review. Double-resolve bug (D-066) means can't re-resolve on Watch open — need durable resolved-video store. |
+| 7 | **Nav backstack doesn't survive process death** (R7, D-150) — `remember { mutableStateListOf }` not `rememberSaveable` | Low | ~1-2h | Hybrid `rememberSaveable(saver=listSaver)` fix (Option C.1 in sandbox 03-nav3-comparison.md). Blocked by #6 (WatchKey too large for Bundle). |
+| 8 | **4 god-class .kt files >2000 lines** — LibraryScreen (2471), DetailsScreen (2277), DetailsViewModel (2159), WatchScreen (2017) | Low-Medium | ~8-12h total | Refactor candidates. Split by responsibility. Not blocking. |
+| 9 | **DB migrations use `onOpen` not `.sqm` files** — acceptable for debug (CORE_RULES §30); needs `.sqm` + `user_version` before production | Low (debug) | ~2-4h | Wait for user's production signal. |
+| 10 | **Release signing not configured** — only `debug` buildType declared; debug keystore committed | Expected | ~1-2h | Phase 9. Wait for user's production signal. |
+| 11 | **Dashboard `schema.ts` uses planned Phase-1 table names** not actual current schema | Low | ~2-3h | Changes DB page UI. Deferred (dashboard polish). |
 
 ## Last Updated
-- Session: feature/debug-bubble → main merge + branch cleanup (Z.ai Code sandbox).
-- By: main agent (merge + CI verification + branch deletion).
-- Branch: `main` (feature/debug-bubble merged + deleted). `main` is at 0fcc850 (CI cleanup after merge).
-- CI: ✅ green on feature/debug-bubble before merge (run 31341636467, commit bd7f31d, artifact 54.1 MB). Main CI verification in progress.
-- Note: D-001..D-165 decisions. Debug bubble fully implemented (DB-1..DB-9) and MERGED to main. The `feature/debug-bubble` branch has been deleted (both local + remote). The `build-apk.yml` workflow triggers have been cleaned up to only build on `main` + tags (the `feature/debug-bubble` entry was removed). Next: database optimization (new AI agent will take over).
-- **Merge summary:** 53 commits fast-forward-merged from `feature/debug-bubble` into `main`. 51 files changed, 8,706 insertions. The merge added: (1) the full debug bubble feature (DB-1..DB-8), (2) DB Activity tracker with read+write tracking (DB-9), (3) chart sliding, (4) viewMode hoist, (5) export logs, (6) filter toggle, (7) dual-line chart, (8) dashboard DB Viewer page, (9) dashboard debug-bubble page. No changes to any repository, ViewModel, .sq file, or release code path.
+- Session: **doc-debt sweep + deferred-concerns registry** (Z.ai Code sandbox).
+- By: main agent (all AGENT-CONTEXT/ + APP/ani-kuta/ doc updates + code-comment cleanup) + full-stack-dev sub-agent (DASHBOARD/webpage/ data update).
+- Branch: `docs/doc-debt-sweep` (feature branch — awaiting user verification before merge to `main`).
+- CI: pending push (docs + comment-only code changes — expected green).
+- Note: D-001..D-186 decisions. All major phases complete + on `main`. This session: comprehensive doc-debt sweep (knowledge/* fully rewritten, master/SESSION/navigation updated, CORE_RULES §8 + §30 clarified, code comments cleaned, dashboard data updated across 14 pages). Deferred Concerns registry established (11 items). Next focus: **Database management + quality** — user will provide a fresh DB export after a clean-install test run.
+
+## Session — Doc-Debt Sweep + Deferred-Concerns Registry (this session)
+### What was done
+- **Comprehensive doc-debt sweep** — all stale documentation updated to match actual project state:
+  - `knowledge/architecture.md` — fully rewritten (46-module graph, SQLDelight 28 tables, hand-rolled nav, DI wiring, known debt).
+  - `knowledge/module-map.md` — fully rewritten (all 46 modules with jobs + deps + key files).
+  - `knowledge/tech-stack.md` — fully rewritten (actual versions verified against `libs.versions.toml`; Nav3 removed; SQLite constraints).
+  - `knowledge/old-vs-new.md` — fully rewritten (old project in REFERENCES/old-kuta/ANIKUTA/, full comparison + migration notes).
+  - `knowledge/dashboard.md` — fully rewritten (14 pages, data files, update process, known dashboard debt).
+  - `knowledge/project-overview.md` — fully rewritten (Q1/Q2/Q10 answered, current status).
+  - `knowledge/ui-customization.md` — fully rewritten (5 customization layers, subtitle settings, live data verification).
+  - `master.md` — updated (46 modules/28 tables, 30 sections, D-186, Nav3 fully removed, current focus = DB management, Deferred Concerns summary).
+  - `SESSION.md` — updated (D-186, 46 modules, Deferred Concerns, doc-debt sweep done, §30 debug-schema stance).
+  - `navigation.md` — updated (30 sections, REFERENCES/ expanded, download-research/ section added, all knowledge/ descriptions current).
+  - `CORE_RULES.md` §8 — clarified (ABI config lives in `AndroidConfig.kt` via convention plugin, not `app/build.gradle.kts`; compileSdk 36 context).
+  - `CORE_RULES.md` §30 — reinforced with user clarification (debug = no migrations, just recreate; onOpen is a convenience guard, not a migration system).
+- **Code comments cleaned** (stale Nav3 references):
+  - `build-logic/.../AndroidConfig.kt` — "Nav3 1.1.5 requires SDK 36" → accurate context.
+  - `app/build.gradle.kts` — orphaned `// Navigation 3` → "hand-rolled (D-150)".
+  - `gradle/libs.versions.toml` — 2 orphaned `# Navigation 3` → accurate.
+- **Dashboard data updated** (full-stack-dev sub-agent, §19): 13 files updated (lib/data.ts, lib/decisions.ts, lib/schema.ts, lib/testingData.ts, lib/phaseD.ts, lib/downloadsPlan.ts + 6 page components + Footer). 46 modules / 26 core / 18 feature / D-001..D-186 / 28 tables / 15 .sq files / Nav3 removed / main branch across all 14 pages. Build PASSED.
+- **Deferred Concerns registry established** — 11 items tracked in this file (see above). Each with severity, estimated effort, dependencies.
+- **WatchKey god-object analysis** delivered to user (what/why/how/pros&cons/ease) — refactor deferred to a dedicated phase per user.
+
+### Decisions
+- D-187: Doc-debt sweep complete (all knowledge/* + master/SESSION/navigation + CORE_RULES §8/§30 + code comments + dashboard data).
+- D-188: Deferred Concerns registry established (11 items) — tracked in progress.md, not fixed this session.
+
+### CI status
+- Awaiting push to `docs/doc-debt-sweep` branch. Comment-only code changes + docs — expected green.
+
+### What's next
+- User device-verifies the doc updates (optional — they're docs).
+- User merges `docs/doc-debt-sweep` to `main` when satisfied.
+- **Database management + quality** (next focus): user provides a fresh DB export after a clean-install test run; agent analyzes for flaws + proposes improvements.
 
 ## Session web-3a43f99b (twelfth pass) — Double-Resolve Bug Fix
 

@@ -746,3 +746,29 @@
 - No conflicts — `main` hadn't diverged (0 commits on main not on feature).
 - CI on `main` verified GREEN (run 31432557415, commit c15b1b8a).
 - Feature branch deleted (local + remote). Only `main` remains.
+
+## Session — Doc-Debt Sweep + Deferred-Concerns Registry (docs/doc-debt-sweep branch)
+
+### Project review + documentation alignment
+- Main agent performed a comprehensive read-only project review (CORE_RULES + all AGENT-CONTEXT + codebase structure). Identified high/medium/low concerns across code, architecture, and documentation.
+- User reviewed each concern + gave dispositions: most deferred to future phases (saved in registry); AniList placeholder accepted; DB-migration concern clarified (debug = no migrations, §30 reinforced); documentation drift = fix now.
+
+### Documentation sweep (D-187)
+- **knowledge/ (7 files fully rewritten):** architecture, module-map, tech-stack, old-vs-new, dashboard, project-overview, ui-customization — all now match actual project state (46 modules, 28 tables, 315 .kt, D-001..D-186, Nav3 removed, hand-rolled nav, `main` branch).
+- **Top-level (3 files updated):** master.md, SESSION.md, navigation.md — corrected counts, Nav3 stale references, current focus, Deferred Concerns summary.
+- **CORE_RULES.md:** §8 clarified (ABI config location + compileSdk 36 context). §30 reinforced with user clarification (debug = no migrations, just recreate; onOpen is convenience guard, not migration system).
+- **Code comments cleaned (3 files):** AndroidConfig.kt, app/build.gradle.kts, libs.versions.toml — orphaned Nav3 comments replaced with accurate context.
+- **DASHBOARD/webpage/ (13 files, full-stack-dev sub-agent):** lib/data.ts, lib/decisions.ts, lib/schema.ts, lib/testingData.ts, lib/phaseD.ts, lib/downloadsPlan.ts + 6 page components + Footer. All counts corrected, Nav3 false claims fixed (rememberSaveable→mutableStateListOf, StateFlow→when-dispatch, R7 accepted), branch→main. Build PASSED.
+- **Remaining (deferred):** 17-database-schema.md (historical, "21 tables"), dashboard schema.ts SCHEMA_TABLES (planned Phase-1 names), decisions.md numbering (D-121/D-037/D-038/D-008/D-009), repo-root pollution.
+
+### Deferred Concerns registry (D-188)
+- 11 tracked items established in progress.md → "Deferred Concerns": AniList placeholder, reResolver orphaned, main-thread runBlocking, dead download code, outer retry loop, WatchKey god-object, nav backstack R7, 4 god-class .kt files, DB migrations, release signing, dashboard schema.ts.
+
+### Status
+- Branch: `docs/doc-debt-sweep` (awaiting user verification before merge to `main`).
+- CI: pending push (comment-only code changes + docs — expected green).
+- Decisions: D-187, D-188.
+
+### Next focus
+- **Database management + quality** — user will delete app + reinstall (fresh DB), run through a comprehensive ordered test checklist, export the DB via debug bubble, and provide it. Agent will analyze for flaws + propose improvements.
+

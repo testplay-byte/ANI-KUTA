@@ -52,7 +52,7 @@ export default function DecisionsPage() {
           </div>
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-success)" size="sm" />
-            {counts["confirmed"]}/{decisions.length} confirmed · D-001..D-152
+            {counts["confirmed"]}/{decisions.length} confirmed · D-001..D-186
           </span>
         </div>
         <p className="text-[13px] text-text-secondary leading-relaxed max-w-2xl">

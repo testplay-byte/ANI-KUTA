@@ -4,7 +4,7 @@
  * Sources:
  *  - worklog.md (Task IDs DASHBOARD-TESTING, 4-b, 4-c, plus feature history)
  *  - APP/ani-kuta/DOCUMENTATION/* (phase plans)
- *  - AGENT-CONTEXT/memory/decisions.md (D-001, D-005, D-149, D-150, D-152)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-001, D-005, D-149, D-150, D-152, D-169)
  *
  * All data is static — no API calls.
  *
@@ -94,7 +94,7 @@ export const TESTING_SECTIONS: TestingSection[] = [
     steps: [
       {
         id: "wp-install",
-        text: "Download + install the latest CI APK from the feature/watch-progress-history-updates branch PR.",
+        text: "Download + install the latest CI APK from the `main` branch (all feature branches merged).",
       },
       {
         id: "wp-load",
@@ -349,13 +349,13 @@ export const TESTING_CONCERNS: TestingConcern[] = [
   {
     id: "DASH-STALE",
     title: "Dashboard data refresh (RESOLVED)",
-    body: "RESOLVED — Dashboard data refreshed (Task DASHBOARD-REFRESH). Dashboard now correctly shows 44 modules / D-001..D-152 decisions / 28 tables / all phases done. Keeping this entry for historical reference; the testing checklist below still applies to the refreshed state.",
+    body: "RESOLVED — Dashboard data refreshed (Task 20 / DASHBOARD-REFRESH). Dashboard now correctly shows 46 modules / D-001..D-186 decisions / 28 tables across 15 .sq files / all phases done (incl. Phase DB debug-bubble + Profile UI v1–v6). Keeping this entry for historical reference; the testing checklist below still applies to the refreshed state.",
     severity: "stale",
   },
   {
     id: "D-150",
-    title: "Nav3 dependency is unused",
-    body: "Nav3 1.1.5 is on the classpath but the app uses hand-rolled navigation (D-150). Dependency can be removed from libs.versions.toml + build.gradle.kts.",
+    title: "Nav3 dependency removed (RESOLVED)",
+    body: "RESOLVED — Nav3 was fully REMOVED from all build.gradle.kts files (D-150 confirmed by main agent). The app uses hand-rolled nav via `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch. R7 (process-death backstack survival) accepted as known limitation — backstack uses `remember` not `rememberSaveable`. Only orphaned comments remain (cleaned up by main agent).",
     severity: "stale",
   },
   {
