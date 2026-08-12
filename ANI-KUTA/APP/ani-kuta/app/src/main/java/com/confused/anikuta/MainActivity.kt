@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -216,6 +217,31 @@ fun AppRoot() {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
     }
     val currentKey = backstack.last()
+
+    // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
+    // from a notification, navigate to the details page for the tapped anime.
+    val intent = activity.intent
+    val notifMainId = intent?.getStringExtra("notification_main_id")
+    LaunchedEffect(notifMainId) {
+        if (!notifMainId.isNullOrBlank() && backstack.size == 1) {
+            // Look up the content to determine whether it has an AniList ID or is extension-only.
+            val content = contentRepository.getContentByMainId(notifMainId)
+            val anilistDetail = content?.let { contentRepository.getAniListDetail(it.mainId) }
+            if (anilistDetail != null) {
+                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+            } else if (content != null && content.sourceId != null && content.animeUrl != null) {
+                backstack.add(
+                    AnimeDetailsKey.Extension(
+                        sourceId = content.sourceId,
+                        animeUrl = content.animeUrl,
+                        title = content.title,
+                    ),
+                )
+            }
+            // Clear the extra so we don't re-navigate on recomposition.
+            intent.removeExtra("notification_main_id")
+        }
+    }
 
     val pop: () -> Unit = {
         if (backstack.size > 1) backstack.removeAt(backstack.lastIndex)
