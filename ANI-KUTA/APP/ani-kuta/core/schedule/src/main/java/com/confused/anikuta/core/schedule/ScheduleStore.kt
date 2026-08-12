@@ -50,6 +50,16 @@ class ScheduleStore(
             .mapToList(Dispatchers.IO)
             .map { list -> list.map { it.toScheduleEntry() } }
 
+    /** D-193 Phase 6: Get today's already-aired entries (for grayed-out display at top of the list). */
+    fun getTodayAired(): List<ScheduleEntry> {
+        val now = System.currentTimeMillis()
+        val dayStart = java.time.LocalDate.now()
+            .atStartOfDay(java.time.ZoneId.systemDefault())
+            .toInstant().toEpochMilli()
+        return database.episodeScheduleQueries.getTodayAiredSchedule(dayStart, now)
+            .executeAsList().map { it.toScheduleEntry() }
+    }
+
     /** Get schedule entries for a specific day (for the calendar day-detail sheet). */
     fun getScheduleForDay(dayStart: Long, dayEnd: Long): List<ScheduleEntry> =
         database.episodeScheduleQueries.getScheduleForDay(dayStart, dayEnd)

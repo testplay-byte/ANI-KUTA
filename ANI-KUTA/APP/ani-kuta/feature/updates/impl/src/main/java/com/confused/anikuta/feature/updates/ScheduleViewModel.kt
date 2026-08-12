@@ -21,6 +21,9 @@ import kotlinx.coroutines.launch
  * Observes [ScheduleStore.observeUpcoming] + enriches each entry with the anime
  * title + cover from [ContentRepository]. Groups by day.
  *
+ * D-193 Phase 6: Also fetches today's already-aired entries + prepends them
+ * as an "Aired Today" group (grayed out in the UI).
+ *
  * CORE_RULES §20: logged with tag "Anikuta:Feature:Schedule".
  */
 class ScheduleViewModel(
@@ -39,7 +42,14 @@ class ScheduleViewModel(
     ).map { entries ->
         val enriched = entries.mapNotNull { entry -> enrichEntry(entry) }
         val grouped = groupByDay(enriched)
-        ScheduleUiState.Loaded(grouped)
+        // D-193 Phase 6: Prepend today's aired entries as a grayed-out group.
+        val airedToday = scheduleStore.getTodayAired().mapNotNull { enrichEntry(it) }
+        val finalGroups = if (airedToday.isNotEmpty()) {
+            listOf(ScheduleGroup("Aired Today", airedToday, isAired = true)) + grouped
+        } else {
+            grouped
+        }
+        ScheduleUiState.Loaded(finalGroups)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -91,7 +101,7 @@ class ScheduleViewModel(
                 today.plusDays(1) -> "Tomorrow"
                 else -> date.format(java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d"))
             }
-            ScheduleGroup(label, dayEntries)
+            ScheduleGroup(label, dayEntries, isAired = false)
         }
     }
 }
@@ -104,6 +114,7 @@ sealed interface ScheduleUiState {
 data class ScheduleGroup(
     val label: String,
     val entries: List<ScheduleDisplay>,
+    val isAired: Boolean = false, // D-193 Phase 6: true for "Aired Today" group (grayed out)
 )
 
 data class ScheduleDisplay(

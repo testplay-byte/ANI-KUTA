@@ -35,6 +35,12 @@ SELECT * FROM episode_schedule
 WHERE scheduled_at >= :from AND scheduled_at <= :to
 ORDER BY scheduled_at ASC;
 
+-- D-193 Phase 6: Get today's already-aired entries (for grayed-out display at top).
+getTodayAiredSchedule:
+SELECT * FROM episode_schedule
+WHERE scheduled_at >= :dayStart AND scheduled_at < :now
+ORDER BY scheduled_at DESC;
+
 -- Get schedule entries for a specific day (for the calendar day-detail sheet).
 getScheduleForDay:
 SELECT * FROM episode_schedule
