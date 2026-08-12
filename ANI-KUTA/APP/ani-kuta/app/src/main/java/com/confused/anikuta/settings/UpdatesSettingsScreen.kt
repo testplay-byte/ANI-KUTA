@@ -22,23 +22,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,7 +39,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,32 +52,25 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
- * D-193: Combined Updates & Notifications settings screen.
+ * D-193 v2: Combined Updates & Notifications settings screen.
  *
- * Redesigned to match the project's design language:
- * - CollapsingHeader (shrinks on scroll, with back action)
- * - ScrollBlurOverlay (gradient blur at the top edge)
- * - Custom cards (NOT SettingsGroupCard — because SegmentedToggle needs full width)
- * - AnimatedVisibility (smooth show/hide of sections)
- *
- * The SegmentedToggle is rendered BELOW the title/description (NOT in a trailing slot)
- * to avoid the character-by-character rendering bug.
- *
- * Nav rows use Modifier.clickable — they're NOT inside SettingRow (which has no onClick).
- *
- * Check Now + Send Test Notification use rememberCoroutineScope (NOT GlobalScope).
+ * Changes per user feedback:
+ * - No back button (device gesture handles back)
+ * - No "Manual Check" section (removed entirely)
+ * - Each setting is a SEPARATE card (not divider-separated within a shared card)
+ * - Sub/Dub checking is a 3-way toggle (Sub / Dub / Both) — replaces 2 separate toggles
+ * - Notifications section combines: enable toggle + defaults + library + test (one section)
+ * - Notification triggers simplified: 2-way On/Off (no Silent), only on_schedule + on_watchable
+ * - Audio preference removed from notification defaults (redundant with sub/dub checking)
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UpdatesSettingsScreen(
-    onBack: () -> Unit,
     onOpenDefaults: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenCategories: () -> Unit,
     updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences = koinInject(),
     notificationPreferences: com.confused.anikuta.core.preferences.NotificationPreferences = koinInject(),
     updateScheduler: com.confused.anikuta.core.updates.UpdateScheduler = koinInject(),
-    updateEngine: com.confused.anikuta.core.updates.UpdateEngine = koinInject(),
     notificationManager: com.confused.anikuta.core.notifications.NotificationManager = koinInject(),
 ) {
     val mode by updatePreferences.mode.collectAsState()
@@ -98,8 +81,13 @@ fun UpdatesSettingsScreen(
     val notifEnabled by notificationPreferences.notificationsEnabledFlow().collectAsState(initial = true)
 
     val scope = rememberCoroutineScope()
-    var showCheckNowDialog by remember { mutableStateOf(false) }
-    var isChecking by remember { mutableStateOf(false) }
+
+    // Derive the 3-way audio check state from the two booleans.
+    val audioCheckIndex = when {
+        checkSub && checkDub -> 2 // Both
+        checkDub -> 1 // Dub
+        else -> 0 // Sub (default)
+    }
 
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
@@ -107,14 +95,10 @@ fun UpdatesSettingsScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // No back button — device gesture handles back.
             CollapsingHeader(
                 title = "Updates & Notifications",
                 collapsed = collapsed,
-                actions = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
             )
 
             Box(modifier = Modifier.fillMaxSize()) {
@@ -124,14 +108,10 @@ fun UpdatesSettingsScreen(
                     contentPadding = PaddingValues(bottom = 110.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    // ── Updates section: master toggle ──
+                    // ── Updates section: master toggle (separate card) ──
                     item {
                         SectionLabel("Updates")
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        ) {
+                        SeparateCard {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
                                     text = "Update mode",
@@ -142,16 +122,15 @@ fun UpdatesSettingsScreen(
                                 )
                                 Text(
                                     text = when (mode) {
-                                        UpdateMode.AUTO -> "Checks anime with episodes yet to be released"
+                                        UpdateMode.AUTO -> "Smart checking based on each anime's release schedule"
                                         UpdateMode.MANUAL -> "Only checks selected categories"
-                                        UpdateMode.OFF -> "No background checking. Manual refresh still works."
+                                        UpdateMode.OFF -> "No background checking"
                                     },
                                     fontFamily = RobotoFamily,
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
                                 )
-                                // SegmentedToggle BELOW the title/description — full width, NOT in trailing
                                 SegmentedToggle(
                                     options = listOf("Auto", "Manual", "Off"),
                                     selectedIndex = UpdateMode.entries.indexOf(mode),
@@ -164,170 +143,135 @@ fun UpdatesSettingsScreen(
                         }
                     }
 
-                    // ── Checking settings (shown when mode != OFF) ──
-                    item {
-                        Column {
-                            AnimatedVisibility(
-                                visible = mode != UpdateMode.OFF,
-                                enter = fadeIn() + expandVertically(),
-                                exit = fadeOut() + shrinkVertically(),
-                            ) {
-                                Column {
-                                SectionLabel("Checking")
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                ) {
-                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                        // Interval — only shown in MANUAL mode
-                                        if (mode == UpdateMode.MANUAL) {
-                                            ToggleSettingRow(
-                                                title = "Check interval",
-                                                description = formatInterval(intervalHours),
-                                                trailingText = formatIntervalShort(intervalHours),
-                                                onClick = {
-                                                    val intervals = listOf(6L, 12L, 24L, 48L, 72L, 168L)
-                                                    val currentIdx = intervals.indexOf(intervalHours)
-                                                    val nextIdx = (currentIdx + 1) % intervals.size
-                                                    updatePreferences.setIntervalHours(intervals[nextIdx])
-                                                    updateScheduler.reschedule()
-                                                },
-                                            )
-                                            HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                                            // Per-category checklist
-                                            NavSettingRow(
-                                                title = "Update categories",
-                                                description = "Select which categories to check",
-                                                onClick = onOpenCategories,
-                                            )
-                                            HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                                        }
-                                        // Sub/Dub toggles
-                                        SwitchSettingRow(
-                                            title = "Check for sub episodes",
-                                            description = "Check for new subbed episodes",
-                                            checked = checkSub,
-                                            onCheckedChange = { updatePreferences.setCheckSub(it) },
-                                        )
-                                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                                        SwitchSettingRow(
-                                            title = "Check for dub episodes",
-                                            description = "Check for new dubbed episodes",
-                                            checked = checkDub,
-                                            onCheckedChange = { updatePreferences.setCheckDub(it) },
-                                        )
-                                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                                        SwitchSettingRow(
-                                            title = "Check dub on completed anime",
-                                            description = "Continue checking for dub after completion",
-                                            checked = checkDubCompleted,
-                                            onCheckedChange = { updatePreferences.setCheckDubCompleted(it) },
-                                        )
-                                    }
+                    // ── Checking settings (shown when mode != OFF) — each is a SEPARATE card ──
+                    if (mode != UpdateMode.OFF) {
+                        // Interval — only in MANUAL mode
+                        if (mode == UpdateMode.MANUAL) {
+                            item {
+                                SeparateCard {
+                                    NavRowContent(
+                                        title = "Check interval",
+                                        description = formatInterval(intervalHours),
+                                        trailingText = formatIntervalShort(intervalHours),
+                                        onClick = {
+                                            val intervals = listOf(6L, 12L, 24L, 48L, 72L, 168L)
+                                            val currentIdx = intervals.indexOf(intervalHours)
+                                            val nextIdx = (currentIdx + 1) % intervals.size
+                                            updatePreferences.setIntervalHours(intervals[nextIdx])
+                                            updateScheduler.reschedule()
+                                        },
+                                    )
+                                }
+                            }
+                            item {
+                                SeparateCard {
+                                    NavRowContent(
+                                        title = "Update categories",
+                                        description = "Select which categories to check",
+                                        onClick = onOpenCategories,
+                                    )
                                 }
                             }
                         }
-                        }
-                    }
 
-                    // ── Check Now button ──
-                    item {
-                        SectionLabel("Manual Check")
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .clickable { showCheckNowDialog = true },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Icon(
-                                    Icons.Filled.AutoMode,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
-                                Text(
-                                    text = "Check now",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
+                        // 3-way audio check toggle (Sub / Dub / Both) — replaces 2 separate toggles
+                        item {
+                            SeparateCard {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        text = "Episode type",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = "Which audio variants to check for",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+                                    )
+                                    SegmentedToggle(
+                                        options = listOf("Sub", "Dub", "Both"),
+                                        selectedIndex = audioCheckIndex,
+                                        onSelect = { idx ->
+                                            when (idx) {
+                                                0 -> { updatePreferences.setCheckSub(true); updatePreferences.setCheckDub(false) }
+                                                1 -> { updatePreferences.setCheckSub(false); updatePreferences.setCheckDub(true) }
+                                                2 -> { updatePreferences.setCheckSub(true); updatePreferences.setCheckDub(true) }
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        // Check dub on completed anime — separate card
+                        item {
+                            SeparateCard {
+                                SwitchRowContent(
+                                    title = "Check dub on completed anime",
+                                    description = "Continue checking for dub after completion",
+                                    checked = checkDubCompleted,
+                                    onCheckedChange = { updatePreferences.setCheckDubCompleted(it) },
                                 )
                             }
                         }
                     }
 
-                    // ── Notifications section ──
+                    // ── Notifications section (combined: enable + defaults + library + test) ──
                     item {
                         SectionLabel("Notifications")
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        ) {
-                            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                SwitchSettingRow(
-                                    title = "Enable notifications",
-                                    description = "Master switch for all notifications",
-                                    checked = notifEnabled,
-                                    onCheckedChange = { notificationPreferences.notificationsEnabled = it },
+                    }
+                    // Enable notifications — separate card
+                    item {
+                        SeparateCard {
+                            SwitchRowContent(
+                                title = "Enable notifications",
+                                description = "Master switch for all notifications",
+                                checked = notifEnabled,
+                                onCheckedChange = { notificationPreferences.notificationsEnabled = it },
+                            )
+                        }
+                    }
+                    // Sub-items (shown when notifications enabled) — each separate card
+                    if (notifEnabled) {
+                        item {
+                            SeparateCard {
+                                NavRowContent(
+                                    title = "New anime defaults",
+                                    description = "Default notification triggers",
+                                    onClick = onOpenDefaults,
                                 )
                             }
                         }
-                    }
-
-                    // ── Configuration (shown when notifications enabled) ──
-                    item {
-                        Column {
-                            AnimatedVisibility(
-                                visible = notifEnabled,
-                                enter = fadeIn() + expandVertically(),
-                                exit = fadeOut() + shrinkVertically(),
-                            ) {
-                            Column {
-                                SectionLabel("Configuration")
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                ) {
-                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                        NavSettingRow(
-                                            title = "New anime defaults",
-                                            description = "Default triggers + audio preferences",
-                                            onClick = onOpenDefaults,
-                                        )
-                                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                                        NavSettingRow(
-                                            title = "Library",
-                                            description = "Per-anime notification configuration",
-                                            onClick = onOpenLibrary,
-                                        )
-                                        HorizontalDivider(modifier = Modifier.padding(start = 16.dp))
-                                        NavSettingRow(
-                                            title = "Send test notification",
-                                            description = "Posts a demo + delayed notification",
-                                            onClick = {
-                                                scope.launch {
-                                                    try {
-                                                        notificationManager.postTestNotification()
-                                                        Logger.i("Anikuta:Settings") { "Test notification sent" }
-                                                    } catch (e: Exception) {
-                                                        Logger.e("Anikuta:Settings", e) { "Test notification failed" }
-                                                    }
-                                                }
-                                            },
-                                        )
-                                    }
-                                }
+                        item {
+                            SeparateCard {
+                                NavRowContent(
+                                    title = "Library",
+                                    description = "Per-anime notification configuration",
+                                    onClick = onOpenLibrary,
+                                )
                             }
                         }
+                        item {
+                            SeparateCard {
+                                NavRowContent(
+                                    title = "Send test notification",
+                                    description = "Posts a demo + delayed notification",
+                                    onClick = {
+                                        scope.launch {
+                                            try {
+                                                notificationManager.postTestNotification()
+                                                Logger.i("Anikuta:Settings") { "Test notification sent" }
+                                            } catch (e: Exception) {
+                                                Logger.e("Anikuta:Settings", e) { "Test notification failed" }
+                                            }
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -343,63 +287,9 @@ fun UpdatesSettingsScreen(
             }
         }
     }
-
-    // Check Now dialog
-    if (showCheckNowDialog) {
-        AlertDialog(
-            onDismissRequest = { showCheckNowDialog = false },
-            title = { Text("Check for updates", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text(
-                        text = "This will check all your library anime for new episodes right now.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Text(
-                            text = "Progress will be shown on the Updates page",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    showCheckNowDialog = false
-                    isChecking = true
-                    scope.launch {
-                        try {
-                            updateEngine.checkDueAnime()
-                            Logger.i("Anikuta:Settings") { "Manual check complete" }
-                        } catch (e: Exception) {
-                            Logger.e("Anikuta:Settings", e) { "Manual check failed" }
-                        }
-                        isChecking = false
-                    }
-                }) {
-                    Text("Check now", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCheckNowDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-        )
-    }
 }
 
-// ── Reusable row components ──
+// ── Reusable components ──
 
 @Composable
 private fun SectionLabel(text: String) {
@@ -413,8 +303,20 @@ private fun SectionLabel(text: String) {
     )
 }
 
+/** A separate rounded card — each setting gets its own. No shared cards with dividers. */
 @Composable
-private fun SwitchSettingRow(
+private fun SeparateCard(content: @Composable () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+    ) {
+        content()
+    }
+}
+
+@Composable
+private fun SwitchRowContent(
     title: String,
     description: String,
     checked: Boolean,
@@ -424,7 +326,7 @@ private fun SwitchSettingRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -447,16 +349,17 @@ private fun SwitchSettingRow(
 }
 
 @Composable
-private fun NavSettingRow(
+private fun NavRowContent(
     title: String,
     description: String,
     onClick: () -> Unit,
+    trailingText: String? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -474,45 +377,20 @@ private fun NavSettingRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = "Open",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun ToggleSettingRow(
-    title: String,
-    description: String,
-    trailingText: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
+        if (trailingText != null) {
             Text(
-                text = title,
+                text = trailingText,
                 fontFamily = RobotoFamily,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
             )
-            Text(
-                text = description,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        } else {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Open",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        TextButton(onClick = onClick) {
-            Text(trailingText, fontWeight = FontWeight.Bold)
         }
     }
 }

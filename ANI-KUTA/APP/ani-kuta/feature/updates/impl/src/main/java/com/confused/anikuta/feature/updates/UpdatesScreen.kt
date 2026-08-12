@@ -70,6 +70,11 @@ fun UpdatesScreen(
     val checking by viewModel.checking.collectAsStateWithLifecycle()
     val checkProgress by viewModel.checkProgress.collectAsStateWithLifecycle()
     val fetching by scheduleViewModel.fetching.collectAsStateWithLifecycle()
+
+    // D-193 improvement: Don't auto-refresh on page entry — clear any stale progress.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.clearProgress()
+    }
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20

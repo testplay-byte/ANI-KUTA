@@ -59,6 +59,11 @@ class UpdatesViewModel(
     private val _checkProgress = MutableStateFlow<CheckProgress?>(null)
     val checkProgress: StateFlow<CheckProgress?> = _checkProgress.asStateFlow()
 
+    /** Clear the progress banner — called when the Updates screen is entered (no auto-refresh). */
+    fun clearProgress() {
+        _checkProgress.value = null
+    }
+
     init {
         // Collect checkProgress from the engine.
         viewModelScope.launch {

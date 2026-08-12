@@ -542,7 +542,6 @@ fun AppRoot() {
             )
             // D-193 Phase 3: combined Updates & Notifications settings
             is UpdatesSettingsKey -> UpdatesSettingsScreen(
-                onBack = pop,
                 onOpenDefaults = { backstack.add(NotificationsKey) },
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
                 onOpenCategories = { backstack.add(UpdateCategoriesKey) },

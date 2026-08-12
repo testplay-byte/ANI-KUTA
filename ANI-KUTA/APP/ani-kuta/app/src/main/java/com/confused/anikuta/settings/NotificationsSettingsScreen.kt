@@ -46,7 +46,6 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SettingsGroupCard
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import com.confused.anikuta.core.notifications.AudioPref
 import com.confused.anikuta.core.notifications.TriggerState
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -159,84 +158,48 @@ private fun DefaultsSection(
     viewModel: NotificationsSettingsViewModel,
 ) {
     SettingsGroupCard(label = "New anime defaults") {
-        // On schedule
+        // On schedule — 2-way On/Off Switch
         SettingRow(
             title = "On schedule",
             description = triggerDescription("schedule", defaults.onSchedule),
-            showDivider = false,
-            trailing = {},
+            showDivider = true,
+            trailing = {
+                Switch(
+                    checked = defaults.onSchedule == TriggerState.ON,
+                    onCheckedChange = { enabled ->
+                        viewModel.setDefaultOnSchedule(if (enabled) TriggerState.ON else TriggerState.OFF)
+                    },
+                )
+            },
         )
-        SegmentedToggle(
-            options = listOf("On", "Silent", "Off"),
-            selectedIndex = TRIGGERS.indexOf(defaults.onSchedule),
-            onSelect = { idx -> viewModel.setDefaultOnSchedule(TRIGGERS[idx]) },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        // On watchable
+        // On watchable — 2-way On/Off Switch
         SettingRow(
             title = "On watchable",
             description = triggerDescription("watchable", defaults.onWatchable),
             showDivider = false,
-            trailing = {},
-        )
-        SegmentedToggle(
-            options = listOf("On", "Silent", "Off"),
-            selectedIndex = TRIGGERS.indexOf(defaults.onWatchable),
-            onSelect = { idx -> viewModel.setDefaultOnWatchable(TRIGGERS[idx]) },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        // On immediate
-        SettingRow(
-            title = "On immediate",
-            description = triggerDescription("immediate", defaults.onImmediate),
-            showDivider = false,
-            trailing = {},
-        )
-        SegmentedToggle(
-            options = listOf("On", "Silent", "Off"),
-            selectedIndex = TRIGGERS.indexOf(defaults.onImmediate),
-            onSelect = { idx -> viewModel.setDefaultOnImmediate(TRIGGERS[idx]) },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        // Audio (Sub / Dub / Both)
-        SettingRow(
-            title = "Audio",
-            description = audioDescription(defaults.audioPref),
-            showDivider = false,
-            trailing = {},
-        )
-        SegmentedToggle(
-            options = listOf("Sub", "Dub", "Both"),
-            selectedIndex = AUDIO.indexOf(defaults.audioPref),
-            onSelect = { idx -> viewModel.setDefaultAudioPref(AUDIO[idx]) },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            trailing = {
+                Switch(
+                    checked = defaults.onWatchable == TriggerState.ON,
+                    onCheckedChange = { enabled ->
+                        viewModel.setDefaultOnWatchable(if (enabled) TriggerState.ON else TriggerState.OFF)
+                    },
+                )
+            },
         )
     }
 }
-
-// TriggerState enum order must match the "On / Silent / Off" labels.
-private val TRIGGERS = listOf(TriggerState.ON, TriggerState.SILENT, TriggerState.OFF)
-// AudioPref enum order must match the "Sub / Dub / Both" labels.
-private val AUDIO = listOf(AudioPref.SUB, AudioPref.DUB, AudioPref.BOTH)
 
 private fun triggerDescription(trigger: String, state: TriggerState): String {
     val condition = when (trigger) {
         "schedule" -> "when the airing time is reached"
         "watchable" -> "when an episode is found on a source"
-        "immediate" -> "as soon as the schedule says released"
         else -> "for this trigger"
     }
     return when (state) {
         TriggerState.ON -> "Notify $condition"
-        TriggerState.SILENT -> "Notify silently $condition"
-        TriggerState.OFF -> "Don't notify $condition"
+        TriggerState.SILENT -> "Notify $condition"
+        TriggerState.OFF -> "Don't notify (background still checks)"
     }
-}
-
-private fun audioDescription(pref: AudioPref): String = when (pref) {
-    AudioPref.SUB -> "Notify for sub releases only"
-    AudioPref.DUB -> "Notify for dub releases only"
-    AudioPref.BOTH -> "Notify for sub and dub releases"
 }
 
 // ── Library nav row ──────────────────────────────────────────────────────────
