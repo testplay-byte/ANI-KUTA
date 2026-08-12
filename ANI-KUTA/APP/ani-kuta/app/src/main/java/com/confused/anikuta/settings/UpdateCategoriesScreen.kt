@@ -67,14 +67,18 @@ fun UpdateCategoriesScreen(
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
 
-    // Load all categories once. This is a small list (typically <20).
+    // Load all categories + their item counts once. Pre-fetching counts avoids a
+    // synchronous DB call per-row during composition (countItemsInCategory is fast
+    // but shouldn't run on the main thread inside items()).
     var categories by remember { mutableStateOf<List<LibraryCategory>>(emptyList()) }
+    var categoryCounts by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
     var selectedIds by remember { mutableStateOf<Set<String>>(updatePreferences.getSelectedCategories()) }
     var loaded by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
         if (!loaded) {
             categories = contentRepository.getAllCategories()
+            categoryCounts = categories.associate { it.id to contentRepository.countItemsInCategory(it.id) }
             selectedIds = updatePreferences.getSelectedCategories()
             loaded = true
         }
@@ -142,7 +146,7 @@ fun UpdateCategoriesScreen(
                         }
                         items(categories, key = { it.id }) { category ->
                             val isSelected = category.id.toString() in selectedIds
-                            val count = contentRepository.countItemsInCategory(category.id)
+                            val count = categoryCounts[category.id] ?: 0
                             CategoryRow(
                                 category = category,
                                 itemCount = count,

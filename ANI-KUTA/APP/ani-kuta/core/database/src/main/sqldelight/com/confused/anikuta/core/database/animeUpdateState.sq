@@ -32,9 +32,11 @@ CREATE TABLE IF NOT EXISTS anime_update_state (
 CREATE INDEX IF NOT EXISTS idx_anime_update_due ON anime_update_state(next_check_at)
     WHERE auto_update_enabled = 1 AND status = 'RELEASING';
 
--- D-193 Phase 2: partial index for dub checking on FINISHED anime
+-- D-193 Phase 2: partial index for dub checking on FINISHED anime.
+-- D-193 v2: COALESCE to match the query's NULL handling.
 CREATE INDEX IF NOT EXISTS idx_anime_update_due_dub ON anime_update_state(next_check_at)
-    WHERE auto_update_enabled = 1 AND status = 'FINISHED' AND last_known_dub_count < total_episodes;
+    WHERE auto_update_enabled = 1 AND status = 'FINISHED'
+    AND COALESCE(last_known_dub_count, 0) < COALESCE(total_episodes, 0);
 
 -- Upsert (insert or replace — for when a new anime is added to the library).
 upsertAnimeUpdateState:
@@ -59,10 +61,14 @@ WHERE next_check_at <= ? AND auto_update_enabled = 1 AND status = 'RELEASING'
 ORDER BY next_check_at ASC;
 
 -- D-193 Phase 2: Get FINISHED anime that are due for a dub check.
+-- D-193 v2 fix: COALESCE both sides so NULL counts (never-checked dub) are treated
+-- as 0 — a FINISHED anime with total_episodes=24 + last_known_dub_count=NULL is
+-- eligible for a dub check (0 < 24). Without COALESCE, SQLite's `NULL < 24` is NULL
+-- (falsy) + the row would be silently excluded.
 getDueDubAnime:
 SELECT * FROM anime_update_state
 WHERE next_check_at <= ? AND auto_update_enabled = 1 AND status = 'FINISHED'
-  AND last_known_dub_count < total_episodes
+  AND COALESCE(last_known_dub_count, 0) < COALESCE(total_episodes, 0)
 ORDER BY next_check_at ASC;
 
 -- Update the check metadata (after a check completes).
