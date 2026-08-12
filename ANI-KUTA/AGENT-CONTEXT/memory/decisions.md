@@ -1581,3 +1581,29 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** The user asked for "proper visuals and a better well-handled look and feel for things like how they need to be managed" + "a proper testing list, a checklist which I can use to test the things out" + "an overview of how things are functioning." The web page delivers all three in one place and is the artifact the user can re-open anytime.
 - **Artifact:** `src/app/page.tsx` + `src/lib/aniKutaData.ts` (this Next.js project).
 - **Date:** this session.
+
+### D-193 v2 — Episode-type toggle: notifications only (code aligned to spec)
+- **What:** The engine's `checkSingleAnime` no longer reads `getCheckSub()`/`getCheckDub()` to decide whether to insert rows. It ALWAYS inserts new sub + dub rows. The toggle is honored by `NotificationManager` (injected with `UpdatePreferences`) at notify time.
+- **Why:** The user's spec: "it will search for and look for both sub and dub episodes regardless of what the user has selected for the episode type. The episode type is only for the notifications." Missing a release because of a toggle is a correctness bug; missing a notification is a preference.
+- **Impact:** `UpdateEngine` always inserts both variants. `NotificationManager` checks both the per-anime `config.notifySub/notifyDub` AND the global `updatePreferences.getCheckSub()/getCheckDub()` before posting.
+- **Date:** this session (D-193 v2 code fixes).
+
+### D-193 v2 — Smart-release weighted averaging (learned_offset_ms)
+- **What:** Added a `learned_offset_ms` column to `anime_update_state`. SmartReleaseCheckWorker now computes `newOffset = found_at - airing_at` and stores `learnedOffset = (old * 7 + new * 3) / 10` (70% previous + 30% new). First find (null) stores the raw offset. Next check = `next_airing_at + learnedOffset`.
+- **Why:** The previous "averaging" just replaced the offset with the latest single observation — it chased the most recent find instead of learning a stable rhythm. The 70/30 weighting favors history while still adapting to gradual drift.
+- **Date:** this session.
+
+### D-193 v2 — Library customization toggle semantics (implemented)
+- **What:** Added `libraryCustomizationEnabled` to `NotificationPreferences`. When OFF (default), the default triggers apply to every anime — no per-anime UI on the details page. When ON, `DetailsNotificationSection` appears on each anime's details page with enable/disable + per-trigger overrides. `NotificationManager` falls back to the default triggers when no per-anime config exists.
+- **Why:** The user's spec: "If the toggle is turned off then by default it will notify the user for all of the categories... If the user has turned on that library toggle then he will see the options to configure each one of the content in the library individually."
+- **Date:** this session.
+
+### D-193 v2 — UpdateScheduler: MANUAL mode cancels the periodic worker
+- **What:** `UpdateScheduler.reschedule()` now only schedules the periodic worker in AUTO mode. MANUAL + OFF both cancel it. Manual mode is strictly on-demand (the user taps Check Now, which calls checkDueAnime + scheduleImminentChecks directly).
+- **Why:** The user's spec: Manual = "You press, it checks." A periodic background worker in Manual mode contradicts that.
+- **Date:** this session.
+
+### D-193 v2 — on_schedule precise timer (ScheduleNotificationWorker)
+- **What:** New `ScheduleNotificationWorker` (OneTimeWorkRequest) fires the on_schedule notification at the exact airing time. ScheduleEngine schedules it when it discovers a future airing. The REPLACE policy means schedule changes reschedule it.
+- **Why:** Previously on_schedule fired opportunistically during a schedule refresh that happened to be within ±1h of airing — imprecise. A timed worker is a true "airing time reached" reminder.
+- **Date:** this session.

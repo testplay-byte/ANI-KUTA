@@ -966,3 +966,34 @@
 
 ### Key artifact
 - `src/app/page.tsx` + `src/lib/aniKutaData.ts` — the documentation web page + its data layer.
+
+## Session — D-193 v2 Code Fixes (all 14 items, CI green)
+
+### What was done
+Fixed all 14 issues identified in the audit + re-verification:
+
+**4 blocking fixes:**
+1. Episode-type toggle now gates NOTIFICATIONS only — engine always inserts both sub+dub; NotificationManager honors the global Sub/Dub/Both toggle at notify time (UpdatePreferences injected into NM).
+2. "Check dub on completed anime" now actually works — checkDueAnime unions getDueDubAnime(now) when the setting is on, so FINISHED anime with pending dub are checked.
+3. "Customize library notifications" toggle built — added libraryCustomizationEnabled pref + toggle on Notifications page + per-anime DetailsNotificationSection on the details page (gated behind the toggle). NotificationManager falls back to default triggers when no per-anime config exists.
+4. "Update categories" picker built — replaced the "coming soon" placeholder with a real multi-select screen (UpdateCategoriesScreen). UpdatesViewModel.checkForUpdates now filters by selected categories in Manual mode.
+
+**Cleanup + improvements:**
+5. Removed duplicate notifications master toggle from UpdatesSettingsScreen (now a single nav row to the dedicated Notifications page).
+6. Smart-release real averaging: added learned_offset_ms column + weighted average (70% previous + 30% new). The system now converges on the show's real release rhythm.
+7. Smart-release worker now parses the real audio variant from the found episode (was hardcoded "unknown").
+8. Removed dead on_immediate firing in ScheduleEngine.
+9. UpdateScheduler now only schedules the periodic worker in AUTO mode (MANUAL + OFF cancel it).
+10. Battery-optimimization dialog added to FirstRunSetupDialog (step 3).
+11. New ScheduleNotificationWorker fires on_schedule at the exact airing time via a OneTimeWorker (was opportunistic only).
+12. Aligned SmartReleaseCheckWorker to use content.sourceId (was extensionId — inconsistent with the engine).
+
+**Verification:**
+- Sub-agent compile review found 3 blocking issues (missing import, missing derived val, missing Gradle dep) — all fixed.
+- CI run 31634281699 failed (missing UpdateCategoriesScreen import in MainActivity) — fixed in d40c135.
+- CI run 31634661679 GREEN ✅.
+
+### Status
+- Branch: feature/updates-notifications-impl (NOT merged — awaiting user approval).
+- CI: GREEN on commit d40c135.
+- All 14 audit items addressed.
