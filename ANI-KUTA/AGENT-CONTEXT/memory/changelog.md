@@ -1016,3 +1016,26 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Branch: **main** (the only branch that remains).
 - CI: GREEN on main merge commit 57bbd17.
 - D-193 v2 Updates + Notifications system is now live on main.
+
+## Session — Project Review + Dashboard Section (additive-only)
+
+### What was done
+- A new AI agent session began by reading CORE_RULES.md in full (per user instruction: read it before anything else), then cloning the repo fresh + reading the entire AGENT-CONTEXT (navigation, master, workflow, SESSION, memory/* — progress 80KB, decisions 226KB, changelog 120KB, lessons 77KB — via 4 parallel Explore sub-agents, + knowledge/* + the Android codebase structure via a 5th Explore sub-agent).
+- Produced a comprehensive project review covering: project health, what's built, 22 deferred concerns (grouped HIGH/MEDIUM/LOW/EXPECTED), doc-drift caught this session, features remaining (Phase 6+ backlog), recommended forward direction, + top risks.
+- Built a **NEW dedicated dashboard section** at route `/project-review/` (`https://testplay-byte.github.io/ANI-KUTA/project-review/`) rendering the review findings in 9 sections. This is a TEMPORARY section the user requested for reviewing findings — to be removed when no longer needed.
+- **ADDITIVE-ONLY** — no existing dashboard content modified. New files: `DASHBOARD/webpage/lib/projectReview.ts` (~585 lines typed data) + `DASHBOARD/webpage/app/project-review/page.tsx` (~590 lines server component). Modified (9 insertions total): `lib/data.ts` (1 NAV_ITEMS entry appended) + `components/Sidebar.tsx` (1 "review" clipboard-check icon key added).
+- Delegated the page build to a full-stack-developer sub-agent (CORE_RULES §19) working ONLY in `DASHBOARD/webpage/`.
+- Verified the build locally (`bun run build` PASSED — 18/18 routes incl. /project-review; `out/project-review/index.html` 201KB generated).
+- Committed on a feature branch `feature/dashboard-project-review` (commit b51d43ad), pushed the branch, fast-forward merged to `main`, pushed main (triggers `deploy-dashboard.yml`), deleted the feature branch (local + remote).
+- **Deploy Dashboard workflow** (run 31642901528, commit b51d43ad): `completed` / `success`. Dashboard live on GitHub Pages.
+- **Build APK workflow** also triggered (dashboard-only changes don't affect the Android build) — `completed` / `success`.
+- End-to-end verified via Agent Browser: homepage loads (HTTP 200, title correct, zero errors), "Project Review" nav link present in sidebar, click navigates to `/project-review/` (HTTP 200), all 9 sections render (LIVE PROJECT REVIEW, Project Health, WHAT'S BUILT, CONCERNS & ISSUES, Doc-Drift, FEATURES REMAINING, FORWARD DIRECTION, TOP RISKS, temporary review note), all key findings content present (46 modules, 26 DB tables, 331 Kotlin files, D-193, HttpDownloader.reResolver, WatchKey god-object, MainActivity.kt:470, LibraryScreen 2471, Ads system, Backup/restore, Manga reader, Device verification FIRST, Aniyomi/MPV binary-compat trap, etc.), dark mode toggles correctly (html.dark class verified), existing `/decisions/` page unaffected.
+- **Mobile overflow fix (5b8351ef):** Agent Browser check at 375px viewport found 56px horizontal overflow — the hero "Reviewed this session" badge had `whitespace-nowrap` + fixed `h-7` (394px wide). Fixed: removed nowrap + changed `h-7` → `py-1.5` (flexible height) + added `max-w-full`. Redeployed (workflow run on 5b8351ef, `completed`/`success`). Re-verified: `375px <= 375px` (no overflow). All 9 sections still render on mobile.
+- **Doc-drift caught this session** (logged in `progress.md` + `lessons-learned.md`): actual SQLDelight tables = 26 (not 28 — D-192 dropped 3 dead tables but docs weren't updated); actual .kt files = 331 (not 315); MainActivity runBlocking at line 470 (not 428); HttpDownloader guards on `http://localhost` (not `127.0.0.1`); decisions.md numbering drift (D-121 missing, D-037/D-038 out of order, D-008 says compileSdk 35). These are doc-staleness, not code bugs. Future doc-debt sweep needed.
+- Updated `AGENT-CONTEXT/memory/progress.md` (this session block + doc-drift findings) + `lessons-learned.md` (3 new entries: doc-drift compounding, whitespace-nowrap overflow pattern, Agent Browser polling patience) + this changelog entry. No D-NNN decision added (temporary dashboard addition, not a permanent architecture decision).
+
+### Status
+- Branch: **main** (only branch; feature branch merged + deleted).
+- CI: GREEN on main commit 5b8351ef (Deploy Dashboard `completed`/`success` + Build APK `completed`/`success`).
+- Dashboard live at `https://testplay-byte.github.io/ANI-KUTA/project-review/` — verified end-to-end via Agent Browser (desktop + mobile + dark mode).
+- Temporary review section is live for the user to review findings + decide the forward direction.

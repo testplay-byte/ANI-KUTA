@@ -7,7 +7,28 @@
 
 Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor), and D-193 v2 (Updates + Notifications overhaul) are ALL DONE and on `main`.
 
-**D-193 v2 merge completed (this session):**
+**This session — Project Review + Dashboard Section (commits b51d43ad + 5b8351ef, on `main`):**
+- Conducted a full read-through of CORE_RULES + AGENT-CONTEXT (navigation, master, workflow, SESSION, memory/*, knowledge/*) + codebase structure verification (46 modules confirmed, settings.gradle.kts, sqldelight, god-class line counts, HttpDownloader re-resolve orphan status).
+- Dispatched 5 parallel Explore sub-agents to digest progress.md (80KB), decisions.md (226KB), changelog.md (120KB), lessons-learned.md (77KB), + the Android codebase structure. Summaries appended to `/home/z/my-project/worklog.md`.
+- Built a **NEW dedicated dashboard section** at `/project-review/` (route `https://testplay-byte.github.io/ANI-KUTA/project-review/`) visualizing the live project review: 9 sections (hero snapshot, project health, what's built, 18 concerns by severity, doc-drift caught, features remaining, forward direction, top risks, footer note).
+- **ADDITIVE-ONLY** — no existing dashboard content modified. New files: `lib/projectReview.ts` (~585 lines typed data) + `app/project-review/page.tsx` (~590 lines). Modified (9 insertions total): `lib/data.ts` (1 nav item appended) + `components/Sidebar.tsx` (1 "review" clipboard-check icon key added).
+- Build verified (`bun run build` PASSED, 18/18 routes incl. /project-review). Deployed via GitHub Actions (`deploy-dashboard.yml`) — workflow runs 31642901528 (b51d43ad) + redeploy (5b8351ef) both `completed`/`success`. End-to-end verified via Agent Browser: homepage loads, nav link present, page renders all 9 sections + all key findings content, dark mode toggles correctly, mobile (375px) no horizontal overflow, desktop (1280px) no overflow, existing pages (e.g. /decisions/) unaffected.
+- **Mobile overflow fix (5b8351ef):** hero "Reviewed this session" badge had `whitespace-nowrap` + fixed `h-7` → 394px wide, overflowed 375px viewport by 56px. Switched to `py-1.5` (flexible height) + `max-w-full` + removed nowrap. Verified `375px <= 375px` (no overflow).
+- **This is a TEMPORARY section** the user requested for reviewing findings. Remove the page + nav item + icon when no longer needed (4 files: `app/project-review/page.tsx`, `lib/projectReview.ts`, the 1 NAV_ITEMS entry, the 1 Sidebar icon key).
+- No D-NNN decision added (temporary dashboard addition, not a permanent architecture decision).
+
+**Doc-drift caught this session (NEW — needs fixing in a future doc sweep):**
+- Actual SQLDelight tables = **26** (NOT 28 as docs everywhere claim). The `content_ext` + `content_ext_repo` + `user_customization` tables were DROPPED in D-192 Phase 1 (dead tables), reducing 28 → 26. Docs/data.ts/`knowledge/architecture.md`/`knowledge/dashboard.md`/Footer all still say "28". `lib/schema.ts` `SCHEMA_TABLES` array still uses planned Phase-1 table names not actual — known dashboard debt (D-188 item #11), still unfixed.
+- Actual `.kt` files = **331** (docs say "315"). Grew from D-193 v2 (+50 files) + Profile UI work.
+- Main-thread `runBlocking` is at `MainActivity.kt:470` (docs/Deferred Concerns say "line 428" — doc-drift).
+- `HttpDownloader` guards on `http://localhost` (docs say "`127.0.0.1` guard" — imprecise; actual code uses `http://localhost`).
+- `decisions.md` numbering drift: D-121 missing, D-037/D-038 out of order, D-008 says compileSdk 35 (actual 36).
+- `17-database-schema.md` still says "21 tables" (historical doc — left as-is with a note in navigation.md).
+- Repo root pollution: `skills/` (69 generic Z.ai sandbox skills) + a large `worklog.md` committed on `main` — violates CORE_RULES §4. Deferred per user.
+
+**Next:** User reviews the `/project-review/` dashboard section + decides the forward direction (device verification FIRST, then HIGH-severity deferred concerns, then architectural debt cleanup, then Phase 6 features — see the "Recommended Forward Direction" section on the dashboard page).
+
+**D-193 v2 merge completed (previous session):**
 - `feature/updates-notifications-impl` (29 commits) merge-committed into `main` (57bbd17) — 50 files changed, +2924/-295 lines.
 - CI on `main` verified GREEN (run 31639789917, commit 57bbd17) — the final gate before branch deletion.
 - Both feature branches deleted (local + remote): `feature/updates-notifications-impl` + `feature/updates-notifications-plan`. Only `main` remains.
