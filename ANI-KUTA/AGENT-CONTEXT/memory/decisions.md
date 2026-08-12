@@ -1544,3 +1544,66 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Estimated implementation:** ~34h across 10 phases (after user approval).
 - **Status:** ⚠️ DRAFT — awaiting user approval. NOT implementing yet. The plan + web page are on branch `feature/updates-notifications-plan` (NOT merged to main).
 - **Date:** this session (updates-notifications planning session).
+
+### D-193 (continued) — All 10 phases COMPLETE (implementation done, CI green on feature branch)
+- **Phase 1**: 3-way toggle fix (ordinal→indexOf at 8 sites) + no-source-from-library fix (persist source link in performAutoLink) + onEpisodesRefreshed ordering fix (ensureUpdateState internally).
+- **Phase 2**: DB schema — 5 new columns (last_known_dub_count, last_checked_dub_at, total_episodes, new_expires_at on episode_update + anime_update_state), 4 query updates, 1 new query (getDueDubAnime), 2 new indexes, 3-day "new" expiry.
+- **Phase 9** (moved before 3-8): Interface pattern — ScheduleRefresher + NotificationSender interfaces in :core:updates, implemented in :app via Koin lambdas. Avoids circular deps. on_watchable trigger wired.
+- **Phase 3**: Combined Updates & Notifications settings screen + UpdatePreferences (mode/interval/sub/dub toggles) + test notification + NotificationManager.postTestNotification.
+- **Phase 4**: Configurable WorkManager (UpdateScheduler — reads preferences, schedules/cancels with REPLACE) + manual mode (per-category filter) + live-progress (CheckProgress SharedFlow from UpdateEngine).
+- **Phase 5**: Smart release detection — SmartReleaseCheckWorker (OneTimeWorkRequest chaining, 10-min polling, max 3 attempts) + SmartReleaseScheduler (±1h window, max 5 concurrent).
+- **Phase 6**: Sub/Dub tracking — checkSingleAnime rewrite (partition by audio variant, separate sub/dub counts, respects user preferences, dub episodes use _dub episode_key suffix).
+- **Phase 7**: Notification system — on_schedule trigger wired (ScheduleEngine), on_watchable already wired (Phase 9), on_immediate already fires. Tap deep-link via setContentIntent (package-based launcher Intent).
+- **Phase 8**: Updates feed UI — live-progress StateFlow in UpdatesViewModel, initial-batch rendering ("Episodes 1-N added to library"), acknowledgment on tap.
+- **Status:** ✅ All 10 phases complete + CI green on `feature/updates-notifications-impl` branch. NOT merged to main — awaiting user approval.
+- **Date:** this session (D-193 implementation session).
+
+### D-193 v2 — Episode-type toggle semantics (checking ≠ notifying)
+- **What:** The Sub / Dub / Both toggle in Updates & Notifications settings controls NOTIFICATIONS only — not which audio variants the engine checks for. The engine always partitions the fetched episode list by audio variant and diffs both sub and dub against the last-known counts. A new episode that doesn't match the toggle is still inserted into the Updates feed (so the user sees it); it just doesn't post a notification.
+- **Why:** The user's explicit clarification — "if the user has turned on the updates, even to manual or to auto, then by default it will search for and look for both sub and dub episodes regardless of what the user has selected for the episode type. The episode type is only for the notifications themselves." Missing a release because of a toggle would be a correctness bug; missing a notification because of a toggle is a preference.
+- **Impact:** No engine change needed — `checkSingleAnime` already checks both variants independently. The toggle's effect is confined to the `notificationSender?.postNotification(...)` call sites, which are already gated behind the user's trigger config. This decision is documentation + mental-model, not implementation.
+- **Date:** this session (D-193 v2 redesign clarifications).
+
+### D-193 v2 — Notifications is a dedicated page
+- **What:** Notifications is no longer an inline section inside the Updates settings screen. It is a nav row at the bottom of Updates & Notifications that opens a dedicated page. The page contains: a master enable switch at the top (the hard kill), the two triggers (On Schedule / On Watchable) as two-way On/Off toggles, and the "Customize library notifications" toggle.
+- **Why:** The user wanted notifications "a completely separate page at the very bottom instead of showing me the toggle for notifications." A dedicated page gives room for the master switch + triggers + library-customization without crowding the updates settings.
+- **Date:** this session.
+
+### D-193 v2 — Library-customization toggle semantics
+- **What:** The "Customize library notifications" toggle on the Notifications page controls whether per-anime notification overrides exist at all.
+  - **OFF (default):** the default trigger settings (On Schedule / On Watchable from the Notifications page) apply to every anime in the library. No per-anime notifications section appears on details pages.
+  - **ON:** each anime's details page gains a notifications section where the user can enable/disable notifications for that anime and override which triggers fire for it.
+- **Why:** The user's clarification — "If the toggle is turned off then by default it will notify the user for all of the categories... If the user has turned on that library toggle then he will see the options to configure each one of the content in the library individually." This keeps the default experience simple (one set of defaults) while exposing per-anime control only when the user opts in.
+- **Date:** this session.
+
+### D-193 v2 — Documentation web page as the system reference
+- **What:** A comprehensive Next.js documentation page (single `/` route) is now the canonical visual reference for the Updates + Notifications system. It covers: system-overview flow, the three update modes, the episode-type clarification matrix, the smart-release polling sequence + averaging loop, the updates-feed lifecycle, the notifications page design, the schedule grayed-out logic, the settings-UI card inventory, an interactive testing checklist (with localStorage persistence), and an end-to-end "how it works" narrative.
+- **Why:** The user asked for "proper visuals and a better well-handled look and feel for things like how they need to be managed" + "a proper testing list, a checklist which I can use to test the things out" + "an overview of how things are functioning." The web page delivers all three in one place and is the artifact the user can re-open anytime.
+- **Artifact:** `src/app/page.tsx` + `src/lib/aniKutaData.ts` (this Next.js project).
+- **Date:** this session.
+
+### D-193 v2 — Episode-type toggle: notifications only (code aligned to spec)
+- **What:** The engine's `checkSingleAnime` no longer reads `getCheckSub()`/`getCheckDub()` to decide whether to insert rows. It ALWAYS inserts new sub + dub rows. The toggle is honored by `NotificationManager` (injected with `UpdatePreferences`) at notify time.
+- **Why:** The user's spec: "it will search for and look for both sub and dub episodes regardless of what the user has selected for the episode type. The episode type is only for the notifications." Missing a release because of a toggle is a correctness bug; missing a notification is a preference.
+- **Impact:** `UpdateEngine` always inserts both variants. `NotificationManager` checks both the per-anime `config.notifySub/notifyDub` AND the global `updatePreferences.getCheckSub()/getCheckDub()` before posting.
+- **Date:** this session (D-193 v2 code fixes).
+
+### D-193 v2 — Smart-release weighted averaging (learned_offset_ms)
+- **What:** Added a `learned_offset_ms` column to `anime_update_state`. SmartReleaseCheckWorker now computes `newOffset = found_at - airing_at` and stores `learnedOffset = (old * 7 + new * 3) / 10` (70% previous + 30% new). First find (null) stores the raw offset. Next check = `next_airing_at + learnedOffset`.
+- **Why:** The previous "averaging" just replaced the offset with the latest single observation — it chased the most recent find instead of learning a stable rhythm. The 70/30 weighting favors history while still adapting to gradual drift.
+- **Date:** this session.
+
+### D-193 v2 — Library customization toggle semantics (implemented)
+- **What:** Added `libraryCustomizationEnabled` to `NotificationPreferences`. When OFF (default), the default triggers apply to every anime — no per-anime UI on the details page. When ON, `DetailsNotificationSection` appears on each anime's details page with enable/disable + per-trigger overrides. `NotificationManager` falls back to the default triggers when no per-anime config exists.
+- **Why:** The user's spec: "If the toggle is turned off then by default it will notify the user for all of the categories... If the user has turned on that library toggle then he will see the options to configure each one of the content in the library individually."
+- **Date:** this session.
+
+### D-193 v2 — UpdateScheduler: MANUAL mode cancels the periodic worker
+- **What:** `UpdateScheduler.reschedule()` now only schedules the periodic worker in AUTO mode. MANUAL + OFF both cancel it. Manual mode is strictly on-demand (the user taps Check Now, which calls checkDueAnime + scheduleImminentChecks directly).
+- **Why:** The user's spec: Manual = "You press, it checks." A periodic background worker in Manual mode contradicts that.
+- **Date:** this session.
+
+### D-193 v2 — on_schedule precise timer (ScheduleNotificationWorker)
+- **What:** New `ScheduleNotificationWorker` (OneTimeWorkRequest) fires the on_schedule notification at the exact airing time. ScheduleEngine schedules it when it discovers a future airing. The REPLACE policy means schedule changes reschedule it.
+- **Why:** Previously on_schedule fired opportunistically during a schedule refresh that happened to be within ±1h of airing — imprecise. A timed worker is a true "airing time reached" reminder.
+- **Date:** this session.

@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,6 +83,8 @@ import com.confused.anikuta.download.EnqueueResult
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
+import com.confused.anikuta.settings.UpdateCategoriesScreen
+import com.confused.anikuta.settings.UpdatesSettingsScreen
 import com.confused.anikuta.settings.PlayerSettingsScreen
 import com.confused.anikuta.settings.NotificationsSettingsScreen
 import com.confused.anikuta.settings.NotificationsLibraryScreen
@@ -138,6 +141,13 @@ object NotificationsKey : NavKey
 
 @Serializable
 object NotificationsLibraryKey : NavKey
+
+// D-193 Phase 3: combined Updates & Notifications settings
+@Serializable
+object UpdatesSettingsKey : NavKey
+
+@Serializable
+object UpdateCategoriesKey : NavKey
 
 @Serializable
 object AppearanceKey : NavKey
@@ -208,6 +218,38 @@ fun AppRoot() {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
     }
     val currentKey = backstack.last()
+
+    // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
+    // from a notification, navigate to the details page for the tapped anime.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notifMainId = remember {
+        val intent = (context as? android.app.Activity)?.intent
+        intent?.getStringExtra("notification_main_id")
+    }
+    LaunchedEffect(notifMainId) {
+        if (!notifMainId.isNullOrBlank() && backstack.size == 1) {
+            // Look up the content to determine whether it has an AniList ID or is extension-only.
+            val content = contentRepository.getContentByMainId(notifMainId)
+            val anilistDetail = content?.let { contentRepository.getAniListDetail(it.mainId) }
+            if (anilistDetail != null) {
+                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+            } else if (content != null) {
+                val sid = content.sourceId
+                val url = content.animeUrl
+                if (sid != null && url != null) {
+                    backstack.add(
+                        AnimeDetailsKey.Extension(
+                            sourceId = sid,
+                            animeUrl = url,
+                            title = content.title,
+                        ),
+                    )
+                }
+            }
+            // Clear the extra so we don't re-navigate on recomposition.
+            (context as? android.app.Activity)?.intent?.removeExtra("notification_main_id")
+        }
+    }
 
     val pop: () -> Unit = {
         if (backstack.size > 1) backstack.removeAt(backstack.lastIndex)
@@ -495,10 +537,16 @@ fun AppRoot() {
                 onOpenAppearance = { backstack.add(AppearanceKey) },
                 onOpenExtensions = { backstack.add(ExtensionsSettingsKey) },
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
-                onOpenNotifications = { backstack.add(NotificationsKey) },
+                onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onBack = pop,
             )
+            // D-193 Phase 3: combined Updates & Notifications settings
+            is UpdatesSettingsKey -> UpdatesSettingsScreen(
+                onOpenNotifications = { backstack.add(NotificationsKey) },
+                onOpenCategories = { backstack.add(UpdateCategoriesKey) },
+            )
+            is UpdateCategoriesKey -> UpdateCategoriesScreen(onBack = pop)
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },

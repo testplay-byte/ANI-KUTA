@@ -714,6 +714,11 @@ fun DetailsScreen(
                         // ── Info ──
                         item {
                             Spacer(Modifier.height(16.dp))
+                            // D-193 v2: per-anime notification config (only shown when the
+                            // user has enabled "Customize per anime" on the Notifications page).
+                            DetailsNotificationSection(mainId = viewModel.currentMainId)
+                        }
+                        item {
                             InfoSection(anime)
                         }
                     }

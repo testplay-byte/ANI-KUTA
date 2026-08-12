@@ -26,6 +26,11 @@ class NotificationManager(
     private val configStore: NotificationConfigStore,
     private val contentRepository: ContentRepository,
     private val preferences: NotificationPreferences,
+    // D-193 v2 fix: the global Sub/Dub/Both episode-type toggle lives in
+    // UpdatePreferences. It gates NOTIFICATIONS only (the engine always checks
+    // both). If the user picked "Sub only", a new dub episode is still inserted
+    // into the feed but no notification is posted for it.
+    private val updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Notifications"
@@ -62,9 +67,20 @@ class NotificationManager(
             return false
         }
 
-        // 1. Check config.
-        val config = configStore.getConfig(mainId)
-        if (config == null || !config.enabled) {
+        // 1. Check config. D-193 v2: if no per-anime config exists, use the default
+        // triggers from NotificationPreferences. This is the "library customization OFF"
+        // path — the defaults apply to every anime. When the user turns customization ON
+        // + creates a per-anime config, that config takes precedence.
+        val perAnimeConfig = configStore.getConfig(mainId)
+        val config = perAnimeConfig ?: NotificationConfig(
+            mainId = mainId,
+            enabled = true,
+            notifyOnSchedule = preferences.defaultNotifyOnSchedule,
+            notifyOnWatchable = preferences.defaultNotifyOnWatchable,
+            notifyOnImmediate = preferences.defaultNotifyOnImmediate,
+            audioPref = preferences.defaultAudioPref,
+        )
+        if (!config.enabled) {
             Logger.d(TAG) { "postNotification — suppressed (not enabled): mainId=$mainId" }
             return false
         }
@@ -83,14 +99,30 @@ class NotificationManager(
         }
         val silent = triggerState == TriggerState.SILENT
 
-        // 3. Check sub/dub (derived from AudioPref).
+        // 3. Check sub/dub (derived from AudioPref — per-anime config, or the default
+        // audio pref when no per-anime config exists).
         val audioOk = when (audioVariant) {
             "sub" -> config.notifySub
             "dub" -> config.notifyDub
             else -> true // unknown — notify (best-effort)
         }
         if (!audioOk) {
-            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not enabled): mainId=$mainId" }
+            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not enabled per-anime): mainId=$mainId" }
+            return false
+        }
+
+        // 3b. D-193 v2 fix: also honor the GLOBAL episode-type toggle (Sub/Dub/Both).
+        // The engine always inserts rows for both variants, but the user's choice
+        // here decides which actually produce a notification. "Both" = notify for all.
+        val globalSub = updatePreferences?.getCheckSub() ?: true
+        val globalDub = updatePreferences?.getCheckDub() ?: true
+        val globalAudioOk = when (audioVariant) {
+            "sub" -> globalSub
+            "dub" -> globalDub
+            else -> true
+        }
+        if (!globalAudioOk) {
+            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not in global episode type): mainId=$mainId" }
             return false
         }
 
@@ -120,6 +152,8 @@ class NotificationManager(
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(priority)
             .setAutoCancel(true)
+            // D-193 Phase 7: tap action — deep-link to MainActivity (which opens the details page).
+            .setContentIntent(createDetailsPendingIntent(mainId))
             .build()
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -161,5 +195,111 @@ class NotificationManager(
             nm.createNotificationChannel(channel)
             Logger.i(TAG) { "Silent notification channel created: $CHANNEL_ID_SILENT" }
         }
+    }
+
+    /**
+     * D-193 Phase 7 + improvement: Post a test notification (for the "Send test notification" button).
+     *
+     * Sends TWO notifications:
+     * 1. Immediately — "Demon Slayer — Episode 6 DUB"
+     * 2. After 1 minute — "Jujutsu Kaisen — Episode 12 SUB" (even if the app is closed)
+     *
+     * The second notification is scheduled via WorkManager (survives app death).
+     * Both bypass per-anime config (they're tests). Use dedicated notification IDs (999 + 998).
+     */
+    suspend fun postTestNotification() {
+        if (!preferences.notificationsEnabled) {
+            Logger.w(TAG) { "postTestNotification — master toggle is OFF, not posting" }
+            return
+        }
+
+        // Check POST_NOTIFICATIONS permission on Android 13+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                Logger.w(TAG) { "postTestNotification — POST_NOTIFICATIONS not granted" }
+                return
+            }
+        }
+
+        ensureChannel()
+
+        // 1. Post the immediate test notification.
+        postSingleTestNotification(
+            notifId = 999,
+            title = "New episode available",
+            text = "Demon Slayer — Episode 6 DUB",
+        )
+
+        // 2. Schedule the delayed test notification (1 minute later, via WorkManager).
+        try {
+            val delayedRequest = androidx.work.OneTimeWorkRequestBuilder<
+                com.confused.anikuta.core.notifications.DelayedTestNotificationWorker
+            >()
+                .setInitialDelay(1, java.util.concurrent.TimeUnit.MINUTES)
+                .build()
+
+            androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+                "anikuta_test_notification_delayed",
+                androidx.work.ExistingWorkPolicy.REPLACE,
+                delayedRequest,
+            )
+            Logger.i(TAG) { "Delayed test notification scheduled (1 min)" }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Failed to schedule delayed test notification: ${e.message}" }
+        }
+    }
+
+    /**
+     * Check if notifications are enabled (master toggle). Used by [DelayedTestNotificationWorker].
+     */
+    fun areNotificationsEnabled(): Boolean = preferences.notificationsEnabled
+
+    /**
+     * Posts a single test notification with the given content. Called by [postTestNotification]
+     * + by [DelayedTestNotificationWorker].
+     */
+    fun postSingleTestNotification(notifId: Int, title: String, text: String) {
+        ensureChannel()
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(notifId, builder.build())
+            Logger.i(TAG) { "Test notification posted (id=$notifId): '$text'" }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Failed to post test notification: ${e.message}" }
+        }
+    }
+
+    /**
+     * D-193 Phase 7: Create a PendingIntent that opens the app with the mainId extra.
+     * MainActivity reads the extra + navigates to the details page for this content.
+     * Uses the launcher Intent (package-based) to avoid a direct class reference
+     * (which would create a circular dep between :core:notifications and :app).
+     */
+    private fun createDetailsPendingIntent(mainId: String): android.app.PendingIntent {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("notification_main_id", mainId)
+        } ?: android.content.Intent().apply {
+            setPackage(context.packageName)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra("notification_main_id", mainId)
+        }
+        return android.app.PendingIntent.getActivity(
+            context,
+            mainId.hashCode(),
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }

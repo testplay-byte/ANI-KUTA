@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -262,7 +263,7 @@ fun ScheduleListContent(
                                         )
                                     }
                                     items(group.entries, key = { "${it.mainId}_${it.episodeNumber}" }) { entry ->
-                                        ScheduleRow(entry = entry, now = now, onClick = { onNavigateToDetails(entry.mainId) })
+                                        ScheduleRow(entry = entry, now = now, isAired = group.isAired, onClick = { onNavigateToDetails(entry.mainId) })
                                     }
                                 }
                             }
@@ -278,10 +279,14 @@ fun ScheduleListContent(
 private fun ScheduleRow(
     entry: ScheduleDisplay,
     now: Long,
+    isAired: Boolean = false,
     onClick: () -> Unit,
 ) {
+    // D-193 Phase 6: Gray out entries that have already aired today.
+    val contentAlpha = if (isAired) 0.4f else 1f
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = if (isAired) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        else MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
@@ -294,12 +299,17 @@ private fun ScheduleRow(
                 AsyncImage(
                     model = entry.coverUrl,
                     contentDescription = entry.animeTitle,
-                    modifier = Modifier.size(width = 56.dp, height = 80.dp).clip(RoundedCornerShape(8.dp)),
+                    modifier = Modifier.size(width = 56.dp, height = 80.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .graphicsLayer(alpha = contentAlpha),
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Box(
-                    modifier = Modifier.size(width = 56.dp, height = 80.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.size(width = 56.dp, height = 80.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .graphicsLayer(alpha = contentAlpha),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("EP ${entry.episodeNumber}", fontFamily = RobotoFamily, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -307,9 +317,8 @@ private fun ScheduleRow(
             }
             Spacer(Modifier.width(12.dp))
             // Right column — content fills the full height of the cover (80dp).
-            // Title at top, EP pill + countdown at the bottom.
             Column(
-                modifier = Modifier.weight(1f).height(80.dp),
+                modifier = Modifier.weight(1f).height(80.dp).graphicsLayer(alpha = contentAlpha),
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
                 // Title (1 line)
@@ -328,9 +337,9 @@ private fun ScheduleRow(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // "EP N" pill — improved look
                     Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        color = if (isAired) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
                         Text(
@@ -338,16 +347,22 @@ private fun ScheduleRow(
                             fontFamily = RobotoFamily,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = if (isAired) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
-                    // Countdown with subtle background
+                    // Countdown or "Aired" label
                     val displayTime = entry.actualAt ?: entry.scheduledAt
                     val diff = displayTime - now
-                    val countdown = if (diff > 0) formatCountdown(diff) else "Released"
+                    val countdown = when {
+                        isAired -> "Aired"
+                        diff > 0 -> formatCountdown(diff)
+                        else -> "Released"
+                    }
                     Surface(
-                        color = if (diff > 0) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        color = if (isAired) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                        else if (diff > 0) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                         else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(8.dp),
                     ) {
@@ -356,7 +371,8 @@ private fun ScheduleRow(
                             fontFamily = RobotoFamily,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
-                            color = if (diff > 0) MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isAired) MaterialTheme.colorScheme.onSurfaceVariant
+                            else if (diff > 0) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )

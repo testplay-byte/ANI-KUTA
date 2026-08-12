@@ -190,6 +190,14 @@ class DatabaseDriverFactory(private val context: Context) {
                     // Index for the new main_id column (idempotent — CREATE INDEX IF NOT EXISTS).
                     db.execSQL("CREATE INDEX IF NOT EXISTS idx_watch_progress_main_id ON watch_progress(main_id)")
 
+                    // ── D-193 v2: learned_offset_ms on anime_update_state (smart-release averaging) ──
+                    // Existing dev installs get the column via ALTER TABLE; fresh installs get
+                    // it from the .sq CREATE TABLE. Idempotent — hasColumn guards the ALTER.
+                    if (hasColumn(db, "anime_update_state", "main_id") &&
+                        !hasColumn(db, "anime_update_state", "learned_offset_ms")) {
+                        db.execSQL("ALTER TABLE anime_update_state ADD COLUMN learned_offset_ms INTEGER")
+                    }
+
                     // ── Phase UP: create new tables if they don't exist (episode_update, anime_update_state) ──
                     // For existing installs, these tables are new. onCreate(db) runs ALL CREATE TABLE IF NOT EXISTS
                     // statements (idempotent — existing tables are unaffected). This is the cleanest way to add

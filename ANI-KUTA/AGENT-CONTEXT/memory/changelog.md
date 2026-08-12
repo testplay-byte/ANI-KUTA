@@ -928,3 +928,72 @@
 - User reviews the plan on the dashboard page.
 - User answers the 8 open questions in §13.
 - User gives the go → implementation begins (10 phases, ~34h).
+
+## Session — D-193 All 10 Phases Complete (feature/updates-notifications-impl)
+
+### All phases implemented + CI green:
+1. Bug fixes: 3-way toggle + no-source-from-library + onEpisodesRefreshed ordering
+2. DB schema: 5 new columns + 4 query updates + 1 new query + 2 indexes + 3-day expiry
+3. Settings UI: combined section + master toggle + interval + sub/dub toggles + test notification
+4. Auto-update: configurable WorkManager + manual mode + per-category filter + live-progress
+5. Smart release: OneTimeWorkRequest chaining + 10-min polling + max 3 attempts + ±1h window
+6. Sub/Dub tracking: checkSingleAnime rewrite + separate counts + preference filtering
+7. Notifications: 3 triggers wired + tap deep-link + test notification + dedup
+8. Updates feed: live-progress StateFlow + initial-batch rendering + acknowledgment
+9. Interface pattern: ScheduleRefresher + NotificationSender (avoids circular deps)
+10. Docs + this entry + notification
+
+### Status
+- Branch: `feature/updates-notifications-impl` (NOT merged — awaiting user approval)
+- CI: GREEN on all commits
+- All 10 phases of the D-193 plan implemented
+
+## Session — D-193 v2 Redesign Clarifications + Documentation Web Page
+
+### What was done
+- User tested the v2 build (phases 1–4 of the redesign) and gave detailed feedback. Three critical clarifications were locked in that reshape how the system is described (NOT how it must be re-implemented — the engine already checks both sub+dub; the toggle already only gates notifications):
+  1. **Episode type toggle = notifications only.** The engine ALWAYS partitions fetched episodes by audio variant and diffs both sub and dub against last-known counts — regardless of the Sub/Dub/Both toggle. The toggle only filters which found episodes actually post a notification. Checking ≠ notifying.
+  2. **Notifications is a dedicated page**, not an inline toggle in the updates settings. It lives at the bottom of Updates & Notifications as a nav row, opens a page with a master enable switch + the two triggers + the library-customization toggle.
+  3. **Library-customization toggle semantics:** OFF (default) = the default trigger settings apply to every anime in the library (no per-anime options anywhere). ON = each anime's details page gains a notifications section where the user can enable/disable + override triggers per anime.
+- Built a comprehensive documentation web page (Next.js, single `/` route) that visualizes the entire Updates + Notifications system: system-overview flow diagram, Auto/Manual/Off mode comparison cards, the episode-type clarification matrix, the smart-release polling sequence (+10/+20/+60/+120 min) + the averaging loop, the updates-feed lifecycle + live-progress banner mockup, the notifications page mockup, the schedule grayed-out logic, the settings-UI card inventory, an interactive testing checklist (with localStorage persistence + how-to-test-notifications guide), and an end-to-end "how it works" narrative.
+- Verified the page with Agent Browser (renders, scroll-spy nav works, testing checklist toggles + persists, mobile nav renders, no runtime/console errors) + VLM (visual quality 9/10 — dark theme correct, accent cards balanced, no rendering issues).
+- Lint clean.
+
+### Status
+- Web page: live on the dev server at `/` (this Next.js project).
+- ANI-KUTA app: no code changes this session — documentation + clarification only. The engine implementation already matches the clarified semantics.
+- Branch: `feature/updates-notifications-impl` (NOT merged — awaiting user approval).
+
+### Key artifact
+- `src/app/page.tsx` + `src/lib/aniKutaData.ts` — the documentation web page + its data layer.
+
+## Session — D-193 v2 Code Fixes (all 14 items, CI green)
+
+### What was done
+Fixed all 14 issues identified in the audit + re-verification:
+
+**4 blocking fixes:**
+1. Episode-type toggle now gates NOTIFICATIONS only — engine always inserts both sub+dub; NotificationManager honors the global Sub/Dub/Both toggle at notify time (UpdatePreferences injected into NM).
+2. "Check dub on completed anime" now actually works — checkDueAnime unions getDueDubAnime(now) when the setting is on, so FINISHED anime with pending dub are checked.
+3. "Customize library notifications" toggle built — added libraryCustomizationEnabled pref + toggle on Notifications page + per-anime DetailsNotificationSection on the details page (gated behind the toggle). NotificationManager falls back to default triggers when no per-anime config exists.
+4. "Update categories" picker built — replaced the "coming soon" placeholder with a real multi-select screen (UpdateCategoriesScreen). UpdatesViewModel.checkForUpdates now filters by selected categories in Manual mode.
+
+**Cleanup + improvements:**
+5. Removed duplicate notifications master toggle from UpdatesSettingsScreen (now a single nav row to the dedicated Notifications page).
+6. Smart-release real averaging: added learned_offset_ms column + weighted average (70% previous + 30% new). The system now converges on the show's real release rhythm.
+7. Smart-release worker now parses the real audio variant from the found episode (was hardcoded "unknown").
+8. Removed dead on_immediate firing in ScheduleEngine.
+9. UpdateScheduler now only schedules the periodic worker in AUTO mode (MANUAL + OFF cancel it).
+10. Battery-optimimization dialog added to FirstRunSetupDialog (step 3).
+11. New ScheduleNotificationWorker fires on_schedule at the exact airing time via a OneTimeWorker (was opportunistic only).
+12. Aligned SmartReleaseCheckWorker to use content.sourceId (was extensionId — inconsistent with the engine).
+
+**Verification:**
+- Sub-agent compile review found 3 blocking issues (missing import, missing derived val, missing Gradle dep) — all fixed.
+- CI run 31634281699 failed (missing UpdateCategoriesScreen import in MainActivity) — fixed in d40c135.
+- CI run 31634661679 GREEN ✅.
+
+### Status
+- Branch: feature/updates-notifications-impl (NOT merged — awaiting user approval).
+- CI: GREEN on commit d40c135.
+- All 14 audit items addressed.

@@ -1,5 +1,10 @@
 package com.confused.anikuta.settings
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -50,7 +55,6 @@ import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import com.confused.anikuta.core.notifications.AudioPref
 import com.confused.anikuta.core.notifications.NotificationConfig
 import com.confused.anikuta.core.notifications.TriggerState
 import org.koin.compose.viewmodel.koinViewModel
@@ -333,51 +337,50 @@ private fun AnimeConfigSheet(
 
             Spacer(Modifier.height(8.dp))
 
-            // On schedule
-            ConfigSegmented(
+            // D-193 Phase 3: Only show trigger options when the per-anime toggle is ON.
+            AnimatedVisibility(
+                visible = config.enabled,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Column {
+            // On schedule — 2-way On/Off Switch
+            ConfigToggle(
                 title = "On schedule",
-                description = triggerDescription("schedule", config.notifyOnSchedule),
-                options = listOf("On", "Silent", "Off"),
-                selected = config.notifyOnSchedule.ordinal,
-            ) { idx ->
-                val s = TRIGGERS[idx]
-                config = config.copy(notifyOnSchedule = s)
-                onUpdate { copy(notifyOnSchedule = s) }
-            }
-            // On watchable
-            ConfigSegmented(
+                checked = config.notifyOnSchedule == TriggerState.ON,
+                onCheckedChange = { enabled ->
+                    val s = if (enabled) TriggerState.ON else TriggerState.OFF
+                    config = config.copy(notifyOnSchedule = s)
+                    onUpdate { copy(notifyOnSchedule = s) }
+                },
+            )
+            Text(
+                text = triggerDescription("schedule", config.notifyOnSchedule),
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            )
+            // On watchable — 2-way On/Off Switch
+            ConfigToggle(
                 title = "On watchable",
-                description = triggerDescription("watchable", config.notifyOnWatchable),
-                options = listOf("On", "Silent", "Off"),
-                selected = config.notifyOnWatchable.ordinal,
-            ) { idx ->
-                val s = TRIGGERS[idx]
-                config = config.copy(notifyOnWatchable = s)
-                onUpdate { copy(notifyOnWatchable = s) }
-            }
-            // On immediate
-            ConfigSegmented(
-                title = "On immediate",
-                description = triggerDescription("immediate", config.notifyOnImmediate),
-                options = listOf("On", "Silent", "Off"),
-                selected = config.notifyOnImmediate.ordinal,
-            ) { idx ->
-                val s = TRIGGERS[idx]
-                config = config.copy(notifyOnImmediate = s)
-                onUpdate { copy(notifyOnImmediate = s) }
-            }
-            // Audio
-            ConfigSegmented(
-                title = "Audio",
-                description = audioDescription(config.audioPref),
-                options = listOf("Sub", "Dub", "Both"),
-                selected = config.audioPref.ordinal,
-            ) { idx ->
-                val a = AUDIO[idx]
-                config = config.copy(audioPref = a)
-                onUpdate { copy(audioPref = a) }
-            }
+                checked = config.notifyOnWatchable == TriggerState.ON,
+                onCheckedChange = { enabled ->
+                    val s = if (enabled) TriggerState.ON else TriggerState.OFF
+                    config = config.copy(notifyOnWatchable = s)
+                    onUpdate { copy(notifyOnWatchable = s) }
+                },
+            )
+            Text(
+                text = triggerDescription("watchable", config.notifyOnWatchable),
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            )
             Spacer(Modifier.height(8.dp))
+                } // close Column
+            } // close AnimatedVisibility
         }
     }
 }
@@ -427,16 +430,10 @@ private fun ConfigSegmented(
     }
 }
 
-// TriggerState enum order must match the "On / Silent / Off" labels.
-private val TRIGGERS = listOf(TriggerState.ON, TriggerState.SILENT, TriggerState.OFF)
-// AudioPref enum order must match the "Sub / Dub / Both" labels.
-private val AUDIO = listOf(AudioPref.SUB, AudioPref.DUB, AudioPref.BOTH)
-
 private fun triggerDescription(trigger: String, state: TriggerState): String {
     val condition = when (trigger) {
         "schedule" -> "when the airing time is reached"
         "watchable" -> "when an episode is found on a source"
-        "immediate" -> "as soon as the schedule says released"
         else -> "for this trigger"
     }
     return when (state) {
@@ -446,11 +443,6 @@ private fun triggerDescription(trigger: String, state: TriggerState): String {
     }
 }
 
-private fun audioDescription(pref: AudioPref): String = when (pref) {
-    AudioPref.SUB -> "Notify for sub releases only"
-    AudioPref.DUB -> "Notify for dub releases only"
-    AudioPref.BOTH -> "Notify for sub and dub releases"
-}
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 

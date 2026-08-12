@@ -38,6 +38,7 @@ class UpdateStore(
         acknowledgedAt: Long?,
         batchType: String = "new",
         episodeCount: Long? = null,
+        newExpiresAt: Long? = null,
     ) {
         database.episodeUpdateQueries.upsertEpisodeUpdate(
             main_id = mainId,
@@ -51,12 +52,15 @@ class UpdateStore(
             acknowledged_at = acknowledgedAt,
             batch_type = batchType,
             episode_count = episodeCount,
+            new_expires_at = newExpiresAt,
         )
     }
 
-    /** Get unacknowledged updates (the "New" feed). */
-    fun getUnacknowledgedUpdates(limit: Long = 100): List<EpisodeUpdate> =
-        database.episodeUpdateQueries.getUnacknowledgedUpdates(limit).executeAsList().map { it.toEpisodeUpdate() }
+    /** Get unacknowledged updates (the "New" feed). D-193 Phase 2: filters by new_expires_at. */
+    fun getUnacknowledgedUpdates(limit: Long = 100): List<EpisodeUpdate> {
+        val now = System.currentTimeMillis()
+        return database.episodeUpdateQueries.getUnacknowledgedUpdates(now, limit).executeAsList().map { it.toEpisodeUpdate() }
+    }
 
     /** Get all updates (New + Earlier). */
     fun getAllUpdates(limit: Long = 100): List<EpisodeUpdate> =
@@ -74,9 +78,11 @@ class UpdateStore(
         database.episodeUpdateQueries.deleteOldAcknowledged(cutoff)
     }
 
-    /** Count unacknowledged updates (for a badge). */
-    fun countUnacknowledged(): Long =
-        database.episodeUpdateQueries.countUnacknowledged().executeAsOne()
+    /** Count unacknowledged "new" updates (for a badge). D-193 Phase 2: filters by new_expires_at. */
+    fun countUnacknowledged(): Long {
+        val now = System.currentTimeMillis()
+        return database.episodeUpdateQueries.countUnacknowledged(now).executeAsOne()
+    }
 
     // ── Reactive (Phase UP — for the UpdatesViewModel) ──
 
@@ -97,6 +103,10 @@ class UpdateStore(
     fun getDueAnime(now: Long): List<AnimeUpdateState> =
         database.animeUpdateStateQueries.getDueAnime(now).executeAsList().map { it.toAnimeUpdateState() }
 
+    /** D-193 Phase 2: Get FINISHED anime due for a dub check. */
+    fun getDueDubAnime(now: Long): List<AnimeUpdateState> =
+        database.animeUpdateStateQueries.getDueDubAnime(now).executeAsList().map { it.toAnimeUpdateState() }
+
     /** Upsert the full update state (for new library entries). */
     fun upsertAnimeUpdateState(state: AnimeUpdateState) {
         database.animeUpdateStateQueries.upsertAnimeUpdateState(
@@ -110,10 +120,14 @@ class UpdateStore(
             auto_update_enabled = if (state.autoUpdateEnabled) 1L else 0L,
             consecutive_failures = state.consecutiveFailures.toLong(),
             backoff_step = state.backoffStep.toLong(),
+            last_known_dub_count = state.lastKnownDubCount,
+            last_checked_dub_at = state.lastCheckedDubAt,
+            total_episodes = state.totalEpisodes,
+            learned_offset_ms = state.learnedOffsetMs,
         )
     }
 
-    /** Update the check metadata (after a check completes). */
+    /** Update the check metadata (after a check completes). D-193 Phase 2: added dub fields. */
     fun updateCheckResult(
         mainId: String,
         lastCheckedAt: Long,
@@ -121,6 +135,8 @@ class UpdateStore(
         lastKnownEpisodeCount: Long,
         consecutiveFailures: Int,
         backoffStep: Int,
+        lastKnownDubCount: Long? = null,
+        lastCheckedDubAt: Long? = null,
     ) {
         database.animeUpdateStateQueries.updateCheckResult(
             last_checked_at = lastCheckedAt,
@@ -128,6 +144,8 @@ class UpdateStore(
             last_known_episode_count = lastKnownEpisodeCount,
             consecutive_failures = consecutiveFailures.toLong(),
             backoff_step = backoffStep.toLong(),
+            last_known_dub_count = lastKnownDubCount,
+            last_checked_dub_at = lastCheckedDubAt,
             main_id = mainId,
         )
     }
@@ -145,6 +163,16 @@ class UpdateStore(
             status = status,
             main_id = mainId,
         )
+    }
+
+    /** D-193 Phase 2: Update total_episodes (from AniList episodes field). */
+    fun updateTotalEpisodes(mainId: String, totalEpisodes: Long?) {
+        database.animeUpdateStateQueries.updateTotalEpisodes(totalEpisodes, mainId)
+    }
+
+    /** D-193 v2: Update the learned offset (smart-release averaging). */
+    fun updateLearnedOffset(mainId: String, learnedOffsetMs: Long?) {
+        database.animeUpdateStateQueries.updateLearnedOffset(learned_offset_ms = learnedOffsetMs, main_id = mainId)
     }
 
     /** Disable auto-update (M3: after 3 consecutive failures). */
@@ -172,6 +200,7 @@ class UpdateStore(
         acknowledgedAt = acknowledged_at,
         batchType = batch_type,
         episodeCount = episode_count,
+        newExpiresAt = new_expires_at,
     )
 
     private fun com.confused.anikuta.core.database.Anime_update_state.toAnimeUpdateState() = AnimeUpdateState(
@@ -185,6 +214,10 @@ class UpdateStore(
         autoUpdateEnabled = auto_update_enabled.toInt() == 1,
         consecutiveFailures = consecutive_failures.toInt(),
         backoffStep = backoff_step.toInt(),
+        lastKnownDubCount = last_known_dub_count,
+        lastCheckedDubAt = last_checked_dub_at,
+        totalEpisodes = total_episodes,
+        learnedOffsetMs = learned_offset_ms,
     )
 }
 
@@ -203,6 +236,7 @@ data class EpisodeUpdate(
     val acknowledgedAt: Long?,
     val batchType: String = "new",
     val episodeCount: Long? = null,
+    val newExpiresAt: Long? = null,
 )
 
 data class AnimeUpdateState(
@@ -216,4 +250,10 @@ data class AnimeUpdateState(
     val autoUpdateEnabled: Boolean,
     val consecutiveFailures: Int,
     val backoffStep: Int,
+    // D-193 Phase 2: dub tracking + total episodes
+    val lastKnownDubCount: Long? = null,
+    val lastCheckedDubAt: Long? = null,
+    val totalEpisodes: Long? = null,
+    // D-193 v2: learned offset for smart-release averaging (ms after airingAt).
+    val learnedOffsetMs: Long? = null,
 )

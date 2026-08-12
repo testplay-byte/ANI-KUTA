@@ -68,7 +68,13 @@ fun UpdatesScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val checking by viewModel.checking.collectAsStateWithLifecycle()
+    val checkProgress by viewModel.checkProgress.collectAsStateWithLifecycle()
     val fetching by scheduleViewModel.fetching.collectAsStateWithLifecycle()
+
+    // D-193 improvement: Don't auto-refresh on page entry — clear any stale progress.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.clearProgress()
+    }
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
@@ -196,6 +202,15 @@ fun UpdatesScreen(
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier.fillMaxSize(),
                                 ) {
+                                    // D-193 improvement: Live-progress banner during refresh
+                                    if (checkProgress != null) {
+                                        item(key = "progress_banner") {
+                                            LiveProgressBanner(
+                                                progress = checkProgress!!,
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                            )
+                                        }
+                                    }
                                     if (s.newUpdates.isNotEmpty()) {
                                         item(key = "header_new") { UpdatesSectionHeader("New") }
                                         items(s.newUpdates, key = { "new_${it.mainId}_${it.episodeNumber}" }) { update ->
@@ -328,12 +343,36 @@ private fun UpdateRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "EP ${update.episodeNumber} · ${formatAudioLabel(update.audioVariant)}",
+                    text = if (update.batchType == "initial" && update.episodeCount != null) {
+                        "Episodes 1-${update.episodeCount} added to library"
+                    } else {
+                        "EP ${update.episodeNumber}"
+                    },
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+                // D-193 Phase 5: Show SUB/DUB as a highlighted badge (separate from EP number)
+                if (update.batchType != "initial") {
+                    val audioLabel = formatAudioLabel(update.audioVariant)
+                    if (audioLabel.isNotBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.padding(top = 2.dp),
+                        ) {
+                            Text(
+                                text = audioLabel,
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = formatTimeAgo(update.discoveredAt),
                     fontFamily = RobotoFamily,
@@ -359,5 +398,110 @@ private fun formatTimeAgo(timestamp: Long): String {
         days > 0 -> "${days}d ago"
         hours > 0 -> "${hours}h ago"
         else -> "just now"
+    }
+}
+
+// D-193 Phase 5: Live-progress banner with cover image + progress bar
+@Composable
+private fun LiveProgressBanner(
+    progress: com.confused.anikuta.core.updates.CheckProgress,
+    modifier: Modifier = Modifier,
+) {
+    val isComplete = progress.current >= progress.total && progress.total > 0
+    val isChecking = progress.total == 0 && progress.title.isNotBlank()
+    val progressFraction = if (progress.total > 0) progress.current.toFloat() / progress.total else 0f
+    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = progressFraction,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        label = "progressBar",
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // D-193 Phase 5: Show cover image (NOT just text) — 48x64dp
+                if (progress.coverUrl != null && !isComplete && !isChecking) {
+                    AsyncImage(
+                        model = progress.coverUrl,
+                        contentDescription = progress.title,
+                        modifier = Modifier.size(width = 48.dp, height = 64.dp).clip(RoundedCornerShape(6.dp)),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else if (!isComplete) {
+                    Box(
+                        modifier = Modifier.size(48.dp, 64.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                // Right column: status text + anime title + checked count
+                Column(modifier = Modifier.weight(1f)) {
+                    val statusText = when {
+                        isComplete -> "Check complete"
+                        isChecking -> progress.title
+                        progress.total > 0 -> "Checking ${progress.current} of ${progress.total}…"
+                        else -> "Checking…"
+                    }
+                    Text(
+                        text = statusText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (!isComplete && !isChecking && progress.total > 0 && progress.title.isNotBlank()) {
+                        Text(
+                            text = progress.title,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            // Progress bar
+            if (progress.total > 0) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .fillMaxWidth(animatedProgress)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            }
+        }
     }
 }

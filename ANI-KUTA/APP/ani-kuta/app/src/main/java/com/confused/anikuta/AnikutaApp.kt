@@ -163,24 +163,10 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             Logger.e("AnikutaApp", e) { "Failed to set Coil ImageLoader" }
         }
 
-        // Phase UP: Schedule the periodic UpdateCheckWorker (1h cadence).
+        // D-193 Phase 4: Schedule the UpdateCheckWorker using the configurable UpdateScheduler.
+        // Reads UpdatePreferences (mode + interval) + schedules/cancels accordingly.
         try {
-            val constraints = androidx.work.Constraints.Builder()
-                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
-                .setRequiresBatteryNotLow(true)
-                .build()
-            val request = androidx.work.PeriodicWorkRequestBuilder<
-                com.confused.anikuta.core.updates.UpdateCheckWorker
-            >(
-                com.confused.anikuta.core.updates.UpdateCheckWorker.PERIODIC_INTERVAL_HOURS,
-                java.util.concurrent.TimeUnit.HOURS,
-            ).setConstraints(constraints).build()
-            androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-                com.confused.anikuta.core.updates.UpdateCheckWorker.PERIODIC_WORK_NAME,
-                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                request,
-            )
-            Logger.i("AnikutaApp") { "UpdateCheckWorker scheduled (1h periodic, CONNECTED + BatteryNotLow)" }
+            org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.updates.UpdateScheduler>().reschedule()
         } catch (e: Exception) {
             Logger.e("AnikutaApp", e) { "Failed to schedule UpdateCheckWorker" }
         }
@@ -216,6 +202,22 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 get<com.confused.anikuta.core.schedule.ScheduleStore>()
             }
 
+            // D-193 Phase 9: bind ScheduleEngine as ScheduleRefresher (breaks circular dep).
+            single<com.confused.anikuta.core.updates.ScheduleRefresher> {
+                com.confused.anikuta.core.updates.ScheduleRefresher {
+                    get<com.confused.anikuta.core.schedule.ScheduleEngine>().fetchSchedule()
+                }
+            }
+
+            // D-193 Phase 9: bind NotificationManager as NotificationSender (breaks circular dep).
+            single<com.confused.anikuta.core.updates.NotificationSender> {
+                com.confused.anikuta.core.updates.NotificationSender { mainId, episodeNumber, audioVariant, triggerType ->
+                    get<com.confused.anikuta.core.notifications.NotificationManager>().postNotification(
+                        mainId, episodeNumber, audioVariant, triggerType,
+                    )
+                }
+            }
+
             // Session ID (for activity tracking — new per process restart)
             single(named("sessionId")) { UUID.randomUUID().toString() }
 
@@ -228,6 +230,8 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { com.confused.anikuta.core.preferences.NotificationPreferences(get()) }
             // D-192: SettingsRepository for backup/restore (mirrors PreferenceStore to app_settings table)
             single { com.confused.anikuta.core.preferences.SettingsRepository(get()) }
+            // D-193 Phase 3: UpdatePreferences for the updates settings
+            single { com.confused.anikuta.core.preferences.UpdatePreferences(get()) }
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)

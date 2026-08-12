@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:content"))
     implementation(project(":core:source-api"))
     implementation(project(":core:watch-progress"))
+    implementation(project(":core:preferences")) // D-193 Phase 4: UpdateScheduler needs UpdatePreferences
     implementation(project(":data:extension"))
     implementation(libs.sqldelight.coroutines.extensions)
     implementation(libs.androidx.work.runtime.ktx)

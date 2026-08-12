@@ -1,6 +1,7 @@
 package com.confused.anikuta
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -68,7 +69,13 @@ fun FirstRunSetupDialog(
     }
 
     val hasFolder = folderUri.isNotBlank()
-    val needsSetup = !hasNotificationPermission || !hasFolder
+
+    // D-193 v2: also check battery optimization exemption — needed for reliable
+    // background update checking + delayed notifications.
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+    val isIgnoringBatteryOptimizations = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+
+    val needsSetup = !hasNotificationPermission || !hasFolder || !isIgnoringBatteryOptimizations
 
     // State for which step we're on.
     var showFolderPicker by remember { mutableStateOf(false) }
@@ -183,8 +190,48 @@ fun FirstRunSetupDialog(
                         }
                     }
 
+                    // Step 3: Battery optimization (D-193 v2).
+                    if (!isIgnoringBatteryOptimizations) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "3. Battery Optimization",
+                            fontFamily = RobotoFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp,
+                        )
+                        Text(
+                            text = "Required for reliable background update checks + delayed notifications. Without it, notifications may not fire when the app is closed.",
+                            fontFamily = RobotoFamily,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                        )
+                        Button(
+                            onClick = {
+                                try {
+                                    val batteryIntent = Intent(
+                                        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    ).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(batteryIntent)
+                                } catch (e: Exception) {
+                                    // Some devices don't support the direct intent — fall back to
+                                    // the general battery-optimization settings page.
+                                    try {
+                                        val fallback = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                        context.startActivity(fallback)
+                                    } catch (_: Exception) { /* ignore */ }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Disable Battery Optimization", fontFamily = RobotoFamily)
+                        }
+                    }
+
                     // Status.
-                    if (hasNotificationPermission && hasFolder) {
+                    if (hasNotificationPermission && hasFolder && isIgnoringBatteryOptimizations) {
                         Text(
                             text = "✓ Setup complete!",
                             fontFamily = RobotoFamily,

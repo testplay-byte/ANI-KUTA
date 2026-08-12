@@ -11,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -45,6 +48,10 @@ class UpdateEngine(
     private val contentRepository: ContentRepository,
     private val watchProgressStore: WatchProgressStore,
     private val actualReleaseUpdater: ActualReleaseUpdater?,
+    // D-193 Phase 9: notification sender (nullable — tests can pass null).
+    private val notificationSender: NotificationSender? = null,
+    // D-193 Phase 6: update preferences for sub/dub checking toggles.
+    private val updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Updates"
@@ -61,30 +68,75 @@ class UpdateEngine(
 
     private val concurrencySemaphore = Semaphore(MAX_CONCURRENT)
 
+    // D-193 Phase 4: Live-progress flow — emitted before each anime check.
+    private val _checkProgress = MutableSharedFlow<CheckProgress>(replay = 1)
+    val checkProgress: SharedFlow<CheckProgress> = _checkProgress.asSharedFlow()
+
     /**
      * Checks all due anime for new episodes. Called by [UpdateCheckWorker] + pull-to-refresh.
      * Returns the number of new episodes found.
+     *
+     * D-193 Phase 4:
+     * - Accepts an optional `filterMainIds` for manual mode (only check selected categories).
+     * - Emits [CheckProgress] via [checkProgress] SharedFlow for live-progress UI.
      */
-    suspend fun checkDueAnime(): Int = withContext(Dispatchers.IO) {
+    suspend fun checkDueAnime(filterMainIds: Set<String>? = null): Int = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val dueAnime = updateStore.getDueAnime(now)
+        var dueAnime = updateStore.getDueAnime(now)
+
+        // D-193 v2 fix: also include FINISHED anime due for a dub check when the
+        // user has enabled "check dub on completed anime". These are anime where
+        // status=FINISHED but last_known_dub_count < total_episodes — a dub is
+        // still being released. Union by mainId (no duplicates).
+        val checkDubCompleted = updatePreferences?.getCheckDubCompleted() ?: true
+        if (checkDubCompleted) {
+            val dueDub = updateStore.getDueDubAnime(now)
+            if (dueDub.isNotEmpty()) {
+                val existingIds = dueAnime.mapTo(mutableSetOf()) { it.mainId }
+                dueAnime = dueAnime + dueDub.filter { it.mainId !in existingIds }
+            }
+        }
+
+        // D-193 Phase 4: manual mode — filter to selected categories only.
+        if (filterMainIds != null) {
+            dueAnime = dueAnime.filter { it.mainId in filterMainIds }
+        }
+
         if (dueAnime.isEmpty()) {
             Logger.i(TAG) { "checkDueAnime — no anime due for check" }
+            _checkProgress.tryEmit(CheckProgress(0, 0, "", "", null))
             return@withContext 0
         }
 
-        Logger.i(TAG) { "checkDueAnime — ${dueAnime.size} anime due for check" }
+        Logger.i(TAG) { "checkDueAnime — ${dueAnime.size} anime due for check (filter=${filterMainIds?.size ?: "all"})" }
         var totalNew = 0
+        var current = 0
+        val total = dueAnime.size
 
         // T7: check up to MAX_CONCURRENT in parallel.
         coroutineScope {
             dueAnime.map { state ->
                 async {
+                    // D-193 Phase 4: emit progress before each check.
+                    val content = contentRepository.getContentByMainId(state.mainId)
+                    val title = content?.title ?: "Unknown"
+                    // D-193 Phase 5: look up cover URL for the live-progress banner.
+                    val anilistDetail = content?.let { contentRepository.getAniListDetail(it.mainId) }
+                    val extDetail = content?.let { contentRepository.getExtensionDetail(it.mainId) }
+                    val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+                    synchronized(this@UpdateEngine) {
+                        current++
+                        _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
+                    }
+
                     val newCount = checkSingleAnime(state, now)
                     synchronized(this@UpdateEngine) { totalNew += newCount }
                 }
             }.awaitAll()
         }
+
+        // D-193 Phase 4: emit terminal progress.
+        _checkProgress.tryEmit(CheckProgress(total, total, "", "", null))
 
         Logger.i(TAG) { "checkDueAnime — complete. $totalNew new episode(s) found." }
         totalNew
@@ -123,6 +175,8 @@ class UpdateEngine(
                     lastKnownEpisodeCount = state.lastKnownEpisodeCount ?: 0,
                     consecutiveFailures = failures,
                     backoffStep = state.backoffStep,
+                    lastKnownDubCount = state.lastKnownDubCount,
+                    lastCheckedDubAt = state.lastCheckedDubAt,
                 )
                 Logger.w(TAG) { "checkSingleAnime — source unavailable ($failures/$MAX_FAILURES): mainId=$mainId" }
             }
@@ -148,53 +202,102 @@ class UpdateEngine(
                     lastKnownEpisodeCount = maxEpisodeNumber.toLong(),
                     consecutiveFailures = 0,
                     backoffStep = backoffStep,
+                    lastKnownDubCount = state.lastKnownDubCount,
+                    lastCheckedDubAt = state.lastCheckedDubAt,
                 )
                 Logger.d(TAG) { "checkSingleAnime — no new episodes: mainId=$mainId lastKnown=$lastKnown max=$maxEpisodeNumber nextCheck=${backoffStep}h backoff" }
                 0
             } else {
-                // New episodes found — insert them.
-                val newEpisodes = episodes.filter { it.episode_number.toDouble() > lastKnown }
+                // D-193 Phase 6: Variant-aware new-episode detection.
+                // Partition episodes by audio variant (sub/dub/unknown).
+                // "unknown" episodes are treated as "sub" for count purposes (conservative default).
+                val partitioned = episodes.groupBy { parseAudioVariant(it.scanlator, it.name) }
+                val subEpisodes = (partitioned["sub"] ?: emptyList()) + (partitioned["unknown"] ?: emptyList())
+                val dubEpisodes = partitioned["dub"] ?: emptyList()
+
+                val maxSub = subEpisodes.maxOfOrNull { it.episode_number.toInt() } ?: 0
+                val maxDub = dubEpisodes.maxOfOrNull { it.episode_number.toInt() } ?: 0
+
+                val lastKnownSub = state.lastKnownEpisodeCount ?: 0
+                val lastKnownDub = state.lastKnownDubCount ?: 0
+
+                // D-193 v2 fix: the Sub/Dub/Both toggle gates NOTIFICATIONS only,
+                // NOT checking. The engine ALWAYS inserts new rows for both sub + dub
+                // so they appear in the Updates feed. The toggle is honored by
+                // NotificationManager (which reads updatePreferences) at notify time.
                 var inserted = 0
-                for (ep in newEpisodes) {
+                val threeDaysMs = 3L * 24 * 60 * 60 * 1000
+
+                // New SUB episodes — always insert.
+                for (ep in subEpisodes) {
                     val epNum = ep.episode_number.toInt()
-                    val epKey = "$mainId|${String.format("%05d", epNum)}"
-                    val audioVariant = parseAudioVariant(ep.scanlator, ep.name)
+                    if (epNum > lastKnownSub) {
+                        val epKey = "$mainId|${String.format("%05d", epNum)}"
+                        val isWatched = watchProgressStore.isWatched(epKey)
+                        updateStore.upsertEpisodeUpdate(
+                            mainId = mainId, episodeKey = epKey,
+                            episodeNumber = ep.episode_number.toDouble(),
+                            episodeTitle = ep.name, sourceId = sourceId,
+                            audioVariant = "sub", discoveredAt = now,
+                            acknowledged = isWatched,
+                            acknowledgedAt = if (isWatched) now else null,
+                            newExpiresAt = if (isWatched) null else now + threeDaysMs,
+                        )
+                        inserted++
+                        Logger.i(TAG) { "checkSingleAnime — NEW SUB: mainId=$mainId ep=$epNum watched=$isWatched" }
+                        if (!isWatched) {
+                            notificationSender?.postNotification(mainId, epNum.toLong(), "sub", "watchable")
+                        }
+                        val sourceDateUpload = ep.date_upload
+                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
+                            if (sourceDateUpload > 0) sourceDateUpload else now)
+                    }
+                }
 
-                    // M5: suppress already-watched episodes.
-                    val isWatched = watchProgressStore.isWatched(epKey)
-                    updateStore.upsertEpisodeUpdate(
-                        mainId = mainId,
-                        episodeKey = epKey,
-                        episodeNumber = ep.episode_number.toDouble(),
-                        episodeTitle = ep.name,
-                        sourceId = sourceId,
-                        audioVariant = audioVariant,
-                        discoveredAt = now,
-                        acknowledged = isWatched, // M5: pre-acknowledge if already watched.
-                        acknowledgedAt = if (isWatched) now else null,
-                    )
-                    inserted++
-                    Logger.i(TAG) { "checkSingleAnime — NEW episode: mainId=$mainId ep=$epNum audio=$audioVariant watched=$isWatched" }
-
-                    // Phase SC-2 (IM11): update episode_schedule.actual_at with the source's
-                    // dateUpload (the claimed upload time). Falls back to discoveredAt (now).
-                    val sourceDateUpload = ep.date_upload
-                    val actualAt = if (sourceDateUpload > 0) sourceDateUpload else now
-                    actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(), actualAt)
+                // New DUB episodes — always insert.
+                for (ep in dubEpisodes) {
+                    val epNum = ep.episode_number.toInt()
+                    if (epNum > lastKnownDub) {
+                        val epKey = "$mainId|${String.format("%05d", epNum)}_dub"
+                        val isWatched = watchProgressStore.isWatched(epKey)
+                        updateStore.upsertEpisodeUpdate(
+                            mainId = mainId, episodeKey = epKey,
+                            episodeNumber = ep.episode_number.toDouble(),
+                            episodeTitle = ep.name, sourceId = sourceId,
+                            audioVariant = "dub", discoveredAt = now,
+                            acknowledged = isWatched,
+                            acknowledgedAt = if (isWatched) now else null,
+                            newExpiresAt = if (isWatched) null else now + threeDaysMs,
+                        )
+                        inserted++
+                        Logger.i(TAG) { "checkSingleAnime — NEW DUB: mainId=$mainId ep=$epNum watched=$isWatched" }
+                        if (!isWatched) {
+                            notificationSender?.postNotification(mainId, epNum.toLong(), "dub", "watchable")
+                        }
+                        val sourceDateUpload = ep.date_upload
+                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
+                            if (sourceDateUpload > 0) sourceDateUpload else now)
+                    }
                 }
 
                 // Reset backoff + compute next_check_at from next airing (or +24h fallback).
                 val nextCheckAt = state.nextAiringAt?.let { it + TimeUnit.HOURS.toMillis(1) }
                     ?: (now + TimeUnit.HOURS.toMillis(24))
+
+                // D-193 v2 fix: always update BOTH sub + dub counts (we always check both).
+                val newMaxSub = maxOf(maxSub, lastKnownSub.toInt())
+                val newMaxDub = maxOf(maxDub, lastKnownDub.toInt())
                 updateStore.updateCheckResult(
                     mainId = mainId,
                     lastCheckedAt = now,
                     nextCheckAt = nextCheckAt,
-                    lastKnownEpisodeCount = maxEpisodeNumber.toLong(),
+                    lastKnownEpisodeCount = newMaxSub.toLong(),
                     consecutiveFailures = 0,
                     backoffStep = 0,
+                    lastKnownDubCount = newMaxDub.toLong(),
+                    lastCheckedDubAt = now,
                 )
-                Logger.i(TAG) { "checkSingleAnime — $inserted new episode(s): mainId=$mainId lastKnown=$lastKnown→${maxEpisodeNumber.toLong()}" }
+                Logger.i(TAG) { "checkSingleAnime — $inserted new episode(s): mainId=$mainId sub=$lastKnownSub→$newMaxSub dub=$lastKnownDub→$newMaxDub" }
                 inserted
             }
         } catch (e: Exception) {
@@ -210,6 +313,8 @@ class UpdateEngine(
                     lastKnownEpisodeCount = state.lastKnownEpisodeCount ?: 0,
                     consecutiveFailures = failures,
                     backoffStep = state.backoffStep,
+                    lastKnownDubCount = state.lastKnownDubCount,
+                    lastCheckedDubAt = state.lastCheckedDubAt,
                 )
             }
             0
@@ -222,7 +327,14 @@ class UpdateEngine(
      * Inserts any new episodes with acknowledged=1 (pre-acknowledged — no notification spam).
      */
     suspend fun onEpisodesRefreshed(mainId: String, latestEpisodeNumber: Int) = withContext(Dispatchers.IO) {
-        val state = updateStore.getAnimeUpdateState(mainId) ?: return@withContext
+        // D-193 Phase 1: ensure the update state exists before proceeding.
+        // This fixes the ordering bug where onEpisodesRefreshed fires before
+        // ensureUpdateState (user links source before adding to library).
+        var state = updateStore.getAnimeUpdateState(mainId)
+        if (state == null) {
+            ensureUpdateState(mainId)
+            state = updateStore.getAnimeUpdateState(mainId) ?: return@withContext
+        }
         val lastKnown = state.lastKnownEpisodeCount ?: 0
         if (latestEpisodeNumber <= lastKnown) return@withContext
 
@@ -244,11 +356,13 @@ class UpdateEngine(
                 acknowledgedAt = now,
                 batchType = "initial",
                 episodeCount = latestEpisodeNumber.toLong(),
+                newExpiresAt = null, // initial batch never expires as "new"
             )
             Logger.i(TAG) { "onEpisodesRefreshed — INITIAL BATCH: mainId=$mainId episodes=1-$latestEpisodeNumber (one row, acknowledged)" }
         } else {
             // SUBSEQUENT REFRESH — create individual "new" rows for episodes > lastKnown.
             // These ARE new episodes the user hasn't seen before.
+            val threeDaysMs = 3L * 24 * 60 * 60 * 1000 // 3 days in millis
             for (epNum in (lastKnown + 1).toInt()..latestEpisodeNumber) {
                 val epKey = "$mainId|${String.format("%05d", epNum)}"
                 updateStore.upsertEpisodeUpdate(
@@ -263,6 +377,7 @@ class UpdateEngine(
                     acknowledgedAt = now,
                     batchType = "new",
                     episodeCount = null,
+                    newExpiresAt = now + threeDaysMs, // D-193 Phase 2: expires as "new" after 3 days
                 )
             }
             Logger.i(TAG) { "onEpisodesRefreshed — NEW EPISODES: mainId=$mainId episodes=${lastKnown + 1}-$latestEpisodeNumber (${latestEpisodeNumber - lastKnown} new)" }
@@ -278,6 +393,8 @@ class UpdateEngine(
             lastKnownEpisodeCount = latestEpisodeNumber.toLong(),
             consecutiveFailures = 0,
             backoffStep = 0,
+            lastKnownDubCount = state.lastKnownDubCount, // preserve existing dub count
+            lastCheckedDubAt = state.lastCheckedDubAt,
         )
     }
 
@@ -323,3 +440,20 @@ class UpdateEngine(
         }
     }
 }
+
+/**
+ * D-193 Phase 4: Live-progress data emitted by [UpdateEngine.checkDueAnime].
+ *
+ * @param current The current anime being checked (1-based).
+ * @param total The total number of anime to check.
+ * @param mainId The mainId of the current anime (empty for terminal/completion).
+ * @param title The title of the current anime (empty for terminal).
+ * @param coverUrl The cover URL of the current anime (null — UI can fetch separately).
+ */
+data class CheckProgress(
+    val current: Int,
+    val total: Int,
+    val mainId: String,
+    val title: String,
+    val coverUrl: String?,
+)
