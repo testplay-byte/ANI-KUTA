@@ -228,7 +228,7 @@ class UpdateEngine(
 
         val now = System.currentTimeMillis()
 
-        if (lastKnown == 0) {
+        if (lastKnown == 0L) {
             // D-192 Phase 3: FIRST LINK — create ONE "initial batch" row (not per-episode).
             // The user wants: "it will only create one single row for those whole episodes"
             // with text "Episodes 1-N added to library", NOT marked as new.
