@@ -229,6 +229,10 @@ data class DownloadedEpisode(
     val sizeBytes: Long,
     val quality: String?,
     val completedAt: Long,
+    // D-192 Phase 4: source tracking fields (were hardcoded to null — data loss on transition from download_queue)
+    val sourceId: Long? = null,
+    val videoServer: String? = null,
+    val videoAudio: String? = null,
 )
 
 /**

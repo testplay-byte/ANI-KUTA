@@ -481,6 +481,10 @@ class DownloadQueue(
                                 sizeBytes = 0L, // Best-effort — the actual file size is on disk.
                                 quality = completedTask.videoQuality.ifBlank { null },
                                 completedAt = completedTask.completedAt ?: now(),
+                                // D-192 Phase 4: pass source tracking fields (were lost on transition)
+                                sourceId = completedTask.content.sourceId,
+                                videoServer = completedTask.videoServer.ifBlank { null },
+                                videoAudio = completedTask.videoAudio.ifBlank { null },
                             )
                             store.insertDownloadedEpisode(downloadedEp)
                             DownloadLogger.i { "launchDownload — inserted into downloaded_episode table for task ${task.id}" }

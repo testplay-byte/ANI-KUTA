@@ -84,6 +84,12 @@ class DetailsViewModel(
         private const val KEY_SOURCE_LINK_PREFIX = "details_source_link:"
     }
 
+    // D-192 Phase 5: Load generation counter — prevents stale-state flash.
+    // Incremented on every load. Async blocks capture the generation at start
+    // + check before writing state. If the generation changed, the async result
+    // is from a previous content load → discarded (no flash of old data).
+    private var loadGeneration = 0
+
     private val _state = MutableStateFlow<DetailsState>(DetailsState.Loading)
     val state: StateFlow<DetailsState> = _state.asStateFlow()
 
@@ -422,6 +428,9 @@ class DetailsViewModel(
 
     fun loadFromAniList(animeId: Int) {
         currentAnimeId = animeId
+        // D-192 Phase 5: Increment generation — async blocks from previous loads will be discarded.
+        loadGeneration++
+        val gen = loadGeneration
         // CRITICAL: Reset ALL state when loading a new anime (D-131).
         _state.value = DetailsState.Loading
         _autoLinkState.value = AutoLinkState.Idle
@@ -439,6 +448,22 @@ class DetailsViewModel(
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
+
+        // D-192 Phase 5: Synchronous source-link pre-read (fixes "no source linked" race — #21).
+        // Read the saved source link from PreferenceStore SYNCHRONOUSLY (SharedPreferences
+        // is in-memory cached) so the UI shows the correct linked source immediately —
+        // no async gap where "No Source" is shown despite being linked.
+        val savedLink = preferenceStore.getString(KEY_SOURCE_LINK_PREFIX + animeId, "")
+        if (savedLink.isNotBlank()) {
+            val parts = savedLink.split(":", limit = 2)
+            if (parts.size == 2) {
+                val sourceId = parts[0].toLongOrNull()
+                if (sourceId != null) {
+                    _linkedSource.value = LinkedSource(sourceId, "", parts[1])
+                }
+            }
+        }
+
         viewModelScope.launch {
             try {
                 // D.1: Check the local data cache first — if cached, display instantly.
@@ -783,6 +808,8 @@ class DetailsViewModel(
 
     fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?) {
         currentAnimeId = 0 // No AniList ID yet — will be set by auto-link if it matches.
+        // D-192 Phase 5: Increment generation — async blocks from previous loads will be discarded.
+        loadGeneration++
         // CRITICAL: Reset ALL state when loading a new anime (D-131).
         _state.value = DetailsState.Loading
         _autoLinkState.value = AutoLinkState.Idle

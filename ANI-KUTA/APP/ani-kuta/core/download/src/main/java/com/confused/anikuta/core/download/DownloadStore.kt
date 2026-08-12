@@ -281,9 +281,9 @@ class DownloadStore(private val database: AnikutaDatabase) {
             video_uri = episode.videoUri,
             video_file_name = episode.videoUri.substringAfterLast('/'),
             subtitle_uris = encodeStringList(episode.subtitleUris),
-            source_id = null,
-            video_server = null,
-            video_audio = null,
+            source_id = episode.sourceId,
+            video_server = episode.videoServer,
+            video_audio = episode.videoAudio,
             verified_at = System.currentTimeMillis(),
             downloaded_at = episode.completedAt,
         )
@@ -427,6 +427,9 @@ class DownloadStore(private val database: AnikutaDatabase) {
             sizeBytes = file_size,
             quality = quality,
             completedAt = downloaded_at,
+            sourceId = source_id,
+            videoServer = video_server,
+            videoAudio = video_audio,
         )
     }
 
