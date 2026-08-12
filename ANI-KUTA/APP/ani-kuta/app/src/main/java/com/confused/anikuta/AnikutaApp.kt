@@ -244,6 +244,8 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { com.confused.anikuta.core.preferences.NotificationPreferences(get()) }
             // D-192: SettingsRepository for backup/restore (mirrors PreferenceStore to app_settings table)
             single { com.confused.anikuta.core.preferences.SettingsRepository(get()) }
+            // D-193 Phase 3: UpdatePreferences for the updates settings
+            single { com.confused.anikuta.core.preferences.UpdatePreferences(get()) }
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)

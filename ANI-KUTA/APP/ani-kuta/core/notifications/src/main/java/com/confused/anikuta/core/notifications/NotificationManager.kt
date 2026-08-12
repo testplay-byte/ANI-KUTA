@@ -162,4 +162,49 @@ class NotificationManager(
             Logger.i(TAG) { "Silent notification channel created: $CHANNEL_ID_SILENT" }
         }
     }
+
+    /**
+     * D-193 Phase 7: Post a test notification (for the "Send test notification" button).
+     *
+     * Posts a demo notification with hardcoded content: "Demon Slayer — Episode 6 DUB".
+     * Bypasses per-anime config (it's a test). Uses the default channel (with sound).
+     * Dedicated notification ID (999) for cancellation.
+     */
+    suspend fun postTestNotification() {
+        if (!preferences.notificationsEnabled) {
+            Logger.w(TAG) { "postTestNotification — master toggle is OFF, not posting" }
+            return
+        }
+
+        // Check POST_NOTIFICATIONS permission on Android 13+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            val granted = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                Logger.w(TAG) { "postTestNotification — POST_NOTIFICATIONS not granted" }
+                return
+            }
+        }
+
+        ensureDefaultChannel()
+
+        val title = "New episode available"
+        val text = "Demon Slayer — Episode 6 DUB"
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(999, builder.build())
+            Logger.i(TAG) { "Test notification posted: '$text'" }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Failed to post test notification: ${e.message}" }
+        }
+    }
 }

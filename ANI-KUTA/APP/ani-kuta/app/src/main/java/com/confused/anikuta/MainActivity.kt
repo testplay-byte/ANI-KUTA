@@ -139,6 +139,13 @@ object NotificationsKey : NavKey
 @Serializable
 object NotificationsLibraryKey : NavKey
 
+// D-193 Phase 3: combined Updates & Notifications settings
+@Serializable
+object UpdatesSettingsKey : NavKey
+
+@Serializable
+object UpdateCategoriesKey : NavKey
+
 @Serializable
 object AppearanceKey : NavKey
 
@@ -495,10 +502,42 @@ fun AppRoot() {
                 onOpenAppearance = { backstack.add(AppearanceKey) },
                 onOpenExtensions = { backstack.add(ExtensionsSettingsKey) },
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
-                onOpenNotifications = { backstack.add(NotificationsKey) },
+                onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onBack = pop,
             )
+            // D-193 Phase 3: combined Updates & Notifications settings
+            is UpdatesSettingsKey -> UpdatesSettingsScreen(
+                onBack = pop,
+                onOpenDefaults = { backstack.add(NotificationsKey) },
+                onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
+                onOpenCategories = { backstack.add(UpdateCategoriesKey) },
+                onCheckNow = {
+                    // Trigger manual check via coroutine
+                    kotlinx.coroutines.GlobalScope.launch {
+                        try {
+                            val engine = org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.updates.UpdateEngine>()
+                            engine.checkDueAnime()
+                        } catch (e: Exception) {
+                            Logger.w("Anikuta:MainActivity") { "Manual check failed: ${e.message}" }
+                        }
+                    }
+                },
+                onSendTestNotification = {
+                    kotlinx.coroutines.GlobalScope.launch {
+                        try {
+                            val notifMgr = org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.notifications.NotificationManager>()
+                            notifMgr.postTestNotification()
+                        } catch (e: Exception) {
+                            Logger.w("Anikuta:MainActivity") { "Test notification failed: ${e.message}" }
+                        }
+                    }
+                },
+            )
+            is UpdateCategoriesKey -> {
+                // D-193 Phase 3: per-category checklist (placeholder — will be built in Phase 3 continuation)
+                Text("Update Categories — coming soon")
+            }
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
