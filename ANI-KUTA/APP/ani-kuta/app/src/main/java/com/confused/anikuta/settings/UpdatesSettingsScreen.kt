@@ -81,6 +81,21 @@ fun UpdatesSettingsScreen(
     val notifEnabled by notificationPreferences.notificationsEnabledFlow().collectAsState(initial = true)
 
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showBatteryDialog by remember { mutableStateOf(false) }
+
+    // D-193 Phase 4: Check battery optimization when notifications are enabled.
+    fun onNotificationsToggled(enabled: Boolean) {
+        notificationPreferences.notificationsEnabled = enabled
+        if (enabled) {
+            // Check if battery optimizations are disabled (app is exempt).
+            val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            val isIgnoring = pm.isIgnoringBatteryOptimizations(context.packageName)
+            if (!isIgnoring) {
+                showBatteryDialog = true
+            }
+        }
+    }
 
     // Derive the 3-way audio check state from the two booleans.
     val audioCheckIndex = when {
@@ -231,7 +246,7 @@ fun UpdatesSettingsScreen(
                                 title = "Enable notifications",
                                 description = "Master switch for all notifications",
                                 checked = notifEnabled,
-                                onCheckedChange = { notificationPreferences.notificationsEnabled = it },
+                                onCheckedChange = { onNotificationsToggled(it) },
                             )
                         }
                     }
@@ -393,6 +408,26 @@ private fun NavRowContent(
             )
         }
     }
+
+    // D-193 Phase 4: Battery optimization dialog
+    if (showBatteryDialog) {
+        BatteryOptimizationDialog(
+            onDismiss = { showBatteryDialog = false },
+            onAllow = {
+                showBatteryDialog = false
+                try {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    ).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                    }
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    Logger.e("Anikuta:Settings", e) { "Failed to request battery optimization exemption" }
+                }
+            },
+        )
+    }
 }
 
 // ── Helpers ──
@@ -415,4 +450,35 @@ private fun formatIntervalShort(hours: Long): String = when (hours) {
     72L -> "3d"
     168L -> "1w"
     else -> "${hours}h"
+}
+
+// D-193 Phase 4: Battery optimization dialog
+@Composable
+private fun BatteryOptimizationDialog(
+    onDismiss: () -> Unit,
+    onAllow: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Battery optimization", fontWeight = FontWeight.Bold) },
+        text = {
+            Text(
+                text = "This permission is required to get accurate notifications. " +
+                    "Without it, notifications may not fire when the app is closed. " +
+                    "Tap 'Allow' to disable battery optimization for ANI-KUTA.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = onAllow) {
+                Text("Allow", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text("Skip")
+            }
+        },
+    )
 }

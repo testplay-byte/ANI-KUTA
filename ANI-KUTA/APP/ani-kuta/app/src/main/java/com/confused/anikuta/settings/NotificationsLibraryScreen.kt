@@ -332,6 +332,13 @@ private fun AnimeConfigSheet(
 
             Spacer(Modifier.height(8.dp))
 
+            // D-193 Phase 3: Only show trigger options when the per-anime toggle is ON.
+            AnimatedVisibility(
+                visible = config.enabled,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Column {
             // On schedule — 2-way On/Off Switch
             ConfigToggle(
                 title = "On schedule",
@@ -367,6 +374,8 @@ private fun AnimeConfigSheet(
                 modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
             )
             Spacer(Modifier.height(8.dp))
+                } // close Column
+            } // close AnimatedVisibility
         }
     }
 }
