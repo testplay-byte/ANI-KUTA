@@ -120,6 +120,8 @@ class NotificationManager(
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(priority)
             .setAutoCancel(true)
+            // D-193 Phase 7: tap action — deep-link to MainActivity (which opens the details page).
+            .setContentIntent(createDetailsPendingIntent(mainId))
             .build()
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -206,5 +208,28 @@ class NotificationManager(
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to post test notification: ${e.message}" }
         }
+    }
+
+    /**
+     * D-193 Phase 7: Create a PendingIntent that opens the app with the mainId extra.
+     * MainActivity reads the extra + navigates to the details page for this content.
+     * Uses the launcher Intent (package-based) to avoid a direct class reference
+     * (which would create a circular dep between :core:notifications and :app).
+     */
+    private fun createDetailsPendingIntent(mainId: String): android.app.PendingIntent {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("notification_main_id", mainId)
+        } ?: android.content.Intent().apply {
+            setPackage(context.packageName)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra("notification_main_id", mainId)
+        }
+        return android.app.PendingIntent.getActivity(
+            context,
+            mainId.hashCode(),
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }

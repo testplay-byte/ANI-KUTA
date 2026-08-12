@@ -137,6 +137,20 @@ class ScheduleEngine(
                                 triggerType = "immediate",
                             )
                         }
+
+                        // D-193 Phase 7: fire "on_schedule" notification when the airing time
+                        // is reached (within the last hour — this catches episodes that just aired).
+                        // This is a REMINDER ("should be available now") — distinct from "on_watchable"
+                        // (which fires when the episode is confirmed on the extension).
+                        val oneHourAgo = now - (60 * 60 * 1000L)
+                        if (airingAtMs <= now && airingAtMs > oneHourAgo && notificationManager != null) {
+                            notificationManager.postNotification(
+                                mainId = mainId,
+                                episodeNumber = node.episode.toLong(),
+                                audioVariant = "unknown",
+                                triggerType = "schedule",
+                            )
+                        }
                     }
                 }
                 Logger.d(TAG) { "fetchSchedule — batch of ${batch.size} fetched (${results.size} results)" }
