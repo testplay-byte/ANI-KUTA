@@ -1,0 +1,1 @@
+In this folder the files uploaded by the user are available. You can check them out and handle them properly and you can delete them afterwards too if they are not needed or such. Make sure to handle the things in this folder properly and as they are needed to be handled.
