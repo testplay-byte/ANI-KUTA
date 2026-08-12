@@ -145,15 +145,48 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 | 9 | **DB migrations use `onOpen` not `.sqm` files** — acceptable for debug (CORE_RULES §30); needs `.sqm` + `user_version` before production | Low (debug) | ~2-4h | Wait for user's production signal. |
 | 10 | **Release signing not configured** — only `debug` buildType declared; debug keystore committed | Expected | ~1-2h | Phase 9. Wait for user's production signal. |
 | 11 | **Dashboard `schema.ts` uses planned Phase-1 table names** not actual current schema | Low | ~2-3h | Changes DB page UI. Deferred (dashboard polish). |
+| 12 | **`activity_event` table is EMPTY** (0 rows) despite 7 episodes watched — `ActivityTracker.track()` has ZERO callers. The watch flow (DetailsViewModel/WatchScreen) never records activity events. Profile page stats derive from `watch_progress` instead (works, but activity_event is dead). | High | ~2-3h | Wire `activityTracker.track(WatchEvent)` in WatchScreen on play/pause/complete + DetailsViewModel on library/rating changes. |
+| 13 | **Updates tab not detecting new episodes** — `episode_update` table is EMPTY (0 rows); `anime_update_state` has 15 rows but ALL `acknowledged=0` + the refresh button does nothing visible. The Updates engine + WorkManager are not firing or not writing results. | High | ~4-6h | Investigate `:core:updates` module — is the WorkManager job scheduled? Is the AniList airing query firing? Are results being written to `episode_update`? |
+| 14 | **Notifications are UI-only** — `notification_config` + `notification_sent` tables are EMPTY (0 rows). The settings UI exists but no notification posting logic is wired for actual new-episode detection. Blocked by #13 (Updates must work first). | Medium | ~4-6h | Blocked by #13. Once Updates detect new episodes, wire NotificationManager to post per-anime config. |
+| 15 | **Download concurrency bug** — starting a 2nd download auto-cancels the 1st. The download queue should support parallel downloads (or at least queue them, not cancel). User reported: "the previous one got automatically canceled and the new one started to download." | High | ~3-4h | Investigate `DownloadQueue` / `DownloadOrchestrator` — is there a max-concurrent=1 setting that cancels instead of queuing? |
+| 16 | **Download UI missing server/audio info** — `downloaded_episode.source_id`, `video_server`, `video_audio` are all NULL in the DB. The Downloads page doesn't show which server or audio version (SUB/DUB) is downloading/downloaded. | Medium | ~2-3h | Wire the resolver's server-name + audio-variant through to `DownloadedEpisode` + display in Downloads page row. |
+| 17 | **`downloaded_episode.file_size = "0"`** — the file size isn't recorded after download. Minor, but useful for display + storage management. | Low | ~0.5h | Set `file_size` from the downloaded file's length after completion. |
+| 18 | **Extensions page lag with ~240 available extensions** — scrolling to "Available" section jitters/lags. 240 extension icons fetched from `raw.githubusercontent.com` (network log shows 240 requests). Likely: no lazy loading of icons + no list virtualization optimization. | Medium | ~2-3h | LazyColumn is already used — investigate if icons are being fetched synchronously or if the list items are too heavy. Consider pre-fetching icons in batch + caching. |
+| 19 | **Extensions need better filtering** — by language, by NSFW, by installed status. Currently only a basic search. User wants granular filtering for ~240-extension repos. | Medium | ~2-3h | Add filter chips (language dropdown, NSFW toggle, installed-status toggle) to ExtensionsSettingsScreen. |
+| 20 | **Details page stale-state flash** — opening content B after closing content A shows a brief glimpse of content A's data. Subtle but visible. Race condition in DetailsViewModel state clearing. | Low-Medium | ~1-2h | Ensure `_state.value = Loading` is set SYNCHRONOUSLY when the NavKey changes, before any async load. Clear all state flows (anime, episodes, metadata, autoLink) at the start of `loadFromAniList`/`loadFromExtension`. |
+| 21 | **Details page "No source linked" occasionally shown despite being linked** — race condition. The `loadLinkedSource` restoration runs async; if the UI renders before it completes, it shows "no source". Going back + reopening fixes it. | Medium | ~1-2h | Initialize `_linkedSource` from a synchronous PreferenceStore read (already cached in memory) BEFORE the async content load. Or show a loading state instead of "no source" until `loadLinkedSource` completes. |
+| 22 | **`user_customization` table is EMPTY** despite user changing appearance (accent/theme). Appearance settings may be persisted via PreferenceStore (SharedPreferences) not the DB table. Inconsistency: some settings in DB, some in SharedPreferences. | Low-Medium | ~1-2h | Audit where appearance settings are stored. If PreferenceStore is correct, drop `user_customization` table (dead). If DB is correct, wire the Appearance screen to write to it. |
 
 ## Last Updated
-- Session: **D-190 multi-source episode metadata engine** (Z.ai Code sandbox) — user reported the old episode metadata fetching was "junky" + requested a proper multi-source engine using AniZip + Kitsu + Jikan, future-proof for TMDB, with extra fields (filler, etc.) stored in DB.
-- By: main agent (research + design + implementation) + 2 Explore sub-agents (plan review + compile review — both clean).
-- Branch: `feature/episode-metadata-engine` (awaiting user device verification before merge to `main`).
-- CI: pending push (12 files changed — expected green; sub-agent compile review PASSED with zero errors).
-- Note: D-001..D-190 decisions. All major phases complete + on `main`. Previous session (D-189 FK crash fix) MERGED to `main` + branch deleted. This session: built the multi-source episode metadata engine (AniZip + Jikan + Kitsu) with pluggable provider architecture + 8 new DB columns (filler, recap, japanese title, etc.). Next: user reinstalls (schema change) + tests episode metadata loading + exports DB for quality analysis.
+- Session: **DB analysis + deferred-concerns expansion (D-191)** — user completed the full DB test checklist + uploaded 3 export files (DATABASE.json, NETWORK.log, DATABASE-ACTIVITY.log). Agent analyzed all 3 + expanded the Deferred Concerns registry from 11 → 22 items.
+- By: main agent (DB analysis + concerns registry expansion).
+- Branch: `docs/db-analysis-and-concerns` (awaiting push).
+- Note: D-001..D-191 decisions. D-190 (episode metadata engine) MERGED to `main` + branch deleted — user verified it works. This session: analyzed the user's DB exports, found 11 new concerns (12-22), delivered comprehensive DB-quality analysis + improvement recommendations. No code changes — docs + analysis only.
 
-## Session — D-190 Multi-Source Episode Metadata Engine (this session)
+## Session — D-191 DB Analysis + Deferred-Concerns Expansion (this session)
+### What was done
+- User completed the full DB test checklist (Phase 0-14) + uploaded 3 export files to `USER-UPLOADS/` on the repo:
+  - `DATABASE.json` (228KB) — full DB export via debug bubble Database tab.
+  - `NETWORK.log.txt` (8KB) — network activity via debug bubble Network tab.
+  - `DATABASE-ACTIVITY.log.txt` (41KB) — SQL read/write trace via debug bubble DB Activity tab.
+- Agent downloaded + analyzed all 3 files. Findings:
+  - **DB is mostly healthy**: 501 rows across 28 tables. Zero FK orphans (all main_id references resolve). Lookup tables seeded correctly. D-190 enrichment working well (143 episodes with 88-115 having japanese titles, romaji, runtime, thumbnails, descriptions).
+  - **D-190 metadata engine confirmed working**: AniZip (19 reqs), Jikan (22 reqs), Kitsu (19 reqs) all firing. 52/143 episodes have filler/recap/score from Jikan (the rest have null = unknown, which is correct per D-190 design).
+  - **11 new concerns found** (added to Deferred Concerns registry as #12-22): activity_event empty (zero callers of ActivityTracker.track), Updates not detecting episodes, Notifications UI-only, download concurrency bug (2nd cancels 1st), download missing server/audio info, file_size=0, extensions page lag (240 icons), extensions need filtering, details page stale-state flash, "no source linked" race, user_customization table empty.
+- User also corrected a checklist gap: Phase 5 (watch an episode) didn't clearly state extensions are a hard prerequisite. Agent acknowledged + saved as a lesson.
+
+### DB-quality analysis verdict
+The database is **well-structured + mostly healthy**, but has 11 functional gaps (most are "feature not wired" not "schema wrong"). The schema itself is sound — 28 tables, proper FK relationships (post-D-189), good index coverage (post-D-166), zero orphans. The issues are at the application layer (features not writing to the DB), not the schema layer. See the comprehensive analysis delivered to the user + the 11 new Deferred Concerns (#12-22).
+
+### CI status
+- No code changes — docs + analysis only. Awaiting push to `docs/db-analysis-and-concerns`.
+
+### What's next
+- User reviews the DB analysis + decides which concerns to prioritize.
+- Highest-impact fixes: #12 (activity_event — wire ActivityTracker), #13 (Updates — investigate WorkManager), #15 (download concurrency — fix cancel-instead-of-queue).
+- User may request a DB schema cleanup phase (drop dead tables: `content_ext`, `user_customization` if confirmed unused).
+
+## Session — D-190 Multi-Source Episode Metadata Engine (previous session — MERGED to main)
 ### What was done
 - **Research**: read current `EpisodeMetadataFetcher` (standalone, non-pluggable, uses Anikage.cc). Fetched + verified 3 APIs live (AniZip `api.ani.zip/mappings`, Jikan `api.jikan.moe/v4`, Kitsu GraphQL). Read Dantotsu reference repo (`Anify.kt` = AniZip, `Kitsu.kt`, `IdMappers.kt`, `EpisodeMapper.kt`) for API usage patterns.
 - **Plan**: designed pluggable `EpisodeMetadataProvider` interface with `ContentId` + `ContentIdType` (future-proof for TMDB). 3 providers (AniZip primary, Jikan for filler/recap, Kitsu tertiary). Engine orchestrates parallel fetch + merge. 8 new DB columns.

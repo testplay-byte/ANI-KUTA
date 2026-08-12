@@ -825,3 +825,25 @@
 - User reinstalls (schema change — 8 new columns require fresh install per §30).
 - User opens an anime with an AniList ID + links an extension source → episode list should load with rich metadata (titles, thumbnails, descriptions, air dates, filler badges from Jikan).
 - User exports DB via debug bubble → agent analyzes for the DB-quality phase.
+
+## Session — D-191 DB Analysis + Deferred-Concerns Expansion (docs/db-analysis-and-concerns branch)
+
+### User test completion
+- User ran the full DB test checklist (Phase 0-14) on the D-190 build. Everything worked: browse, details, metadata, library, search, watch (90% + 50% episodes marked correctly), ratings, profile, extensions, downloads, history.
+- User uploaded 3 export files to `USER-UPLOADS/`: DATABASE.json (228KB), NETWORK.log (8KB), DATABASE-ACTIVITY.log (41KB).
+
+### D-190 merged to main
+- User verified D-190 works → merged `feature/episode-metadata-engine` to `main` (fast-forward) + deleted the branch. `main` is now at 2500365.
+
+### DB analysis
+- Agent analyzed all 3 exports. **DB is mostly healthy**: 501 rows, 28 tables, zero FK orphans, D-190 enrichment working (143 episodes with good coverage).
+- **11 new concerns** found + added to Deferred Concerns registry (#12-22): activity_event empty (zero callers of ActivityTracker.track), Updates not detecting episodes (episode_update empty), Notifications UI-only, download concurrency bug (2nd cancels 1st), download missing server/audio info, file_size=0, extensions page lag (240 icons), extensions need filtering, details stale-state flash, "no source linked" race, user_customization table empty.
+
+### User correction
+- User pointed out Phase 5 of the test checklist didn't state extensions are a hard prerequisite for watching episodes. Agent acknowledged + saved as a lesson.
+
+### Status
+- Branch: `docs/db-analysis-and-concerns` (awaiting push).
+- CI: no code changes — docs only.
+- Decisions: D-191.
+- Next: user reviews the DB analysis + decides which concerns to prioritize.

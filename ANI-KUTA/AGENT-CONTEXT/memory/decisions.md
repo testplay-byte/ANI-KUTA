@@ -1481,3 +1481,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
   - `DetailsModule.kt` — comment update
 - **Status:** ✅ Sub-agent reviewed (clean). Awaiting push to `feature/episode-metadata-engine` + CI verification + user device test.
 - **Date:** this session (episode metadata engine session).
+
+### D-191 — DB analysis + deferred-concerns expansion (11 new concerns from user test + DB exports)
+- **What:** User completed the full DB test checklist (Phase 0-14) + uploaded 3 export files (DATABASE.json, NETWORK.log, DATABASE-ACTIVITY.log). Agent analyzed all 3 + expanded the Deferred Concerns registry from 11 → 22 items. No code changes — docs + analysis only.
+- **DB analysis findings:**
+  - **DB is mostly healthy**: 501 rows across 28 tables. Zero FK orphans. Lookup tables seeded. D-190 enrichment working (143 episodes, 88-115 with japanese titles/romaji/runtime/thumbnails/descriptions).
+  - **D-190 confirmed working**: AniZip (19 reqs), Jikan (22 reqs), Kitsu (19 reqs) all firing. 52/143 episodes have filler/recap/score from Jikan.
+  - **11 new concerns** (registry #12-22): activity_event empty, Updates not detecting, Notifications UI-only, download concurrency bug, download missing server/audio, file_size=0, extensions lag, extensions need filtering, details stale-state flash, "no source" race, user_customization empty.
+- **User correction acknowledged**: Phase 5 of the DB test checklist (watch an episode) didn't clearly state extensions are a hard prerequisite. Episodes can't load/resolve/play without a trusted extension. Saved as a lesson — future test checklists will state prerequisites explicitly.
+- **Verdict**: The schema is sound (28 tables, proper FKs post-D-189, good indexes post-D-166, zero orphans). The issues are at the application layer (features not writing to the DB), not the schema layer. The DB-quality analysis recommends: (1) wire the 3 "empty table" features (activity_event, episode_update, notification_config), (2) fix the 2 race conditions (stale-state flash, no-source-linked), (3) fix download concurrency + UI, (4) audit + potentially drop 2 dead tables (content_ext, user_customization), (5) optimize extensions page (240-icon lazy load).
+- **Files changed (4)**: `progress.md` (11 new Deferred Concerns #12-22 + session entry + Last Updated), `decisions.md` (this D-191 entry), `changelog.md` (session entry), `lessons-learned.md` (extension-prerequisite lesson + DB-analysis lesson).
+- **Status:** ✅ Complete. Awaiting push to `docs/db-analysis-and-concerns`. No code changes — docs only.
+- **Date:** this session (DB analysis session).
