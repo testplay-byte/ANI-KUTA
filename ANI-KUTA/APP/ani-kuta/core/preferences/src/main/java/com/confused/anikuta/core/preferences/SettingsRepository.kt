@@ -43,7 +43,7 @@ class SettingsRepository(
     // ── Single setting CRUD ────────────────────────────────────────────────
 
     fun getSetting(key: String): String? {
-        return queries.getSetting(key).executeAsOneOrNull()?.value
+        return queries.getSetting(key).executeAsOneOrNull()?.setting_value
     }
 
     fun upsertSetting(key: String, value: String, type: String = "string", category: String = "general") {
@@ -61,10 +61,10 @@ class SettingsRepository(
     fun getAllSettings(): List<SettingEntry> {
         return queries.getAllSettings().executeAsList().map {
             SettingEntry(
-                key = it.key,
-                value = it.value,
-                type = it.type,
-                category = it.category,
+                key = it.setting_key,
+                value = it.setting_value,
+                type = it.setting_type,
+                category = it.setting_category,
                 updatedAt = it.updated_at,
             )
         }
@@ -73,10 +73,10 @@ class SettingsRepository(
     fun getSettingsByCategory(category: String): List<SettingEntry> {
         return queries.getSettingsByCategory(category).executeAsList().map {
             SettingEntry(
-                key = it.key,
-                value = it.value,
-                type = it.type,
-                category = it.category,
+                key = it.setting_key,
+                value = it.setting_value,
+                type = it.setting_type,
+                category = it.setting_category,
                 updatedAt = it.updated_at,
             )
         }

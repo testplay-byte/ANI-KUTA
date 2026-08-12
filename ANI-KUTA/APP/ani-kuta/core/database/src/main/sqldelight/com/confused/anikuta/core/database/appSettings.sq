@@ -5,40 +5,44 @@
 -- This table is a persistent mirror for backup/restore + cross-device sync.
 --
 -- Design:
--- - key: unique setting key (e.g. "download_quality", "theme_accent", "notif_master")
--- - value: the setting value as a string (serialized)
--- - type: the value type for deserialization (bool/int/long/float/string/set)
--- - category: grouping for backup/restore UI (download/player/appearance/notifications/general)
+-- - setting_key: unique setting key (e.g. "download_quality", "theme_accent")
+-- - setting_value: the setting value as a string (serialized)
+-- - setting_type: the value type for deserialization (bool/int/long/float/string/set)
+-- - setting_category: grouping for backup/restore UI (download/player/appearance/notifications/general)
 -- - updated_at: last change timestamp
+--
+-- NOTE: columns are prefixed with `setting_` to avoid Kotlin keyword conflicts
+-- (`key` and `value` are Kotlin soft keywords — SQLDelight can't generate properties
+-- with those names without backtick escaping, which is ugly).
 --
 -- Future-proofing: adding a new setting = one INSERT. No schema changes needed.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS app_settings (
-    key TEXT NOT NULL PRIMARY KEY,
-    value TEXT NOT NULL,
-    type TEXT NOT NULL DEFAULT 'string',
-    category TEXT NOT NULL DEFAULT 'general',
+    setting_key TEXT NOT NULL PRIMARY KEY,
+    setting_value TEXT NOT NULL,
+    setting_type TEXT NOT NULL DEFAULT 'string',
+    setting_category TEXT NOT NULL DEFAULT 'general',
     updated_at INTEGER NOT NULL
 );
 
 -- ── Queries ──
 
 getSetting:
-SELECT * FROM app_settings WHERE key = :key;
+SELECT * FROM app_settings WHERE setting_key = :key;
 
 getAllSettings:
-SELECT * FROM app_settings ORDER BY category, key;
+SELECT * FROM app_settings ORDER BY setting_category, setting_key;
 
 getSettingsByCategory:
-SELECT * FROM app_settings WHERE category = :category ORDER BY key;
+SELECT * FROM app_settings WHERE setting_category = :category ORDER BY setting_key;
 
 upsertSetting:
-INSERT OR REPLACE INTO app_settings(key, value, type, category, updated_at)
+INSERT OR REPLACE INTO app_settings(setting_key, setting_value, setting_type, setting_category, updated_at)
 VALUES (:key, :value, :type, :category, :updatedAt);
 
 deleteSetting:
-DELETE FROM app_settings WHERE key = :key;
+DELETE FROM app_settings WHERE setting_key = :key;
 
 deleteAllSettings:
 DELETE FROM app_settings;
