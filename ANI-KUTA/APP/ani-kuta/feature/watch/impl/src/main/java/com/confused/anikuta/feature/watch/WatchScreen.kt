@@ -406,9 +406,21 @@ fun WatchScreen(
     // WP-B3: seek to saved startPosition (only on the initial load, not on quality/episode switch).
     val loadingState by stateHolder.loadingState.collectAsState()
     var hasResumed by remember { mutableStateOf(false) }
+
+    // D-192: Activity tracker — track WATCH_START on FILE_LOADED.
+    val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker = koinInject()
+
     LaunchedEffect(loadingState) {
         if (loadingState == PlayerLoadingState.READY && mpvInitialized) {
             val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
+            // D-192: Track WATCH_START (the video actually loaded + is ready to play).
+            activityTracker.track(
+                eventType = com.confused.anikuta.core.activitytracker.ActivityEventType.WATCH_START,
+                contentKey = watchKey.mainId,
+                episodeKey = epKey,
+                route = "watch",
+                contentType = "anime",
+            )
             // WP-B2: re-arm the 85% auto-mark on every FILE_LOADED.
             scope.launch {
                 runCatching { watchProgressStore.resetAutoMarkSuppressed(epKey) }

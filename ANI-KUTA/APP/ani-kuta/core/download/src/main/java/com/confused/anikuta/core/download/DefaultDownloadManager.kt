@@ -42,6 +42,7 @@ class DefaultDownloadManager(
     private val scanner: DownloadScanner,
     private val preferences: DownloadPreferences,
     private val notifier: DownloadNotificationManager,
+    private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
     /**
      * The private scope — survives app-backgrounding. The Koin module binds this as
      * `single(named("downloadScope"))`. Defaults to a new scope if not injected
@@ -126,6 +127,14 @@ class DefaultDownloadManager(
         DownloadLogger.i {
             "enqueueDownload — mainId=${request.content.mainId}, episode=${request.episode.episodeKey}"
         }
+        // D-192: track the download start event
+        activityTracker.track(
+            eventType = com.confused.anikuta.core.activitytracker.ActivityEventType.DOWNLOAD_START,
+            contentKey = request.content.mainId,
+            episodeKey = request.episode.episodeKey,
+            route = "details",
+            contentType = "anime",
+        )
         // Start the foreground service BEFORE the queue tries to launch the download
         // (so the 5-second startForeground contract is satisfied on Android 12+).
         DownloadService.start(context)

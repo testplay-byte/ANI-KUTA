@@ -143,6 +143,16 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             Logger.e("AnikutaApp", e) { "Failed to seed content defaults" }
         }
 
+        // D-192: Track APP_OPEN event (internal activity tracker).
+        try {
+            org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.activitytracker.ActivityTracker>().track(
+                eventType = com.confused.anikuta.core.activitytracker.ActivityEventType.APP_OPEN,
+                route = "app",
+            )
+        } catch (e: Exception) {
+            Logger.w("AnikutaApp") { "Failed to track APP_OPEN: ${e.message}" }
+        }
+
         // D.4: Set the Coil ImageLoader as the singleton (AFTER Koin starts).
         try {
             coil3.SingletonImageLoader.setSafe {

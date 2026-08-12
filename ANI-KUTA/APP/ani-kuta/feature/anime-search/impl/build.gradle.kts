@@ -16,6 +16,7 @@ dependencies {
     implementation(project(":core:navigation-api"))
     implementation(project(":core:preferences"))
     implementation(project(":core:source-api"))
+    implementation(project(":core:activity-tracker"))  // D-192: activity tracking
     implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))

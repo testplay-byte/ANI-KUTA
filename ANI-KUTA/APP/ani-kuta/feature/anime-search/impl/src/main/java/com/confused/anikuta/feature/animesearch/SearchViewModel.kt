@@ -42,6 +42,7 @@ class SearchViewModel(
     private val anilistApi: AniListApi,
     private val preferenceStore: PreferenceStore,
     private val extensionManager: ExtensionManager,
+    private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
 ) : ViewModel() {
 
     companion object {
@@ -246,6 +247,13 @@ class SearchViewModel(
             searchExtension(q)
             return
         }
+
+        // D-192: track the search event
+        activityTracker.track(
+            eventType = com.confused.anikuta.core.activitytracker.ActivityEventType.SEARCH,
+            route = "search",
+            payload = q,
+        )
 
         _uiState.value = SearchUiState.Loading
         viewModelScope.launch {

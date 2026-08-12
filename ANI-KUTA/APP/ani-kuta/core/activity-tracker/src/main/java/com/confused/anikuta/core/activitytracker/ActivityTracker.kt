@@ -48,12 +48,50 @@ class ActivityTracker(
      * This is non-blocking — the event is queued and the method returns immediately.
      */
     fun track(event: ActivityEvent) {
-        batchQueue.add(event)
-        Logger.v("Anikuta:Core:ActivityTracker") { "Tracked: ${event.eventType} (batch: ${batchQueue.size})" }
+        // Override the sessionId with the tracker's own (callers don't have access to it).
+        val eventWithSession = if (event.sessionId == "") event.copy(sessionId = sessionId) else event
+        batchQueue.add(eventWithSession)
+        Logger.v("Anikuta:Core:ActivityTracker") { "Tracked: ${eventWithSession.eventType} (batch: ${batchQueue.size})" }
 
         if (batchQueue.size >= batchSize || System.currentTimeMillis() - lastFlushTime >= flushIntervalMs) {
             flush()
         }
+    }
+
+    /**
+     * Convenience overload: track an event without constructing an ActivityEvent manually.
+     * The sessionId is filled in automatically from the tracker's internal session ID.
+     *
+     * @param eventType What happened.
+     * @param contentKey The content involved (nullable for non-content events).
+     * @param episodeKey The episode involved (nullable for non-episode events).
+     * @param route Screen route when the event occurred.
+     * @param contentType VIDEO, IMAGE, TEXT.
+     * @param durationMs Event duration in millis.
+     * @param payload JSON blob for extra data (search query, rating value, etc.).
+     */
+    fun track(
+        eventType: ActivityEventType,
+        contentKey: String? = null,
+        episodeKey: String? = null,
+        route: String? = null,
+        contentType: String? = null,
+        durationMs: Long? = null,
+        payload: String? = null,
+    ) {
+        track(
+            ActivityEvent(
+                eventType = eventType,
+                contentKey = contentKey,
+                episodeKey = episodeKey,
+                sessionId = sessionId,
+                route = route,
+                contentType = contentType,
+                durationMs = durationMs,
+                payload = payload,
+                timestamp = System.currentTimeMillis(),
+            )
+        )
     }
 
     /**

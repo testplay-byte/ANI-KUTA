@@ -17,7 +17,7 @@ data class ActivityEvent(
     val eventType: ActivityEventType,
     val contentKey: String? = null,
     val episodeKey: String? = null,
-    val sessionId: String,
+    val sessionId: String = "",
     val route: String? = null,
     val contentType: String? = null,
     val durationMs: Long? = null,

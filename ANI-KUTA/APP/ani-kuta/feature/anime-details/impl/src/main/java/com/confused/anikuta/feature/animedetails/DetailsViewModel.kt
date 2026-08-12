@@ -75,6 +75,7 @@ class DetailsViewModel(
     private val ratingStore: com.confused.anikuta.core.ratings.RatingStore,
     private val playerPreferences: com.confused.anikuta.core.preferences.PlayerPreferences,
     private val genreRepository: com.confused.anikuta.core.content.genre.GenreRepository,
+    private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
 ) : ViewModel() {
 
     companion object {
@@ -257,6 +258,13 @@ class DetailsViewModel(
                     ratingStore.setAnimeRating(mid, stars * 10)
                 }
                 Logger.i(TAG) { "setAnimeRating: stars=$stars → rating=${stars * 10}" }
+                activityTracker.track(
+                    eventType = com.confused.anikuta.core.activitytracker.ActivityEventType.RATING,
+                    contentKey = mid,
+                    route = "details",
+                    contentType = "anime",
+                    payload = stars.toString(),
+                )
             }.onFailure { e ->
                 Logger.e(TAG, e) { "setAnimeRating failed: ${e.message}" }
             }
@@ -1091,10 +1099,22 @@ class DetailsViewModel(
             contentRepository.removeFromLibrary(mainId)
             _isInLibrary.value = false
             Logger.i(TAG) { "Removed from library: mainId=$mainId" }
+            activityTracker.track(
+                eventType = com.confused.anikuta.core.activitytracker.ActivityEventType.LIBRARY_REMOVE,
+                contentKey = mainId,
+                route = "details",
+                contentType = "anime",
+            )
         } else {
             contentRepository.addToDefaultCategory(mainId)
             _isInLibrary.value = true
             Logger.i(TAG) { "Added to library (Default): mainId=$mainId" }
+            activityTracker.track(
+                eventType = com.confused.anikuta.core.activitytracker.ActivityEventType.LIBRARY_ADD,
+                contentKey = mainId,
+                route = "details",
+                contentType = "anime",
+            )
         }
     }
 

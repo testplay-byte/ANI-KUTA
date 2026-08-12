@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:content"))
     implementation(project(":core:video-resolver"))
+    implementation(project(":core:activity-tracker"))  // D-192: activity tracking
 
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.core)

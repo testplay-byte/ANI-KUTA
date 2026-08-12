@@ -141,6 +141,7 @@ val downloadModule = module {
             scanner = get(),
             preferences = get(),
             notifier = get(),
+            activityTracker = get(),
             scope = get(named("downloadScope")),
         )
     }
