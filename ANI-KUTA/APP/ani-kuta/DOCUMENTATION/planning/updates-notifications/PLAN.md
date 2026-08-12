@@ -195,7 +195,7 @@ Settings
   - 6 hours / 12 hours / 24 hours / 2 days / 3 days / Weekly
 - **Sub/Dub checking toggles**:
   - "Check for new sub episodes" (default ON)
-  - "Check for new dub episodes" (default OFF)
+  - "Check for new dub episodes" (default ON — per user decision)
 - **Notifications master toggle** (separate from updates):
   - "Enable notifications" (Switch, default ON)
 - **"Check now" button** — triggers immediate manual refresh with live-progress UI.
@@ -289,8 +289,9 @@ When the user manually refreshes an anime's details page + a new episode is foun
 ### 7c. Completed anime handling
 - If `anime_update_state.status = "FINISHED"` AND `total_episodes IS NOT NULL`:
   - **Sub checking**: if `last_known_episode_count >= total_episodes` → STOP sub checking.
-  - **Dub checking**: if `update_check_dub = true` AND `last_known_dub_count < total_episodes` → continue checking for dub (using `getDueDubAnime` query).
-  - If dub checking is OFF or dub count is complete → set `auto_update_enabled = 0`.
+  - **Dub checking** (USER DECISION: dub checking defaults to ON): if `update_check_dub = true` (default ON) AND (`last_known_dub_count IS NULL` OR `last_known_dub_count < total_episodes`) AND (`last_known_dub_count >= 1` OR no dub check has been performed yet) → continue checking for dub (using `getDueDubAnime` query).
+  - **Special case**: even if the anime is completed, if it has at least 1 dub episode released (`last_known_dub_count >= 1`), continue checking for more dub episodes. This handles anime where the dub is still being released after the sub is complete. If `last_known_dub_count = 0` (no dub episodes found yet), do NOT continue checking — the anime likely has no dub.
+  - **Disable logic**: set `auto_update_enabled = 0` ONLY when BOTH sub + dub are complete (or dub checking is OFF AND sub is complete). Do NOT disable if only one is complete.
 
 ---
 
@@ -354,16 +355,33 @@ private suspend fun checkSingleAnime(state: AnimeUpdateState, now: Long): Int {
 ### 9a. Three trigger types
 | Trigger | When | Who fires it | Wiring |
 |---------|------|-------------|--------|
-| **on_schedule** | At the AniList airing time (reminder — episode should be available) | ScheduleEngine | ScheduleEngine checks `airingAt <= now` → fires `postNotification(triggerType = "schedule")`. Text: "Episode N should be available now." |
-| **on_watchable** | When the Updates engine actually finds the episode on the extension | UpdateEngine | After `upsertEpisodeUpdate` in `checkSingleAnime` → `notificationSender?.postNotification(triggerType = "watchable")`. Text: "Episode N is now available." |
-| **on_immediate** | For past-due episodes (airingAt < now, not yet checked) | ScheduleEngine | Already fires. Text: "Episode N has been released." |
+| **on_schedule** | At the AniList airing time — a REMINDER that the episode should be available now. This fires based on the AniList airing date, even if the extension hasn't uploaded the episode yet. It's a "heads up" notification. | ScheduleEngine | ScheduleEngine checks `airingAt <= now` → fires `postNotification(triggerType = "schedule")`. Text: "Episode N should be available now — check your sources." |
+| **on_watchable** | When the Updates engine ACTUALLY finds the episode on the extension (the episode is confirmed available). This is the "it's ready to watch" notification. | UpdateEngine | After `upsertEpisodeUpdate` in `checkSingleAnime` → `notificationSender?.postNotification(triggerType = "watchable")`. Text: "Episode N is now available to watch." |
+| **on_immediate** | For past-due episodes (airingAt < now, not yet checked) — fires when the schedule engine runs + finds episodes that aired in the past but weren't checked yet. | ScheduleEngine | Already fires. Text: "Episode N has been released." |
 
-### 9b. Notification content
+**USER DECISION on on_schedule text**: The user asked for clarification. Here's the explanation:
+- AniList provides an `airingAt` timestamp for each episode (when it airs in Japan).
+- The `on_schedule` trigger fires at that time — it's a REMINDER ("this episode should be available now").
+- The `on_watchable` trigger fires later, when the Updates engine confirms the episode is actually on the extension ("it's ready to watch").
+- The difference: `on_schedule` is time-based (AniList says it aired), `on_watchable` is availability-based (we confirmed it's on the extension).
+- Some extensions upload episodes hours or days after the airing time. `on_schedule` says "check now", `on_watchable` says "it's confirmed available".
+
+### 9b. Notification content + tap action
 - Title: "New episode available"
 - Text: "<Anime title> — Episode <N> <SUB/DUB>"
-- Tap action: `setContentIntent` with PendingIntent → `MainActivity` with extra `navKey=AnimeDetailsKey.AniList(anilistId)`.
+- **Tap action (USER DECISION)**: deep-link to the details page by default. The user also wants a FUTURE option: a setting to choose whether tapping the notification opens the details page OR directly opens the watch page with that episode (using the user's auto-select-video settings). For now (Phase 7), we implement the details-page deep-link. The "open watch page directly" option is a future enhancement.
+  - `setContentIntent` with PendingIntent → `MainActivity` with extra `navKey=AnimeDetailsKey.AniList(anilistId)`.
+  - **Extension-only anime (no AniList ID)**: if the content has no AniList ID, the deep-link uses `AnimeDetailsKey.Extension(sourceId, animeUrl)` instead. The Updates engine stores `source_id` + `anime_url` in the `episode_update` row for this fallback.
 - Channel: default (sound) if trigger=ON, silent (no sound) if trigger=SILENT.
 - `POST_NOTIFICATIONS` permission checked on Android 13+ before posting.
+- **Future enhancement**: action buttons on the notification ("Watch" / "Dismiss"). "Watch" would deep-link directly to the player with auto-select-video.
+
+### 9b.1 Extension-only anime handling
+For anime with no AniList ID (extension-only content):
+- `total_episodes` + `status` are not available from AniList → use the extension's episode count as `total_episodes` + assume `status = 'RELEASING'`.
+- Smart-release detection is not possible (no `next_airing_at`) → these anime are checked only on the regular WorkManager interval.
+- Notification tap deep-links to `AnimeDetailsKey.Extension(sourceId, animeUrl)`.
+- The `episode_update` row stores `source_id` for the fallback navigation.
 
 ### 9c. Test notification
 - `NotificationManager.postTestNotification()` — new method.
@@ -433,23 +451,25 @@ When a refresh is in progress:
 
 ---
 
-## 13. Concerns + Open Questions (for user review)
+## 13. User Decisions (all 8 questions answered)
 
-1. **"on_schedule" notification text**: should it say "Episode N should be available now" (reminder) or "Episode N is released" (confident)? My recommendation: "should be available now" — it's honest (the episode may not be on the extension yet).
+> ✅ All 8 open questions have been answered by the user. These are now DECISIONS, not questions.
 
-2. **10-min polling battery impact**: checking 3 times per airing anime. My recommendation: limit to anime airing within ±1h, max 5 concurrent checks.
+| # | Question | User's Decision |
+|---|----------|----------------|
+| 1 | **"on_schedule" notification text** | The user asked for clarification → I explained the difference between `on_schedule` (time-based reminder) and `on_watchable` (availability-based confirmation). The user now understands. Text: `on_schedule` = "Episode N should be available now — check your sources"; `on_watchable` = "Episode N is now available to watch". |
+| 2 | **10-min polling battery** | ✅ Limit to ±1h window + max 5 concurrent checks. |
+| 3 | **Completed anime + dub checking** | ✅ Trust AniList `status` + `episodes`. Completed anime STILL get dub checking if: (a) dub checking is ON (default ON), AND (b) the anime has at least 1 dub episode released, AND (c) `last_known_dub_count < total_episodes`. User gets a toggle: "Check for dub episodes on completed anime" (default ON). |
+| 4 | **Manual refresh when updates are OFF** | ✅ Yes — `update_mode = "off"` only disables background checking. Manual refresh works on both the details page + the updates page. |
+| 5 | **Per-category manual mode** | ✅ Yes — user can configure per-category. Each category has a toggle: "Check for updates for this category". Only anime in selected (toggled-on) categories are checked. |
+| 6 | **Notification tap action** | ✅ Deep-link to details page (Phase 7). Future: option to open the watch page directly with auto-select-video (user wants this later). |
+| 7 | **Merge Updates + Notifications nav rows** | ✅ Yes — merge into one "Updates & Notifications" section with sub-screens (General, Defaults, Library, Categories). |
+| 8 | **Dub checking default** | ✅ ON (user changed from my recommendation of OFF). Dub checking is ON by default. The user can toggle it off in settings. |
 
-3. **"Completed" status source**: trust AniList `status` + `episodes` for the total. Use the extension's episode count for `last_known_episode_count`.
-
-4. **`update_mode = "off"` + manual "Check now"**: yes — "off" only disables background checking, not manual refresh.
-
-5. **Per-category manual mode**: check ALL anime in selected categories, regardless of `auto_update_enabled` (which is a failure-backoff flag, not a user preference).
-
-6. **Notification tap action**: deep-link to the details page (so the user can immediately watch).
-
-7. **Should the "Updates" and "Notifications" nav rows be merged into one screen or kept as separate sub-screens under one section?** My recommendation: separate sub-screens (General, Defaults, Library, Categories) under one "Updates & Notifications" section label — matches the user's vision.
-
-8. **Should dub checking default to ON or OFF?** My recommendation: OFF (most users watch sub; dub is opt-in).
+### Additional user clarifications
+- **Dub on completed anime**: if a completed anime has at least 1 dub episode released, continue checking for more dub episodes. Only stop when `last_known_dub_count >= total_episodes` or the user disables dub checking.
+- **Notification deep-link future**: the user wants a future option where tapping the notification can open the watch page directly (with auto-select-video) instead of the details page. This is a future enhancement, not Phase 7.
+- **Settings UI**: the user wants the dashboard web page to explain EVERY setting that will be in the app + the logic behind each. I need to improve the web page with detailed settings explanations + visuals.
 
 ---
 
@@ -460,3 +480,39 @@ When a refresh is in progress:
 - **Configurable intervals**: `update_interval_hours` is a simple integer — adding new intervals is one UI entry.
 - **Per-anime override**: `anime_update_state.auto_update_enabled` allows disabling updates for a specific anime.
 - **Backup/restore**: all preferences mirrored to `app_settings` table (D-192 Phase 1).
+- **Notification watch-page deep-link**: future option to open the watch page directly from the notification (with auto-select-video).
+- **Notification action buttons**: future "Watch" / "Dismiss" buttons on the notification itself.
+
+---
+
+## 15. Settings That Will Be in the App (detailed list for user review)
+
+### Settings → Updates & Notifications → General
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Updates master toggle | 3-way (Auto/Manual/Off) | Auto | Controls background update checking. Auto = all library anime. Manual = selected categories only. Off = no background checking (manual refresh still works). |
+| Update interval | Selector (6h/12h/24h/2d/3d/weekly) | 24h | How often the background worker checks for new episodes. |
+| Check for sub episodes | Toggle | ON | Check for new sub episodes during background updates. |
+| Check for dub episodes | Toggle | ON | Check for new dub episodes during background updates. |
+| Check dub on completed anime | Toggle | ON | Continue checking for dub episodes even after the anime is completed (if dub episodes are still being released). |
+| Enable notifications | Toggle | ON | Master toggle for the notification system. If OFF, no notifications are posted (but updates still appear in the Updates feed). |
+| Check now | Button | — | Triggers an immediate manual refresh with live-progress UI. Available even when updates are OFF (manual refresh always works). |
+| Send test notification | Button | — | Posts a demo notification to verify the notification setup works. Disabled when notifications master toggle is OFF. Checks POST_NOTIFICATIONS permission on Android 13+. |
+
+### Settings → Updates & Notifications → New Anime Defaults
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| On schedule (trigger) | 3-way (On/Silent/Off) | Off | Fire a notification at the AniList airing time (reminder). |
+| On watchable (trigger) | 3-way (On/Silent/Off) | On | Fire a notification when the episode is confirmed available on the extension. |
+| On immediate (trigger) | 3-way (On/Silent/Off) | Off | Fire a notification for past-due episodes that weren't checked yet. |
+| Audio preference | 3-way (Sub/Dub/Both) | Both | Which audio variants to notify for. |
+
+### Settings → Updates & Notifications → Library
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Per-anime list | List | — | Each library anime has its own notification config (overrides the defaults). Tapping an anime opens a detail sheet with the same 3-way triggers + audio pref. |
+
+### Settings → Updates & Notifications → Update Categories
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| Per-category checklist | List of toggles | All ON (when Auto) / None (when Manual) | Each library category has a toggle: "Check for updates for this category". Only shown when Updates master toggle = Manual. Stored in PreferenceStore as a StringSet key `update_selected_categories`. |
