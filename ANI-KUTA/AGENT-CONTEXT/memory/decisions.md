@@ -1529,3 +1529,18 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Still deferred:** #14 (Notifications — now UNBLOCKED by #13), #15 (download concurrency — research shows it queues not cancels), #17 (file_size=0 — still 0L), #18 (extensions lag), #19 (extensions filtering), download UI display improvements, refresh-all-with-live-progress UI, auto-update on air time, resolver sheet smarts, per-color customization.
 - **Status:** ✅ All 5 phases complete + CI green + merged to main. `main` is at bb88275.
 - **Date:** this session (D-192 Phases 2-5).
+
+### D-193 — Updates + Notifications architecture plan (5 sub-agent reviews, awaiting user approval)
+- **What:** Comprehensive architecture plan for a unified Updates + Notifications system. The plan covers: interlinked Updates engine + Notifications engine (via interface pattern to avoid circular deps), configurable WorkManager interval (6h-weekly), 3-way master toggle (Auto/Manual/Off), manual per-category selection, smart release detection (AniList airing + OneTimeWorkRequest 10-min polling), sub/dub tracking (separate counts + checkSingleAnime rewrite), 3 notification triggers (on_schedule/on_watchable/on_immediate), notification tap action (deep-link), test notification, 3-day "new" expiry + 90-day notification_sent retention, live-progress UI on Updates feed, 3-way toggle bug fix (ordinal→indexOf), "no source from library" fix (persist source link in auto-link), onEpisodesRefreshed ordering fix, combined Settings section.
+- **5 sub-agent review sessions completed:**
+  1. Architecture review — found circular dep + 10-min polling scheduling gap.
+  2. Smart release review — found 4 blocking issues (scheduling, total_episodes, trigger wiring, checkSingleAnime rewrite).
+  3. Settings UI review — confirmed 3-way toggle fix, found scope ambiguity + migration path.
+  4. DB schema review — found 4 query updates + 1 new query + 2 indexes needed.
+  5. Final consolidated review — found 12 blocking items, all addressed in v2.
+- **All 12 blocking issues resolved in plan v2.** See §0 of the plan.
+- **Plan location:** `APP/ani-kuta/DOCUMENTATION/planning/updates-notifications/PLAN.md`
+- **Dashboard page:** `/updates-notifications-plan` (new sidebar entry "Updates Plan")
+- **Estimated implementation:** ~34h across 10 phases (after user approval).
+- **Status:** ⚠️ DRAFT — awaiting user approval. NOT implementing yet. The plan + web page are on branch `feature/updates-notifications-plan` (NOT merged to main).
+- **Date:** this session (updates-notifications planning session).

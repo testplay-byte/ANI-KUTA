@@ -907,3 +907,24 @@
 ### Status
 - main at bb88275. All 5 phases CI green.
 - Next: user reinstalls + tests. Then: remaining deferred concerns (notifications, download UI, refresh-all-progress, auto-update).
+
+## Session — D-193 Updates + Notifications Architecture Plan (feature/updates-notifications-plan)
+
+### What was done
+- Analyzed the user's 3 new DB exports (DATABASE-2.json + DARABASE.log.txt + NETWORK.log.txt). Verified: activity_event now has 19 rows (Phase 2 worked), anime_update_state has 11 rows (Phase 3 worked), but episode_update is still 0 rows (onEpisodesRefreshed fires before ensureUpdateState — ordering bug noted for fix).
+- Created planning branch `feature/updates-notifications-plan` (NOT merging to main — per user feedback).
+- Research sub-agent (u3) read ALL of :core:updates, :core:notifications, :core:schedule, NotificationsSettingsScreen, UpdateCheckWorker. Found: 3-way toggle bug root cause (TriggerState.ordinal mismatch), "no source from library" root cause (performAutoLink doesn't persist source link), 3 notification triggers (only 1 wired), UpdateCheckWorker hard-coded to 1h.
+- Wrote comprehensive architecture plan (PLAN.md, 463 lines).
+- 5 sub-agent review sessions (architecture, smart-release, settings UI, DB schema, final consolidated). Found 12 blocking issues — all addressed in plan v2.
+- Full-stack-dev sub-agent built a new dashboard page at /updates-notifications-plan (14 sections, architecture diagram, smart-release chain visualization, settings tree, 8 open questions). Build PASSED.
+- User feedback acknowledged: merged to main without confirmation (lesson saved). Will NOT merge this branch without explicit approval.
+
+### Status
+- Branch: `feature/updates-notifications-plan` (NOT merged — awaiting user approval of the plan).
+- CI: no code changes — docs + dashboard only.
+- Decisions: D-193.
+
+### Next
+- User reviews the plan on the dashboard page.
+- User answers the 8 open questions in §13.
+- User gives the go → implementation begins (10 phases, ~34h).
