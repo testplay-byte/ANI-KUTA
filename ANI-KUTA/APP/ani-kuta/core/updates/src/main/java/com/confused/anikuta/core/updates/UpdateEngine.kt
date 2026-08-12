@@ -45,6 +45,8 @@ class UpdateEngine(
     private val contentRepository: ContentRepository,
     private val watchProgressStore: WatchProgressStore,
     private val actualReleaseUpdater: ActualReleaseUpdater?,
+    // D-193 Phase 9: notification sender (nullable — tests can pass null).
+    private val notificationSender: NotificationSender? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Updates"
@@ -181,6 +183,16 @@ class UpdateEngine(
                     )
                     inserted++
                     Logger.i(TAG) { "checkSingleAnime — NEW episode: mainId=$mainId ep=$epNum audio=$audioVariant watched=$isWatched" }
+
+                    // D-193 Phase 9: fire "on_watchable" notification (if not already watched).
+                    if (!isWatched) {
+                        notificationSender?.postNotification(
+                            mainId = mainId,
+                            episodeNumber = epNum.toLong(),
+                            audioVariant = audioVariant,
+                            triggerType = "watchable",
+                        )
+                    }
 
                     // Phase SC-2 (IM11): update episode_schedule.actual_at with the source's
                     // dateUpload (the claimed upload time). Falls back to discoveredAt (now).

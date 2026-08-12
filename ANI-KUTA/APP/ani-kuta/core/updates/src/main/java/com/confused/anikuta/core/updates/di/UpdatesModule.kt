@@ -6,7 +6,17 @@ import org.koin.dsl.module
 
 val updatesModule = module {
     single { UpdateStore(get()) }
-    // ActualReleaseUpdater is nullable — if :core:schedule isn't available (it is, via :app),
-    // the UpdateEngine skips the actual_at update. The binding is in :app's appModule.
-    single { UpdateEngine(get(), get(), get(), get(), getOrNull()) }
+    // D-193 Phase 9: ActualReleaseUpdater + NotificationSender are nullable.
+    // If :core:schedule / :core:notifications aren't available (they are, via :app),
+    // the UpdateEngine skips those features. The bindings are in :app's appModule.
+    single {
+        UpdateEngine(
+            updateStore = get(),
+            extensionManager = get(),
+            contentRepository = get(),
+            watchProgressStore = get(),
+            actualReleaseUpdater = getOrNull(),
+            notificationSender = getOrNull(),
+        )
+    }
 }

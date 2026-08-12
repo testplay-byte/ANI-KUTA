@@ -216,6 +216,22 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 get<com.confused.anikuta.core.schedule.ScheduleStore>()
             }
 
+            // D-193 Phase 9: bind ScheduleEngine as ScheduleRefresher (breaks circular dep).
+            single<com.confused.anikuta.core.updates.ScheduleRefresher> {
+                com.confused.anikuta.core.updates.ScheduleRefresher {
+                    get<com.confused.anikuta.core.schedule.ScheduleEngine>().fetchSchedule()
+                }
+            }
+
+            // D-193 Phase 9: bind NotificationManager as NotificationSender (breaks circular dep).
+            single<com.confused.anikuta.core.updates.NotificationSender> {
+                com.confused.anikuta.core.updates.NotificationSender { mainId, episodeNumber, audioVariant, triggerType ->
+                    get<com.confused.anikuta.core.notifications.NotificationManager>().postNotification(
+                        mainId, episodeNumber, audioVariant, triggerType,
+                    )
+                }
+            }
+
             // Session ID (for activity tracking — new per process restart)
             single(named("sessionId")) { UUID.randomUUID().toString() }
 
