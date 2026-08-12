@@ -8,13 +8,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoMode
-import androidx.compose.material.icons.filled.Bell
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.LibraryBooks
-import androidx.compose.material.icons.filled.ManualMode
-import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -66,7 +65,7 @@ fun UpdatesSettingsScreen(
                 navigationIcon = {
                     androidx.compose.material3.IconButton(onClick = onBack) {
                         androidx.compose.material3.Icon(
-                            androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
+                            androidx.compose.material.icons.automirrored.filled.ArrowBack,
                             contentDescription = "Back",
                         )
                     }
@@ -160,7 +159,7 @@ fun UpdatesSettingsScreen(
             // ── Notifications ──
             SettingsSectionLabel("Notifications")
             ToggleRow(
-                icon = Icons.Filled.Bell,
+                icon = Icons.Filled.Notifications,
                 title = "Enable notifications",
                 subtitle = "Master toggle for the notification system.",
                 checked = notifEnabled,
@@ -169,7 +168,7 @@ fun UpdatesSettingsScreen(
 
             if (notifEnabled) {
                 SettingsNavRow(
-                    icon = Icons.Filled.Bell,
+                    icon = Icons.Filled.Notifications,
                     title = "New anime defaults",
                     subtitle = "Default notification triggers + audio preferences.",
                     onClick = onOpenDefaults,

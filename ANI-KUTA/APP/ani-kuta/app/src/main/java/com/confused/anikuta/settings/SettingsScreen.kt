@@ -148,7 +148,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsSectionLabel(text: String) {
+fun SettingsSectionLabel(text: String) {
     Text(
         text = text,
         fontFamily = RobotoFamily,
@@ -160,7 +160,7 @@ private fun SettingsSectionLabel(text: String) {
 }
 
 @Composable
-private fun SettingsNavRow(
+fun SettingsNavRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
