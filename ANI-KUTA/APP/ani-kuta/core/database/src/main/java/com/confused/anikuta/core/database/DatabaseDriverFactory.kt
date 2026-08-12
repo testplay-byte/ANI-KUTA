@@ -56,6 +56,22 @@ class DatabaseDriverFactory(private val context: Context) {
                     db.execSQL("DROP TABLE IF EXISTS content_metadata_cache")
                     db.execSQL("DROP TABLE IF EXISTS episode_metadata_cache")
 
+                    // ── D-192: drop dead content lookup tables ──
+                    // content_ext + content_ext_repo were never populated (zero callers of
+                    // getOrCreateExtension/insertExtensionRepo — confirmed via grep). The
+                    // content.extension_id FK to content_ext was already removed in D-189;
+                    // the content.extension_repo_id FK is removed in the .sq file (column kept
+                    // as nullable INTEGER for future use). These tables are dead code.
+                    db.execSQL("DROP TABLE IF EXISTS content_ext")
+                    db.execSQL("DROP TABLE IF EXISTS content_ext_repo")
+
+                    // ── D-192: drop user_customization (replaced by app_settings) ──
+                    // user_customization was READ-ONLY (LocalMetadataProvider read it but always
+                    // got null — no code ever wrote to it). The user-override feature (custom
+                    // title/thumbnail/description per content) was never built. Replaced by the
+                    // new app_settings table (for backup/restore of all app settings).
+                    db.execSQL("DROP TABLE IF EXISTS user_customization")
+
                     // ── download_queue: check for main_id (D.0 migration) ──
                     if (!hasColumn(db, "download_queue", "main_id")) {
                         // Old schema — drop + recreate the download tables.

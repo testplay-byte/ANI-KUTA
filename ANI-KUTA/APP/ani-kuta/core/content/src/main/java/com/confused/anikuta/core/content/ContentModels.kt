@@ -82,15 +82,7 @@ data class SystemInfo(
     val packagePrefix: String?,
 )
 
-/**
- * Lookup: an extension repository URL.
- */
-data class ExtensionRepo(
-    val id: Long,
-    val systemId: Long,
-    val url: String,
-    val displayName: String?,
-)
+// D-192: ExtensionRepo data class removed — content_ext_repo table dropped (dead code).
 
 /**
  * Lookup: an installed extension.

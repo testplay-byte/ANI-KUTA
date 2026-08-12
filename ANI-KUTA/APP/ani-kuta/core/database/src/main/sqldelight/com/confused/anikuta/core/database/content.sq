@@ -24,52 +24,23 @@ CREATE TABLE IF NOT EXISTS system (
     created_at INTEGER NOT NULL
 );
 
--- ── Lookup: extension_repos ───────────────────────────────────────────────
--- Extension repository URLs per system.
--- The URL points to the index.min.json file.
-CREATE TABLE IF NOT EXISTS content_ext_repo (
-    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
-    system_id INTEGER NOT NULL,
-    url TEXT NOT NULL,
-    display_name TEXT,
-    created_at INTEGER NOT NULL,
-    FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_content_ext_repo_system ON content_ext_repo(system_id);
-
--- ── Lookup: extensions ────────────────────────────────────────────────────
--- Installed extensions. repo_id is null when sideloaded without a repo.
-CREATE TABLE IF NOT EXISTS content_ext (
-    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
-    system_id INTEGER NOT NULL,
-    repo_id INTEGER,
-    pkg_name TEXT NOT NULL,
-    name TEXT NOT NULL,
-    source_id INTEGER NOT NULL,
-    version_name TEXT,
-    is_nsfw INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE CASCADE,
-    FOREIGN KEY (repo_id) REFERENCES content_ext_repo(id) ON DELETE SET NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_content_ext_system ON content_ext(system_id);
-CREATE INDEX IF NOT EXISTS idx_content_ext_pkg ON content_ext(pkg_name);
-
 -- ── Main: content ─────────────────────────────────────────────────────────
--- The central content record. One row per anime.
+-- The central content record. One row per piece of content (anime, manga, novel).
 -- mainId = stable UUID (never changes). contentId = structured string (changes).
 --
--- NOTE (D-189): `extension_id` stores the Aniyomi INTERNAL source.id (a plain
--- integer assigned by the extension), NOT a FK to `content_ext.id`. The
--- `content_ext` table is currently unused (zero callers of getOrCreateExtension).
--- The original FK to content_ext(id) was semantically wrong — the code has
--- always passed source.id here. It was silently dangling pre-D-166 (FKs OFF);
--- D-166 enabled PRAGMA foreign_keys = ON → the dangling FK crashed on link.
--- Fix: FK removed (D-189). The column is a plain INTEGER (Aniyomi source.id).
--- Future: if content_ext is wired up, re-introduce the FK with a migration that
--- back-fills content_ext rows for every distinct source.id in this column.
+-- D-189: `extension_id` stores the Aniyomi INTERNAL source.id (a plain INTEGER,
+-- NOT a FK to content_ext — that table was dropped as dead code).
+-- D-192: `content_ext` + `content_ext_repo` tables DROPPED (zero callers, dead code).
+-- The `extension_repo_id` column is kept as a plain nullable INTEGER for future
+-- use (if repo tracking is wired up later). The FK to content_ext_repo is removed.
+--
+-- Future-proofing (D-192): this table already supports the multi-source /
+-- multi-content-type / multi-system vision:
+--   - data_source_id → which metadata source (AniList/TMDB/Kitsu/MAL)
+--   - system_id → which extension system (Aniyomi/CloudStream/Sora/Mangayomi)
+--   - extension_id → which extension source (Aniyomi source.id)
+--   - content_type → anime/manga/novel (future)
+--   - content_format → video/image/text/audio (future)
 CREATE TABLE IF NOT EXISTS content (
     main_id TEXT NOT NULL PRIMARY KEY,
     content_id TEXT NOT NULL,
@@ -87,8 +58,7 @@ CREATE TABLE IF NOT EXISTS content (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (data_source_id) REFERENCES data_source(id) ON DELETE SET NULL,
-    FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE SET NULL,
-    FOREIGN KEY (extension_repo_id) REFERENCES content_ext_repo(id) ON DELETE SET NULL
+    FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_content_content_id ON content(content_id);
@@ -181,30 +151,6 @@ SELECT * FROM system ORDER BY name ASC;
 insertSystem:
 INSERT OR IGNORE INTO system(name, display_name, package_prefix, created_at)
 VALUES (:name, :displayName, :packagePrefix, :createdAt);
-
--- ============================================================================
--- Queries: content_ext_repo
--- ============================================================================
-getContentExtRepoByUrl:
-SELECT * FROM content_ext_repo WHERE url = :url;
-
-getContentExtReposBySystem:
-SELECT * FROM content_ext_repo WHERE system_id = :systemId ORDER BY created_at DESC;
-
-insertContentExtRepo:
-INSERT OR IGNORE INTO content_ext_repo(system_id, url, display_name, created_at)
-VALUES (:systemId, :url, :displayName, :createdAt);
-
--- ============================================================================
--- Queries: content_ext (installed extensions)
--- ============================================================================
-getContentExtByPkgAndSource:
-SELECT * FROM content_ext WHERE pkg_name = :pkgName AND source_id = :sourceId;
-
-insertContentExt:
-INSERT OR REPLACE INTO content_ext(
-    system_id, repo_id, pkg_name, name, source_id, version_name, is_nsfw, created_at
-) VALUES (:systemId, :repoId, :pkgName, :name, :sourceId, :versionName, :isNsfw, :createdAt);
 
 -- ============================================================================
 -- Queries: content

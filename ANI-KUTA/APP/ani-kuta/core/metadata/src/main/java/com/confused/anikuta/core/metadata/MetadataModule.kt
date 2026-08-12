@@ -28,7 +28,7 @@ val metadataModule = module {
     // Local (user overrides) first → AniList second
     single<List<MetadataProvider>>(named("metadataProviders")) {
         listOf(
-            LocalMetadataProvider(get()),
+            LocalMetadataProvider(),
             AniListMetadataProvider(get()),
         )
     }

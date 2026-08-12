@@ -216,6 +216,8 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { PlayerPreferences(get()) }
             single { ThemePreferences(get()) }
             single { com.confused.anikuta.core.preferences.NotificationPreferences(get()) }
+            // D-192: SettingsRepository for backup/restore (mirrors PreferenceStore to app_settings table)
+            single { com.confused.anikuta.core.preferences.SettingsRepository(get()) }
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)

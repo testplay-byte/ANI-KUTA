@@ -126,13 +126,9 @@ class ContentResolver(
         val mainId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         val system = repo.getSystemByName(systemName)
-        val extensionRepoId = repoUrl?.let { url ->
-            repo.getExtensionRepoByUrl(url)?.id ?: repo.insertExtensionRepo(
-                systemId = system?.id ?: 1L,
-                url = url,
-                displayName = null,
-            )
-        }
+        // D-192: content_ext_repo table dropped (dead code). extensionRepoId is always null
+        // for now — the column is kept in the content table for future repo-tracking.
+        val extensionRepoId: Long? = null
 
         val contentId = ContentIdGenerator.generate(
             dataSource = null,
