@@ -110,6 +110,19 @@ class NotificationPreferences(private val store: PreferenceStore) {
             store.booleanFlow(KEY_DEF_DUB, false),
         ) { sub, dub -> AudioPref.fromBooleans(sub, dub) }
 
+    // ── Library customization toggle (D-193 v2) ────────────────────────────────
+    // When OFF (default): the default triggers above apply to every anime in the
+    // library. No per-anime notification UI appears on the details page.
+    // When ON: each anime's details page gains a notifications section where the
+    // user can enable/disable + override triggers per anime individually.
+
+    var libraryCustomizationEnabled: Boolean
+        get() = store.getBoolean(KEY_LIBRARY_CUSTOM, false)
+        set(value) = store.putBoolean(KEY_LIBRARY_CUSTOM, value)
+
+    fun libraryCustomizationEnabledFlow(): Flow<Boolean> =
+        store.booleanFlow(KEY_LIBRARY_CUSTOM, false)
+
     companion object {
         private const val KEY_ENABLED = "notif_master_enabled"
         private const val KEY_DEF_SCHEDULE = "notif_def_schedule"
@@ -117,5 +130,6 @@ class NotificationPreferences(private val store: PreferenceStore) {
         private const val KEY_DEF_IMMEDIATE = "notif_def_immediate"
         private const val KEY_DEF_SUB = "notif_def_sub"
         private const val KEY_DEF_DUB = "notif_def_dub"
+        private const val KEY_LIBRARY_CUSTOM = "notif_library_custom_enabled"
     }
 }

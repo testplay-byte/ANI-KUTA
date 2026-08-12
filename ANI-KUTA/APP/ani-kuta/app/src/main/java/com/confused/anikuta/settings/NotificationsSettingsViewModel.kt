@@ -52,4 +52,13 @@ class NotificationsSettingsViewModel(
 
     fun setDefaultOnSchedule(v: TriggerState) { preferences.defaultNotifyOnSchedule = v }
     fun setDefaultOnWatchable(v: TriggerState) { preferences.defaultNotifyOnWatchable = v }
+
+    /** D-193 v2: library customization toggle. */
+    val libraryCustomizationEnabled: StateFlow<Boolean> =
+        preferences.libraryCustomizationEnabledFlow()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setLibraryCustomizationEnabled(enabled: Boolean) {
+        preferences.libraryCustomizationEnabled = enabled
+    }
 }

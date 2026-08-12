@@ -542,14 +542,10 @@ fun AppRoot() {
             )
             // D-193 Phase 3: combined Updates & Notifications settings
             is UpdatesSettingsKey -> UpdatesSettingsScreen(
-                onOpenDefaults = { backstack.add(NotificationsKey) },
-                onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
+                onOpenNotifications = { backstack.add(NotificationsKey) },
                 onOpenCategories = { backstack.add(UpdateCategoriesKey) },
             )
-            is UpdateCategoriesKey -> {
-                // D-193 Phase 3: per-category checklist (placeholder — will be built in Phase 3 continuation)
-                Text("Update Categories — coming soon")
-            }
+            is UpdateCategoriesKey -> UpdateCategoriesScreen(onBack = pop)
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },

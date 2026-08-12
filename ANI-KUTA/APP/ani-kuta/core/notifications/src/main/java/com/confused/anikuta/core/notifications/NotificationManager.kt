@@ -26,6 +26,11 @@ class NotificationManager(
     private val configStore: NotificationConfigStore,
     private val contentRepository: ContentRepository,
     private val preferences: NotificationPreferences,
+    // D-193 v2 fix: the global Sub/Dub/Both episode-type toggle lives in
+    // UpdatePreferences. It gates NOTIFICATIONS only (the engine always checks
+    // both). If the user picked "Sub only", a new dub episode is still inserted
+    // into the feed but no notification is posted for it.
+    private val updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences? = null,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Notifications"
@@ -62,9 +67,20 @@ class NotificationManager(
             return false
         }
 
-        // 1. Check config.
-        val config = configStore.getConfig(mainId)
-        if (config == null || !config.enabled) {
+        // 1. Check config. D-193 v2: if no per-anime config exists, use the default
+        // triggers from NotificationPreferences. This is the "library customization OFF"
+        // path — the defaults apply to every anime. When the user turns customization ON
+        // + creates a per-anime config, that config takes precedence.
+        val perAnimeConfig = configStore.getConfig(mainId)
+        val config = perAnimeConfig ?: NotificationConfig(
+            mainId = mainId,
+            enabled = true,
+            notifyOnSchedule = preferences.defaultNotifyOnSchedule,
+            notifyOnWatchable = preferences.defaultNotifyOnWatchable,
+            notifyOnImmediate = preferences.defaultNotifyOnImmediate,
+            audioPref = preferences.defaultAudioPref,
+        )
+        if (!config.enabled) {
             Logger.d(TAG) { "postNotification — suppressed (not enabled): mainId=$mainId" }
             return false
         }
@@ -83,14 +99,30 @@ class NotificationManager(
         }
         val silent = triggerState == TriggerState.SILENT
 
-        // 3. Check sub/dub (derived from AudioPref).
+        // 3. Check sub/dub (derived from AudioPref — per-anime config, or the default
+        // audio pref when no per-anime config exists).
         val audioOk = when (audioVariant) {
             "sub" -> config.notifySub
             "dub" -> config.notifyDub
             else -> true // unknown — notify (best-effort)
         }
         if (!audioOk) {
-            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not enabled): mainId=$mainId" }
+            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not enabled per-anime): mainId=$mainId" }
+            return false
+        }
+
+        // 3b. D-193 v2 fix: also honor the GLOBAL episode-type toggle (Sub/Dub/Both).
+        // The engine always inserts rows for both variants, but the user's choice
+        // here decides which actually produce a notification. "Both" = notify for all.
+        val globalSub = updatePreferences?.getCheckSub() ?: true
+        val globalDub = updatePreferences?.getCheckDub() ?: true
+        val globalAudioOk = when (audioVariant) {
+            "sub" -> globalSub
+            "dub" -> globalDub
+            else -> true
+        }
+        if (!globalAudioOk) {
+            Logger.d(TAG) { "postNotification — suppressed ($audioVariant not in global episode type): mainId=$mainId" }
             return false
         }
 

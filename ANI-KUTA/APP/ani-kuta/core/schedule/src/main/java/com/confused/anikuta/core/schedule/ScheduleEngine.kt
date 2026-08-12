@@ -3,6 +3,7 @@ package com.confused.anikuta.core.schedule
 import com.confused.anikuta.core.anilist.api.AniListApi
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.updates.ScheduleNotificationWorker
 import com.confused.anikuta.core.updates.UpdateStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,6 +24,8 @@ class ScheduleEngine(
     private val scheduleStore: ScheduleStore,
     private val updateStore: UpdateStore,
     private val notificationManager: com.confused.anikuta.core.notifications.NotificationManager?,
+    // D-193 v2: needed to schedule precise on_schedule OneTimeWorkers at airing time.
+    private val appContext: android.content.Context,
 ) {
     companion object {
         private const val TAG = "Anikuta:Core:Schedule"
@@ -127,16 +130,12 @@ class ScheduleEngine(
                         )
                         totalEntries++
 
-                        // Phase NOTIF: if the airing time has passed (scheduled_at <= now),
-                        // fire an "immediate" notification for this episode.
-                        if (airingAtMs <= now && notificationManager != null) {
-                            notificationManager.postNotification(
-                                mainId = mainId,
-                                episodeNumber = node.episode.toLong(),
-                                audioVariant = "unknown",
-                                triggerType = "immediate",
-                            )
-                        }
+                        // D-193 v2 cleanup: the "immediate" trigger was removed from the UI
+                        // (NotificationsSettingsViewModel). Stop firing it here — it was being
+                        // suppressed by default-OFF anyway, so this is dead code removal.
+                        // The "on_schedule" trigger below is the user-facing "airing time reached"
+                        // reminder; "on_watchable" fires separately when the engine confirms the
+                        // episode exists on the source.
 
                         // D-193 Phase 7: fire "on_schedule" notification when the airing time
                         // is reached (within the last hour — this catches episodes that just aired).
@@ -150,6 +149,23 @@ class ScheduleEngine(
                                 audioVariant = "unknown",
                                 triggerType = "schedule",
                             )
+                        }
+
+                        // D-193 v2: for FUTURE airings, schedule a precise on_schedule
+                        // notification at the exact airing time via a OneTimeWorker. This
+                        // replaces the old "opportunistic during refresh" approach with a
+                        // true timer. The REPLACE policy means schedule changes reschedule it.
+                        if (airingAtMs > now) {
+                            try {
+                                ScheduleNotificationWorker.schedule(
+                                    context = appContext,
+                                    mainId = mainId,
+                                    episodeNumber = node.episode.toLong(),
+                                    airingAt = airingAtMs,
+                                )
+                            } catch (e: Exception) {
+                                Logger.w(TAG) { "Failed to schedule on_schedule notification: ${e.message}" }
+                            }
                         }
                     }
                 }

@@ -123,6 +123,7 @@ class UpdateStore(
             last_known_dub_count = state.lastKnownDubCount,
             last_checked_dub_at = state.lastCheckedDubAt,
             total_episodes = state.totalEpisodes,
+            learned_offset_ms = state.learnedOffsetMs,
         )
     }
 
@@ -169,6 +170,11 @@ class UpdateStore(
         database.animeUpdateStateQueries.updateTotalEpisodes(totalEpisodes, mainId)
     }
 
+    /** D-193 v2: Update the learned offset (smart-release averaging). */
+    fun updateLearnedOffset(mainId: String, learnedOffsetMs: Long?) {
+        database.animeUpdateStateQueries.updateLearnedOffset(learned_offset_ms = learnedOffsetMs, main_id = mainId)
+    }
+
     /** Disable auto-update (M3: after 3 consecutive failures). */
     fun disableAutoUpdate(mainId: String) {
         database.animeUpdateStateQueries.disableAutoUpdate(mainId)
@@ -211,6 +217,7 @@ class UpdateStore(
         lastKnownDubCount = last_known_dub_count,
         lastCheckedDubAt = last_checked_dub_at,
         totalEpisodes = total_episodes,
+        learnedOffsetMs = learned_offset_ms,
     )
 }
 
@@ -247,4 +254,6 @@ data class AnimeUpdateState(
     val lastKnownDubCount: Long? = null,
     val lastCheckedDubAt: Long? = null,
     val totalEpisodes: Long? = null,
+    // D-193 v2: learned offset for smart-release averaging (ms after airingAt).
+    val learnedOffsetMs: Long? = null,
 )

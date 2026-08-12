@@ -1,10 +1,5 @@
 package com.confused.anikuta.settings
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,19 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -33,22 +23,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.UpdateMode
-import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 /**
@@ -58,55 +41,35 @@ import org.koin.compose.koinInject
  * - No back button (device gesture handles back)
  * - No "Manual Check" section (removed entirely)
  * - Each setting is a SEPARATE card (not divider-separated within a shared card)
- * - Sub/Dub checking is a 3-way toggle (Sub / Dub / Both) — replaces 2 separate toggles
- * - Notifications section combines: enable toggle + defaults + library + test (one section)
- * - Notification triggers simplified: 2-way On/Off (no Silent), only on_schedule + on_watchable
- * - Audio preference removed from notification defaults (redundant with sub/dub checking)
+ * - Sub/Dub checking is a 3-way toggle (Sub / Dub / Both) — gates NOTIFICATIONS only
+ *   (the engine always checks both sub + dub; the toggle is honored by NotificationManager)
+ * - Notifications is a single nav row to the dedicated NotificationsSettingsScreen
+ *   (not an inline toggle). The dedicated page has the master enable + triggers +
+ *   library customization + test button.
  */
 @Composable
 fun UpdatesSettingsScreen(
-    onOpenDefaults: () -> Unit,
-    onOpenLibrary: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onOpenCategories: () -> Unit,
     updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences = koinInject(),
-    notificationPreferences: com.confused.anikuta.core.preferences.NotificationPreferences = koinInject(),
     updateScheduler: com.confused.anikuta.core.updates.UpdateScheduler = koinInject(),
-    notificationManager: com.confused.anikuta.core.notifications.NotificationManager = koinInject(),
 ) {
     val mode by updatePreferences.mode.collectAsState()
     val intervalHours by updatePreferences.intervalHours.collectAsState()
     val checkSub by updatePreferences.checkSub.collectAsState()
     val checkDub by updatePreferences.checkDub.collectAsState()
     val checkDubCompleted by updatePreferences.checkDubCompleted.collectAsState()
-    val notifEnabled by notificationPreferences.notificationsEnabledFlow().collectAsState(initial = true)
 
-    val scope = rememberCoroutineScope()
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var showBatteryDialog by remember { mutableStateOf(false) }
+    val lazyListState = rememberLazyListState()
+    val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
+        lazyListState.firstVisibleItemIndex > 0
 
-    // D-193 Phase 4: Check battery optimization when notifications are enabled.
-    fun onNotificationsToggled(enabled: Boolean) {
-        notificationPreferences.notificationsEnabled = enabled
-        if (enabled) {
-            // Check if battery optimizations are disabled (app is exempt).
-            val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
-            val isIgnoring = pm.isIgnoringBatteryOptimizations(context.packageName)
-            if (!isIgnoring) {
-                showBatteryDialog = true
-            }
-        }
-    }
-
-    // Derive the 3-way audio check state from the two booleans.
+    // Derive the 3-way audio check state from the two booleans (Sub/Dub/Both toggle).
     val audioCheckIndex = when {
         checkSub && checkDub -> 2 // Both
         checkDub -> 1 // Dub
         else -> 0 // Sub (default)
     }
-
-    val lazyListState = rememberLazyListState()
-    val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
-        lazyListState.firstVisibleItemIndex > 0
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -160,7 +123,7 @@ fun UpdatesSettingsScreen(
 
                     // ── Checking settings (shown when mode != OFF) — each is a SEPARATE card ──
                     if (mode != UpdateMode.OFF) {
-                        // Interval — only in MANUAL mode
+                        // Interval + categories — only in MANUAL mode
                         if (mode == UpdateMode.MANUAL) {
                             item {
                                 SeparateCard {
@@ -189,7 +152,8 @@ fun UpdatesSettingsScreen(
                             }
                         }
 
-                        // 3-way audio check toggle (Sub / Dub / Both) — replaces 2 separate toggles
+                        // D-193 v2 fix: description clarifies the toggle gates NOTIFICATIONS,
+                        // not checking. The engine always checks both sub + dub.
                         item {
                             SeparateCard {
                                 Column(modifier = Modifier.padding(16.dp)) {
@@ -201,7 +165,7 @@ fun UpdatesSettingsScreen(
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
-                                        text = "Which audio variants to check for",
+                                        text = "Which audio variants to notify you about (both are always checked)",
                                         fontFamily = RobotoFamily,
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -235,58 +199,20 @@ fun UpdatesSettingsScreen(
                         }
                     }
 
-                    // ── Notifications section (combined: enable + defaults + library + test) ──
+                    // ── Notifications section (D-193 v2: a single nav row to the dedicated page) ──
+                    // The user wanted notifications to be a completely separate page, not an
+                    // inline toggle. This row opens NotificationsSettingsScreen which has the
+                    // master enable switch + triggers + library customization + test button.
                     item {
                         SectionLabel("Notifications")
                     }
-                    // Enable notifications — separate card
                     item {
                         SeparateCard {
-                            SwitchRowContent(
-                                title = "Enable notifications",
-                                description = "Master switch for all notifications",
-                                checked = notifEnabled,
-                                onCheckedChange = { onNotificationsToggled(it) },
+                            NavRowContent(
+                                title = "Notifications",
+                                description = "Enable, triggers, per-anime config, test",
+                                onClick = onOpenNotifications,
                             )
-                        }
-                    }
-                    // Sub-items (shown when notifications enabled) — each separate card
-                    if (notifEnabled) {
-                        item {
-                            SeparateCard {
-                                NavRowContent(
-                                    title = "New anime defaults",
-                                    description = "Default notification triggers",
-                                    onClick = onOpenDefaults,
-                                )
-                            }
-                        }
-                        item {
-                            SeparateCard {
-                                NavRowContent(
-                                    title = "Library",
-                                    description = "Per-anime notification configuration",
-                                    onClick = onOpenLibrary,
-                                )
-                            }
-                        }
-                        item {
-                            SeparateCard {
-                                NavRowContent(
-                                    title = "Send test notification",
-                                    description = "Posts a demo + delayed notification",
-                                    onClick = {
-                                        scope.launch {
-                                            try {
-                                                notificationManager.postTestNotification()
-                                                Logger.i("Anikuta:Settings") { "Test notification sent" }
-                                            } catch (e: Exception) {
-                                                Logger.e("Anikuta:Settings", e) { "Test notification failed" }
-                                            }
-                                        }
-                                    },
-                                )
-                            }
                         }
                     }
                 }
@@ -301,26 +227,6 @@ fun UpdatesSettingsScreen(
                 )
             }
         }
-    }
-
-    // D-193 Phase 4: Battery optimization dialog
-    if (showBatteryDialog) {
-        BatteryOptimizationDialog(
-            onDismiss = { showBatteryDialog = false },
-            onAllow = {
-                showBatteryDialog = false
-                try {
-                    val batteryIntent = android.content.Intent(
-                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    ).apply {
-                        data = android.net.Uri.parse("package:${context.packageName}")
-                    }
-                    context.startActivity(batteryIntent)
-                } catch (e: Exception) {
-                    Logger.e("Anikuta:Settings", e) { "Failed to request battery optimization exemption" }
-                }
-            },
-        )
     }
 }
 
@@ -452,9 +358,11 @@ private fun formatIntervalShort(hours: Long): String = when (hours) {
     else -> "${hours}h"
 }
 
-// D-193 Phase 4: Battery optimization dialog
+// D-193 Phase 4: Battery optimization dialog.
+// Internal so NotificationsSettingsScreen (same package) can reuse it — the dialog
+// is shown when the user enables the notifications master toggle.
 @Composable
-private fun BatteryOptimizationDialog(
+internal fun BatteryOptimizationDialog(
     onDismiss: () -> Unit,
     onAllow: () -> Unit,
 ) {

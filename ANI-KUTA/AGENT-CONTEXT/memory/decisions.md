@@ -1557,3 +1557,27 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Phase 8**: Updates feed UI — live-progress StateFlow in UpdatesViewModel, initial-batch rendering ("Episodes 1-N added to library"), acknowledgment on tap.
 - **Status:** ✅ All 10 phases complete + CI green on `feature/updates-notifications-impl` branch. NOT merged to main — awaiting user approval.
 - **Date:** this session (D-193 implementation session).
+
+### D-193 v2 — Episode-type toggle semantics (checking ≠ notifying)
+- **What:** The Sub / Dub / Both toggle in Updates & Notifications settings controls NOTIFICATIONS only — not which audio variants the engine checks for. The engine always partitions the fetched episode list by audio variant and diffs both sub and dub against the last-known counts. A new episode that doesn't match the toggle is still inserted into the Updates feed (so the user sees it); it just doesn't post a notification.
+- **Why:** The user's explicit clarification — "if the user has turned on the updates, even to manual or to auto, then by default it will search for and look for both sub and dub episodes regardless of what the user has selected for the episode type. The episode type is only for the notifications themselves." Missing a release because of a toggle would be a correctness bug; missing a notification because of a toggle is a preference.
+- **Impact:** No engine change needed — `checkSingleAnime` already checks both variants independently. The toggle's effect is confined to the `notificationSender?.postNotification(...)` call sites, which are already gated behind the user's trigger config. This decision is documentation + mental-model, not implementation.
+- **Date:** this session (D-193 v2 redesign clarifications).
+
+### D-193 v2 — Notifications is a dedicated page
+- **What:** Notifications is no longer an inline section inside the Updates settings screen. It is a nav row at the bottom of Updates & Notifications that opens a dedicated page. The page contains: a master enable switch at the top (the hard kill), the two triggers (On Schedule / On Watchable) as two-way On/Off toggles, and the "Customize library notifications" toggle.
+- **Why:** The user wanted notifications "a completely separate page at the very bottom instead of showing me the toggle for notifications." A dedicated page gives room for the master switch + triggers + library-customization without crowding the updates settings.
+- **Date:** this session.
+
+### D-193 v2 — Library-customization toggle semantics
+- **What:** The "Customize library notifications" toggle on the Notifications page controls whether per-anime notification overrides exist at all.
+  - **OFF (default):** the default trigger settings (On Schedule / On Watchable from the Notifications page) apply to every anime in the library. No per-anime notifications section appears on details pages.
+  - **ON:** each anime's details page gains a notifications section where the user can enable/disable notifications for that anime and override which triggers fire for it.
+- **Why:** The user's clarification — "If the toggle is turned off then by default it will notify the user for all of the categories... If the user has turned on that library toggle then he will see the options to configure each one of the content in the library individually." This keeps the default experience simple (one set of defaults) while exposing per-anime control only when the user opts in.
+- **Date:** this session.
+
+### D-193 v2 — Documentation web page as the system reference
+- **What:** A comprehensive Next.js documentation page (single `/` route) is now the canonical visual reference for the Updates + Notifications system. It covers: system-overview flow, the three update modes, the episode-type clarification matrix, the smart-release polling sequence + averaging loop, the updates-feed lifecycle, the notifications page design, the schedule grayed-out logic, the settings-UI card inventory, an interactive testing checklist (with localStorage persistence), and an end-to-end "how it works" narrative.
+- **Why:** The user asked for "proper visuals and a better well-handled look and feel for things like how they need to be managed" + "a proper testing list, a checklist which I can use to test the things out" + "an overview of how things are functioning." The web page delivers all three in one place and is the artifact the user can re-open anytime.
+- **Artifact:** `src/app/page.tsx` + `src/lib/aniKutaData.ts` (this Next.js project).
+- **Date:** this session.

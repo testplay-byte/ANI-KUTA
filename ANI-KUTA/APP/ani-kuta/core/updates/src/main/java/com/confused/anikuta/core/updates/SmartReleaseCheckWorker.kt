@@ -125,7 +125,7 @@ class SmartReleaseCheckWorker(
                 return@withContext Result.success()
             }
 
-            val sourceId = content.extensionId
+            val sourceId = content.sourceId
             if (sourceId == null || sourceId <= 0) {
                 Logger.w(TAG) { "No source linked: $mainId" }
                 return@withContext Result.success()
@@ -164,15 +164,21 @@ class SmartReleaseCheckWorker(
                 val now = System.currentTimeMillis()
                 val threeDaysMs = 3L * 24 * 60 * 60 * 1000
                 val ep = episodes.first { it.episode_number.toInt() == episodeNumber.toInt() }
-                val audioVariant = "unknown"
+                // D-193 v2 fix: parse the real audio variant from the found episode
+                // instead of hardcoding "unknown". This lets NotificationManager honor
+                // the per-anime + global sub/dub toggles for smart-release finds too.
+                val audioVariant = parseAudioVariant(ep.scanlator, ep.name)
 
+                // D-193 v2 fix: use the _dub episode key suffix when the variant is dub
+                // so watched-status + dedup key correctly match the engine's convention.
+                val epKeySuffix = if (audioVariant == "dub") "_dub" else ""
                 val isWatched = koin.get<com.confused.anikuta.core.watchprogress.WatchProgressStore>().isWatched(
-                    "$mainId|${String.format("%05d", episodeNumber.toInt())}"
+                    "$mainId|${String.format("%05d", episodeNumber.toInt())}$epKeySuffix"
                 )
 
                 store.upsertEpisodeUpdate(
                     mainId = mainId,
-                    episodeKey = "$mainId|${String.format("%05d", episodeNumber.toInt())}",
+                    episodeKey = "$mainId|${String.format("%05d", episodeNumber.toInt())}$epKeySuffix",
                     episodeNumber = episodeNumber.toDouble(),
                     episodeTitle = ep.name,
                     sourceId = sourceId,
@@ -191,29 +197,27 @@ class SmartReleaseCheckWorker(
                     notifSender.postNotification(mainId, episodeNumber, audioVariant, "watchable")
                 }
 
-                // D-193 Phase 7: Smart averaging — compute the new expected release time.
-                // The "internal release time" is when we actually found the episode (now).
-                // The "AniList schedule" is the airingAt timestamp.
-                // The smart average = (airingAt + now) / 2 — but only if we've found it before.
-                // On the first find, the average IS the found time (we trust the actual time more).
-                // On subsequent finds, we average the previous average with the new found time.
+                // D-193 v2: REAL smart-release averaging.
+                // offset = how long after airingAt the episode actually appeared.
+                // learned_offset_ms stores a WEIGHTED average: 70% previous + 30% new.
+                // First find (learnedOffsetMs == null): store the raw offset.
+                // Subsequent finds: learned = (old * 0.7) + (new * 0.3).
+                // The 70/30 weighting favors the historical rhythm while still
+                // adapting to gradual drift (e.g. a source that slowly gets slower).
                 if (state != null) {
                     val lastKnown = state.lastKnownEpisodeCount ?: 0
                     if (episodeNumber > lastKnown) {
-                        // Compute the smart average for the next check.
-                        // The next airing time is the AniList nextAiringAt.
-                        // The offset = (now - airingAt) — how long after airing the episode appeared.
-                        // We store this offset implicitly by setting next_check_at to:
-                        //   nextAiringAt + offset (if nextAiringAt is available)
-                        //   OR now + 24h (fallback)
-                        val offset = now - airingAt // how long after airing the episode appeared
+                        val newOffset = (now - airingAt).coerceAtLeast(0L)
+                        val learnedOffset = state.learnedOffsetMs?.let { old ->
+                            (old * 7 + newOffset * 3) / 10
+                        } ?: newOffset
+
+                        // Next check = next airing + the learned offset.
                         val nextCheckAt = state.nextAiringAt?.let { nextAiring ->
-                            // Smart: next check = next airing + the offset we just learned.
-                            // This way, if the episode consistently appears 30min after airing,
-                            // we'll check 30min after the next airing.
-                            nextAiring + offset
+                            nextAiring + learnedOffset
                         } ?: (now + TimeUnit.HOURS.toMillis(24))
 
+                        store.updateLearnedOffset(mainId, learnedOffset)
                         store.updateCheckResult(
                             mainId = mainId,
                             lastCheckedAt = now,
@@ -226,8 +230,10 @@ class SmartReleaseCheckWorker(
                         )
 
                         Logger.i(TAG) {
-                            "Smart average updated: mainId=$mainId offset=${offset / 60000}min " +
-                                "nextCheckAt=$nextCheckAt (nextAiringAt=${state.nextAiringAt} + offset)"
+                            "Smart average updated: mainId=$mainId newOffset=${newOffset / 60000}min " +
+                                "learned=${learnedOffset / 60000}min " +
+                                "(prev=${(state.learnedOffsetMs ?: 0) / 60000}min) " +
+                                "nextCheckAt=nextAiring+${learnedOffset / 60000}min"
                         }
                     }
                 }
@@ -236,7 +242,7 @@ class SmartReleaseCheckWorker(
                 val actualReleaseUpdater = koin.getOrNull<ActualReleaseUpdater>()
                 actualReleaseUpdater?.updateActualAt(mainId, episodeNumber, now)
 
-                Logger.i(TAG) { "Smart release complete: mainId=$mainId ep=$episodeNumber" }
+                Logger.i(TAG) { "Smart release complete: mainId=$mainId ep=$episodeNumber audio=$audioVariant" }
             } else {
                 Logger.i(TAG) { "Episode $episodeNumber NOT found (attempt $attempt/$MAX_ATTEMPTS)" }
                 if (attempt < MAX_ATTEMPTS) {
@@ -250,6 +256,25 @@ class SmartReleaseCheckWorker(
         } catch (e: Exception) {
             Logger.e(TAG, e) { "SmartReleaseCheckWorker failed: ${e.message}" }
             Result.success()
+        }
+    }
+
+    /**
+     * D-193 v2: Parse the audio variant (sub/dub) from the scanlator + episode name.
+     * Mirrors [UpdateEngine.parseAudioVariant] — kept here to avoid making the
+     * engine's private helper public. If the heuristic ever diverges, both sites
+     * must be updated together.
+     */
+    private fun parseAudioVariant(scanlator: String?, episodeName: String?): String {
+        val haystack = "${scanlator ?: ""} ${episodeName ?: ""}".uppercase()
+        val hasHsub = haystack.contains("HSUB") || haystack.contains("HARDSUB")
+        val hasDub = haystack.contains("DUB") && !hasHsub
+        val hasSub = haystack.contains("SUB") && !hasHsub
+        return when {
+            hasDub && hasSub -> "unknown"
+            hasDub -> "dub"
+            hasSub || hasHsub -> "sub"
+            else -> "unknown"
         }
     }
 }

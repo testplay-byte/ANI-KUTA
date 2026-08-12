@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:content"))
     implementation(project(":core:updates"))
+    implementation(project(":core:preferences"))  // D-193 v2: UpdatePreferences + UpdateMode in UpdatesViewModel
     implementation(project(":core:schedule"))
 
     implementation(platform(libs.androidx.compose.bom))

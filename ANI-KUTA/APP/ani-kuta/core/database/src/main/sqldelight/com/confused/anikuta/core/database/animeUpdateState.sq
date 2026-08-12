@@ -4,6 +4,7 @@
 --
 -- D-193 Phase 2: added last_known_dub_count, last_checked_dub_at, total_episodes
 -- for sub/dub tracking + completed-anime handling.
+-- D-193 v2: added learned_offset_ms for real smart-release averaging.
 
 CREATE TABLE IF NOT EXISTS anime_update_state (
     main_id TEXT NOT NULL PRIMARY KEY,   -- FK → content(main_id)
@@ -20,6 +21,10 @@ CREATE TABLE IF NOT EXISTS anime_update_state (
     last_known_dub_count INTEGER,        -- highest DUB episode number (null = no dub tracking yet)
     last_checked_dub_at INTEGER,         -- when we last checked for dub updates (separate from sub)
     total_episodes INTEGER,              -- from AniList episodes field (for completed-anime handling)
+    -- D-193 v2: learned offset for smart-release averaging (ms after airingAt).
+    -- Null = no history yet (first find uses the raw offset). Non-null = weighted
+    -- average of previous offsets, so the system converges on the show's real rhythm.
+    learned_offset_ms INTEGER,
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
@@ -36,11 +41,11 @@ upsertAnimeUpdateState:
 INSERT OR REPLACE INTO anime_update_state(
     main_id, status, last_checked_at, next_check_at, last_known_episode_count,
     next_airing_episode, next_airing_at, auto_update_enabled, consecutive_failures, backoff_step,
-    last_known_dub_count, last_checked_dub_at, total_episodes
+    last_known_dub_count, last_checked_dub_at, total_episodes, learned_offset_ms
 ) VALUES (
     :main_id, :status, :last_checked_at, :next_check_at, :last_known_episode_count,
     :next_airing_episode, :next_airing_at, :auto_update_enabled, :consecutive_failures, :backoff_step,
-    :last_known_dub_count, :last_checked_dub_at, :total_episodes
+    :last_known_dub_count, :last_checked_dub_at, :total_episodes, :learned_offset_ms
 );
 
 -- Get the update state for a specific anime.
@@ -72,6 +77,10 @@ SET last_checked_at = :last_checked_at,
     last_known_dub_count = :last_known_dub_count,
     last_checked_dub_at = :last_checked_dub_at
 WHERE main_id = :main_id;
+
+-- D-193 v2: update the learned offset (smart-release averaging).
+updateLearnedOffset:
+UPDATE anime_update_state SET learned_offset_ms = :learned_offset_ms WHERE main_id = :main_id;
 
 -- Update the airing data (from Schedule engine — S4).
 updateAiringData:

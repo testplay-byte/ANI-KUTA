@@ -84,6 +84,19 @@ class UpdateEngine(
         val now = System.currentTimeMillis()
         var dueAnime = updateStore.getDueAnime(now)
 
+        // D-193 v2 fix: also include FINISHED anime due for a dub check when the
+        // user has enabled "check dub on completed anime". These are anime where
+        // status=FINISHED but last_known_dub_count < total_episodes — a dub is
+        // still being released. Union by mainId (no duplicates).
+        val checkDubCompleted = updatePreferences?.getCheckDubCompleted() ?: true
+        if (checkDubCompleted) {
+            val dueDub = updateStore.getDueDubAnime(now)
+            if (dueDub.isNotEmpty()) {
+                val existingIds = dueAnime.mapTo(mutableSetOf()) { it.mainId }
+                dueAnime = dueAnime + dueDub.filter { it.mainId !in existingIds }
+            }
+        }
+
         // D-193 Phase 4: manual mode — filter to selected categories only.
         if (filterMainIds != null) {
             dueAnime = dueAnime.filter { it.mainId in filterMainIds }
@@ -208,66 +221,62 @@ class UpdateEngine(
                 val lastKnownSub = state.lastKnownEpisodeCount ?: 0
                 val lastKnownDub = state.lastKnownDubCount ?: 0
 
-                // D-193 Phase 6: check user's sub/dub preferences.
-                val checkSubEnabled = updatePreferences?.getCheckSub() ?: true
-                val checkDubEnabled = updatePreferences?.getCheckDub() ?: true
-
+                // D-193 v2 fix: the Sub/Dub/Both toggle gates NOTIFICATIONS only,
+                // NOT checking. The engine ALWAYS inserts new rows for both sub + dub
+                // so they appear in the Updates feed. The toggle is honored by
+                // NotificationManager (which reads updatePreferences) at notify time.
                 var inserted = 0
                 val threeDaysMs = 3L * 24 * 60 * 60 * 1000
 
-                // New SUB episodes (if sub checking is enabled).
-                if (checkSubEnabled) {
-                    for (ep in subEpisodes) {
-                        val epNum = ep.episode_number.toInt()
-                        if (epNum > lastKnownSub) {
-                            val epKey = "$mainId|${String.format("%05d", epNum)}"
-                            val isWatched = watchProgressStore.isWatched(epKey)
-                            updateStore.upsertEpisodeUpdate(
-                                mainId = mainId, episodeKey = epKey,
-                                episodeNumber = ep.episode_number.toDouble(),
-                                episodeTitle = ep.name, sourceId = sourceId,
-                                audioVariant = "sub", discoveredAt = now,
-                                acknowledged = isWatched,
-                                acknowledgedAt = if (isWatched) now else null,
-                                newExpiresAt = if (isWatched) null else now + threeDaysMs,
-                            )
-                            inserted++
-                            Logger.i(TAG) { "checkSingleAnime — NEW SUB: mainId=$mainId ep=$epNum watched=$isWatched" }
-                            if (!isWatched) {
-                                notificationSender?.postNotification(mainId, epNum.toLong(), "sub", "watchable")
-                            }
-                            val sourceDateUpload = ep.date_upload
-                            actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
-                                if (sourceDateUpload > 0) sourceDateUpload else now)
+                // New SUB episodes — always insert.
+                for (ep in subEpisodes) {
+                    val epNum = ep.episode_number.toInt()
+                    if (epNum > lastKnownSub) {
+                        val epKey = "$mainId|${String.format("%05d", epNum)}"
+                        val isWatched = watchProgressStore.isWatched(epKey)
+                        updateStore.upsertEpisodeUpdate(
+                            mainId = mainId, episodeKey = epKey,
+                            episodeNumber = ep.episode_number.toDouble(),
+                            episodeTitle = ep.name, sourceId = sourceId,
+                            audioVariant = "sub", discoveredAt = now,
+                            acknowledged = isWatched,
+                            acknowledgedAt = if (isWatched) now else null,
+                            newExpiresAt = if (isWatched) null else now + threeDaysMs,
+                        )
+                        inserted++
+                        Logger.i(TAG) { "checkSingleAnime — NEW SUB: mainId=$mainId ep=$epNum watched=$isWatched" }
+                        if (!isWatched) {
+                            notificationSender?.postNotification(mainId, epNum.toLong(), "sub", "watchable")
                         }
+                        val sourceDateUpload = ep.date_upload
+                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
+                            if (sourceDateUpload > 0) sourceDateUpload else now)
                     }
                 }
 
-                // New DUB episodes (if dub checking is enabled).
-                if (checkDubEnabled) {
-                    for (ep in dubEpisodes) {
-                        val epNum = ep.episode_number.toInt()
-                        if (epNum > lastKnownDub) {
-                            val epKey = "$mainId|${String.format("%05d", epNum)}_dub"
-                            val isWatched = watchProgressStore.isWatched(epKey)
-                            updateStore.upsertEpisodeUpdate(
-                                mainId = mainId, episodeKey = epKey,
-                                episodeNumber = ep.episode_number.toDouble(),
-                                episodeTitle = ep.name, sourceId = sourceId,
-                                audioVariant = "dub", discoveredAt = now,
-                                acknowledged = isWatched,
-                                acknowledgedAt = if (isWatched) now else null,
-                                newExpiresAt = if (isWatched) null else now + threeDaysMs,
-                            )
-                            inserted++
-                            Logger.i(TAG) { "checkSingleAnime — NEW DUB: mainId=$mainId ep=$epNum watched=$isWatched" }
-                            if (!isWatched) {
-                                notificationSender?.postNotification(mainId, epNum.toLong(), "dub", "watchable")
-                            }
-                            val sourceDateUpload = ep.date_upload
-                            actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
-                                if (sourceDateUpload > 0) sourceDateUpload else now)
+                // New DUB episodes — always insert.
+                for (ep in dubEpisodes) {
+                    val epNum = ep.episode_number.toInt()
+                    if (epNum > lastKnownDub) {
+                        val epKey = "$mainId|${String.format("%05d", epNum)}_dub"
+                        val isWatched = watchProgressStore.isWatched(epKey)
+                        updateStore.upsertEpisodeUpdate(
+                            mainId = mainId, episodeKey = epKey,
+                            episodeNumber = ep.episode_number.toDouble(),
+                            episodeTitle = ep.name, sourceId = sourceId,
+                            audioVariant = "dub", discoveredAt = now,
+                            acknowledged = isWatched,
+                            acknowledgedAt = if (isWatched) now else null,
+                            newExpiresAt = if (isWatched) null else now + threeDaysMs,
+                        )
+                        inserted++
+                        Logger.i(TAG) { "checkSingleAnime — NEW DUB: mainId=$mainId ep=$epNum watched=$isWatched" }
+                        if (!isWatched) {
+                            notificationSender?.postNotification(mainId, epNum.toLong(), "dub", "watchable")
                         }
+                        val sourceDateUpload = ep.date_upload
+                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
+                            if (sourceDateUpload > 0) sourceDateUpload else now)
                     }
                 }
 
@@ -275,7 +284,7 @@ class UpdateEngine(
                 val nextCheckAt = state.nextAiringAt?.let { it + TimeUnit.HOURS.toMillis(1) }
                     ?: (now + TimeUnit.HOURS.toMillis(24))
 
-                // D-193 Phase 6: update BOTH sub + dub counts.
+                // D-193 v2 fix: always update BOTH sub + dub counts (we always check both).
                 val newMaxSub = maxOf(maxSub, lastKnownSub.toInt())
                 val newMaxDub = maxOf(maxDub, lastKnownDub.toInt())
                 updateStore.updateCheckResult(
@@ -285,8 +294,8 @@ class UpdateEngine(
                     lastKnownEpisodeCount = newMaxSub.toLong(),
                     consecutiveFailures = 0,
                     backoffStep = 0,
-                    lastKnownDubCount = if (checkDubEnabled) newMaxDub.toLong() else lastKnownDub,
-                    lastCheckedDubAt = if (checkDubEnabled) now else state.lastCheckedDubAt,
+                    lastKnownDubCount = newMaxDub.toLong(),
+                    lastCheckedDubAt = now,
                 )
                 Logger.i(TAG) { "checkSingleAnime — $inserted new episode(s): mainId=$mainId sub=$lastKnownSub→$newMaxSub dub=$lastKnownDub→$newMaxDub" }
                 inserted

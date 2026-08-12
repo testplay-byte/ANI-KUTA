@@ -947,3 +947,22 @@
 - Branch: `feature/updates-notifications-impl` (NOT merged — awaiting user approval)
 - CI: GREEN on all commits
 - All 10 phases of the D-193 plan implemented
+
+## Session — D-193 v2 Redesign Clarifications + Documentation Web Page
+
+### What was done
+- User tested the v2 build (phases 1–4 of the redesign) and gave detailed feedback. Three critical clarifications were locked in that reshape how the system is described (NOT how it must be re-implemented — the engine already checks both sub+dub; the toggle already only gates notifications):
+  1. **Episode type toggle = notifications only.** The engine ALWAYS partitions fetched episodes by audio variant and diffs both sub and dub against last-known counts — regardless of the Sub/Dub/Both toggle. The toggle only filters which found episodes actually post a notification. Checking ≠ notifying.
+  2. **Notifications is a dedicated page**, not an inline toggle in the updates settings. It lives at the bottom of Updates & Notifications as a nav row, opens a page with a master enable switch + the two triggers + the library-customization toggle.
+  3. **Library-customization toggle semantics:** OFF (default) = the default trigger settings apply to every anime in the library (no per-anime options anywhere). ON = each anime's details page gains a notifications section where the user can enable/disable + override triggers per anime.
+- Built a comprehensive documentation web page (Next.js, single `/` route) that visualizes the entire Updates + Notifications system: system-overview flow diagram, Auto/Manual/Off mode comparison cards, the episode-type clarification matrix, the smart-release polling sequence (+10/+20/+60/+120 min) + the averaging loop, the updates-feed lifecycle + live-progress banner mockup, the notifications page mockup, the schedule grayed-out logic, the settings-UI card inventory, an interactive testing checklist (with localStorage persistence + how-to-test-notifications guide), and an end-to-end "how it works" narrative.
+- Verified the page with Agent Browser (renders, scroll-spy nav works, testing checklist toggles + persists, mobile nav renders, no runtime/console errors) + VLM (visual quality 9/10 — dark theme correct, accent cards balanced, no rendering issues).
+- Lint clean.
+
+### Status
+- Web page: live on the dev server at `/` (this Next.js project).
+- ANI-KUTA app: no code changes this session — documentation + clarification only. The engine implementation already matches the clarified semantics.
+- Branch: `feature/updates-notifications-impl` (NOT merged — awaiting user approval).
+
+### Key artifact
+- `src/app/page.tsx` + `src/lib/aniKutaData.ts` — the documentation web page + its data layer.

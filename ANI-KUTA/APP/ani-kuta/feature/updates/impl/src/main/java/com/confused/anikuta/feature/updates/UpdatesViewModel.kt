@@ -33,6 +33,10 @@ class UpdatesViewModel(
     private val updateStore: UpdateStore,
     private val contentRepository: ContentRepository,
     private val updateEngine: UpdateEngine,
+    // D-193 v2: needed to resolve selected categories → mainIds in Manual mode,
+    // and to schedule smart-release checks after a manual Check Now.
+    private val updatePreferences: com.confused.anikuta.core.preferences.UpdatePreferences? = null,
+    private val smartReleaseScheduler: com.confused.anikuta.core.updates.SmartReleaseScheduler? = null,
 ) : ViewModel() {
 
     companion object {
@@ -87,8 +91,34 @@ class UpdatesViewModel(
             // D-193 improvement: emit a "checking" progress so the banner shows immediately
             _checkProgress.value = com.confused.anikuta.core.updates.CheckProgress(0, 0, "", "Checking library…", null)
             runCatching {
-                val count = updateEngine.checkDueAnime()
+                // D-193 v2: in Manual mode, filter to selected categories.
+                val filterMainIds: Set<String>? = if (updatePreferences?.getMode() ==
+                    com.confused.anikuta.core.preferences.UpdateMode.MANUAL
+                ) {
+                    val selectedCats = updatePreferences.getSelectedCategories()
+                    if (selectedCats.isEmpty()) {
+                        Logger.i(TAG) { "checkForUpdates — Manual mode, no categories selected — checking all" }
+                        null // no filter = check all due (user hasn't picked categories yet)
+                    } else {
+                        selectedCats.flatMap { catId ->
+                            contentRepository.getMainIdsByCategory(catId.toLong())
+                        }.toSet()
+                    }
+                } else {
+                    null // AUTO mode — check all due anime
+                }
+
+                val count = updateEngine.checkDueAnime(filterMainIds)
                 Logger.i(TAG) { "checkForUpdates — $count new episode(s) found" }
+
+                // D-193 v2: also schedule smart-release checks for anime airing within ±1h,
+                // so a manual Check Now still sets up the smart-polling chain.
+                try {
+                    smartReleaseScheduler?.scheduleImminentChecks()
+                } catch (e: Exception) {
+                    Logger.w(TAG) { "Smart-release scheduling failed (non-fatal): ${e.message}" }
+                }
+
                 // If no progress was emitted (no anime due), show a brief "complete" message
                 if (_checkProgress.value == null || _checkProgress.value!!.total == 0) {
                     _checkProgress.value = com.confused.anikuta.core.updates.CheckProgress(0, 0, "", "No anime due for check", null)

@@ -1,5 +1,6 @@
 package com.confused.anikuta.core.designsystem.component
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -69,6 +70,7 @@ interface SettingsGroupScope {
         description: String? = null,
         showDivider: Boolean = true,
         trailing: @Composable () -> Unit = {},
+        onClick: (() -> Unit)? = null,
     )
 }
 
@@ -79,10 +81,12 @@ private class SettingsGroupScopeImpl(private val showDividers: Boolean) : Settin
         description: String?,
         showDivider: Boolean,
         trailing: @Composable () -> Unit,
+        onClick: (() -> Unit)?,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

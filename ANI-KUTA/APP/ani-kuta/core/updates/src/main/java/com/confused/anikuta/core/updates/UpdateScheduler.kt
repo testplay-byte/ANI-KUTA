@@ -36,12 +36,15 @@ class UpdateScheduler(
     /**
      * Read the current preferences + schedule/cancel the worker accordingly.
      * Call this on app start + whenever the user changes update settings.
+     *
+     * D-193 v2: only AUTO mode schedules the periodic background worker. MANUAL
+     * mode is strictly on-demand (the user taps Check Now). OFF cancels everything.
      */
     fun reschedule() {
         val mode = preferences.getMode()
         val intervalHours = preferences.getIntervalHours()
 
-        if (mode == UpdateMode.OFF) {
+        if (mode != UpdateMode.AUTO) {
             cancel()
             return
         }
