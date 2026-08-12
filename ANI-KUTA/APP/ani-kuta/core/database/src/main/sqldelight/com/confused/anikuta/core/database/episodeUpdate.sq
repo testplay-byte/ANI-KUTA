@@ -15,12 +15,16 @@ CREATE TABLE IF NOT EXISTS episode_update (
     acknowledged_at INTEGER,             -- M9: when acknowledged (for retention cleanup)
     batch_type TEXT NOT NULL DEFAULT 'new',  -- D-192: 'initial' = first-link batch, 'new' = individual new episode
     episode_count INTEGER,               -- D-192: for 'initial' batch, the total episode count (e.g. 7 for "Episodes 1-7")
+    new_expires_at INTEGER,              -- D-193 Phase 2: when the "new" status expires (discovered_at + 3 days); null for initial batch
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_update_unique ON episode_update(main_id, episode_key, audio_variant);
 CREATE INDEX IF NOT EXISTS idx_episode_update_discovered ON episode_update(discovered_at DESC);
-CREATE INDEX IF NOT EXISTS idx_episode_update_unack ON episode_update(acknowledged, discovered_at DESC);
+-- D-193 Phase 2: updated index to include new_expires_at for the "new" feed query
+DROP INDEX IF EXISTS idx_episode_update_unack;
+CREATE INDEX IF NOT EXISTS idx_episode_update_unack
+    ON episode_update(acknowledged, new_expires_at, discovered_at DESC);
 -- NOTE: idx_episode_update_main_id was dropped (Phase DB-OPT) — redundant with the
 -- leftmost column (main_id) of idx_episode_update_unique UNIQUE composite.
 -- Phase DB-OPT: partial index for fast retention purge (deleteOldAcknowledged).
@@ -38,16 +42,20 @@ upsertEpisodeUpdate:
 INSERT OR REPLACE INTO episode_update(
     main_id, episode_key, episode_number, episode_title, source_id,
     audio_variant, discovered_at, acknowledged, acknowledged_at,
-    batch_type, episode_count
+    batch_type, episode_count, new_expires_at
 ) VALUES (
     :main_id, :episode_key, :episode_number, :episode_title, :source_id,
     :audio_variant, :discovered_at, :acknowledged, :acknowledged_at,
-    :batch_type, :episode_count
+    :batch_type, :episode_count, :new_expires_at
 );
 
 -- Get unacknowledged updates (the "New" feed), ordered by discovered_at DESC.
+-- D-193 Phase 2: only show "new" items that haven't expired (new_expires_at > now OR null for initial batch).
 getUnacknowledgedUpdates:
-SELECT * FROM episode_update WHERE acknowledged = 0 ORDER BY discovered_at DESC LIMIT :limit;
+SELECT * FROM episode_update
+WHERE acknowledged = 0
+  AND (new_expires_at IS NULL OR new_expires_at > :now)
+ORDER BY discovered_at DESC LIMIT :limit;
 
 -- Get all updates (New + Earlier), ordered by discovered_at DESC.
 getAllUpdates:
@@ -66,5 +74,8 @@ deleteOldAcknowledged:
 DELETE FROM episode_update WHERE acknowledged = 1 AND acknowledged_at < :cutoff;
 
 -- Count unacknowledged updates (for a badge / count).
+-- Count unacknowledged "new" updates (for a badge / count).
+-- D-193 Phase 2: only counts non-expired "new" items.
 countUnacknowledged:
-SELECT COUNT(*) FROM episode_update WHERE acknowledged = 0;
+SELECT COUNT(*) FROM episode_update
+WHERE acknowledged = 0 AND (new_expires_at IS NULL OR new_expires_at > :now);

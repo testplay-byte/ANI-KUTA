@@ -1,35 +1,46 @@
 -- Per-anime smart-update metadata (Phase UP — PLAN §1.4)
 -- The core of the "smart update" engine. The old project had these columns on the
 -- animes table but never used them. We put them in a separate table + actually use them.
+--
+-- D-193 Phase 2: added last_known_dub_count, last_checked_dub_at, total_episodes
+-- for sub/dub tracking + completed-anime handling.
 
 CREATE TABLE IF NOT EXISTS anime_update_state (
     main_id TEXT NOT NULL PRIMARY KEY,   -- FK → content(main_id)
     status TEXT,                         -- 'RELEASING' | 'FINISHED' | 'NOT_YET_RELEASED' | 'CANCELLED' | null (from AniList, M2)
-    last_checked_at INTEGER,             -- when we last checked this anime for updates
+    last_checked_at INTEGER,             -- when we last checked this anime for sub updates
     next_check_at INTEGER,               -- when we should next check (CF4: with backoff)
-    last_known_episode_count INTEGER,    -- highest episode number we've seen
+    last_known_episode_count INTEGER,    -- highest SUB episode number we've seen
     next_airing_episode INTEGER,         -- from AniList nextAiringEpisode (S4: populated by Schedule fetch)
     next_airing_at INTEGER,              -- from AniList airingAt (epoch millis) (S4)
     auto_update_enabled INTEGER NOT NULL DEFAULT 1,  -- user can disable per-anime (M3: 0 after 3 consecutive failures)
     consecutive_failures INTEGER NOT NULL DEFAULT 0,  -- M3
     backoff_step INTEGER NOT NULL DEFAULT 0,           -- CF4/Q4: current backoff step (0=none, 1=1h, 2=2h, 3=4h, 4=8h, 5=24h capped)
+    -- D-193 Phase 2: dub tracking + total episodes
+    last_known_dub_count INTEGER,        -- highest DUB episode number (null = no dub tracking yet)
+    last_checked_dub_at INTEGER,         -- when we last checked for dub updates (separate from sub)
+    total_episodes INTEGER,              -- from AniList episodes field (for completed-anime handling)
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
 -- S2: partial index — only due + enabled + releasing anime (the worker's query)
 CREATE INDEX IF NOT EXISTS idx_anime_update_due ON anime_update_state(next_check_at)
     WHERE auto_update_enabled = 1 AND status = 'RELEASING';
--- NOTE: idx_anime_update_status was dropped (Phase DB-OPT) — no query filters on
--- `status` alone (getDueAnime is covered by idx_anime_update_due partial index).
+
+-- D-193 Phase 2: partial index for dub checking on FINISHED anime
+CREATE INDEX IF NOT EXISTS idx_anime_update_due_dub ON anime_update_state(next_check_at)
+    WHERE auto_update_enabled = 1 AND status = 'FINISHED' AND last_known_dub_count < total_episodes;
 
 -- Upsert (insert or replace — for when a new anime is added to the library).
 upsertAnimeUpdateState:
 INSERT OR REPLACE INTO anime_update_state(
     main_id, status, last_checked_at, next_check_at, last_known_episode_count,
-    next_airing_episode, next_airing_at, auto_update_enabled, consecutive_failures, backoff_step
+    next_airing_episode, next_airing_at, auto_update_enabled, consecutive_failures, backoff_step,
+    last_known_dub_count, last_checked_dub_at, total_episodes
 ) VALUES (
     :main_id, :status, :last_checked_at, :next_check_at, :last_known_episode_count,
-    :next_airing_episode, :next_airing_at, :auto_update_enabled, :consecutive_failures, :backoff_step
+    :next_airing_episode, :next_airing_at, :auto_update_enabled, :consecutive_failures, :backoff_step,
+    :last_known_dub_count, :last_checked_dub_at, :total_episodes
 );
 
 -- Get the update state for a specific anime.
@@ -42,14 +53,24 @@ SELECT * FROM anime_update_state
 WHERE next_check_at <= ? AND auto_update_enabled = 1 AND status = 'RELEASING'
 ORDER BY next_check_at ASC;
 
+-- D-193 Phase 2: Get FINISHED anime that are due for a dub check.
+getDueDubAnime:
+SELECT * FROM anime_update_state
+WHERE next_check_at <= ? AND auto_update_enabled = 1 AND status = 'FINISHED'
+  AND last_known_dub_count < total_episodes
+ORDER BY next_check_at ASC;
+
 -- Update the check metadata (after a check completes).
+-- D-193 Phase 2: added last_known_dub_count + last_checked_dub_at.
 updateCheckResult:
 UPDATE anime_update_state
 SET last_checked_at = :last_checked_at,
     next_check_at = :next_check_at,
     last_known_episode_count = :last_known_episode_count,
     consecutive_failures = :consecutive_failures,
-    backoff_step = :backoff_step
+    backoff_step = :backoff_step,
+    last_known_dub_count = :last_known_dub_count,
+    last_checked_dub_at = :last_checked_dub_at
 WHERE main_id = :main_id;
 
 -- Update the airing data (from Schedule engine — S4).
@@ -58,6 +79,12 @@ UPDATE anime_update_state
 SET next_airing_episode = :next_airing_episode,
     next_airing_at = :next_airing_at,
     status = :status
+WHERE main_id = :main_id;
+
+-- D-193 Phase 2: Update total_episodes (from AniList episodes field).
+updateTotalEpisodes:
+UPDATE anime_update_state
+SET total_episodes = :total_episodes
 WHERE main_id = :main_id;
 
 -- Disable auto-update (M3: after 3 consecutive failures).

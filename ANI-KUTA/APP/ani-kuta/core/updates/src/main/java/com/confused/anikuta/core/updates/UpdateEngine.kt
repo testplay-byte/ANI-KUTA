@@ -123,6 +123,8 @@ class UpdateEngine(
                     lastKnownEpisodeCount = state.lastKnownEpisodeCount ?: 0,
                     consecutiveFailures = failures,
                     backoffStep = state.backoffStep,
+                    lastKnownDubCount = state.lastKnownDubCount,
+                    lastCheckedDubAt = state.lastCheckedDubAt,
                 )
                 Logger.w(TAG) { "checkSingleAnime — source unavailable ($failures/$MAX_FAILURES): mainId=$mainId" }
             }
@@ -148,6 +150,8 @@ class UpdateEngine(
                     lastKnownEpisodeCount = maxEpisodeNumber.toLong(),
                     consecutiveFailures = 0,
                     backoffStep = backoffStep,
+                    lastKnownDubCount = state.lastKnownDubCount,
+                    lastCheckedDubAt = state.lastCheckedDubAt,
                 )
                 Logger.d(TAG) { "checkSingleAnime — no new episodes: mainId=$mainId lastKnown=$lastKnown max=$maxEpisodeNumber nextCheck=${backoffStep}h backoff" }
                 0
@@ -162,6 +166,7 @@ class UpdateEngine(
 
                     // M5: suppress already-watched episodes.
                     val isWatched = watchProgressStore.isWatched(epKey)
+                    val threeDaysMs = 3L * 24 * 60 * 60 * 1000
                     updateStore.upsertEpisodeUpdate(
                         mainId = mainId,
                         episodeKey = epKey,
@@ -172,6 +177,7 @@ class UpdateEngine(
                         discoveredAt = now,
                         acknowledged = isWatched, // M5: pre-acknowledge if already watched.
                         acknowledgedAt = if (isWatched) now else null,
+                        newExpiresAt = if (isWatched) null else now + threeDaysMs, // D-193: 3-day "new" expiry
                     )
                     inserted++
                     Logger.i(TAG) { "checkSingleAnime — NEW episode: mainId=$mainId ep=$epNum audio=$audioVariant watched=$isWatched" }
@@ -193,6 +199,8 @@ class UpdateEngine(
                     lastKnownEpisodeCount = maxEpisodeNumber.toLong(),
                     consecutiveFailures = 0,
                     backoffStep = 0,
+                    lastKnownDubCount = state.lastKnownDubCount,
+                    lastCheckedDubAt = state.lastCheckedDubAt,
                 )
                 Logger.i(TAG) { "checkSingleAnime — $inserted new episode(s): mainId=$mainId lastKnown=$lastKnown→${maxEpisodeNumber.toLong()}" }
                 inserted
@@ -210,6 +218,8 @@ class UpdateEngine(
                     lastKnownEpisodeCount = state.lastKnownEpisodeCount ?: 0,
                     consecutiveFailures = failures,
                     backoffStep = state.backoffStep,
+                    lastKnownDubCount = state.lastKnownDubCount,
+                    lastCheckedDubAt = state.lastCheckedDubAt,
                 )
             }
             0
@@ -251,11 +261,13 @@ class UpdateEngine(
                 acknowledgedAt = now,
                 batchType = "initial",
                 episodeCount = latestEpisodeNumber.toLong(),
+                newExpiresAt = null, // initial batch never expires as "new"
             )
             Logger.i(TAG) { "onEpisodesRefreshed — INITIAL BATCH: mainId=$mainId episodes=1-$latestEpisodeNumber (one row, acknowledged)" }
         } else {
             // SUBSEQUENT REFRESH — create individual "new" rows for episodes > lastKnown.
             // These ARE new episodes the user hasn't seen before.
+            val threeDaysMs = 3L * 24 * 60 * 60 * 1000 // 3 days in millis
             for (epNum in (lastKnown + 1).toInt()..latestEpisodeNumber) {
                 val epKey = "$mainId|${String.format("%05d", epNum)}"
                 updateStore.upsertEpisodeUpdate(
@@ -270,6 +282,7 @@ class UpdateEngine(
                     acknowledgedAt = now,
                     batchType = "new",
                     episodeCount = null,
+                    newExpiresAt = now + threeDaysMs, // D-193 Phase 2: expires as "new" after 3 days
                 )
             }
             Logger.i(TAG) { "onEpisodesRefreshed — NEW EPISODES: mainId=$mainId episodes=${lastKnown + 1}-$latestEpisodeNumber (${latestEpisodeNumber - lastKnown} new)" }
@@ -285,6 +298,8 @@ class UpdateEngine(
             lastKnownEpisodeCount = latestEpisodeNumber.toLong(),
             consecutiveFailures = 0,
             backoffStep = 0,
+            lastKnownDubCount = state.lastKnownDubCount, // preserve existing dub count
+            lastCheckedDubAt = state.lastCheckedDubAt,
         )
     }
 
