@@ -40,7 +40,7 @@ export default function ProjectReviewPage() {
             </h1>
           </div>
           <span
-            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary max-w-full"
             title={`Latest commit on main: ${HERO.commitHash}`}
           >
             <StatusDot color="var(--c-success)" size="sm" />
