@@ -79,11 +79,20 @@ class UpdatesViewModel(
     fun checkForUpdates() {
         viewModelScope.launch {
             _checking.value = true
+            // D-193 improvement: emit a "checking" progress so the banner shows immediately
+            _checkProgress.value = com.confused.anikuta.core.updates.CheckProgress(0, 0, "", "Checking library…", null)
             runCatching {
                 val count = updateEngine.checkDueAnime()
                 Logger.i(TAG) { "checkForUpdates — $count new episode(s) found" }
+                // If no progress was emitted (no anime due), show a brief "complete" message
+                if (_checkProgress.value == null || _checkProgress.value!!.total == 0) {
+                    _checkProgress.value = com.confused.anikuta.core.updates.CheckProgress(0, 0, "", "No anime due for check", null)
+                    kotlinx.coroutines.delay(2000)
+                    _checkProgress.value = null
+                }
             }.onFailure { e ->
                 Logger.e(TAG, e) { "checkForUpdates failed: ${e.message}" }
+                _checkProgress.value = null
             }
             _checking.value = false
         }

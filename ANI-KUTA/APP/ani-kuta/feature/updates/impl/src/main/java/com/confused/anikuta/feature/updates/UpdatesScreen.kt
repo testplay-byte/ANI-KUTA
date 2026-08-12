@@ -198,7 +198,7 @@ fun UpdatesScreen(
                                     modifier = Modifier.fillMaxSize(),
                                 ) {
                                     // D-193 improvement: Live-progress banner during refresh
-                                    if (checkProgress != null && checkProgress!!.total > 0) {
+                                    if (checkProgress != null) {
                                         item(key = "progress_banner") {
                                             LiveProgressBanner(
                                                 progress = checkProgress!!,
@@ -383,7 +383,8 @@ private fun LiveProgressBanner(
     progress: com.confused.anikuta.core.updates.CheckProgress,
     modifier: Modifier = Modifier,
 ) {
-    val isComplete = progress.current >= progress.total
+    val isComplete = progress.current >= progress.total && progress.total > 0
+    val isChecking = progress.total == 0 && progress.title.isNotBlank()
     val progressFraction = if (progress.total > 0) progress.current.toFloat() / progress.total else 0f
     val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
         targetValue = progressFraction,
@@ -404,7 +405,7 @@ private fun LiveProgressBanner(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (!isComplete) {
+                if (isChecking || !isComplete) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
                         strokeWidth = 2.dp,
@@ -418,14 +419,20 @@ private fun LiveProgressBanner(
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
+                    val statusText = when {
+                        isComplete -> "Check complete"
+                        isChecking -> progress.title
+                        progress.total > 0 -> "Checking ${progress.current} of ${progress.total}…"
+                        else -> "Checking…"
+                    }
                     Text(
-                        text = if (isComplete) "Check complete" else "Checking ${progress.current} of ${progress.total}…",
+                        text = statusText,
                         fontFamily = RobotoFamily,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    if (!isComplete && progress.title.isNotBlank()) {
+                    if (!isComplete && !isChecking && progress.total > 0 && progress.title.isNotBlank()) {
                         Text(
                             text = progress.title,
                             fontFamily = RobotoFamily,
@@ -437,21 +444,23 @@ private fun LiveProgressBanner(
                     }
                 }
             }
-            // Progress bar
-            androidx.compose.foundation.layout.Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            ) {
+            // Progress bar — only show when total > 0
+            if (progress.total > 0) {
                 androidx.compose.foundation.layout.Box(
                     modifier = Modifier
-                        .fillMaxWidth(animatedProgress)
+                        .fillMaxWidth()
                         .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.primary),
-                )
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .fillMaxWidth(animatedProgress)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
             }
         }
     }

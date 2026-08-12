@@ -513,27 +513,6 @@ fun AppRoot() {
                 onOpenDefaults = { backstack.add(NotificationsKey) },
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },
                 onOpenCategories = { backstack.add(UpdateCategoriesKey) },
-                onCheckNow = {
-                    // Trigger manual check via coroutine
-                    kotlinx.coroutines.GlobalScope.launch {
-                        try {
-                            val engine = org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.updates.UpdateEngine>()
-                            engine.checkDueAnime()
-                        } catch (e: Exception) {
-                            Logger.w("Anikuta:MainActivity") { "Manual check failed: ${e.message}" }
-                        }
-                    }
-                },
-                onSendTestNotification = {
-                    kotlinx.coroutines.GlobalScope.launch {
-                        try {
-                            val notifMgr = org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.notifications.NotificationManager>()
-                            notifMgr.postTestNotification()
-                        } catch (e: Exception) {
-                            Logger.w("Anikuta:MainActivity") { "Test notification failed: ${e.message}" }
-                        }
-                    }
-                },
             )
             is UpdateCategoriesKey -> {
                 // D-193 Phase 3: per-category checklist (placeholder — will be built in Phase 3 continuation)
