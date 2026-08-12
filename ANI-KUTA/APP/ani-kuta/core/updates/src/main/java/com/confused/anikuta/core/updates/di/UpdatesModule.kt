@@ -22,4 +22,6 @@ val updatesModule = module {
     }
     // D-193 Phase 4: UpdateScheduler for configurable WorkManager interval.
     single { UpdateScheduler(get(), get()) }
+    // D-193 Phase 5: SmartReleaseScheduler for 10-min polling.
+    single { SmartReleaseScheduler(get(), get()) }
 }
