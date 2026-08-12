@@ -186,7 +186,7 @@ class NotificationManager(
             }
         }
 
-        ensureDefaultChannel()
+        ensureChannel()
 
         val title = "New episode available"
         val text = "Demon Slayer — Episode 6 DUB"
