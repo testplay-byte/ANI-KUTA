@@ -997,3 +997,22 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Branch: feature/updates-notifications-impl (NOT merged — awaiting user approval).
 - CI: GREEN on commit d40c135.
 - All 14 audit items addressed.
+
+## Session — D-193 v2 Merge to Main
+
+### What was done
+- User tested the latest APK from the feature branch + confirmed all fixes look proper (episode-type toggle + others all working).
+- User gave explicit approval to merge.
+- Pre-merge verification: CI green on commit 2b8c269 (the latest on the feature branch). Local main was in sync with origin/main.
+- Merged feature/updates-notifications-impl into main with a merge commit (57bbd17) — 50 files changed, +2924/-295 lines.
+- Pushed main to GitHub.
+- CI on the merge commit (57bbd17) passed — GREEN.
+- Deleted the remote feature branch (origin/feature/updates-notifications-impl).
+- Deleted the local feature branch.
+- Deleted the old planning branch (feature/updates-notifications-plan) — both local + remote. It was a docs-only planning branch superseded by the actual implementation.
+- Final state: only `main` branch remains (local + remote).
+
+### Status
+- Branch: **main** (the only branch that remains).
+- CI: GREEN on main merge commit 57bbd17.
+- D-193 v2 Updates + Notifications system is now live on main.

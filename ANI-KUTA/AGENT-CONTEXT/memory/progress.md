@@ -3,14 +3,15 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v6 — MERGED TO `main` (feature branch deleted).**
+**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v6 + D-193 v2 UPDATES + NOTIFICATIONS — ALL MERGED TO `main` (only `main` branch remains).**
 
-Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, and the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor) are ALL DONE and on `main`.
+Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor), and D-193 v2 (Updates + Notifications overhaul) are ALL DONE and on `main`.
 
-**Merge completed (this session):**
-- `feature/db-optimization-ratings-cw` (55 commits) fast-forward merged into `main` — no conflicts (`main` hadn't diverged). `main` now at `c15b1b8`.
-- CI on `main` verified GREEN (run 31432557415, commit c15b1b8a) — the final gate before branch deletion.
-- Feature branch deleted (local + remote). Only `main` remains.
+**D-193 v2 merge completed (this session):**
+- `feature/updates-notifications-impl` (29 commits) merge-committed into `main` (57bbd17) — 50 files changed, +2924/-295 lines.
+- CI on `main` verified GREEN (run 31639789917, commit 57bbd17) — the final gate before branch deletion.
+- Both feature branches deleted (local + remote): `feature/updates-notifications-impl` + `feature/updates-notifications-plan`. Only `main` remains.
+- D-193 v2 includes: episode-type toggle gates notifications only, check-dub-on-completed wired, smart-release real weighted averaging, library customization toggle + per-anime notification UI on details page, update categories picker, battery optimization on first launch, on_schedule precise timer, + cleanup.
 
 **Profile UI v6 (D-183..D-186, commit 6945df6 — now on main):**
 - **Magnetic snap guard:** Snap now only fires when `firstVisibleItemIndex == 0` (near top). Fixes the "scroll to bottom → auto-scrolls to top" bug.
