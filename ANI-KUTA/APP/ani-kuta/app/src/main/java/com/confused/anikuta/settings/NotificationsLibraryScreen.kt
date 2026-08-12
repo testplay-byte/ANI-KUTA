@@ -338,7 +338,7 @@ private fun AnimeConfigSheet(
                 title = "On schedule",
                 description = triggerDescription("schedule", config.notifyOnSchedule),
                 options = listOf("On", "Silent", "Off"),
-                selected = config.notifyOnSchedule.ordinal,
+                selected = TRIGGERS.indexOf(config.notifyOnSchedule),
             ) { idx ->
                 val s = TRIGGERS[idx]
                 config = config.copy(notifyOnSchedule = s)
@@ -349,7 +349,7 @@ private fun AnimeConfigSheet(
                 title = "On watchable",
                 description = triggerDescription("watchable", config.notifyOnWatchable),
                 options = listOf("On", "Silent", "Off"),
-                selected = config.notifyOnWatchable.ordinal,
+                selected = TRIGGERS.indexOf(config.notifyOnWatchable),
             ) { idx ->
                 val s = TRIGGERS[idx]
                 config = config.copy(notifyOnWatchable = s)
@@ -360,7 +360,7 @@ private fun AnimeConfigSheet(
                 title = "On immediate",
                 description = triggerDescription("immediate", config.notifyOnImmediate),
                 options = listOf("On", "Silent", "Off"),
-                selected = config.notifyOnImmediate.ordinal,
+                selected = TRIGGERS.indexOf(config.notifyOnImmediate),
             ) { idx ->
                 val s = TRIGGERS[idx]
                 config = config.copy(notifyOnImmediate = s)
@@ -371,7 +371,7 @@ private fun AnimeConfigSheet(
                 title = "Audio",
                 description = audioDescription(config.audioPref),
                 options = listOf("Sub", "Dub", "Both"),
-                selected = config.audioPref.ordinal,
+                selected = AUDIO.indexOf(config.audioPref),
             ) { idx ->
                 val a = AUDIO[idx]
                 config = config.copy(audioPref = a)

@@ -1232,6 +1232,9 @@ class DetailsViewModel(
         when (result) {
             is AutoLinkResult.Cached -> {
                 Logger.i(TAG) { "Auto-link cache HIT: anilistId=${result.anilistId}" }
+                // D-193 Phase 1: Persist the source link so loadFromAniList can restore it
+                // synchronously (fixes "no source from library" race — #21).
+                preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + result.anilistId, "$sourceId:$animeUrl")
                 // D-130: Auto-link uses EXTENSION priority (non-intrusive) —
                 // AniList only fills nulls, doesn't overwrite extension data.
                 // The user can manually switch to ANILIST priority via the
@@ -1244,6 +1247,8 @@ class DetailsViewModel(
             }
             is AutoLinkResult.Matched -> {
                 Logger.i(TAG) { "Auto-link MATCH: anilistId=${result.anilistId} (score=${result.score})" }
+                // D-193 Phase 1: Persist the source link (same as Cached case).
+                preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + result.anilistId, "$sourceId:$animeUrl")
                 mergeAniListIntoUnified(
                     result.anilistId,
                     com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION,

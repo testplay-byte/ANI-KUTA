@@ -168,7 +168,7 @@ private fun DefaultsSection(
         )
         SegmentedToggle(
             options = listOf("On", "Silent", "Off"),
-            selectedIndex = defaults.onSchedule.ordinal,
+            selectedIndex = TRIGGERS.indexOf(defaults.onSchedule),
             onSelect = { idx -> viewModel.setDefaultOnSchedule(TRIGGERS[idx]) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
@@ -181,7 +181,7 @@ private fun DefaultsSection(
         )
         SegmentedToggle(
             options = listOf("On", "Silent", "Off"),
-            selectedIndex = defaults.onWatchable.ordinal,
+            selectedIndex = TRIGGERS.indexOf(defaults.onWatchable),
             onSelect = { idx -> viewModel.setDefaultOnWatchable(TRIGGERS[idx]) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
@@ -194,7 +194,7 @@ private fun DefaultsSection(
         )
         SegmentedToggle(
             options = listOf("On", "Silent", "Off"),
-            selectedIndex = defaults.onImmediate.ordinal,
+            selectedIndex = TRIGGERS.indexOf(defaults.onImmediate),
             onSelect = { idx -> viewModel.setDefaultOnImmediate(TRIGGERS[idx]) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
@@ -207,7 +207,7 @@ private fun DefaultsSection(
         )
         SegmentedToggle(
             options = listOf("Sub", "Dub", "Both"),
-            selectedIndex = defaults.audioPref.ordinal,
+            selectedIndex = AUDIO.indexOf(defaults.audioPref),
             onSelect = { idx -> viewModel.setDefaultAudioPref(AUDIO[idx]) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )

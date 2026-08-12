@@ -222,7 +222,14 @@ class UpdateEngine(
      * Inserts any new episodes with acknowledged=1 (pre-acknowledged — no notification spam).
      */
     suspend fun onEpisodesRefreshed(mainId: String, latestEpisodeNumber: Int) = withContext(Dispatchers.IO) {
-        val state = updateStore.getAnimeUpdateState(mainId) ?: return@withContext
+        // D-193 Phase 1: ensure the update state exists before proceeding.
+        // This fixes the ordering bug where onEpisodesRefreshed fires before
+        // ensureUpdateState (user links source before adding to library).
+        var state = updateStore.getAnimeUpdateState(mainId)
+        if (state == null) {
+            ensureUpdateState(mainId)
+            state = updateStore.getAnimeUpdateState(mainId) ?: return@withContext
+        }
         val lastKnown = state.lastKnownEpisodeCount ?: 0
         if (latestEpisodeNumber <= lastKnown) return@withContext
 
