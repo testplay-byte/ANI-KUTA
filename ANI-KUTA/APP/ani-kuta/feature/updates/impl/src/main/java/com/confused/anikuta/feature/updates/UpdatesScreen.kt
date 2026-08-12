@@ -328,7 +328,12 @@ private fun UpdateRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "EP ${update.episodeNumber} · ${formatAudioLabel(update.audioVariant)}",
+                    text = if (update.batchType == "initial" && update.episodeCount != null) {
+                        // D-193 Phase 8: initial-batch row — "Episodes 1-N added to library"
+                        "Episodes 1-${update.episodeCount} added to library"
+                    } else {
+                        "EP ${update.episodeNumber} · ${formatAudioLabel(update.audioVariant)}"
+                    },
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

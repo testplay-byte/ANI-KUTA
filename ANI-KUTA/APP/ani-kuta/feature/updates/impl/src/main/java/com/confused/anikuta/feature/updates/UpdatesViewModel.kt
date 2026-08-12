@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
+import com.confused.anikuta.core.updates.CheckProgress
 import com.confused.anikuta.core.updates.UpdateEngine
 import com.confused.anikuta.core.updates.UpdateStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,11 +16,16 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel for the Updates screen (Phase UP).
+ * ViewModel for the Updates screen (Phase UP + D-193 Phase 8).
  *
  * Observes [UpdateStore.observeAllUpdates] + enriches each entry with the anime
  * title + cover from [ContentRepository]. Groups by New (unacknowledged) +
  * Earlier (acknowledged).
+ *
+ * D-193 Phase 8:
+ * - Live-progress via [UpdateEngine.checkProgress] SharedFlow → [checkProgress] StateFlow.
+ * - Batch-type rendering: initial-batch rows show "Episodes 1-N added to library".
+ * - Acknowledgment on tap.
  *
  * CORE_RULES §20: logged with tag "Anikuta:Feature:Updates".
  */
@@ -48,6 +54,26 @@ class UpdatesViewModel(
 
     private val _checking = MutableStateFlow(false)
     val checking: StateFlow<Boolean> = _checking.asStateFlow()
+
+    // D-193 Phase 8: Live-progress from UpdateEngine.checkProgress SharedFlow.
+    private val _checkProgress = MutableStateFlow<CheckProgress?>(null)
+    val checkProgress: StateFlow<CheckProgress?> = _checkProgress.asStateFlow()
+
+    init {
+        // Collect checkProgress from the engine.
+        viewModelScope.launch {
+            updateEngine.checkProgress.collect { progress ->
+                if (progress.current >= progress.total && progress.total > 0) {
+                    // Terminal — clear the progress after a short delay.
+                    _checkProgress.value = progress
+                    kotlinx.coroutines.delay(2000)
+                    _checkProgress.value = null
+                } else {
+                    _checkProgress.value = progress
+                }
+            }
+        }
+    }
 
     /** Check for new episodes (pull-to-refresh or "Check now" button). */
     fun checkForUpdates() {
@@ -85,6 +111,9 @@ class UpdatesViewModel(
             audioVariant = update.audioVariant,
             discoveredAt = update.discoveredAt,
             acknowledged = update.acknowledged,
+            // D-193 Phase 8: batch type + episode count for initial-batch rendering.
+            batchType = update.batchType,
+            episodeCount = update.episodeCount?.toInt(),
         )
     }
 }
@@ -106,4 +135,7 @@ data class UpdateDisplay(
     val audioVariant: String,
     val discoveredAt: Long,
     val acknowledged: Boolean,
+    // D-193 Phase 8: batch type + episode count.
+    val batchType: String = "new",
+    val episodeCount: Int? = null,
 )
