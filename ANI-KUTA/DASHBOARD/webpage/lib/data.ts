@@ -51,6 +51,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
+  { label: "Updates Plan", href: "/updates-notifications-plan/", icon: "bell", desc: "D-193: Updates + Notifications architecture plan" },
 ];
 
 /* ---------------------------------------------------------------------------
