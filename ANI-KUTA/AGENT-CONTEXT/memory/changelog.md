@@ -874,3 +874,36 @@
 ### Status
 - main is at 410c380 (D-192 Phase 1).
 - Next session: continue with Phase 2 (activity tracker wiring).
+
+## Session — D-192 Phases 2-5 (activity tracker, updates, downloads, details fixes)
+
+### Phase 2: Activity tracker wiring (COMPLETE — CI green)
+- Wired ActivityTracker.track() at 7 call sites: WATCH_START, LIBRARY_ADD/REMOVE, RATING, SEARCH, DOWNLOAD_START, APP_OPEN
+- Added convenience overload + sessionId default
+
+### Phase 3: Updates feature rework (COMPLETE — CI green)
+- Root cause: ensureUpdateState() was never called on library-add
+- Fix: wired ensureUpdateState in toggleLibrary + onEpisodesRefreshed in fetchEpisodes
+- Added batch_type + episode_count columns for "initial batch" vs "new episode" distinction
+- First link creates ONE batch row ("Episodes 1-N added to library", acknowledged); refresh creates individual new-episode rows
+
+### Phase 4: Download data-loss fix (COMPLETE — CI green)
+- DownloadedEpisode was missing sourceId/videoServer/videoAudio fields
+- DownloadStore hardcoded them to null — data lost on transition from download_queue
+- Fix: added fields + updated insert + mapper + construction site
+
+### Phase 5: Details page fixes (COMPLETE — CI green)
+- loadGeneration counter prevents stale-state flash
+- Synchronous source-link pre-read fixes "no source linked" race
+
+### Resolved concerns
+- #12 activity_event → RESOLVED
+- #13 Updates → RESOLVED
+- #16 download data → DATA FIX DONE (UI deferred)
+- #20 stale-state flash → RESOLVED
+- #21 no-source race → RESOLVED
+- #22 user_customization → RESOLVED (Phase 1)
+
+### Status
+- main at bb88275. All 5 phases CI green.
+- Next: user reinstalls + tests. Then: remaining deferred concerns (notifications, download UI, refresh-all-progress, auto-update).
