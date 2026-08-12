@@ -220,8 +220,11 @@ fun AppRoot() {
 
     // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
     // from a notification, navigate to the details page for the tapped anime.
-    val intent = activity.intent
-    val notifMainId = intent?.getStringExtra("notification_main_id")
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val notifMainId = remember {
+        val intent = (context as? android.app.Activity)?.intent
+        intent?.getStringExtra("notification_main_id")
+    }
     LaunchedEffect(notifMainId) {
         if (!notifMainId.isNullOrBlank() && backstack.size == 1) {
             // Look up the content to determine whether it has an AniList ID or is extension-only.
@@ -229,17 +232,21 @@ fun AppRoot() {
             val anilistDetail = content?.let { contentRepository.getAniListDetail(it.mainId) }
             if (anilistDetail != null) {
                 backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
-            } else if (content != null && content.sourceId != null && content.animeUrl != null) {
-                backstack.add(
-                    AnimeDetailsKey.Extension(
-                        sourceId = content.sourceId,
-                        animeUrl = content.animeUrl,
-                        title = content.title,
-                    ),
-                )
+            } else if (content != null) {
+                val sid = content.sourceId
+                val url = content.animeUrl
+                if (sid != null && url != null) {
+                    backstack.add(
+                        AnimeDetailsKey.Extension(
+                            sourceId = sid,
+                            animeUrl = url,
+                            title = content.title,
+                        ),
+                    )
+                }
             }
             // Clear the extra so we don't re-navigate on recomposition.
-            intent.removeExtra("notification_main_id")
+            (context as? android.app.Activity)?.intent?.removeExtra("notification_main_id")
         }
     }
 
