@@ -104,17 +104,7 @@ fun AppearanceScreen(
     }
 }
 
-@Composable
-private fun SettingsSectionLabel(text: String) {
-    Text(
-        text = text,
-        fontFamily = RobotoFamily,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.ExtraBold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
-    )
-}
+// D-193: SettingsSectionLabel is now shared from SettingsScreen.kt (removed duplicate)
 
 @Composable
 private fun AppearanceNavRow(

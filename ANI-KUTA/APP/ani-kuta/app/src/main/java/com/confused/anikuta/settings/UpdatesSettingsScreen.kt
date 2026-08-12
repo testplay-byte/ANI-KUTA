@@ -65,7 +65,7 @@ fun UpdatesSettingsScreen(
                 navigationIcon = {
                     androidx.compose.material3.IconButton(onClick = onBack) {
                         androidx.compose.material3.Icon(
-                            androidx.compose.material.icons.automirrored.filled.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
                         )
                     }
