@@ -36,16 +36,26 @@ import {
   NOTIFICATION_AUDIO_FILTER,
   NOTIFICATION_TRIGGERS,
   NOTIFICATION_CONTENT,
+  EXTENSION_ONLY_NOTES,
+  TRIGGER_COMPARISON_INTRO,
+  TRIGGER_COMPARISON,
+  TRIGGER_TIMELINE_NOTE,
   TEST_NOTIFICATION_NOTES,
   DEDUP_RETENTION_NOTES,
   IMPLEMENTATION_PHASES,
   IMPLEMENTATION_TOTAL_ESTIMATE,
-  OPEN_QUESTIONS,
+  USER_DECISIONS,
+  USER_DECISIONS_ADDITIONAL,
+  SETTINGS_TABLES,
+  SETTINGS_TABLES_INTRO,
   FUTURE_PROOFING,
   UPDATES_PLAN_NAV_FOOTER,
   type BuildStatus,
   type SettingsTreeNode,
   type SmartReleaseStep,
+  type TriggerComparison,
+  type UserDecision,
+  type SettingsTableSection,
 } from "@/lib/updatesPlan";
 
 /* ---------------------------------------------------------------------------
@@ -349,7 +359,7 @@ export default function UpdatesNotificationsPlanPage() {
         <Card className="p-0 overflow-hidden">
           <div className="border-b border-border bg-surface-alt px-4 py-2.5">
             <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary">
-              5b · General screen — 6 items
+              5b · General screen — {SETTINGS_GENERAL_ITEMS.length} items
             </span>
           </div>
           <div className="divide-y divide-border">
@@ -476,7 +486,7 @@ export default function UpdatesNotificationsPlanPage() {
       <SectionHeader
         number={9}
         title="Smart Release Detection"
-        subtitle="OneTimeWorkRequest chaining with setInitialDelay. For each anime airing within ±1h: try at +10, +20, +30 min — then give up (skip-after-3)."
+        subtitle="OneTimeWorkRequest chaining with setInitialDelay. For each anime airing within ±1h: try at +10, +20, +30 min — then give up (skip-after-3). Includes the v3 completed-anime dub-checking logic."
       />
       <div className="mb-10 space-y-4">
         <Card className="p-5">
@@ -484,15 +494,28 @@ export default function UpdatesNotificationsPlanPage() {
         </Card>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          {SMART_RELEASE_NOTES.map((n, i) => (
-            <Card key={i} className="p-4">
-              <div className="mb-1.5 flex items-center gap-2">
-                <StatusDot color="var(--c-secondary)" size="md" />
-                <h3 className="text-[13px] font-bold text-text-primary">{n.title}</h3>
-              </div>
-              <p className="text-xs leading-relaxed text-text-secondary">{n.body}</p>
-            </Card>
-          ))}
+          {SMART_RELEASE_NOTES.map((n, i) => {
+            const isCompletedDubNote =
+              n.title.startsWith("Completed anime — dub checking") ||
+              n.title.startsWith("Completed anime — disable logic");
+            return (
+              <Card key={i} className="p-4">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <StatusDot
+                    color={isCompletedDubNote ? "var(--c-primary)" : "var(--c-secondary)"}
+                    size="md"
+                  />
+                  <h3 className="text-[13px] font-bold text-text-primary">{n.title}</h3>
+                  {isCompletedDubNote && (
+                    <span className="rounded-md bg-[var(--c-primary)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                      v3
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs leading-relaxed text-text-secondary">{n.body}</p>
+              </Card>
+            );
+          })}
         </div>
       </div>
 
@@ -548,7 +571,7 @@ export default function UpdatesNotificationsPlanPage() {
       <SectionHeader
         number={11}
         title="Notification System"
-        subtitle="3 trigger types + content spec + test notification + dedup/retention."
+        subtitle="3 trigger types + the on_schedule vs on_watchable comparison (user asked for this) + content spec + extension-only handling + test notification + dedup/retention."
       />
       <div className="mb-10 space-y-4">
         <Card className="overflow-hidden p-0">
@@ -583,6 +606,37 @@ export default function UpdatesNotificationsPlanPage() {
           </div>
         </Card>
 
+        {/* 9a · on_schedule vs on_watchable comparison (user-requested) */}
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-border bg-surface-alt px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-primary)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary">
+              9a · on_schedule vs on_watchable — user-requested clarification
+            </span>
+            <span className="rounded-md bg-[var(--c-primary)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+              v3
+            </span>
+          </div>
+          <div className="p-4">
+            <p className="text-xs leading-relaxed text-text-secondary mb-3">
+              {TRIGGER_COMPARISON_INTRO}
+            </p>
+            <TriggerComparisonTable rows={TRIGGER_COMPARISON} />
+            <div
+              className="mt-4 rounded-lg p-3"
+              style={{
+                backgroundColor: "color-mix(in srgb, var(--c-secondary) 8%, transparent)",
+                borderLeft: "3px solid var(--c-secondary)",
+              }}
+            >
+              <div className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--c-secondary)]">
+                Typical timeline
+              </div>
+              <p className="text-xs leading-relaxed text-text-secondary">{TRIGGER_TIMELINE_NOTE}</p>
+            </div>
+          </div>
+        </Card>
+
         <Card className="overflow-hidden p-0">
           <div className="border-b border-border bg-surface-alt px-4 py-2.5">
             <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary">
@@ -592,11 +646,31 @@ export default function UpdatesNotificationsPlanPage() {
           <div className="divide-y divide-border">
             {NOTIFICATION_CONTENT.map((c, i) => (
               <div key={i} className="px-4 py-2.5 flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-text-secondary sm:w-28 shrink-0">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-text-secondary sm:w-32 shrink-0">
                   {c.label}
                 </span>
                 <span className="text-xs leading-relaxed text-text-primary">{c.value}</span>
               </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* 9b.1 · Extension-only anime handling */}
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-border bg-surface-alt px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-secondary)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary">
+              9b.1 · Extension-only anime handling (no AniList ID)
+            </span>
+            <span className="rounded-md bg-[var(--c-secondary)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+              v3
+            </span>
+          </div>
+          <div className="p-4 space-y-1">
+            {EXTENSION_ONLY_NOTES.map((n, i) => (
+              <p key={i} className="text-xs leading-relaxed text-text-secondary">
+                <span className="font-mono text-text-primary">•</span> {n}
+              </p>
             ))}
           </div>
         </Card>
@@ -706,57 +780,45 @@ export default function UpdatesNotificationsPlanPage() {
         </Card>
       </div>
 
-      {/* ── 13. Concerns + Open Questions ── */}
+      {/* ── 13. User Decisions (all 8 questions answered) ── */}
       <SectionHeader
         number={13}
-        title="Concerns + Open Questions"
-        subtitle="8 questions for the user — each with the agent's recommendation. These need a human decision before implementation can start."
+        title="User Decisions (All Answered)"
+        subtitle="All 8 open questions have been answered by the user in v3 — these are now DECISIONS, not questions. Each shows the user's answer with a ✅ badge."
         critical
       />
       <div className="mb-10 space-y-3">
-        {OPEN_QUESTIONS.map((q) => (
-          <Card key={q.num} className="p-0 overflow-hidden">
-            <div
-              className="px-4 py-3"
-              style={{
-                backgroundColor: "color-mix(in srgb, var(--c-warning) 6%, transparent)",
-                borderLeft: "3px solid var(--c-warning)",
-              }}
-            >
-              <div className="flex items-start gap-3">
-                <span
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white"
-                  style={{ backgroundColor: "var(--c-warning)" }}
-                >
-                  ?
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                    <span className="rounded-md bg-surface-alt px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-text-secondary">
-                      Q{q.num}
-                    </span>
-                    <h3 className="text-[13px] font-bold leading-tight text-text-primary">
-                      {q.question}
-                    </h3>
-                  </div>
-                  <div className="rounded-md bg-surface px-3 py-2 mt-2">
-                    <div className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-[var(--c-success)]">
-                      Recommendation
-                    </div>
-                    <p className="text-xs leading-relaxed text-text-secondary">{q.recommendation}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Card>
+        {USER_DECISIONS.map((d) => (
+          <UserDecisionCard key={d.num} decision={d} />
         ))}
+
+        {/* Additional user clarifications */}
+        <Card className="p-0 overflow-hidden">
+          <div className="border-b border-border bg-surface-alt px-4 py-2.5 flex items-center gap-2">
+            <StatusDot color="var(--c-success)" size="md" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary">
+              Additional user clarifications
+            </span>
+            <span className="rounded-md bg-[var(--c-success)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+              v3
+            </span>
+          </div>
+          <div className="divide-y divide-border">
+            {USER_DECISIONS_ADDITIONAL.map((c, i) => (
+              <div key={i} className="px-4 py-3">
+                <h3 className="text-[13px] font-bold text-text-primary">{c.title}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-text-secondary">{c.body}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
       </div>
 
       {/* ── 14. Future-Proofing ── */}
       <SectionHeader
         number={14}
         title="Future-Proofing"
-        subtitle="The architecture is built to extend — multi-source, multi-content-type, configurable intervals, per-anime override, backup/restore."
+        subtitle="The architecture is built to extend — multi-source, multi-content-type, configurable intervals, per-anime override, backup/restore, plus the user-requested future enhancements."
       />
       <div className="mb-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {FUTURE_PROOFING.map((f) => (
@@ -767,6 +829,31 @@ export default function UpdatesNotificationsPlanPage() {
             </div>
             <p className="text-xs leading-relaxed text-text-secondary">{f.body}</p>
           </Card>
+        ))}
+      </div>
+
+      {/* ── 15. Settings That Will Be in the App (detailed list) ── */}
+      <SectionHeader
+        number={15}
+        title="Settings That Will Be in the App"
+        subtitle="Every setting that will ship in the Updates & Notifications section — with type, default, and description. The user explicitly asked for this — see §13 additional clarification #4."
+        critical
+      />
+      <div className="mb-10 space-y-4">
+        <Card className="p-4">
+          <div
+            className="rounded-lg p-3"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--c-primary) 8%, transparent)",
+              borderLeft: "3px solid var(--c-primary)",
+            }}
+          >
+            <p className="text-xs leading-relaxed text-text-secondary">{SETTINGS_TABLES_INTRO}</p>
+          </div>
+        </Card>
+
+        {SETTINGS_TABLES.map((section) => (
+          <SettingsTableRenderer key={section.id} section={section} />
         ))}
       </div>
 
@@ -803,7 +890,8 @@ function StickyMiniHeader() {
     { n: 9, label: "Smart Release" },
     { n: 11, label: "Notifications" },
     { n: 12, label: "Phases" },
-    { n: 13, label: "Open Questions" },
+    { n: 13, label: "Decisions" },
+    { n: 15, label: "Settings List" },
   ];
   return (
     <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10 py-2.5 bg-canvas/85 backdrop-blur-xl border-b border-border">
@@ -1132,5 +1220,182 @@ function SmartReleaseChain({ steps }: { steps: SmartReleaseStep[] }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * UserDecisionCard — renders one user decision (§13) with a ✅ badge + the
+ * user's answer. Replaces the old "Open Questions" card with a positive
+ * "this is now decided" treatment.
+ * ------------------------------------------------------------------------- */
+function UserDecisionCard({ decision }: { decision: UserDecision }) {
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div
+        className="px-4 py-3"
+        style={{
+          backgroundColor: "color-mix(in srgb, var(--c-success) 6%, transparent)",
+          borderLeft: "3px solid var(--c-success)",
+        }}
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white"
+            style={{ backgroundColor: "var(--c-success)" }}
+            aria-label="Decided"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-3.5 h-3.5"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+              <span className="rounded-md bg-surface-alt px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-text-secondary">
+                Decision {decision.num}
+              </span>
+              <h3 className="text-[13px] font-bold leading-tight text-text-primary">
+                {decision.question}
+              </h3>
+            </div>
+            <div className="rounded-md bg-surface px-3 py-2 mt-2">
+              <div className="mb-0.5 flex items-center gap-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--c-success)]">
+                  User&apos;s answer
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed text-text-secondary">{decision.decision}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * TriggerComparisonTable — side-by-side comparison of on_schedule vs
+ * on_watchable. The user asked for this clarification (§9a).
+ * ------------------------------------------------------------------------- */
+function TriggerComparisonTable({ rows }: { rows: TriggerComparison[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full text-left text-xs">
+        <thead className="border-b border-border bg-surface-alt">
+          <tr>
+            <th className="px-3 py-2 font-bold text-text-primary w-28 shrink-0">Axis</th>
+            <th className="px-3 py-2 font-bold text-[var(--c-secondary)]">
+              <code className="font-bold">on_schedule</code>
+              <span className="ml-1.5 text-[10px] font-normal text-text-secondary">(time-based reminder)</span>
+            </th>
+            <th className="px-3 py-2 font-bold text-[var(--c-success)]">
+              <code className="font-bold">on_watchable</code>
+              <span className="ml-1.5 text-[10px] font-normal text-text-secondary">(availability-based confirmation)</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.axis} className="border-b border-border last:border-0 align-top">
+              <td className="px-3 py-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-text-secondary">
+                  {r.axis}
+                </span>
+              </td>
+              <td className="px-3 py-2.5 text-text-secondary">{r.onSchedule}</td>
+              <td className="px-3 py-2.5 text-text-secondary">{r.onWatchable}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * SettingsTableRenderer — renders one of the §15 settings tables (Setting |
+ * Type | Default | Description). Prominent because the user explicitly asked
+ * for every setting to be explained.
+ * ------------------------------------------------------------------------- */
+function SettingsTableRenderer({ section }: { section: SettingsTableSection }) {
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="border-b border-border bg-surface-alt px-4 py-2.5 flex items-center gap-2">
+        <StatusDot color="var(--c-primary)" size="md" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-text-secondary">
+          {section.path}
+        </span>
+        <span className="ml-auto rounded-md bg-[var(--c-primary)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+          {section.rows.length} {section.rows.length === 1 ? "setting" : "settings"}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="border-b border-border bg-surface">
+            <tr>
+              <th className="px-4 py-2 font-bold text-text-primary min-w-[140px]">Setting</th>
+              <th className="px-4 py-2 font-bold text-text-primary min-w-[160px]">Type</th>
+              <th className="px-4 py-2 font-bold text-text-primary min-w-[100px]">Default</th>
+              <th className="px-4 py-2 font-bold text-text-primary">Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            {section.rows.map((r, i) => (
+              <tr key={r.setting + i} className="border-b border-border last:border-0 align-top">
+                <td className="px-4 py-2.5">
+                  <span className="font-bold text-text-primary">{r.setting}</span>
+                </td>
+                <td className="px-4 py-2.5">
+                  <code className="text-[11px] text-[var(--c-secondary)]">{r.type}</code>
+                </td>
+                <td className="px-4 py-2.5">
+                  <DefaultBadge value={r.default} />
+                </td>
+                <td className="px-4 py-2.5 text-text-secondary leading-relaxed">{r.description}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * DefaultBadge — visually distinguishes ON / OFF / — / selector defaults.
+ * ------------------------------------------------------------------------- */
+function DefaultBadge({ value }: { value: string }) {
+  const v = value.trim();
+  let color = "var(--c-text-secondary)";
+  let bg = "var(--c-surface-alt)";
+  if (v === "ON" || v === "On") {
+    color = "var(--c-success)";
+    bg = "color-mix(in srgb, var(--c-success) 12%, transparent)";
+  } else if (v === "OFF" || v === "Off") {
+    color = "var(--c-danger)";
+    bg = "color-mix(in srgb, var(--c-danger) 12%, transparent)";
+  } else if (v === "—" || v === "-") {
+    color = "var(--c-text-secondary)";
+    bg = "transparent";
+  } else {
+    // Selector / mixed defaults — primary tint
+    color = "var(--c-primary)";
+    bg = "color-mix(in srgb, var(--c-primary) 12%, transparent)";
+  }
+  return (
+    <span
+      className="inline-flex items-center rounded-md px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wider"
+      style={{ backgroundColor: bg, color }}
+    >
+      {value}
+    </span>
   );
 }

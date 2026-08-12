@@ -2,9 +2,10 @@
  * Updates + Notifications — Architecture Plan (D-193).
  *
  * Source: APP/ani-kuta/DOCUMENTATION/planning/updates-notifications/PLAN.md
- *         (352 lines, drafted 2026-08-12, revised after 5 sub-agent reviews)
+ *         (519 lines, v3 — revised after 5 sub-agent reviews + 3 additional reviews + 8 user decisions)
  *
- * Status: DRAFT v2 — awaiting user approval. Estimated ~34h across 10 phases.
+ * Status: DRAFT v3 — user decisions incorporated, ready for final review.
+ *         Estimated ~34h across 10 phases.
  *
  * Hardcoded for the static dashboard demo — no API calls.
  */
@@ -16,12 +17,13 @@
 export const UPDATES_HERO = {
   title: "Updates + Notifications — Architecture Plan (D-193)",
   subtitle:
-    "A unified system that detects new episodes (sub + dub), surfaces them in the Updates feed, and fires notifications on three triggers — wired through interface contracts to avoid circular deps.",
-  status: "DRAFT — Awaiting Approval",
-  statusColor: "var(--c-warning)",
+    "A unified system that detects new episodes (sub + dub), surfaces them in the Updates feed, and fires notifications on three triggers — wired through interface contracts to avoid circular deps. All 8 user decisions have been incorporated.",
+  status: "DRAFT v3 — User Decisions Incorporated, Ready for Final Review",
+  statusColor: "var(--c-success)",
   branch: "feature/updates-notifications-plan",
   date: "2026-08-12",
-  reviews: "5 sub-agent reviews (architecture · smart-release · settings UI · DB schema · final consolidated). All blocking issues addressed in v2.",
+  reviews:
+    "v3 — 5 sub-agent reviews (architecture · smart-release · settings UI · DB schema · final consolidated) + 3 additional reviews + all 8 user decisions answered. Bug fixes applied: dub default ON, completed-anime disable logic, extension-only anime handling.",
   totalHours: 34,
 } as const;
 
@@ -395,27 +397,35 @@ export const SETTINGS_TREE: SettingsTreeNode[] = [
 export const SETTINGS_GENERAL_ITEMS = [
   {
     title: "Updates master toggle (3-way)",
-    body: '"Auto updates" / "Manual updates" / "Off". Auto = background checking at the configured interval for ALL library anime. Manual = checking at the interval for SELECTED categories only. Off = no background checking — user must manually refresh. (Notifications master toggle is SEPARATE — "Off" here doesn\'t disable notifications.)',
+    body: '"Auto updates" / "Manual updates" / "Off". Auto = background checking at the configured interval for ALL library anime. Manual = checking at the interval for SELECTED categories only. Off = no background checking — user must manually refresh. (Notifications master toggle is SEPARATE — "Off" here doesn\'t disable notifications. Manual refresh ALWAYS works, even when updates are OFF.)',
   },
   {
     title: "Interval selector",
-    body: "Shown when Auto or Manual. Options: 6 hours / 12 hours / 24 hours / 2 days / 3 days / Weekly.",
+    body: "Shown when Auto or Manual. Options: 6 hours / 12 hours / 24 hours / 2 days / 3 days / Weekly. Default = 24h. Read from PreferenceStore (update_interval_hours); re-enqueued with ExistingPeriodicWorkPolicy.REPLACE when the preference changes.",
   },
   {
-    title: "Sub/Dub checking toggles",
-    body: '"Check for new sub episodes" (default ON) · "Check for new dub episodes" (default OFF).',
+    title: "Sub checking toggle",
+    body: '"Check for new sub episodes" (default ON). When ON, the worker checks for new sub episodes during background updates.',
+  },
+  {
+    title: "Dub checking toggle",
+    body: '"Check for new dub episodes" (default ON — per user decision §13.8). The user explicitly chose ON for the default. When ON, the worker checks for new dub episodes during background updates.',
+  },
+  {
+    title: "Dub-on-completed-anime toggle",
+    body: '"Check for dub episodes on completed anime" (default ON). Continue checking for dub episodes even after the anime is FINISHED — but only if at least 1 dub episode has already been released (last_known_dub_count >= 1). If 0 dubs have been found, don\'t keep polling — the anime likely has no dub.',
   },
   {
     title: "Notifications master toggle",
-    body: '"Enable notifications" — Switch, default ON. Separate from the updates master toggle.',
+    body: '"Enable notifications" — Switch, default ON. Separate from the updates master toggle. If OFF, no notifications are posted (but updates still appear in the Updates feed).',
   },
   {
     title: '"Check now" button',
-    body: "Triggers immediate manual refresh with live-progress UI.",
+    body: "Triggers an immediate manual refresh with live-progress UI. Available even when updates are OFF — manual refresh always works.",
   },
   {
     title: '"Send test notification" button',
-    body: 'Posts a demo notification: "Demon Slayer — Episode 6 DUB" (uses the user\'s default audio pref). Checks POST_NOTIFICATIONS permission on Android 13+. Gated by notifications master toggle (disabled if notifications are off). Dedicated notification ID (so it can be cancelled).',
+    body: 'Posts a demo notification: "Demon Slayer — Episode 6 DUB" (uses the user\'s default audio pref). Checks POST_NOTIFICATIONS permission on Android 13+. Gated by notifications master toggle (disabled if notifications are off). Dedicated notification ID (999) for cancellation. Bypasses per-anime config (it\'s a test).',
   },
 ];
 
@@ -536,8 +546,16 @@ export const SMART_RELEASE_NOTES = [
     body: "When the user manually refreshes an anime's details page + a new episode is found that was previously skipped → update last_known_episode_count, insert episode_update (discovered_at = now), fire \"watchable\" notification if enabled. Already handled by onEpisodesRefreshed (D-192 Phase 3).",
   },
   {
-    title: "Completed anime handling",
-    body: 'If status = "FINISHED" AND total_episodes IS NOT NULL → sub checking stops at last_known_episode_count >= total_episodes; dub checking continues (via getDueDubAnime query) until last_known_dub_count >= total_episodes or dub checking is OFF, at which point auto_update_enabled = 0.',
+    title: "Completed anime — sub checking",
+    body: "If status = \"FINISHED\" AND total_episodes IS NOT NULL: sub checking stops at last_known_episode_count >= total_episodes. This is the natural end of sub tracking.",
+  },
+  {
+    title: "Completed anime — dub checking (≥1 dub released rule)",
+    body: "Dub checking continues after sub is complete IF: (a) update_check_dub = true (default ON), AND (b) the anime has at least 1 dub episode released (last_known_dub_count >= 1) OR no dub check has been performed yet (last_known_dub_count IS NULL), AND (c) last_known_dub_count < total_episodes. The ≥1 rule is critical: if last_known_dub_count = 0 (we already checked + found no dubs), STOP — the anime likely has no dub. Don't waste battery polling a dub that doesn't exist.",
+  },
+  {
+    title: "Completed anime — disable logic (don't disable on partial)",
+    body: "auto_update_enabled = 0 is set ONLY when BOTH sub + dub are complete (or dub checking is OFF AND sub is complete). DO NOT disable if only one of sub/dub is complete. Example: sub has reached total_episodes but dub hasn't → keep checking for dub, auto_update_enabled stays 1. This handles anime where the dub is still being released months after the sub finished.",
   },
 ];
 
@@ -609,35 +627,110 @@ export interface TriggerRow {
 export const NOTIFICATION_TRIGGERS: TriggerRow[] = [
   {
     trigger: "on_schedule",
-    when: "At the AniList airing time (reminder — episode should be available)",
+    when: "At the AniList airing time — a REMINDER that the episode should be available now. Fires based on the AniList airing date, even if the extension hasn't uploaded the episode yet. It's a \"heads up\" notification.",
     whoFires: "ScheduleEngine",
     wiring:
-      'ScheduleEngine checks airingAt <= now → fires postNotification(triggerType = "schedule"). Text: "Episode N should be available now."',
+      'ScheduleEngine checks airingAt <= now → fires postNotification(triggerType = "schedule"). Text: "Episode N should be available now — check your sources."',
   },
   {
     trigger: "on_watchable",
-    when: "When the Updates engine actually finds the episode on the extension",
+    when: "When the Updates engine ACTUALLY finds the episode on the extension (the episode is confirmed available). This is the \"it's ready to watch\" notification.",
     whoFires: "UpdateEngine",
     wiring:
-      'After upsertEpisodeUpdate in checkSingleAnime → notificationSender?.postNotification(triggerType = "watchable"). Text: "Episode N is now available."',
+      'After upsertEpisodeUpdate in checkSingleAnime → notificationSender?.postNotification(triggerType = "watchable"). Text: "Episode N is now available to watch."',
   },
   {
     trigger: "on_immediate",
-    when: "For past-due episodes (airingAt < now, not yet checked)",
+    when: "For past-due episodes (airingAt < now, not yet checked) — fires when the schedule engine runs + finds episodes that aired in the past but weren't checked yet.",
     whoFires: "ScheduleEngine",
     wiring: 'Already fires. Text: "Episode N has been released."',
   },
 ];
+
+/* ---------------------------------------------------------------------------
+ * §9a  on_schedule vs on_watchable — comparison (user requested clarification).
+ * ------------------------------------------------------------------------- */
+
+export interface TriggerComparison {
+  axis: string;
+  onSchedule: string;
+  onWatchable: string;
+}
+
+export const TRIGGER_COMPARISON_INTRO =
+  "The user asked for a clear explanation of the difference between on_schedule and on_watchable. Both fire on the same episode, but at different times + for different reasons. Here is the side-by-side:";
+
+export const TRIGGER_COMPARISON: TriggerComparison[] = [
+  {
+    axis: "Source of truth",
+    onSchedule: "AniList airingAt timestamp (when it airs in Japan)",
+    onWatchable: "Extension episode list (we confirmed it's actually uploaded)",
+  },
+  {
+    axis: "When it fires",
+    onSchedule: "At the exact airingAt time (set by AniList)",
+    onWatchable:
+      "When the Updates engine confirms the episode is on the extension — could be minutes, hours, or days later",
+  },
+  {
+    axis: "What it means",
+    onSchedule: "\"Heads up — this episode should be available now, go check.\"",
+    onWatchable: "\"Confirmed — the episode is ready to watch right now.\"",
+  },
+  {
+    axis: "Message text",
+    onSchedule: "\"Episode N should be available now — check your sources.\"",
+    onWatchable: "\"Episode N is now available to watch.\"",
+  },
+  {
+    axis: "Who fires it",
+    onSchedule: "ScheduleEngine",
+    onWatchable: "UpdateEngine (after upsertEpisodeUpdate)",
+  },
+  {
+    axis: "Why both exist",
+    onSchedule:
+      "Some extensions upload episodes hours or days after the airing time. on_schedule says \"check now\" so the user knows it's expected.",
+    onWatchable:
+      "Confirms the episode is actually downloadable — no false positives. This is the reliable signal.",
+  },
+];
+
+export const TRIGGER_TIMELINE_NOTE =
+  "Typical timeline: AniList says airingAt = Tuesday 16:00 JST. on_schedule fires at Tuesday 16:00 JST (\"should be available\"). The extension uploads the episode at Tuesday 18:30 JST. The next worker run (within the configured interval) detects it + on_watchable fires (\"is now available\"). The user gets 2 notifications on the same episode — first a reminder, then a confirmation.";
 
 export const NOTIFICATION_CONTENT = [
   { label: "Title", value: '"New episode available"' },
   { label: "Text", value: '"<Anime title> — Episode <N> <SUB/DUB>"' },
   {
     label: "Tap action",
-    value: "setContentIntent with PendingIntent → MainActivity with extra navKey=AnimeDetailsKey.AniList(anilistId)",
+    value:
+      "Deep-link to the details page by default (Phase 7). PendingIntent → MainActivity with extra navKey=AnimeDetailsKey.AniList(anilistId). FUTURE enhancement: a setting to choose whether tapping the notification opens the details page OR directly opens the watch page (using the user's auto-select-video settings).",
+  },
+  {
+    label: "Extension-only",
+    value:
+      "If the content has no AniList ID, the deep-link uses AnimeDetailsKey.Extension(sourceId, animeUrl) instead. The episode_update row stores source_id + anime_url for this fallback.",
   },
   { label: "Channel", value: "Default (sound) if trigger=ON, silent (no sound) if trigger=SILENT" },
   { label: "Permission", value: "POST_NOTIFICATIONS checked on Android 13+ before posting" },
+  {
+    label: "Future action buttons",
+    value: 'Action buttons on the notification itself: "Watch" (deep-link to player with auto-select-video) / "Dismiss".',
+  },
+];
+
+/* ---------------------------------------------------------------------------
+ * §9b.1  Extension-only anime handling (no AniList ID).
+ * ------------------------------------------------------------------------- */
+
+export const EXTENSION_ONLY_NOTES = [
+  "Some anime have no AniList ID — extension-only content the user added directly from a source.",
+  "total_episodes + status are not available from AniList → use the extension's current episode count as total_episodes + assume status = 'RELEASING'.",
+  "Smart-release detection is NOT possible (no next_airing_at) → these anime are checked only on the regular WorkManager interval.",
+  "Notification tap deep-links to AnimeDetailsKey.Extension(sourceId, animeUrl) instead of AnimeDetailsKey.AniList(anilistId).",
+  "The episode_update row stores source_id + anime_url for the fallback navigation.",
+  "All other behaviour (sub/dub partitioning, dedup, retention, audio filtering) is identical to AniList-tracked anime.",
 ];
 
 export const TEST_NOTIFICATION_NOTES = [
@@ -720,61 +813,236 @@ export const IMPLEMENTATION_PHASES: PhaseRow[] = [
 export const IMPLEMENTATION_TOTAL_ESTIMATE = 34; // sum of all phase hours
 
 /* ---------------------------------------------------------------------------
- * §13  Concerns + Open Questions
+ * §13  User Decisions (all 8 questions answered)
+ *
+ * v3 — the 8 open questions have been answered by the user. They are now
+ * DECISIONS, not questions. Each shows the user's answer + a ✅ badge.
  * ------------------------------------------------------------------------- */
 
-export interface OpenQuestion {
+export interface UserDecision {
   num: number;
   question: string;
-  recommendation: string;
+  decision: string;
 }
 
-export const OPEN_QUESTIONS: OpenQuestion[] = [
+export const USER_DECISIONS: UserDecision[] = [
   {
     num: 1,
     question: '"on_schedule" notification text',
-    recommendation:
-      '"should be available now" — it\'s honest (the episode may not be on the extension yet).',
+    decision:
+      'The user asked for clarification → I explained the difference between on_schedule (time-based reminder) and on_watchable (availability-based confirmation). The user now understands. Text: on_schedule = "Episode N should be available now — check your sources"; on_watchable = "Episode N is now available to watch".',
   },
   {
     num: 2,
     question: "10-min polling battery impact",
-    recommendation: "Limit to anime airing within ±1h, max 5 concurrent checks.",
+    decision:
+      "✅ Limit to anime airing within ±1h window + max 5 concurrent checks. This bounds the worst-case battery drain.",
   },
   {
     num: 3,
-    question: '"Completed" status source',
-    recommendation:
-      "Trust AniList status + episodes for the total. Use the extension's episode count for last_known_episode_count.",
+    question: "Completed anime + dub checking",
+    decision:
+      "✅ Trust AniList status + episodes. Completed anime STILL get dub checking if: (a) dub checking is ON (default ON), AND (b) the anime has at least 1 dub episode released, AND (c) last_known_dub_count < total_episodes. User gets a toggle: \"Check for dub episodes on completed anime\" (default ON).",
   },
   {
     num: 4,
-    question: 'update_mode = "off" + manual "Check now"',
-    recommendation: 'Yes — "off" only disables background checking, not manual refresh.',
+    question: 'Manual refresh when updates are OFF',
+    decision:
+      '✅ Yes — update_mode = "off" only disables background checking. Manual refresh works on both the details page and the updates page.',
   },
   {
     num: 5,
     question: "Per-category manual mode",
-    recommendation:
-      "Check ALL anime in selected categories, regardless of auto_update_enabled (which is a failure-backoff flag, not a user preference).",
+    decision:
+      "✅ Yes — user can configure per-category. Each category has a toggle: \"Check for updates for this category\". Only anime in selected (toggled-on) categories are checked.",
   },
   {
     num: 6,
     question: "Notification tap action",
-    recommendation: "Deep-link to the details page (so the user can immediately watch).",
+    decision:
+      "✅ Deep-link to details page (Phase 7). Future: option to open the watch page directly with auto-select-video (user wants this later, not Phase 7).",
   },
   {
     num: 7,
-    question: "Should the Updates and Notifications nav rows be merged or kept as separate sub-screens?",
-    recommendation:
-      'Separate sub-screens (General, Defaults, Library, Categories) under one "Updates & Notifications" section label — matches the user\'s vision.',
+    question: "Merge Updates + Notifications nav rows",
+    decision:
+      "✅ Yes — merge into one \"Updates & Notifications\" section with sub-screens (General, New Anime Defaults, Library, Update Categories).",
   },
   {
     num: 8,
-    question: "Should dub checking default to ON or OFF?",
-    recommendation: "OFF (most users watch sub; dub is opt-in).",
+    question: "Dub checking default — ON or OFF?",
+    decision:
+      "✅ ON. The user explicitly changed the default from my recommendation of OFF to ON. Dub checking is ON by default — the user can toggle it off in settings.",
   },
 ];
+
+export const USER_DECISIONS_ADDITIONAL = [
+  {
+    title: "Dub on completed anime — the ≥1 dub released rule",
+    body: "If a completed anime has at least 1 dub episode released (last_known_dub_count >= 1), continue checking for more dub episodes. Only stop when last_known_dub_count >= total_episodes or the user disables dub checking. If last_known_dub_count = 0 (we already checked + found no dubs), STOP — the anime likely has no dub.",
+  },
+  {
+    title: "Don't disable on partial completion",
+    body: "auto_update_enabled = 0 is set ONLY when BOTH sub + dub are complete (or dub checking is OFF AND sub is complete). DO NOT disable if only one of sub/dub is complete — handles anime where the dub is still being released months after the sub finished.",
+  },
+  {
+    title: "Notification deep-link future option",
+    body: "The user wants a future option where tapping the notification can open the watch page directly (with auto-select-video) instead of the details page. This is a future enhancement, not Phase 7.",
+  },
+  {
+    title: "Settings UI — explain every setting",
+    body: "The user explicitly asked for the dashboard web page to explain EVERY setting that will be in the app + the logic behind each. See §15 below for the full detailed settings list.",
+  },
+];
+
+/* ---------------------------------------------------------------------------
+ * §15  Settings That Will Be in the App (detailed list for user review).
+ *
+ * v3 — the user asked for every setting to be explained. These 4 tables
+ * cover every setting that will ship in the Updates & Notifications section.
+ * ------------------------------------------------------------------------- */
+
+export interface SettingsTableRow {
+  setting: string;
+  type: string;
+  default: string;
+  description: string;
+}
+
+export interface SettingsTableSection {
+  id: string;
+  path: string; // e.g. "Settings → Updates & Notifications → General"
+  heading: string;
+  rows: SettingsTableRow[];
+}
+
+export const SETTINGS_TABLES: SettingsTableSection[] = [
+  {
+    id: "settings-general",
+    path: "Settings → Updates & Notifications → General",
+    heading: "General",
+    rows: [
+      {
+        setting: "Updates master toggle",
+        type: "3-way (Auto / Manual / Off)",
+        default: "Auto",
+        description:
+          "Controls background update checking. Auto = all library anime. Manual = selected categories only. Off = no background checking (manual refresh still works).",
+      },
+      {
+        setting: "Update interval",
+        type: "Selector (6h / 12h / 24h / 2d / 3d / weekly)",
+        default: "24h",
+        description: "How often the background worker checks for new episodes.",
+      },
+      {
+        setting: "Check for sub episodes",
+        type: "Toggle",
+        default: "ON",
+        description: "Check for new sub episodes during background updates.",
+      },
+      {
+        setting: "Check for dub episodes",
+        type: "Toggle",
+        default: "ON",
+        description:
+          "Check for new dub episodes during background updates. (Per user decision §13.8 — default is ON.)",
+      },
+      {
+        setting: "Check dub on completed anime",
+        type: "Toggle",
+        default: "ON",
+        description:
+          "Continue checking for dub episodes even after the anime is completed (if dub episodes are still being released).",
+      },
+      {
+        setting: "Enable notifications",
+        type: "Toggle",
+        default: "ON",
+        description:
+          "Master toggle for the notification system. If OFF, no notifications are posted (but updates still appear in the Updates feed).",
+      },
+      {
+        setting: "Check now",
+        type: "Button",
+        default: "—",
+        description:
+          "Triggers an immediate manual refresh with live-progress UI. Available even when updates are OFF (manual refresh always works).",
+      },
+      {
+        setting: "Send test notification",
+        type: "Button",
+        default: "—",
+        description:
+          "Posts a demo notification to verify the notification setup works. Disabled when notifications master toggle is OFF. Checks POST_NOTIFICATIONS permission on Android 13+.",
+      },
+    ],
+  },
+  {
+    id: "settings-defaults",
+    path: "Settings → Updates & Notifications → New Anime Defaults",
+    heading: "New Anime Defaults",
+    rows: [
+      {
+        setting: "On schedule (trigger)",
+        type: "3-way (On / Silent / Off)",
+        default: "Off",
+        description:
+          "Fire a notification at the AniList airing time (reminder — \"should be available now\").",
+      },
+      {
+        setting: "On watchable (trigger)",
+        type: "3-way (On / Silent / Off)",
+        default: "On",
+        description:
+          "Fire a notification when the episode is confirmed available on the extension (\"is now available to watch\").",
+      },
+      {
+        setting: "On immediate (trigger)",
+        type: "3-way (On / Silent / Off)",
+        default: "Off",
+        description: "Fire a notification for past-due episodes that weren't checked yet.",
+      },
+      {
+        setting: "Audio preference",
+        type: "3-way (Sub / Dub / Both)",
+        default: "Both",
+        description: "Which audio variants to notify for.",
+      },
+    ],
+  },
+  {
+    id: "settings-library",
+    path: "Settings → Updates & Notifications → Library",
+    heading: "Library",
+    rows: [
+      {
+        setting: "Per-anime list",
+        type: "List",
+        default: "—",
+        description:
+          "Each library anime has its own notification config (overrides the defaults). Tapping an anime opens a detail sheet with the same 3-way triggers + audio pref.",
+      },
+    ],
+  },
+  {
+    id: "settings-categories",
+    path: "Settings → Updates & Notifications → Update Categories",
+    heading: "Update Categories",
+    rows: [
+      {
+        setting: "Per-category checklist",
+        type: "List of toggles",
+        default: "All ON (when Auto) / None (when Manual)",
+        description:
+          "Each library category has a toggle: \"Check for updates for this category\". Only shown when Updates master toggle = Manual. Stored in PreferenceStore as a StringSet key update_selected_categories.",
+      },
+    ],
+  },
+];
+
+export const SETTINGS_TABLES_INTRO =
+  "Every setting that will ship in the Updates & Notifications section, with its type, default, and a description of what it does. The user explicitly asked for this — see §13 additional clarification #4.";
 
 /* ---------------------------------------------------------------------------
  * §14  Future-Proofing
@@ -800,6 +1068,14 @@ export const FUTURE_PROOFING = [
   {
     title: "Backup/restore",
     body: "All preferences mirrored to app_settings table (D-192 Phase 1).",
+  },
+  {
+    title: "Notification watch-page deep-link",
+    body: "Future option to open the watch page directly from the notification (with auto-select-video) instead of the details page. The user explicitly wants this as a future enhancement — see §13 additional clarification #3.",
+  },
+  {
+    title: "Notification action buttons",
+    body: 'Future "Watch" / "Dismiss" buttons on the notification itself. "Watch" would deep-link directly to the player with auto-select-video.',
   },
 ];
 
