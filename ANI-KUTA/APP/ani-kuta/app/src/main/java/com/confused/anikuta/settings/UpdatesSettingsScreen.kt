@@ -302,6 +302,26 @@ fun UpdatesSettingsScreen(
             }
         }
     }
+
+    // D-193 Phase 4: Battery optimization dialog
+    if (showBatteryDialog) {
+        BatteryOptimizationDialog(
+            onDismiss = { showBatteryDialog = false },
+            onAllow = {
+                showBatteryDialog = false
+                try {
+                    val batteryIntent = android.content.Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    ).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                    }
+                    context.startActivity(batteryIntent)
+                } catch (e: Exception) {
+                    Logger.e("Anikuta:Settings", e) { "Failed to request battery optimization exemption" }
+                }
+            },
+        )
+    }
 }
 
 // ── Reusable components ──
@@ -407,26 +427,6 @@ private fun NavRowContent(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-    }
-
-    // D-193 Phase 4: Battery optimization dialog
-    if (showBatteryDialog) {
-        BatteryOptimizationDialog(
-            onDismiss = { showBatteryDialog = false },
-            onAllow = {
-                showBatteryDialog = false
-                try {
-                    val intent = android.content.Intent(
-                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    ).apply {
-                        data = android.net.Uri.parse("package:${context.packageName}")
-                    }
-                    context.startActivity(intent)
-                } catch (e: Exception) {
-                    Logger.e("Anikuta:Settings", e) { "Failed to request battery optimization exemption" }
-                }
-            },
-        )
     }
 }
 
