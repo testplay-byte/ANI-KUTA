@@ -19,6 +19,7 @@ val updatesModule = module {
             watchProgressStore = get(),
             actualReleaseUpdater = getOrNull(),
             notificationSender = getOrNull(),
+            updatePreferences = getOrNull(),
         )
     }
     // D-193 Phase 4: UpdateScheduler for configurable WorkManager interval.
