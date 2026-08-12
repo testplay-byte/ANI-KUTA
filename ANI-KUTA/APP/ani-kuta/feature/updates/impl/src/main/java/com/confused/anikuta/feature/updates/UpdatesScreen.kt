@@ -344,16 +344,35 @@ private fun UpdateRow(
                 )
                 Text(
                     text = if (update.batchType == "initial" && update.episodeCount != null) {
-                        // D-193 Phase 8: initial-batch row — "Episodes 1-N added to library"
                         "Episodes 1-${update.episodeCount} added to library"
                     } else {
-                        "EP ${update.episodeNumber} · ${formatAudioLabel(update.audioVariant)}"
+                        "EP ${update.episodeNumber}"
                     },
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+                // D-193 Phase 5: Show SUB/DUB as a highlighted badge (separate from EP number)
+                if (update.batchType != "initial") {
+                    val audioLabel = formatAudioLabel(update.audioVariant)
+                    if (audioLabel.isNotBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.padding(top = 2.dp),
+                        ) {
+                            Text(
+                                text = audioLabel,
+                                fontFamily = RobotoFamily,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = formatTimeAgo(update.discoveredAt),
                     fontFamily = RobotoFamily,
@@ -382,7 +401,7 @@ private fun formatTimeAgo(timestamp: Long): String {
     }
 }
 
-// D-193 improvement: Live-progress banner shown during refresh
+// D-193 Phase 5: Live-progress banner with cover image + progress bar
 @Composable
 private fun LiveProgressBanner(
     progress: com.confused.anikuta.core.updates.CheckProgress,
@@ -403,26 +422,42 @@ private fun LiveProgressBanner(
         modifier = modifier,
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (isChecking || !isComplete) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
+                // D-193 Phase 5: Show cover image (NOT just text) — 48x64dp
+                if (progress.coverUrl != null && !isComplete && !isChecking) {
+                    AsyncImage(
+                        model = progress.coverUrl,
+                        contentDescription = progress.title,
+                        modifier = Modifier.size(width = 48.dp, height = 64.dp).clip(RoundedCornerShape(6.dp)),
+                        contentScale = ContentScale.Crop,
                     )
+                } else if (!isComplete) {
+                    Box(
+                        modifier = Modifier.size(48.dp, 64.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 } else {
                     Icon(
                         imageVector = Icons.Filled.Refresh,
                         contentDescription = null,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(24.dp),
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }
+                // Right column: status text + anime title + checked count
                 Column(modifier = Modifier.weight(1f)) {
                     val statusText = when {
                         isComplete -> "Check complete"
@@ -449,7 +484,7 @@ private fun LiveProgressBanner(
                     }
                 }
             }
-            // Progress bar — only show when total > 0
+            // Progress bar
             if (progress.total > 0) {
                 androidx.compose.foundation.layout.Box(
                     modifier = Modifier

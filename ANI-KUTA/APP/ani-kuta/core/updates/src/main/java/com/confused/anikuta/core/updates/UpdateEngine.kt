@@ -107,7 +107,10 @@ class UpdateEngine(
                     // D-193 Phase 4: emit progress before each check.
                     val content = contentRepository.getContentByMainId(state.mainId)
                     val title = content?.title ?: "Unknown"
-                    val coverUrl = null // cover URL lookup deferred — the UI can fetch it separately
+                    // D-193 Phase 5: look up cover URL for the live-progress banner.
+                    val anilistDetail = content?.let { contentRepository.getAniListDetail(it.mainId) }
+                    val extDetail = content?.let { contentRepository.getExtensionDetail(it.mainId) }
+                    val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
                     synchronized(this@UpdateEngine) {
                         current++
                         _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
