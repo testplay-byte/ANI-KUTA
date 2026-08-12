@@ -166,12 +166,13 @@ fun UpdatesSettingsScreen(
 
                     // ── Checking settings (shown when mode != OFF) ──
                     item {
-                        AnimatedVisibility(
-                            visible = mode != UpdateMode.OFF,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
-                            Column {
+                        Column {
+                            AnimatedVisibility(
+                                visible = mode != UpdateMode.OFF,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically(),
+                            ) {
+                                Column {
                                 SectionLabel("Checking")
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -226,6 +227,7 @@ fun UpdatesSettingsScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     }
 
@@ -282,11 +284,12 @@ fun UpdatesSettingsScreen(
 
                     // ── Configuration (shown when notifications enabled) ──
                     item {
-                        AnimatedVisibility(
-                            visible = notifEnabled,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically(),
-                        ) {
+                        Column {
+                            AnimatedVisibility(
+                                visible = notifEnabled,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically(),
+                            ) {
                             Column {
                                 SectionLabel("Configuration")
                                 Surface(
@@ -324,6 +327,7 @@ fun UpdatesSettingsScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }
