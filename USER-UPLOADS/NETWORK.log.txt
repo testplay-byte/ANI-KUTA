@@ -1,0 +1,92 @@
+ANI-KUTA Debug Bubble — Network Activity Log
+Exported: 2026-08-12 09:44:31
+========================================
+
+SUMMARY
+=======
+Total requests:     820
+Bytes received:     43.3MB
+Bytes sent:         14.6KB
+Errors:             243
+
+STATUS CODES
+============
+2xx:  573
+3xx:  0
+4xx:  0
+5xx:  4
+err:  243
+
+CATEGORIES
+==========
+Metadata:  97
+Video:  29
+Image:  614
+Other:  80
+
+TOP SOURCES
+===========
+raw.githubusercontent.com  239
+artworks.thetvdb.com       83
+cdn.anipixcdn.co           79
+127.0.0.1                  49
+s4.anilist.co              48
+graphql.anilist.co         35
+api.jikan.moe              16
+api.ani.zip                14
+kitsu.io                   14
+
+RECENT REQUESTS (last 50, newest first)
+======================================
+[09:43:10] GET MET 200   25ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:10] GET OTH ERR   14ms       -  127.0.0.1/seg/0/1080p/36
+  ERROR: Failed to connect to /127.0.0.1:38665
+[09:43:08] GET OTH ERR   22ms       -  127.0.0.1/seg/0/1080p/36
+  ERROR: Failed to connect to /127.0.0.1:38665
+[09:43:07] GET OTH 500  438ms     27B  127.0.0.1/seg/0/1080p/36
+[09:43:07] GET MET 200   96ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:07] GET MET 200   31ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:07] GET OTH 200    8ms 391.4KB  127.0.0.1/seg/0/1080p/35
+[09:43:07] GET OTH 200    8ms 800.5KB  127.0.0.1/seg/0/1080p/34
+[09:43:07] GET OTH 200   12ms 301.2KB  127.0.0.1/seg/0/1080p/33
+[09:43:06] GET OTH 200 1283ms 328.2KB  127.0.0.1/seg/0/1080p/32
+[09:43:06] GET MET 200   28ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:04] GET OTH 200 1113ms 304.2KB  127.0.0.1/seg/0/1080p/31
+[09:43:05] GET MET 200   66ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:04] GET MET 200   44ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:04] GET OTH 200   27ms   1.4MB  127.0.0.1/seg/0/1080p/30
+[09:43:03] GET OTH 200 1877ms 791.5KB  127.0.0.1/seg/0/1080p/29
+[09:43:03] GET MET 200   53ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:02] GET OTH 200  211ms 274.1KB  127.0.0.1/seg/0/1080p/28
+[09:43:02] GET MET 200   88ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:02] GET OTH 200   14ms 135.7KB  127.0.0.1/seg/0/1080p/27
+[09:43:01] GET OTH 200  770ms 749.4KB  127.0.0.1/seg/0/1080p/26
+[09:43:02] GET MET 200   50ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:01] GET OTH 200  110ms 274.1KB  127.0.0.1/seg/0/1080p/25
+[09:43:01] GET OTH 200  519ms 571.9KB  127.0.0.1/seg/0/1080p/24
+[09:43:01] GET MET 200   50ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:01] GET OTH 200   13ms 217.0KB  127.0.0.1/seg/0/1080p/23
+[09:43:00] GET OTH 200 1237ms   1.7MB  127.0.0.1/seg/0/1080p/22
+[09:43:00] GET MET 200   30ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:00] GET MET 200   28ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:43:00] GET OTH 200   23ms 201.9KB  127.0.0.1/seg/0/1080p/21
+[09:42:58] GET OTH 200 1582ms   1.4MB  127.0.0.1/seg/0/1080p/20
+[09:42:58] GET MET 200  113ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:58] GET MET 200  107ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:58] GET OTH 200   28ms 286.1KB  127.0.0.1/seg/0/1080p/19
+[09:42:54] GET OTH 200 3400ms   1.6MB  127.0.0.1/seg/0/1080p/18
+[09:42:54] GET MET 200   31ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:52] GET OTH 200 2037ms 593.0KB  127.0.0.1/seg/0/1080p/17
+[09:42:53] GET MET 200   29ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:52] GET MET 200   31ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:52] GET OTH 200   21ms 238.0KB  127.0.0.1/seg/0/1080p/16
+[09:42:47] GET OTH 200 5110ms   1.6MB  127.0.0.1/seg/0/1080p/15
+[09:42:47] GET MET 200   82ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:47] GET MET 200   29ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:47] GET OTH 200    9ms 403.4KB  127.0.0.1/seg/0/1080p/14
+[09:42:47] GET OTH 200    9ms 923.8KB  127.0.0.1/seg/0/1080p/13
+[09:42:47] GET OTH 200   21ms   2.0MB  127.0.0.1/seg/0/1080p/12
+[09:42:41] GET OTH 200 5633ms   1.6MB  127.0.0.1/seg/0/1080p/11
+[09:42:42] GET MET 200   90ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg
+[09:42:40] GET OTH 200 1878ms   1.2MB  127.0.0.1/seg/0/1080p/10
+[09:42:40] GET MET 200   34ms  45.8KB  s4.anilist.co/file/anilistcdn/media/anime/cover/medium/8599.jpg

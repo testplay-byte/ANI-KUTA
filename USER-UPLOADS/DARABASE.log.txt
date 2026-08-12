@@ -1,0 +1,813 @@
+ANI-KUTA Debug Bubble — DB Activity Log
+Exported: 2026-08-12 09:44:49
+========================================
+
+SUMMARY
+=======
+Total reads:  1,047
+Total writes: 461
+  INSERTs:    406
+  UPDATEs:    39
+  DELETEs:    16
+  Other:      0
+
+TABLE BREAKDOWN (writes)
+========================
+data_cache_episode    182
+genre                 76
+content               30
+library_item          29
+watch_progress        23
+download_queue        22
+activity_event        19
+anilist_detail        16
+extension_detail      15
+anime_metadata_cache  13
+anime_update_state    11
+content_genre         9
+data_source           4
+system                4
+library_category      2
+user_rating           2
+user_episode_rating   2
+episode_update        1
+browse_cache          1
+
+TABLE BREAKDOWN (reads)
+=======================
+downloaded_episode    251
+content               213
+anime_metadata_cache  121
+library_item          117
+anilist_detail        111
+watch_progress        64
+user_rating           30
+library_category      30
+data_cache_episode    26
+anime_update_state    24
+data_source           15
+system                15
+extension_detail      12
+genre                 7
+download_queue        6
+user_episode_rating   4
+browse_cache          1
+
+RECENT EVENTS (last 200, newest first)
+======================================
+[09:43:49] SELECT data_cache_episode
+  SELECT data_cache_episode.main_id, data_cache_episode.episode_number, data_cache_episode.title, data_cache_episode.description, data_cache_episode.thumbnail_url, data_cache_episode.air_date, data_cach…
+
+[09:43:49] SELECT extension_detail
+  SELECT extension_detail.main_id, extension_detail.extension_id, extension_detail.source_id, extension_detail.anime_url, extension_detail.description, extension_detail.genres, extension_detail.status, …
+
+[09:43:49] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:49] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:49] SELECT data_cache_episode
+  SELECT data_cache_episode.main_id, data_cache_episode.episode_number, data_cache_episode.title, data_cache_episode.description, data_cache_episode.thumbnail_url, data_cache_episode.air_date, data_cach…
+
+[09:43:49] SELECT extension_detail
+  SELECT extension_detail.main_id, extension_detail.extension_id, extension_detail.source_id, extension_detail.anime_url, extension_detail.description, extension_detail.genres, extension_detail.status, …
+
+[09:43:49] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:49] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:49] SELECT watch_progress
+  SELECT watch_progress.episode_key, watch_progress.position, watch_progress.duration, watch_progress.completed, watch_progress.completed_at, watch_progress.last_watched_at, watch_progress.main_id, watc…
+
+[09:43:44] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:44] SELECT anime_metadata_cache
+  SELECT anime_metadata_cache.main_id, anime_metadata_cache.title, anime_metadata_cache.description, anime_metadata_cache.cover_url, anime_metadata_cache.banner_url, anime_metadata_cache.score, anime_me…
+
+[09:43:44] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:44] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:44] SELECT anime_metadata_cache
+  SELECT anime_metadata_cache.main_id, anime_metadata_cache.title, anime_metadata_cache.description, anime_metadata_cache.cover_url, anime_metadata_cache.banner_url, anime_metadata_cache.score, anime_me…
+
+[09:43:44] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:44] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:44] SELECT anime_metadata_cache
+  SELECT anime_metadata_cache.main_id, anime_metadata_cache.title, anime_metadata_cache.description, anime_metadata_cache.cover_url, anime_metadata_cache.banner_url, anime_metadata_cache.score, anime_me…
+
+[09:43:44] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:44] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:44] SELECT anime_metadata_cache
+  SELECT anime_metadata_cache.main_id, anime_metadata_cache.title, anime_metadata_cache.description, anime_metadata_cache.cover_url, anime_metadata_cache.banner_url, anime_metadata_cache.score, anime_me…
+
+[09:43:44] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:44] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:44] SELECT anime_metadata_cache
+  SELECT anime_metadata_cache.main_id, anime_metadata_cache.title, anime_metadata_cache.description, anime_metadata_cache.cover_url, anime_metadata_cache.banner_url, anime_metadata_cache.score, anime_me…
+
+[09:43:44] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:44] SELECT anilist_detail
+  SELECT anilist_detail.main_id, anilist_detail.anilist_id, anilist_detail.id_mal, anilist_detail.score, anilist_detail.episodes, anilist_detail.season, anilist_detail.season_year, anilist_detail.status…
+
+[09:43:44] SELECT anime_metadata_cache
+  SELECT anime_metadata_cache.main_id, anime_metadata_cache.title, anime_metadata_cache.description, anime_metadata_cache.cover_url, anime_metadata_cache.banner_url, anime_metadata_cache.score, anime_me…
+
+[09:43:44] SELECT content
+  SELECT content.main_id, content.content_id, content.title, content.content_type, content.content_format, content.description, content.data_source_id, content.system_id, content.extension_repo_id, cont…
+
+[09:43:44] SELECT library_item
+  SELECT DISTINCT main_id FROM library_item ORDER BY added_at DESC
+
+[09:43:44] SELECT library_item
+  SELECT main_id FROM library_item WHERE category_id = ?
+
+[09:43:44] SELECT library_item
+  SELECT COUNT(*) FROM library_item WHERE category_id = ?
+
+[09:43:44] SELECT library_item
+  SELECT COUNT(*) FROM library_item WHERE category_id = ?
+
+[09:43:44] SELECT library_category
+  SELECT library_category.id, library_category.name, library_category.display_order, library_category.is_permanent, library_category.created_at FROM library_category ORDER BY display_order ASC, name ASC
+
+[09:43:38] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:38] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:38] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:38] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:38] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:38] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:38] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:38] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:38] DELETE download_queue
+  DELETE FROM download_queue WHERE id = ?
+
+[09:43:10] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:10] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:10] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:10] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:10] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:10] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:10] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:10] UPDATE download_queue
+  UPDATE download_queue
+SET state = 'ERROR', last_error = ?, updated_at = ?
+WHERE id = ?
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:07] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:07] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:43:06] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:06] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:06] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:06] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:06] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:43:06] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:06] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:06] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:04] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:04] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:04] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:43:04] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:03] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:03] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:03] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:03] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:03] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:03] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:02] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:02] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:02] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:02] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:43:02] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:43:01] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:01] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:00] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:43:00] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:43:00] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:43:00] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:58] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:58] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:58] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:42:58] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:54] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:54] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:54] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:54] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:54] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:54] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:54] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:42:54] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:52] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] UPDATE download_queue
+  UPDATE download_queue
+SET progress = ?, downloaded_bytes = ?,
+    total_bytes = ?, prev_total_bytes = ?,
+    prev_estimate_bytes = ?, recent_ratios_json = ?,
+    updated_at = ?
+WHERE id = ?
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:52] SELECT downloaded_episode
+  SELECT downloaded_episode.main_id, downloaded_episode.episode_key, downloaded_episode.content_id, downloaded_episode.content_title, downloaded_episode.content_format, downloaded_episode.content_type, …
+
+[09:42:52] SELECT user_rating
+  SELECT user_rating.main_id, user_rating.rating, user_rating.rated_at FROM user_rating WHERE main_id = ?
+
+[09:42:52] SELECT watch_progress
+  SELECT watch_progress.episode_key, watch_progress.position, watch_progress.duration, watch_progress.completed, watch_progress.completed_at, watch_progress.last_watched_at, watch_progress.main_id, watc…
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
+[09:42:52] SELECT downloaded_episode
+  SELECT EXISTS(SELECT 1 FROM downloaded_episode
+    WHERE main_id = ? AND episode_key = ?)
+
