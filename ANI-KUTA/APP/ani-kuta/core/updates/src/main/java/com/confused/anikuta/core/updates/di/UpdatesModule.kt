@@ -1,6 +1,7 @@
 package com.confused.anikuta.core.updates.di
 
 import com.confused.anikuta.core.updates.UpdateEngine
+import com.confused.anikuta.core.updates.SmartReleaseScheduler
 import com.confused.anikuta.core.updates.UpdateScheduler
 import com.confused.anikuta.core.updates.UpdateStore
 import org.koin.dsl.module
