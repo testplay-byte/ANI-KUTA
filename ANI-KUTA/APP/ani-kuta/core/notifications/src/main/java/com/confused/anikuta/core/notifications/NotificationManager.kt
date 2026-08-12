@@ -166,11 +166,14 @@ class NotificationManager(
     }
 
     /**
-     * D-193 Phase 7: Post a test notification (for the "Send test notification" button).
+     * D-193 Phase 7 + improvement: Post a test notification (for the "Send test notification" button).
      *
-     * Posts a demo notification with hardcoded content: "Demon Slayer — Episode 6 DUB".
-     * Bypasses per-anime config (it's a test). Uses the default channel (with sound).
-     * Dedicated notification ID (999) for cancellation.
+     * Sends TWO notifications:
+     * 1. Immediately — "Demon Slayer — Episode 6 DUB"
+     * 2. After 1 minute — "Jujutsu Kaisen — Episode 12 SUB" (even if the app is closed)
+     *
+     * The second notification is scheduled via WorkManager (survives app death).
+     * Both bypass per-anime config (they're tests). Use dedicated notification IDs (999 + 998).
      */
     suspend fun postTestNotification() {
         if (!preferences.notificationsEnabled) {
@@ -190,8 +193,43 @@ class NotificationManager(
 
         ensureChannel()
 
-        val title = "New episode available"
-        val text = "Demon Slayer — Episode 6 DUB"
+        // 1. Post the immediate test notification.
+        postSingleTestNotification(
+            notifId = 999,
+            title = "New episode available",
+            text = "Demon Slayer — Episode 6 DUB",
+        )
+
+        // 2. Schedule the delayed test notification (1 minute later, via WorkManager).
+        try {
+            val delayedRequest = androidx.work.OneTimeWorkRequestBuilder<
+                com.confused.anikuta.core.notifications.DelayedTestNotificationWorker
+            >()
+                .setInitialDelay(1, java.util.concurrent.TimeUnit.MINUTES)
+                .build()
+
+            androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+                "anikuta_test_notification_delayed",
+                androidx.work.ExistingWorkPolicy.REPLACE,
+                delayedRequest,
+            )
+            Logger.i(TAG) { "Delayed test notification scheduled (1 min)" }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "Failed to schedule delayed test notification: ${e.message}" }
+        }
+    }
+
+    /**
+     * Check if notifications are enabled (master toggle). Used by [DelayedTestNotificationWorker].
+     */
+    fun areNotificationsEnabled(): Boolean = preferences.notificationsEnabled
+
+    /**
+     * Posts a single test notification with the given content. Called by [postTestNotification]
+     * + by [DelayedTestNotificationWorker].
+     */
+    fun postSingleTestNotification(notifId: Int, title: String, text: String) {
+        ensureChannel()
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -203,8 +241,8 @@ class NotificationManager(
 
         try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(999, builder.build())
-            Logger.i(TAG) { "Test notification posted: '$text'" }
+            nm.notify(notifId, builder.build())
+            Logger.i(TAG) { "Test notification posted (id=$notifId): '$text'" }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to post test notification: ${e.message}" }
         }

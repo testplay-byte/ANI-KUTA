@@ -68,6 +68,7 @@ fun UpdatesScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val checking by viewModel.checking.collectAsStateWithLifecycle()
+    val checkProgress by viewModel.checkProgress.collectAsStateWithLifecycle()
     val fetching by scheduleViewModel.fetching.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -196,6 +197,15 @@ fun UpdatesScreen(
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier.fillMaxSize(),
                                 ) {
+                                    // D-193 improvement: Live-progress banner during refresh
+                                    if (checkProgress != null && checkProgress!!.total > 0) {
+                                        item(key = "progress_banner") {
+                                            LiveProgressBanner(
+                                                progress = checkProgress!!,
+                                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                            )
+                                        }
+                                    }
                                     if (s.newUpdates.isNotEmpty()) {
                                         item(key = "header_new") { UpdatesSectionHeader("New") }
                                         items(s.newUpdates, key = { "new_${it.mainId}_${it.episodeNumber}" }) { update ->
@@ -364,5 +374,85 @@ private fun formatTimeAgo(timestamp: Long): String {
         days > 0 -> "${days}d ago"
         hours > 0 -> "${hours}h ago"
         else -> "just now"
+    }
+}
+
+// D-193 improvement: Live-progress banner shown during refresh
+@Composable
+private fun LiveProgressBanner(
+    progress: com.confused.anikuta.core.updates.CheckProgress,
+    modifier: Modifier = Modifier,
+) {
+    val isComplete = progress.current >= progress.total
+    val progressFraction = if (progress.total > 0) progress.current.toFloat() / progress.total else 0f
+    val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = progressFraction,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        label = "progressBar",
+    )
+
+    Surface(
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (!isComplete) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isComplete) "Check complete" else "Checking ${progress.current} of ${progress.total}…",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (!isComplete && progress.title.isNotBlank()) {
+                        Text(
+                            text = progress.title,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            // Progress bar
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .fillMaxWidth(animatedProgress)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
     }
 }
