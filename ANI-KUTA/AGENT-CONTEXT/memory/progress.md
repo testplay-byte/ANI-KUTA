@@ -147,11 +147,39 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 | 11 | **Dashboard `schema.ts` uses planned Phase-1 table names** not actual current schema | Low | ~2-3h | Changes DB page UI. Deferred (dashboard polish). |
 
 ## Last Updated
-- Session: **D-189 FK crash fix** (Z.ai Code sandbox) — user hit `SQLiteConstraintException` when linking an extension source to an AniList anime during the DB test-checklist run.
-- By: main agent (root-cause analysis + schema fix) + Explore sub-agent (review — clean).
-- Branch: `feature/fix-fk-crash` (awaiting user device verification before merge to `main`).
-- CI: pending push (1 .sq edit + 1 KDoc fix — expected green; sub-agent review PASSED).
-- Note: D-001..D-189 decisions. All major phases complete + on `main`. Previous session (doc-debt sweep, D-187/D-188) MERGED to `main` + branch deleted. This session: fixed the D-166 FK-enforcement side-effect crash. Next: user reinstalls + re-runs the DB test checklist, then provides the DB export for the DB-quality analysis.
+- Session: **D-190 multi-source episode metadata engine** (Z.ai Code sandbox) — user reported the old episode metadata fetching was "junky" + requested a proper multi-source engine using AniZip + Kitsu + Jikan, future-proof for TMDB, with extra fields (filler, etc.) stored in DB.
+- By: main agent (research + design + implementation) + 2 Explore sub-agents (plan review + compile review — both clean).
+- Branch: `feature/episode-metadata-engine` (awaiting user device verification before merge to `main`).
+- CI: pending push (12 files changed — expected green; sub-agent compile review PASSED with zero errors).
+- Note: D-001..D-190 decisions. All major phases complete + on `main`. Previous session (D-189 FK crash fix) MERGED to `main` + branch deleted. This session: built the multi-source episode metadata engine (AniZip + Jikan + Kitsu) with pluggable provider architecture + 8 new DB columns (filler, recap, japanese title, etc.). Next: user reinstalls (schema change) + tests episode metadata loading + exports DB for quality analysis.
+
+## Session — D-190 Multi-Source Episode Metadata Engine (this session)
+### What was done
+- **Research**: read current `EpisodeMetadataFetcher` (standalone, non-pluggable, uses Anikage.cc). Fetched + verified 3 APIs live (AniZip `api.ani.zip/mappings`, Jikan `api.jikan.moe/v4`, Kitsu GraphQL). Read Dantotsu reference repo (`Anify.kt` = AniZip, `Kitsu.kt`, `IdMappers.kt`, `EpisodeMapper.kt`) for API usage patterns.
+- **Plan**: designed pluggable `EpisodeMetadataProvider` interface with `ContentId` + `ContentIdType` (future-proof for TMDB). 3 providers (AniZip primary, Jikan for filler/recap, Kitsu tertiary). Engine orchestrates parallel fetch + merge. 8 new DB columns.
+- **Sub-agent plan review (Task m8)**: verified all 3 APIs. Found 3 must-fix flaws (undercounted call sites — 4 not 3; `async.awaitAll` failure isolation needed; `mergeEpisodeBatch` missing). All fixed before implementation.
+- **Implementation (12 files)**:
+  - DB: `dataCache.sq` (8 new columns) + `DatabaseDriverFactory.kt` (8 ALTER TABLE migrations) + `DataCacheModels.kt` (8 new fields) + `DataCacheRepository.kt` (3 sites updated).
+  - Engine: `EpisodeMetadataProvider.kt` (NEW — ContentId + ContentIdType + interface) + `EpisodeMetadataEngine.kt` (NEW — orchestrator with per-provider try/catch) + deleted `EpisodeMetadataFetcher.kt`.
+  - Providers: `AniZipEpisodeProvider.kt` + `JikanEpisodeProvider.kt` (rate-limit-aware, NBSP trim) + `KitsuEpisodeProvider.kt` (GraphQL).
+  - Merger: `MetadataMerger.kt` — added `mergeEpisodeBatch` + `mergeBooleanOrTrue` (OR-true for filler/recap).
+  - Wiring: `MetadataModule.kt` (Koin multi-binding) + `DetailsViewModel.kt` (constructor rename + 4 call sites + 3 enriched constructors + 1 reconstruction — all 8 new fields propagated) + `DetailsModule.kt` (comment).
+- **Sub-agent compile review (Task m7)**: ✅ READY TO PUSH. Zero compile errors. 8 verification areas clean. 7 non-blocking concerns — 3 fixed (unused engine params, Kitsu KDoc, AniZip ID types), 4 deferred.
+
+### Key design decisions
+- `is_filler`/`is_recap` are NULLABLE (null=unknown, not false=confirmed-not) — Jikan is the only source with filler info; if it fails, null is honest.
+- Merge: first-non-null-wins by priority (AniZip > Jikan > Kitsu) for most fields; OR-true for filler/recap.
+- Engine: parallel fetch with per-provider try/catch (one failure doesn't cancel siblings).
+- Future-proof: `ContentId(TMDB, tmdbId)` → new `TmdbEpisodeProvider` module → zero engine changes.
+- Backward-compatible public API: `fetchEpisodeMetadata(anilistId, malId, episodeCount)` unchanged.
+
+### CI status
+- Awaiting push to `feature/episode-metadata-engine`. 12 files changed — expected green.
+
+### What's next
+- User reinstalls the app (schema change — 8 new columns require fresh install per §30).
+- User opens an anime with an AniList ID + links an extension source → episode list should load with rich metadata (titles, thumbnails, descriptions, air dates, **filler badges from Jikan**).
+- User exports DB via debug bubble → agent analyzes for the DB-quality phase.
 
 ## Session — D-189 FK Crash Fix (this session)
 ### What happened

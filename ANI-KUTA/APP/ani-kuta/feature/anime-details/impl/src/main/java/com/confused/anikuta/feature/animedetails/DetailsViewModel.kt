@@ -62,7 +62,7 @@ class DetailsViewModel(
     private val extensionManager: ExtensionManager,
     private val preferenceStore: PreferenceStore,
     private val videoResolver: VideoResolver,
-    private val episodeMetadataFetcher: com.confused.anikuta.core.metadata.EpisodeMetadataFetcher,
+    private val episodeMetadataEngine: com.confused.anikuta.core.metadata.EpisodeMetadataEngine,
     private val extensionProvider: com.confused.anikuta.data.extension.provider.ExtensionDetailsProvider,
     private val anilistProvider: AniListDetailsProvider,
     private val autoLinkService: AutoLinkService,
@@ -589,38 +589,46 @@ class DetailsViewModel(
                     val mainIdForCache = mainId // capture for inner lambda
                     viewModelScope.launch {
                         try {
-                            val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
-                                anilistId = anilistId,
-                                malId = malId,
-                                episodeCount = episodesForCache.size,
-                            )
-                            if (metadata.isNotEmpty()) {
-                                _episodeMetadata.value = metadata
-                                Logger.i(TAG) { "D.3 Stage 1: Auto-fetched ${metadata.size} episode metadata entries" }
+                        val metadata = episodeMetadataEngine.fetchEpisodeMetadata(
+                            anilistId = anilistId,
+                            malId = malId,
+                            episodeCount = episodesForCache.size,
+                        )
+                        if (metadata.isNotEmpty()) {
+                            _episodeMetadata.value = metadata
+                            Logger.i(TAG) { "D.3 Stage 1: Auto-fetched ${metadata.size} episode metadata entries" }
 
-                                // Write enriched metadata back to the cache, preserving
-                                // episodeUrl from the extension episodes.
-                                if (mainIdForCache != null) {
-                                    val now = System.currentTimeMillis()
-                                    val epNumToUrl = episodesForCache.associate { it.episode_number.toInt() to it.url }
-                                    val epNumToSourceName = episodesForCache.associate { it.episode_number.toInt() to it.name }
-                                    val epNumToScanlator = episodesForCache.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
-                                    val enrichedCache = metadata.entries.map { (epNum, meta) ->
-                                        com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
-                                            mainId = mainIdForCache,
-                                            episodeNumber = epNum.toFloat(),
-                                            title = meta.title,
-                                            description = meta.description,
-                                            thumbnailUrl = meta.thumbnailUrl,
-                                            airDate = meta.airDate,
-                                            fetchedAt = now,
-                                            episodeUrl = epNumToUrl[epNum],
-                                            sourceName = epNumToSourceName[epNum],
-                                            scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
-                                        )
-                                    }
-                                    dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
-                                    Logger.i(TAG) { "D.3 Stage 1: Wrote ${enrichedCache.size} enriched metadata entries to cache (episodeUrl + sourceName + scanlator preserved)" }
+                            // Write enriched metadata back to the cache, preserving
+                            // episodeUrl from the extension episodes.
+                            if (mainIdForCache != null) {
+                                val now = System.currentTimeMillis()
+                                val epNumToUrl = episodesForCache.associate { it.episode_number.toInt() to it.url }
+                                val epNumToSourceName = episodesForCache.associate { it.episode_number.toInt() to it.name }
+                                val epNumToScanlator = episodesForCache.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
+                                val enrichedCache = metadata.entries.map { (epNum, meta) ->
+                                    com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
+                                        mainId = mainIdForCache,
+                                        episodeNumber = epNum.toFloat(),
+                                        title = meta.title,
+                                        description = meta.description,
+                                        thumbnailUrl = meta.thumbnailUrl,
+                                        airDate = meta.airDate,
+                                        fetchedAt = now,
+                                        episodeUrl = epNumToUrl[epNum],
+                                        sourceName = epNumToSourceName[epNum],
+                                        scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
+                                        isFiller = meta.isFiller,
+                                        isRecap = meta.isRecap,
+                                        titleJapanese = meta.titleJapanese,
+                                        titleRomaji = meta.titleRomaji,
+                                        runtime = meta.runtime,
+                                        seasonNumber = meta.seasonNumber,
+                                        episodeNumberInSeason = meta.episodeNumberInSeason,
+                                        score = meta.score,
+                                    )
+                                }
+                                dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
+                                Logger.i(TAG) { "D.3 Stage 1: Wrote ${enrichedCache.size} enriched metadata entries to cache (episodeUrl + sourceName + scanlator preserved)" }
                                 }
                             } else {
                                 Logger.w(TAG) { "D.3 Stage 1: Episode metadata fetch returned empty — keeping existing metadata" }
@@ -1274,7 +1282,7 @@ class DetailsViewModel(
             if (episodes.isNotEmpty()) {
                 viewModelScope.launch {
                     try {
-                        val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
+                        val metadata = episodeMetadataEngine.fetchEpisodeMetadata(
                             anilistId = anilistId,
                             malId = malId,
                             episodeCount = episodes.size,
@@ -1667,6 +1675,9 @@ class DetailsViewModel(
                     _episodeState.value = EpisodeState.Loaded(episodes)
 
                     // Also restore episode metadata map.
+                    // D-190: restore ALL fields from cache (including new AniZip/Jikan/Kitsu fields).
+                    // Previously this only restored 4 fields (title, thumbnail, description, airDate) —
+                    // silently losing isFiller, isRecap, titleJapanese, etc. on cache restore.
                     val metadataMap = cachedEpisodes.associate { meta ->
                         meta.episodeNumber.toInt() to com.confused.anikuta.core.metadata.EpisodeMetadata(
                             episodeKey = mainId + "|" + String.format("%05d", meta.episodeNumber.toInt()),
@@ -1675,6 +1686,14 @@ class DetailsViewModel(
                             thumbnailUrl = meta.thumbnailUrl,
                             description = meta.description,
                             airDate = meta.airDate,
+                            isFiller = meta.isFiller,
+                            isRecap = meta.isRecap,
+                            titleJapanese = meta.titleJapanese,
+                            titleRomaji = meta.titleRomaji,
+                            runtime = meta.runtime,
+                            seasonNumber = meta.seasonNumber,
+                            episodeNumberInSeason = meta.episodeNumberInSeason,
+                            score = meta.score,
                         )
                     }
                     _episodeMetadata.value = metadataMap
@@ -1759,7 +1778,7 @@ class DetailsViewModel(
                         if (animeId > 0) {
                             viewModelScope.launch {
                                 try {
-                                    val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
+                                    val metadata = episodeMetadataEngine.fetchEpisodeMetadata(
                                         anilistId = animeId,
                                         malId = malId,
                                         episodeCount = freshEpisodes.size,
@@ -1788,6 +1807,14 @@ class DetailsViewModel(
                                                 episodeUrl = epNumToUrl[epNum],
                                                 sourceName = epNumToSourceName[epNum],
                                                 scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
+                                                isFiller = meta.isFiller,
+                                                isRecap = meta.isRecap,
+                                                titleJapanese = meta.titleJapanese,
+                                                titleRomaji = meta.titleRomaji,
+                                                runtime = meta.runtime,
+                                                seasonNumber = meta.seasonNumber,
+                                                episodeNumberInSeason = meta.episodeNumberInSeason,
+                                                score = meta.score,
                                             )
                                         }
                                         dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)
@@ -1854,7 +1881,7 @@ class DetailsViewModel(
                 if (animeId > 0 && episodes.isNotEmpty()) {
                     viewModelScope.launch {
                         try {
-                            val metadata = episodeMetadataFetcher.fetchEpisodeMetadata(
+                            val metadata = episodeMetadataEngine.fetchEpisodeMetadata(
                                 anilistId = animeId,
                                 malId = malId,
                                 episodeCount = episodes.size,
@@ -1892,6 +1919,14 @@ class DetailsViewModel(
                                         episodeUrl = epNumToUrl[epNum],
                                         sourceName = epNumToSourceName[epNum],
                                         scanlator = epNumToScanlator[epNum]?.takeIf { it.isNotEmpty() },
+                                        isFiller = meta.isFiller,
+                                        isRecap = meta.isRecap,
+                                        titleJapanese = meta.titleJapanese,
+                                        titleRomaji = meta.titleRomaji,
+                                        runtime = meta.runtime,
+                                        seasonNumber = meta.seasonNumber,
+                                        episodeNumberInSeason = meta.episodeNumberInSeason,
+                                        score = meta.score,
                                     )
                                 }
                                 dataCacheRepository.upsertEpisodeMetadataBatch(enrichedCache)

@@ -30,6 +30,12 @@ data class CachedAnimeMetadata(
  * cache write. Audio pills (SUB/DUB/HSUB) are parsed from these fields; without
  * them, the enriched cache overwrites `title` with the AniList title (no
  * SUB/DUB markers) and `scanlator` is null → pills don't show on cache-first load.
+ *
+ * D-190 (episode metadata engine): 8 new fields from AniZip + Jikan + Kitsu.
+ * `isFiller`/`isRecap` are nullable (null = unknown, false = confirmed-not,
+ * true = confirmed-yes) — Jikan is the only source with filler info, so if
+ * Jikan fails, the field stays null (UI shows no badge) rather than
+ * incorrectly showing "non-filler".
  */
 data class CachedEpisodeMetadata(
     val mainId: String,
@@ -42,6 +48,15 @@ data class CachedEpisodeMetadata(
     val episodeUrl: String? = null,
     val sourceName: String? = null,
     val scanlator: String? = null,
+    // D-190: new fields from AniZip + Jikan + Kitsu
+    val isFiller: Boolean? = null,
+    val isRecap: Boolean? = null,
+    val titleJapanese: String? = null,
+    val titleRomaji: String? = null,
+    val runtime: Int? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumberInSeason: Int? = null,
+    val score: Double? = null,
 )
 
 /**

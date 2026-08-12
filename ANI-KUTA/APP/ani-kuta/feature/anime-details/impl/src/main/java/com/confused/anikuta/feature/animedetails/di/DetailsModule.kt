@@ -9,7 +9,7 @@ val detailsModule = module {
     single { VideoResolver() }
     // DetailsViewModel's 17 constructor params are resolved by Koin:
     //   AniListApi, ExtensionManager, PreferenceStore, VideoResolver,
-    //   EpisodeMetadataFetcher, ExtensionDetailsProvider, AniListDetailsProvider,
+    //   EpisodeMetadataEngine, ExtensionDetailsProvider, AniListDetailsProvider,
     //   AutoLinkService, AutoLinkPreferences, ContentResolver, ContentRepository,
     //   DataCacheRepository, DownloadManager, WatchProgressStore (Phase WP),
     //   RatingStore (Phase 4), PlayerPreferences (Phase 2), GenreRepository (Genre System).

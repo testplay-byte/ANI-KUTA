@@ -799,3 +799,29 @@
 - User reinstalls (required — schema change, fresh install per §30).
 - User re-runs Phase 2 of the DB test checklist to verify the crash is gone.
 - User continues the checklist → exports DB → provides it for the DB-quality analysis.
+
+## Session — D-190 Multi-Source Episode Metadata Engine (feature/episode-metadata-engine branch)
+
+### What changed
+- Replaced the standalone `EpisodeMetadataFetcher` (Anikage.cc + basic Jikan + AniList streaming) with a pluggable `EpisodeMetadataEngine` using 3 `EpisodeMetadataProvider` implementations:
+  - **AniZip** (primary — api.ani.zip — richest: titles, overview, thumbnails, runtime, season)
+  - **Jikan** (secondary — api.jikan.moe/v4 — UNIQUE: filler + recap booleans, title_japanese, score)
+  - **Kitsu** (tertiary — kitsu.io GraphQL — canonical titles, descriptions, thumbnails)
+- Future-proof: `ContentId` + `ContentIdType` (ANILIST/MAL/TMDB/KITSU) + `supportedIdTypes` — adding a new ID type (e.g. TMDB) = new provider module, zero engine changes.
+- DB schema: 8 new columns on `data_cache_episode` (is_filler, is_recap, title_japanese, title_romaji, runtime, season_number, episode_number_in_season, score). `is_filler`/`is_recap` nullable (null=unknown, not false=confirmed-not) — Jikan is the only source with filler info.
+- Merge: `MetadataMerger.mergeEpisodeBatch` — first-non-null-wins by priority + OR-true for filler/recap.
+- Engine: parallel fetch with per-provider try/catch (one failure doesn't cancel siblings).
+
+### Sub-agent reviews
+- Task m8 (plan review): verified all 3 APIs live. Found 3 must-fix flaws (call-site count, failure isolation, mergeEpisodeBatch) — all fixed.
+- Task m7 (compile review): ✅ READY TO PUSH. Zero compile errors. 8 areas clean.
+
+### Status
+- Branch: `feature/episode-metadata-engine` (awaiting user device verification before merge to `main`).
+- CI: pending push.
+- Decisions: D-190.
+
+### Next
+- User reinstalls (schema change — 8 new columns require fresh install per §30).
+- User opens an anime with an AniList ID + links an extension source → episode list should load with rich metadata (titles, thumbnails, descriptions, air dates, filler badges from Jikan).
+- User exports DB via debug bubble → agent analyzes for the DB-quality phase.

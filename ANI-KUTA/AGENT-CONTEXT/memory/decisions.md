@@ -1452,3 +1452,32 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Reinstall required:** the fix is a schema change. `CREATE TABLE IF NOT EXISTS` won't alter existing tables (SQLite can't ALTER TABLE DROP CONSTRAINT). Per CORE_RULES §30, debug users clear app data / reinstall. The user is reinstalling → fresh schema applies.
 - **Status:** ✅ Sub-agent reviewed (clean). Awaiting push to `feature/fix-fk-crash` + CI verification + user device test (re-run Phase 2 of the DB test checklist: link extension source → should no longer crash).
 - **Date:** this session (DB test-checklist crash-fix session).
+
+### D-190 — Multi-source episode metadata engine (AniZip + Jikan + Kitsu)
+- **What:** Replaced the standalone `EpisodeMetadataFetcher` (which used Anikage.cc + basic Jikan + AniList streaming in a non-pluggable class) with a proper pluggable multi-source `EpisodeMetadataEngine` using 3 dedicated `EpisodeMetadataProvider` implementations:
+  1. **AniZip** (`api.ani.zip/mappings?anilist_id=X`) — PRIMARY. Richest data: per-episode `title.en`/`title.ja`/`title.x-jat`, `overview`, `summary`, `image`, `airDate`, `runtime`, `seasonNumber`, `episodeNumber`. Also returns top-level `mappings` with `mal_id`/`kitsu_id`/`themoviedb_id` (available for future cross-ID activation).
+  2. **Jikan** (`api.jikan.moe/v4/anime/{malId}/episodes`) — UNIQUE: `filler` + `recap` booleans (the key differentiator the user requested). Also provides `title_japanese`, `title_romanji`, `score` (MAL community score). Rate-limit-aware: 400ms page delay + exponential backoff on 429 (1s/2s/4s, max 3 retries).
+  3. **Kitsu** (`kitsu.io/api/graphql` via `lookupMapping(externalSite: ANILIST_ANIME)`) — tertiary. Canonical titles, descriptions, thumbnails.
+- **Future-proof architecture**: `ContentId` + `ContentIdType` (ANILIST, MAL, TMDB, KITSU) + `EpisodeMetadataProvider.supportedIdTypes`. The engine auto-selects providers based on the content's ID type. Adding a new ID type (e.g. TMDB) = add a new provider module that declares `supportedIdTypes = {TMDB}` — zero engine changes. The engine queries all applicable providers in parallel (with per-provider try/catch failure isolation), then merges via `MetadataMerger.mergeEpisodeBatch`.
+- **DB schema changes** (`data_cache_episode`): added 8 new columns — `is_filler` (nullable INTEGER — null=unknown, 0=no, 1=yes), `is_recap` (same), `title_japanese`, `title_romaji`, `runtime`, `season_number`, `episode_number_in_season`, `score`. Migration via idempotent `ALTER TABLE ADD COLUMN` with `hasColumn` guard in `DatabaseDriverFactory.onOpen`. `is_filler`/`is_recap` are NULLABLE (not default-false) because Jikan is the only source with filler info — if Jikan fails, null = "unknown" (UI shows no badge) rather than incorrectly showing "non-filler".
+- **Merge strategy**: `MetadataMerger.mergeEpisodeBatch` — per-field first-non-null-wins by provider priority (AniZip > Jikan > Kitsu > AniList streaming). `isFiller`/`isRecap` use OR-true semantics (if any source says filler, it's filler; null only if all sources are null). This future-proofs for TMDB/etc. adding filler info later.
+- **Backward-compatible public API**: `EpisodeMetadataEngine.fetchEpisodeMetadata(anilistId, malId, episodeCount)` — same signature as the old `EpisodeMetadataFetcher`. DetailsViewModel's 4 call sites were renamed but the method signature is unchanged. Internally builds a `ContentId` + delegates to providers.
+- **Sub-agent plan review (Task m8)**: verified all 3 API endpoints live (AniZip, Jikan, Kitsu GraphQL). Found 3 must-fix flaws (undercounted call sites, `async.awaitAll` failure isolation, missing `mergeEpisodeBatch`) — all fixed. 11 concerns addressed (nullable filler, per-field source preference, Jikan NBSP trim, dead `EpisodeMetadataSource` deleted, per-episode `title.x-jat` used not show-level, etc.).
+- **Sub-agent compile review (Task m7)**: ✅ READY TO PUSH. Zero compile errors. 8 verification areas clean (SQLDelight signatures, read-side mapping, imports, orchestrator pattern, merger, call sites, Koin DI, deleted file). 7 non-blocking concerns — 3 fixed (unused engine params, Kitsu KDoc, AniZip ID types), 4 deferred (hasColumn pre-existing bug, naming, cosmetic).
+- **Files changed (12)**:
+  - `dataCache.sq` — 8 new columns + updated `upsertEpisodeMetadata` query
+  - `DatabaseDriverFactory.kt` — 8 `ALTER TABLE ADD COLUMN` migrations
+  - `DataCacheModels.kt` — 8 new fields on `CachedEpisodeMetadata`
+  - `DataCacheRepository.kt` — 3 sites updated (read + single write + batch write)
+  - `MetadataModels.kt` — 8 new fields on `EpisodeMetadata`
+  - `EpisodeMetadataProvider.kt` — NEW (ContentId + ContentIdType + interface)
+  - `providers/AniZipEpisodeProvider.kt` — NEW
+  - `providers/JikanEpisodeProvider.kt` — NEW
+  - `providers/KitsuEpisodeProvider.kt` — NEW
+  - `EpisodeMetadataEngine.kt` — NEW (replaces deleted `EpisodeMetadataFetcher.kt`)
+  - `MetadataMerger.kt` — added `mergeEpisodeBatch` + `mergeBooleanOrTrue` + updated `mergeEpisode`
+  - `MetadataModule.kt` — Koin multi-binding + engine registration
+  - `DetailsViewModel.kt` — constructor rename + 4 call sites + 3 enriched constructors + 1 reconstruction
+  - `DetailsModule.kt` — comment update
+- **Status:** ✅ Sub-agent reviewed (clean). Awaiting push to `feature/episode-metadata-engine` + CI verification + user device test.
+- **Date:** this session (episode metadata engine session).

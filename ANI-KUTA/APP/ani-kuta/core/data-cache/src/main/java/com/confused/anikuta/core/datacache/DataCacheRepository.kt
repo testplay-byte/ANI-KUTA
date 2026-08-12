@@ -87,6 +87,14 @@ class DataCacheRepository(
                 episodeUrl = it.episode_url,
                 sourceName = it.source_name,
                 scanlator = it.scanlator,
+                isFiller = it.is_filler?.let { b -> b != 0L },
+                isRecap = it.is_recap?.let { b -> b != 0L },
+                titleJapanese = it.title_japanese,
+                titleRomaji = it.title_romaji,
+                runtime = it.runtime?.toInt(),
+                seasonNumber = it.season_number?.toInt(),
+                episodeNumberInSeason = it.episode_number_in_season?.toInt(),
+                score = it.score,
             )
         }
     }
@@ -103,6 +111,14 @@ class DataCacheRepository(
             episodeUrl = meta.episodeUrl,
             sourceName = meta.sourceName,
             scanlator = meta.scanlator,
+            isFiller = meta.isFiller?.let { if (it) 1L else 0L },
+            isRecap = meta.isRecap?.let { if (it) 1L else 0L },
+            titleJapanese = meta.titleJapanese,
+            titleRomaji = meta.titleRomaji,
+            runtime = meta.runtime?.toLong(),
+            seasonNumber = meta.seasonNumber?.toLong(),
+            episodeNumberInSeason = meta.episodeNumberInSeason?.toLong(),
+            score = meta.score,
         )
     }
 
@@ -120,6 +136,14 @@ class DataCacheRepository(
                     episodeUrl = meta.episodeUrl,
                     sourceName = meta.sourceName,
                     scanlator = meta.scanlator,
+                    isFiller = meta.isFiller?.let { if (it) 1L else 0L },
+                    isRecap = meta.isRecap?.let { if (it) 1L else 0L },
+                    titleJapanese = meta.titleJapanese,
+                    titleRomaji = meta.titleRomaji,
+                    runtime = meta.runtime?.toLong(),
+                    seasonNumber = meta.seasonNumber?.toLong(),
+                    episodeNumberInSeason = meta.episodeNumberInSeason?.toLong(),
+                    score = meta.score,
                 )
             }
         }

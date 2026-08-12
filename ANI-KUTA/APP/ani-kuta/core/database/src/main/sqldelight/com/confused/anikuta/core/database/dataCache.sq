@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS anime_metadata_cache (
 -- AniList-enriched cache write. Audio pills (SUB/DUB/HSUB) are parsed from
 -- episode.scanlator + episode.name; without these columns, the enriched cache
 -- overwrites name with the AniList title (no SUB/DUB) and scanlator is null.
+--
+-- D-190 (episode metadata engine): added 8 columns for richer metadata from
+-- AniZip + Jikan + Kitsu. is_filler/is_recap are NULLABLE (null = unknown,
+-- 0 = confirmed-not-filler, 1 = confirmed-filler) — Jikan is the only source
+-- with filler info, so if Jikan fails/times out, the field stays null (UI shows
+-- no badge) rather than incorrectly showing "non-filler".
 CREATE TABLE IF NOT EXISTS data_cache_episode (
     main_id TEXT NOT NULL,
     episode_number REAL NOT NULL,
@@ -42,6 +48,14 @@ CREATE TABLE IF NOT EXISTS data_cache_episode (
     episode_url TEXT,
     source_name TEXT,                     -- Phase DB-OPT: extension's original ep.name (for audio parsing)
     scanlator TEXT,                       -- Phase DB-OPT: extension's ep.scanlator (for audio parsing)
+    is_filler INTEGER,                    -- D-190: Jikan filler (null=unknown, 0=no, 1=yes)
+    is_recap INTEGER,                     -- D-190: Jikan recap (null=unknown, 0=no, 1=yes)
+    title_japanese TEXT,                  -- D-190: Jikan title_japanese / AniZip title.ja
+    title_romaji TEXT,                    -- D-190: Jikan title_romanji / AniZip title.x-jat
+    runtime INTEGER,                      -- D-190: AniZip/Kitsu episode length (minutes)
+    season_number INTEGER,                -- D-190: AniZip/Kitsu season number
+    episode_number_in_season INTEGER,     -- D-190: AniZip episode number within season
+    score REAL,                           -- D-190: Jikan community score (0-10)
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
@@ -88,10 +102,12 @@ SELECT * FROM data_cache_episode WHERE main_id = :mainId AND episode_number = :e
 upsertEpisodeMetadata:
 INSERT OR REPLACE INTO data_cache_episode(
     main_id, episode_number, title, description, thumbnail_url, air_date, fetched_at, episode_url,
-    source_name, scanlator
+    source_name, scanlator,
+    is_filler, is_recap, title_japanese, title_romaji, runtime, season_number, episode_number_in_season, score
 ) VALUES (
     :mainId, :episodeNumber, :title, :description, :thumbnailUrl, :airDate, :fetchedAt, :episodeUrl,
-    :sourceName, :scanlator
+    :sourceName, :scanlator,
+    :isFiller, :isRecap, :titleJapanese, :titleRomaji, :runtime, :seasonNumber, :episodeNumberInSeason, :score
 );
 
 deleteEpisodeMetadata:

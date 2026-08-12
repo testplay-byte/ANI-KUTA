@@ -83,6 +83,35 @@ class DatabaseDriverFactory(private val context: Context) {
                         db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN scanlator TEXT")
                     }
 
+                    // ── D-190 (episode metadata engine): 8 new columns for AniZip/Jikan/Kitsu ──
+                    // is_filler/is_recap are nullable INTEGER (null=unknown, 0=no, 1=yes).
+                    // Jikan is the only source with filler info; if Jikan fails, the field
+                    // stays null (UI shows no badge) rather than incorrectly showing "non-filler".
+                    if (!hasColumn(db, "data_cache_episode", "is_filler")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN is_filler INTEGER")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "is_recap")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN is_recap INTEGER")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "title_japanese")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN title_japanese TEXT")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "title_romaji")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN title_romaji TEXT")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "runtime")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN runtime INTEGER")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "season_number")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN season_number INTEGER")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "episode_number_in_season")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN episode_number_in_season INTEGER")
+                    }
+                    if (!hasColumn(db, "data_cache_episode", "score")) {
+                        db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN score REAL")
+                    }
+
                     // ── Phase DB-OPT: drop redundant indexes (idempotent — IF EXISTS) ──
                     // These duplicate the leftmost column of composite UNIQUE/PK indexes.
                     db.execSQL("DROP INDEX IF EXISTS idx_data_cache_episode_main")
