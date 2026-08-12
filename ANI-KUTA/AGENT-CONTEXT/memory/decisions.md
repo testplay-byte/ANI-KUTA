@@ -1544,3 +1544,16 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Estimated implementation:** ~34h across 10 phases (after user approval).
 - **Status:** ⚠️ DRAFT — awaiting user approval. NOT implementing yet. The plan + web page are on branch `feature/updates-notifications-plan` (NOT merged to main).
 - **Date:** this session (updates-notifications planning session).
+
+### D-193 (continued) — All 10 phases COMPLETE (implementation done, CI green on feature branch)
+- **Phase 1**: 3-way toggle fix (ordinal→indexOf at 8 sites) + no-source-from-library fix (persist source link in performAutoLink) + onEpisodesRefreshed ordering fix (ensureUpdateState internally).
+- **Phase 2**: DB schema — 5 new columns (last_known_dub_count, last_checked_dub_at, total_episodes, new_expires_at on episode_update + anime_update_state), 4 query updates, 1 new query (getDueDubAnime), 2 new indexes, 3-day "new" expiry.
+- **Phase 9** (moved before 3-8): Interface pattern — ScheduleRefresher + NotificationSender interfaces in :core:updates, implemented in :app via Koin lambdas. Avoids circular deps. on_watchable trigger wired.
+- **Phase 3**: Combined Updates & Notifications settings screen + UpdatePreferences (mode/interval/sub/dub toggles) + test notification + NotificationManager.postTestNotification.
+- **Phase 4**: Configurable WorkManager (UpdateScheduler — reads preferences, schedules/cancels with REPLACE) + manual mode (per-category filter) + live-progress (CheckProgress SharedFlow from UpdateEngine).
+- **Phase 5**: Smart release detection — SmartReleaseCheckWorker (OneTimeWorkRequest chaining, 10-min polling, max 3 attempts) + SmartReleaseScheduler (±1h window, max 5 concurrent).
+- **Phase 6**: Sub/Dub tracking — checkSingleAnime rewrite (partition by audio variant, separate sub/dub counts, respects user preferences, dub episodes use _dub episode_key suffix).
+- **Phase 7**: Notification system — on_schedule trigger wired (ScheduleEngine), on_watchable already wired (Phase 9), on_immediate already fires. Tap deep-link via setContentIntent (package-based launcher Intent).
+- **Phase 8**: Updates feed UI — live-progress StateFlow in UpdatesViewModel, initial-batch rendering ("Episodes 1-N added to library"), acknowledgment on tap.
+- **Status:** ✅ All 10 phases complete + CI green on `feature/updates-notifications-impl` branch. NOT merged to main — awaiting user approval.
+- **Date:** this session (D-193 implementation session).

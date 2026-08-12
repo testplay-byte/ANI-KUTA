@@ -928,3 +928,22 @@
 - User reviews the plan on the dashboard page.
 - User answers the 8 open questions in §13.
 - User gives the go → implementation begins (10 phases, ~34h).
+
+## Session — D-193 All 10 Phases Complete (feature/updates-notifications-impl)
+
+### All phases implemented + CI green:
+1. Bug fixes: 3-way toggle + no-source-from-library + onEpisodesRefreshed ordering
+2. DB schema: 5 new columns + 4 query updates + 1 new query + 2 indexes + 3-day expiry
+3. Settings UI: combined section + master toggle + interval + sub/dub toggles + test notification
+4. Auto-update: configurable WorkManager + manual mode + per-category filter + live-progress
+5. Smart release: OneTimeWorkRequest chaining + 10-min polling + max 3 attempts + ±1h window
+6. Sub/Dub tracking: checkSingleAnime rewrite + separate counts + preference filtering
+7. Notifications: 3 triggers wired + tap deep-link + test notification + dedup
+8. Updates feed: live-progress StateFlow + initial-batch rendering + acknowledgment
+9. Interface pattern: ScheduleRefresher + NotificationSender (avoids circular deps)
+10. Docs + this entry + notification
+
+### Status
+- Branch: `feature/updates-notifications-impl` (NOT merged — awaiting user approval)
+- CI: GREEN on all commits
+- All 10 phases of the D-193 plan implemented
