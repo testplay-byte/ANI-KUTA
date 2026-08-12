@@ -36,6 +36,8 @@ class UpdateStore(
         discoveredAt: Long,
         acknowledged: Boolean,
         acknowledgedAt: Long?,
+        batchType: String = "new",
+        episodeCount: Long? = null,
     ) {
         database.episodeUpdateQueries.upsertEpisodeUpdate(
             main_id = mainId,
@@ -47,6 +49,8 @@ class UpdateStore(
             discovered_at = discoveredAt,
             acknowledged = if (acknowledged) 1L else 0L,
             acknowledged_at = acknowledgedAt,
+            batch_type = batchType,
+            episode_count = episodeCount,
         )
     }
 
@@ -166,6 +170,8 @@ class UpdateStore(
         discoveredAt = discovered_at,
         acknowledged = acknowledged.toInt() == 1,
         acknowledgedAt = acknowledged_at,
+        batchType = batch_type,
+        episodeCount = episode_count,
     )
 
     private fun com.confused.anikuta.core.database.Anime_update_state.toAnimeUpdateState() = AnimeUpdateState(
@@ -195,6 +201,8 @@ data class EpisodeUpdate(
     val discoveredAt: Long,
     val acknowledged: Boolean,
     val acknowledgedAt: Long?,
+    val batchType: String = "new",
+    val episodeCount: Long? = null,
 )
 
 data class AnimeUpdateState(

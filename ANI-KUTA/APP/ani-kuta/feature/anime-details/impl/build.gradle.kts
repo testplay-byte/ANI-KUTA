@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":core:watch-progress"))
     implementation(project(":core:ratings"))  // Phase 4: per-anime rating UI
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
+    implementation(project(":core:updates"))  // D-192 Phase 3: updates feature
     implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))

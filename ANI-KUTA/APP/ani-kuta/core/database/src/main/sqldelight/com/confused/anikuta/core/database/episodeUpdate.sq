@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS episode_update (
     discovered_at INTEGER NOT NULL,      -- when we found it
     acknowledged INTEGER NOT NULL DEFAULT 0,  -- user dismissed / opened it
     acknowledged_at INTEGER,             -- M9: when acknowledged (for retention cleanup)
+    batch_type TEXT NOT NULL DEFAULT 'new',  -- D-192: 'initial' = first-link batch, 'new' = individual new episode
+    episode_count INTEGER,               -- D-192: for 'initial' batch, the total episode count (e.g. 7 for "Episodes 1-7")
     FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
 );
 
@@ -35,10 +37,12 @@ CREATE INDEX IF NOT EXISTS idx_episode_update_ack_at ON episode_update(acknowled
 upsertEpisodeUpdate:
 INSERT OR REPLACE INTO episode_update(
     main_id, episode_key, episode_number, episode_title, source_id,
-    audio_variant, discovered_at, acknowledged, acknowledged_at
+    audio_variant, discovered_at, acknowledged, acknowledged_at,
+    batch_type, episode_count
 ) VALUES (
     :main_id, :episode_key, :episode_number, :episode_title, :source_id,
-    :audio_variant, :discovered_at, :acknowledged, :acknowledged_at
+    :audio_variant, :discovered_at, :acknowledged, :acknowledged_at,
+    :batch_type, :episode_count
 );
 
 -- Get unacknowledged updates (the "New" feed), ordered by discovered_at DESC.

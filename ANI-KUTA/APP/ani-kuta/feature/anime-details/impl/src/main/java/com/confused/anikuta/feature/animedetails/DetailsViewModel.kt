@@ -76,6 +76,7 @@ class DetailsViewModel(
     private val playerPreferences: com.confused.anikuta.core.preferences.PlayerPreferences,
     private val genreRepository: com.confused.anikuta.core.content.genre.GenreRepository,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
+    private val updateEngine: com.confused.anikuta.core.updates.UpdateEngine,
 ) : ViewModel() {
 
     companion object {
@@ -1115,6 +1116,8 @@ class DetailsViewModel(
                 route = "details",
                 contentType = "anime",
             )
+            // D-192 Phase 3: ensure update state exists so the Updates engine can track new episodes.
+            updateEngine.ensureUpdateState(mainId)
         }
     }
 
@@ -1893,6 +1896,20 @@ class DetailsViewModel(
                     }
                     dataCacheRepository.upsertEpisodeMetadataBatch(cachedList)
                     Logger.i(TAG) { "Cached ${episodes.size} episodes locally (incl. episodeUrl)" }
+                }
+
+                // D-192 Phase 3: Notify the Updates engine about the episode count.
+                // This sets the baseline (lastKnownEpisodeCount) + creates update rows for new episodes.
+                val midForUpdates = currentMainId
+                if (midForUpdates != null && episodes.isNotEmpty()) {
+                    viewModelScope.launch {
+                        try {
+                            updateEngine.onEpisodesRefreshed(midForUpdates, episodes.size)
+                            Logger.d(TAG) { "UpdateEngine notified: ${episodes.size} episodes for $midForUpdates" }
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "onEpisodesRefreshed failed: ${e.message}" }
+                        }
+                    }
                 }
 
                 // Fetch episode metadata (titles, thumbnails, descriptions, dates).

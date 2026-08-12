@@ -128,6 +128,16 @@ class DatabaseDriverFactory(private val context: Context) {
                         db.execSQL("ALTER TABLE data_cache_episode ADD COLUMN score REAL")
                     }
 
+                    // ── D-192 Phase 3: episode_update batch_type + episode_count ──
+                    // Supports "initial batch" update rows (one row for first-link episodes 1-N)
+                    // vs "new" individual episode update rows (one per new episode on refresh).
+                    if (!hasColumn(db, "episode_update", "batch_type")) {
+                        db.execSQL("ALTER TABLE episode_update ADD COLUMN batch_type TEXT NOT NULL DEFAULT 'new'")
+                    }
+                    if (!hasColumn(db, "episode_update", "episode_count")) {
+                        db.execSQL("ALTER TABLE episode_update ADD COLUMN episode_count INTEGER")
+                    }
+
                     // ── Phase DB-OPT: drop redundant indexes (idempotent — IF EXISTS) ──
                     // These duplicate the leftmost column of composite UNIQUE/PK indexes.
                     db.execSQL("DROP INDEX IF EXISTS idx_data_cache_episode_main")

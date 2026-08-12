@@ -227,20 +227,45 @@ class UpdateEngine(
         if (latestEpisodeNumber <= lastKnown) return@withContext
 
         val now = System.currentTimeMillis()
-        // Insert any episodes > lastKnown with acknowledged=1 (CF5).
-        for (epNum in (lastKnown + 1).toInt()..latestEpisodeNumber) {
-            val epKey = "$mainId|${String.format("%05d", epNum)}"
+
+        if (lastKnown == 0) {
+            // D-192 Phase 3: FIRST LINK — create ONE "initial batch" row (not per-episode).
+            // The user wants: "it will only create one single row for those whole episodes"
+            // with text "Episodes 1-N added to library", NOT marked as new.
             updateStore.upsertEpisodeUpdate(
                 mainId = mainId,
-                episodeKey = epKey,
-                episodeNumber = epNum.toDouble(),
-                episodeTitle = null,
+                episodeKey = "initial_batch",
+                episodeNumber = latestEpisodeNumber.toDouble(),
+                episodeTitle = "Episodes 1-$latestEpisodeNumber added to library",
                 sourceId = null,
                 audioVariant = "unknown",
                 discoveredAt = now,
-                acknowledged = true, // CF5: pre-acknowledged (user found it organically).
+                acknowledged = true, // pre-acknowledged — not "new"
                 acknowledgedAt = now,
+                batchType = "initial",
+                episodeCount = latestEpisodeNumber.toLong(),
             )
+            Logger.i(TAG) { "onEpisodesRefreshed — INITIAL BATCH: mainId=$mainId episodes=1-$latestEpisodeNumber (one row, acknowledged)" }
+        } else {
+            // SUBSEQUENT REFRESH — create individual "new" rows for episodes > lastKnown.
+            // These ARE new episodes the user hasn't seen before.
+            for (epNum in (lastKnown + 1).toInt()..latestEpisodeNumber) {
+                val epKey = "$mainId|${String.format("%05d", epNum)}"
+                updateStore.upsertEpisodeUpdate(
+                    mainId = mainId,
+                    episodeKey = epKey,
+                    episodeNumber = epNum.toDouble(),
+                    episodeTitle = null,
+                    sourceId = null,
+                    audioVariant = "unknown",
+                    discoveredAt = now,
+                    acknowledged = true, // CF5: pre-acknowledged (user found it organically).
+                    acknowledgedAt = now,
+                    batchType = "new",
+                    episodeCount = null,
+                )
+            }
+            Logger.i(TAG) { "onEpisodesRefreshed — NEW EPISODES: mainId=$mainId episodes=${lastKnown + 1}-$latestEpisodeNumber (${latestEpisodeNumber - lastKnown} new)" }
         }
 
         // Update the state — reset backoff + set next_check_at.
@@ -254,7 +279,6 @@ class UpdateEngine(
             consecutiveFailures = 0,
             backoffStep = 0,
         )
-        Logger.i(TAG) { "onEpisodesRefreshed — mainId=$mainId lastKnown=$lastKnown→$latestEpisodeNumber (pre-acknowledged)" }
     }
 
     /**
