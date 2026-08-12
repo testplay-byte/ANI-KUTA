@@ -57,6 +57,7 @@ fun UpdatesSettingsScreen(
     val checkDub by updatePreferences.checkDub.collectAsState()
     val checkDubCompleted by updatePreferences.checkDubCompleted.collectAsState()
     val notifEnabled by notificationPreferences.notificationsEnabledFlow().collectAsState(initial = true)
+    val updateScheduler: com.confused.anikuta.core.updates.UpdateScheduler = koinInject()
 
     Scaffold(
         topBar = {
@@ -86,7 +87,7 @@ fun UpdatesSettingsScreen(
             SegmentedToggle(
                 options = listOf("Auto", "Manual", "Off"),
                 selectedIndex = UpdateMode.entries.indexOf(mode),
-                onSelect = { idx -> updatePreferences.setMode(UpdateMode.entries[idx]) },
+                onSelect = { idx -> updatePreferences.setMode(UpdateMode.entries[idx]); updateScheduler.reschedule() },
             )
             Text(
                 text = when (mode) {
@@ -111,6 +112,7 @@ fun UpdatesSettingsScreen(
                         val currentIdx = intervals.indexOf(intervalHours)
                         val nextIdx = (currentIdx + 1) % intervals.size
                         updatePreferences.setIntervalHours(intervals[nextIdx])
+                        updateScheduler.reschedule()
                     },
                 )
 

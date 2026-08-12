@@ -57,7 +57,30 @@ class UpdateCheckWorker(
             }
 
             // 1. Check all due anime.
-            val newCount = engine.checkDueAnime()
+            // D-193 Phase 4: in manual mode, filter to selected categories only.
+            val updatePrefs = koin.get<com.confused.anikuta.core.preferences.UpdatePreferences>()
+            val mode = updatePrefs.getMode()
+            val filterMainIds: Set<String>? = if (mode == com.confused.anikuta.core.preferences.UpdateMode.MANUAL) {
+                // Build the filter from selected categories.
+                val selectedCategoryIds = updatePrefs.getSelectedCategories()
+                if (selectedCategoryIds.isEmpty()) {
+                    Logger.i(TAG) { "Manual mode but no categories selected — skipping" }
+                    return try {
+                        Result.success()
+                    } catch (e: Exception) {
+                        Result.retry()
+                    }
+                }
+                // Resolve category IDs to mainIds via ContentRepository.
+                val contentRepo = koin.get<com.confused.anikuta.core.content.ContentRepository>()
+                selectedCategoryIds.flatMap { catId ->
+                    contentRepo.getMainIdsByCategory(catId.toLong())
+                }.toSet()
+            } else {
+                null // AUTO mode — check all due anime.
+            }
+
+            val newCount = engine.checkDueAnime(filterMainIds)
 
             // 2. Retention cleanup (M9: delete acknowledged updates older than 7 days).
             val cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(RETENTION_DAYS)

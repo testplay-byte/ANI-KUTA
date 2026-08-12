@@ -11,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -63,30 +66,59 @@ class UpdateEngine(
 
     private val concurrencySemaphore = Semaphore(MAX_CONCURRENT)
 
+    // D-193 Phase 4: Live-progress flow — emitted before each anime check.
+    private val _checkProgress = MutableSharedFlow<CheckProgress>(replay = 1)
+    val checkProgress: SharedFlow<CheckProgress> = _checkProgress.asSharedFlow()
+
     /**
      * Checks all due anime for new episodes. Called by [UpdateCheckWorker] + pull-to-refresh.
      * Returns the number of new episodes found.
+     *
+     * D-193 Phase 4:
+     * - Accepts an optional `filterMainIds` for manual mode (only check selected categories).
+     * - Emits [CheckProgress] via [checkProgress] SharedFlow for live-progress UI.
      */
-    suspend fun checkDueAnime(): Int = withContext(Dispatchers.IO) {
+    suspend fun checkDueAnime(filterMainIds: Set<String>? = null): Int = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val dueAnime = updateStore.getDueAnime(now)
+        var dueAnime = updateStore.getDueAnime(now)
+
+        // D-193 Phase 4: manual mode — filter to selected categories only.
+        if (filterMainIds != null) {
+            dueAnime = dueAnime.filter { it.mainId in filterMainIds }
+        }
+
         if (dueAnime.isEmpty()) {
             Logger.i(TAG) { "checkDueAnime — no anime due for check" }
+            _checkProgress.tryEmit(CheckProgress(0, 0, "", "", null))
             return@withContext 0
         }
 
-        Logger.i(TAG) { "checkDueAnime — ${dueAnime.size} anime due for check" }
+        Logger.i(TAG) { "checkDueAnime — ${dueAnime.size} anime due for check (filter=${filterMainIds?.size ?: "all"})" }
         var totalNew = 0
+        var current = 0
+        val total = dueAnime.size
 
         // T7: check up to MAX_CONCURRENT in parallel.
         coroutineScope {
             dueAnime.map { state ->
                 async {
+                    // D-193 Phase 4: emit progress before each check.
+                    val content = contentRepository.getContentByMainId(state.mainId)
+                    val title = content?.title ?: "Unknown"
+                    val coverUrl = null // cover URL lookup deferred — the UI can fetch it separately
+                    synchronized(this@UpdateEngine) {
+                        current++
+                        _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
+                    }
+
                     val newCount = checkSingleAnime(state, now)
                     synchronized(this@UpdateEngine) { totalNew += newCount }
                 }
             }.awaitAll()
         }
+
+        // D-193 Phase 4: emit terminal progress.
+        _checkProgress.tryEmit(CheckProgress(total, total, "", "", null))
 
         Logger.i(TAG) { "checkDueAnime — complete. $totalNew new episode(s) found." }
         totalNew
@@ -357,3 +389,20 @@ class UpdateEngine(
         }
     }
 }
+
+/**
+ * D-193 Phase 4: Live-progress data emitted by [UpdateEngine.checkDueAnime].
+ *
+ * @param current The current anime being checked (1-based).
+ * @param total The total number of anime to check.
+ * @param mainId The mainId of the current anime (empty for terminal/completion).
+ * @param title The title of the current anime (empty for terminal).
+ * @param coverUrl The cover URL of the current anime (null — UI can fetch separately).
+ */
+data class CheckProgress(
+    val current: Int,
+    val total: Int,
+    val mainId: String,
+    val title: String,
+    val coverUrl: String?,
+)
