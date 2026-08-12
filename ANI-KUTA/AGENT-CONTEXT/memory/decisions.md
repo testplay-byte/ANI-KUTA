@@ -1493,3 +1493,29 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Files changed (4)**: `progress.md` (11 new Deferred Concerns #12-22 + session entry + Last Updated), `decisions.md` (this D-191 entry), `changelog.md` (session entry), `lessons-learned.md` (extension-prerequisite lesson + DB-analysis lesson).
 - **Status:** ✅ Complete. Awaiting push to `docs/db-analysis-and-concerns`. No code changes — docs only.
 - **Date:** this session (DB analysis session).
+
+### D-192 — DB schema cleanup + multi-phase improvement plan (Phase 1 of 6 complete)
+- **What:** User provided comprehensive feedback after the D-191 DB analysis. Agent created a 6-phase improvement plan + executed Phase 1 (DB schema cleanup). Phases 2-6 are planned + saved for continuation.
+- **Phase 1 (COMPLETE — CI green, merged to main):**
+  - Dropped 3 confirmed-dead tables: `content_ext`, `content_ext_repo`, `user_customization`
+  - Created `app_settings` table (key-value, for backup/restore mirror of PreferenceStore — columns prefixed `setting_` to avoid Kotlin keyword conflicts)
+  - Created `SettingsRepository` (CRUD + export/import for backup/restore)
+  - Removed dead FK from `content.extension_repo_id` (column kept for future)
+  - Verified `content` table is future-proofed for multi-source/multi-content-type/multi-system (data_source_id, system_id, extension_id, content_type, content_format all present)
+  - Cleaned up all dead Kotlin methods (getOrCreateExtension, insertExtensionRepo, getExtensionRepoByUrl) + data class (ExtensionRepo) + query references
+  - Fixed LocalMetadataProvider (removed dead customizationQueries reads, constructor no longer takes database)
+  - Added :core:database dep to :core:preferences (for SettingsRepository)
+  - Registered SettingsRepository in Koin
+- **Phase 1 CI:** First attempt failed (`value` is a Kotlin soft keyword — SQLDelight can't generate a property named `value`). Fixed by renaming columns to `setting_key`, `setting_value`, `setting_type`, `setting_category`. CI green on second attempt (run 31560749859).
+- **User corrections acknowledged:**
+  - User listed 8 tables as "dead" to drop. Research showed 4 are ACTIVE (notification_config, notification_sent, episode_update, download_queue). Agent refused to drop active tables (CORE_RULES §2: don't blindly agree).
+  - User corrected the test checklist: Phase 5 didn't state extensions are a hard prerequisite for watching episodes. Saved as a lesson.
+- **Phases 2-6 (PLANNED — not yet executed):**
+  - **Phase 2:** Activity tracker wiring (#12) — wire `ActivityTracker.track()` at ~10 call sites (WatchScreen play/pause/complete, DetailsViewModel library/rating, Search, Downloads). ~2h.
+  - **Phase 3:** Updates feature rework (#13) — (a) wire `ensureUpdateState` on library-add, (b) implement "first link = one update row" (all episodes 1-N as one batch entry, not per-episode, text "episodes 1-7 added to library", NOT marked as new), (c) implement "refresh = new episodes only" (compare cached count vs fresh fetch, only new eps become updates), (d) refresh button with live progress UI (cover + name + X/Y counter), (e) future: auto-update on air time via WorkManager. ~4h.
+  - **Phase 4:** Download fixes (#15, #16, #17) — (a) investigate concurrency bug (research shows it QUEUES not cancels — need to understand user's observation), (b) fix DownloadedEpisode data-loss (add video_server/video_audio/source_id/file_size to data class + populate from completedTask + update DownloadStore — 3-file surgical fix), (c) Downloads page UI: show server/audio/resolution, minimize long names + tap-to-expand + auto-close after 5s, percentage always shown, file_size display, "?" for missing info. ~4h.
+  - **Phase 5:** Details page fixes (#20, #21) — add `loadGeneration` counter to DetailsViewModel (fixes stale-state flash + no-source race by checking generation before writing state in async blocks). ~2h.
+  - **Phase 6:** Docs + notify. ~1h.
+- **Deferred (saved, not this plan):** Notifications (#14, blocked by Phase 3), extensions filtering (#19), extensions lag (#18), resolver sheet smarts (future), per-color customization (future), auto-update on air time (future, after Phase 3).
+- **Status:** ✅ Phase 1 complete + CI green + merged to main. Phases 2-6 planned + saved in this entry for the next session.
+- **Date:** this session (D-192 Phase 1).

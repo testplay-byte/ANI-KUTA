@@ -847,3 +847,30 @@
 - CI: no code changes — docs only.
 - Decisions: D-191.
 - Next: user reviews the DB analysis + decides which concerns to prioritize.
+
+## Session — D-192 DB Schema Cleanup + Multi-Phase Plan (Phase 1 of 6)
+
+### Phase 1: DB schema cleanup (COMPLETE — CI green, merged to main)
+- Dropped 3 dead tables: content_ext, content_ext_repo, user_customization
+- Created app_settings table (backup/restore mirror of PreferenceStore)
+- Created SettingsRepository (CRUD + export/import)
+- Removed dead FK from content.extension_repo_id
+- Verified content table future-proofing (multi-source/multi-content-type/multi-system)
+- Cleaned up all dead Kotlin methods + data classes + query references
+- Fixed LocalMetadataProvider (removed dead reads)
+- CI: first attempt failed (Kotlin keyword `value` — fixed by renaming columns to `setting_*`). Green on second attempt.
+
+### User corrections
+- User listed 8 "dead" tables to drop. Research showed 4 are ACTIVE. Agent refused to drop active tables.
+- User corrected test checklist: extensions are a hard prerequisite for watching episodes.
+
+### Phases 2-6 (PLANNED — not yet executed)
+- Phase 2: Activity tracker wiring (~2h)
+- Phase 3: Updates feature rework (~4h)
+- Phase 4: Download fixes (~4h)
+- Phase 5: Details page fixes (~2h)
+- Phase 6: Docs + notify (~1h)
+
+### Status
+- main is at 410c380 (D-192 Phase 1).
+- Next session: continue with Phase 2 (activity tracker wiring).
