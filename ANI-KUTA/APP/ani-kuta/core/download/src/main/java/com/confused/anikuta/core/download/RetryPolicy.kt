@@ -1,5 +1,7 @@
 package com.confused.anikuta.core.download
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * D-151-fix: Retry policy for the outer download retry loop.
  *
@@ -38,7 +40,7 @@ class RetryPolicy(
     fun shouldRetry(e: Throwable, currentAttempt: Int): Boolean {
         if (currentAttempt >= maxAttempts) return false
         return when (e) {
-            is kotlin.coroutines.cancellation.CancellationException -> false
+            is CancellationException -> false
             is HttpException -> e.code in 500..599 || e.code == 429
             is DownloadException -> false // non-Http DownloadException = validation/empty/proxy-churn exhaustion
             is java.io.IOException -> true

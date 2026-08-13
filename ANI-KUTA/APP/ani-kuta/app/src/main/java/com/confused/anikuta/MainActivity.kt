@@ -1084,7 +1084,7 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
     downloadManager: com.confused.anikuta.core.download.DownloadManager,
     contentRepository: com.confused.anikuta.core.content.ContentRepository,
     dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
-): com.confused.anikuta.feature.watch.api.WatchKey? {
+): WatchKey? {
     val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey) ?: return null
 
     // Look up the downloaded episode for metadata.
@@ -1158,7 +1158,7 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
     val sourceId = contentRepository.getExtensionDetail(mainId)?.sourceId ?: 0L
     Logger.i("Anikuta:MainActivity") { "Downloads→Watch: sourceId=$sourceId (for episode switching)" }
 
-    return com.confused.anikuta.feature.watch.api.WatchKey(
+    return WatchKey(
         videoUrl = localUri,
         animeTitle = animeTitle,
         quality = quality,

@@ -508,7 +508,6 @@ class DownloadQueue(
                         }
                         // D-151-fix: success — exit the retry loop.
                         return@launch
-                    } // end permits.withPermit
                     } // end inner try
                     catch (e: CancellationException) {
                         // REVIEW-5 M37: pause/cancel — never retry, just propagate.
