@@ -936,10 +936,10 @@ function BacklogGroupView({ group }: { group: BacklogGroup }) {
               >
                 ·
               </span>
-              <span>
+              <span className="min-w-0 break-words">
                 <span className="font-medium">{b.label}</span>
                 {b.note && (
-                  <span className="text-text-secondary">
+                  <span className="text-text-secondary break-words">
                     {" "}
                     — {b.note}
                   </span>
@@ -968,10 +968,10 @@ function BacklogGroupView({ group }: { group: BacklogGroup }) {
               >
                 {i + 1}
               </span>
-              <span>
+              <span className="min-w-0 break-words">
                 <span className="font-medium">{n.label}</span>
                 {n.note && (
-                  <span className="text-text-secondary">
+                  <span className="text-text-secondary break-words">
                     {" "}
                     — {n.note}
                   </span>
