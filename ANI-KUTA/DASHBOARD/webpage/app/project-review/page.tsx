@@ -193,7 +193,7 @@ export default function ProjectReviewPage() {
                 >
                   ●
                 </span>
-                <span>{b}</span>
+                <span className="min-w-0 break-words">{b}</span>
               </li>
             ))}
           </ul>
@@ -267,7 +267,7 @@ export default function ProjectReviewPage() {
                 {area.items.map((it, i) => (
                   <li
                     key={i}
-                    className="text-[12px] text-text-primary leading-relaxed relative before:content-['·'] before:absolute before:left-[-12px] before:text-text-secondary"
+                    className="text-[12px] text-text-primary leading-relaxed break-words relative before:content-['·'] before:absolute before:left-[-12px] before:text-text-secondary"
                   >
                     {it}
                   </li>
@@ -323,7 +323,7 @@ export default function ProjectReviewPage() {
               >
                 ✓
               </span>
-              <span className="text-[12px] text-text-primary leading-relaxed">
+              <span className="text-[12px] text-text-primary leading-relaxed min-w-0 break-words">
                 {fact}
               </span>
             </li>
@@ -548,7 +548,7 @@ export default function ProjectReviewPage() {
                         >
                           →
                         </span>
-                        <span>{b}</span>
+                        <span className="min-w-0 break-words">{b}</span>
                       </li>
                     ))}
                   </ul>
@@ -647,7 +647,7 @@ export default function ProjectReviewPage() {
               >
                 ·
               </span>
-              <span>{b}</span>
+              <span className="min-w-0 break-words">{b}</span>
             </li>
           ))}
         </ul>
