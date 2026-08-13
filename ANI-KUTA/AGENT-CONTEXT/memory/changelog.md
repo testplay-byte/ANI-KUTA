@@ -1039,3 +1039,34 @@ Fixed all 14 issues identified in the audit + re-verification:
 - CI: GREEN on main commit 5b8351ef (Deploy Dashboard `completed`/`success` + Build APK `completed`/`success`).
 - Dashboard live at `https://testplay-byte.github.io/ANI-KUTA/project-review/` — verified end-to-end via Agent Browser (desktop + mobile + dark mode).
 - Temporary review section is live for the user to review findings + decide the forward direction.
+
+---
+
+## Session — Project Review Dashboard Rebuild (fresh review, replaces prior /project-review/)
+
+### What was done
+- User instructed: read CORE_RULES + all AGENT-CONTEXT + codebase FIRST (before anything else), then DELETE the existing `/project-review/` dashboard page completely + build a FRESH dedicated section showing all key findings in a simplified, easy-to-scan format. Deploy via GitHub Actions. Nothing else in the dashboard should change.
+- Read CORE_RULES.md in full (498 lines, 30 sections) via raw GitHub URL BEFORE cloning (per user's explicit instruction). Noted §4 (single wrapper folder), §8 (CI-only APK builds), §14 (sub-agents only touch DASHBOARD/webpage/), §19 (webpage work → full-stack-developer sub-agent), §25/§26 (dashboard must stay current + doc-verification gate).
+- Cloned the full repo to `/home/z/ani-kuta-repo` (6.7s). Verified structure matches §4 (single `ANI-KUTA/` wrapper folder + `.github/workflows/` at repo root).
+- Read orientation files myself (navigation, master, workflow, SESSION) + the top of `progress.md` (current phase, deferred concerns 1-22, known doc debt).
+- Dispatched **5 parallel Explore sub-agents** (user's max) to digest: (4-a) decisions.md 226KB, (4-b) lessons-learned.md 79KB, (4-c) changelog.md 125KB, (4-d) all 7 knowledge/* files, (4-e) Android codebase structure + existing dashboard examination. All appended to `/home/z/my-project/worklog.md`.
+- **Verified facts against actual code** (not docs): 46 modules (settings.gradle.kts), **26 SQLDelight tables** across 15 .sq files (NOT 28 — D-192 dropped content_ext + content_ext_repo + user_customization; content.sq has 6 tables now), **331 .kt files** (NOT 315), **MainActivity runBlocking at line 470** (NOT 428 — SAF subtitle disk-scan), **HttpDownloader.reResolver CONFIRMED ORPHANED** (DownloadModule.kt:92 passes null; catch block at HttpDownloader.kt:277 permanently unreachable), **4 god-class files** (wc -l: LibraryScreen 2471, DetailsScreen 2282, DetailsViewModel 2263, WatchScreen 2029).
+- Discovered the existing `/project-review/` page was NOT the 9-section review the changelog described — a later un-logged session (commit 564f1a55) had REPLACED it with a DC1-DC5 test checklist. User wanted it deleted + rebuilt fresh.
+- Delegated the page rebuild to a **full-stack-developer sub-agent** (§19) working ONLY in `DASHBOARD/webpage/`. Sub-agent: deleted old `app/project-review/page.tsx` (487-line test checklist) + `lib/projectReview.ts` (486-line test data); created NEW `lib/projectReview.ts` (539 lines, fully typed) + `app/project-review/page.tsx` (1015 lines, server component) rendering 9 sections per DESIGN.md (MEMORY OS v3). `bun run build` PASSED (18/18 routes).
+- **No edits to data.ts or Sidebar.tsx** — the NAV_ITEMS "Project Review" entry + `review` clipboard-check icon already existed + matched the new page's purpose. Additive-only (only /project-review/ content changed; all other dashboard pages untouched).
+- **9 sections**: §1 Snapshot (verified metrics + tech stack), §2 Project Health (verdict + 7 indicators), §3 What's Built (13 feature areas), §4 Concerns & Issues (9 open + 4 accepted + 7 recently-resolved + 1 dashboard debt, severity color-coded), §5 Doc Drift Caught (9 rows), §6 Features Remaining (5 backlog groups), §7 Forward Direction (4 prioritized steps), §8 Top Risks (8 rows), §9 Footer Note (temporary notice).
+- Created feature branch `dashboard/project-review-rebuild`, committed (6d79c075), pushed, fast-forward merged to `main`, pushed main.
+- **Mobile overflow — 3 fix iterations** (Agent Browser at 375px found 57px overflow each time):
+  1. Commit aee222e5: hero badges container had `shrink-0` (forced 382px width) → removed shrink-0 + added `max-w-full`; hero reviewer paragraph had long URL (`https://testplay-byte.github.io/ANI-KUTA/`) → added `break-all` to the mono span + `break-words` to the `<p>`.
+  2. Commit 9d286165: `SectionCard` component wrapped the `right` prop (count-pills) in `shrink-0` → changed to `max-w-full`; pills div got `max-w-full`. Pills now wrap on mobile.
+  3. Commit 2d74b785: bullet text spans (`<span>{b}</span>`) in HEALTH/FORWARD_DIRECTION/FEATURES_REMAINING/FOOTER sections had no `min-w-0`/`break-words` → long file paths like `LibraryScreen/DetailsScreen/DetailsViewModel/WatchScreen` (no breakable spaces) overflowed. Added `min-w-0 break-words` to all bullet text spans + the verified-facts span + the what's-built area.items `<li>`.
+  4. Commit 2a812470: FEATURES_REMAINING `group.bullets` + `group.numbered` had a DIFFERENT rendering structure (outer `<span>` with no class wrapping label + note) — the prior replace_all missed these. Added `min-w-0 break-words` to the 4 spans (outer + note, in both bullets + numbered lists).
+- **Final mobile verification**: `overflow=0` at every scroll position (0, 800, 1600, 2400, 3200, 4000, 5000 px). Desktop 1280px: all 9 section headings render, no errors. Dark mode: toggle works (`html.dark` class applied). Existing `/decisions/` page: unaffected, "Architecture Decisions" heading renders, no errors.
+- **CI status**: Deploy Dashboard #44/#45/#46/#47/#48 all `completed`/`success`. Build APK #532/#533/#534/#535 all `completed`/`success` (dashboard-only changes don't affect the Android build). All verified via GitHub Actions API polling (lesson L128 — never assume green).
+
+### Status
+- Branch: **main** (feature branch `dashboard/project-review-rebuild` merged + to be deleted).
+- CI: GREEN on main commit 2a812470 (Deploy Dashboard + Build APK both `completed`/`success`).
+- Dashboard live at `https://testplay-byte.github.io/ANI-KUTA/project-review/` — verified end-to-end via Agent Browser (mobile 375px no overflow + desktop 1280px + dark mode + existing pages unaffected).
+- Temporary review section is live for the user to review the fresh findings + decide the forward direction.
+- No D-NNN decision added (temporary dashboard rebuild, not a permanent architecture decision).
