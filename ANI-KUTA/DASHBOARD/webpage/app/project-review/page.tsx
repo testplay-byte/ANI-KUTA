@@ -56,7 +56,7 @@ export default function ProjectReviewPage() {
               Project Review
             </h1>
           </div>
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap max-w-full">
             <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
               <StatusDot color="var(--c-success)" size="sm" />
               Reviewed {REVIEW_META.reviewDate}
@@ -85,12 +85,12 @@ export default function ProjectReviewPage() {
           scannable place: snapshot, health verdict, what&apos;s built, concerns,
           doc drift, backlog, recommendations, and top risks.
         </p>
-        <p className="text-[11.5px] text-text-secondary leading-relaxed mt-3 pt-3 border-t border-border/60">
+        <p className="text-[11.5px] text-text-secondary leading-relaxed mt-3 pt-3 border-t border-border/60 break-words">
           <span className="font-medium text-text-primary">Reviewer:</span>{" "}
           {REVIEW_META.reviewer}
           <span className="mx-2 text-border">·</span>
           <span className="font-medium text-text-primary">Repo state:</span>{" "}
-          <span className="font-mono">{REVIEW_META.repoState}</span>
+          <span className="font-mono break-all">{REVIEW_META.repoState}</span>
         </p>
       </Card>
 
