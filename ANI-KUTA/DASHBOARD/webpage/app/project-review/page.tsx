@@ -285,7 +285,7 @@ export default function ProjectReviewPage() {
         kicker="§4 — Concerns & Issues"
         title="The core of the review"
         right={
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap max-w-full">
             <CountPill
               color="var(--c-danger)"
               count={CONCERNS_OPEN.length}
@@ -682,7 +682,7 @@ function SectionCard({
             {title}
           </h2>
         </div>
-        {right && <div className="shrink-0">{right}</div>}
+        {right && <div className="max-w-full">{right}</div>}
       </div>
       {children}
     </Card>
