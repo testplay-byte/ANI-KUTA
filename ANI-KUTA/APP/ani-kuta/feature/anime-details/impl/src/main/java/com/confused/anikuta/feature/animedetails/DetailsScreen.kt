@@ -125,7 +125,7 @@ fun DetailsScreen(
     onBack: () -> Unit,
     onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
-    onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String) -> Unit = { _, _, _, _ -> },
+    onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -812,7 +812,7 @@ fun DetailsScreen(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
             downloadMode = resolverDownloadMode,
-            onPickVideo = { video ->
+            onPickVideo = { video, serverName, audioLabel ->
                 val anime = (state as? DetailsState.Success)?.anime
                 val linked = effectiveLinkedSource
                 val ep = currentEpisode
@@ -823,14 +823,17 @@ fun DetailsScreen(
                 if (anime != null && linked != null && ep != null) {
                     if (resolverDownloadMode) {
                         // D.FIX: Download mode — enqueue the selected video for download.
+                        // D-151-fix: pass the resolver serverName + audioLabel (not
+                        // linked.sourceName which is the extension name).
                         Logger.i("Anikuta:Feature:Details") {
-                            "onPickVideo — download mode: calling onDownloadSpecificVideo"
+                            "onPickVideo — download mode: calling onDownloadSpecificVideo (server=$serverName, audio=$audioLabel)"
                         }
                         onDownloadSpecificVideo(
                             ep,
                             video,
-                            linked.sourceName,
+                            serverName,
                             linked.sourceId.toString(),
+                            audioLabel,
                         )
                         showResolverSheet = false
                         viewModel.clearResolver()

@@ -108,6 +108,15 @@ UPDATE download_queue
 SET video_uri = :video_uri, subtitle_uris = :subtitle_uris, updated_at = :updated_at
 WHERE id = :id;
 
+-- D-149-fix: update the video_url (the source URL, not the content:// URI) after a
+-- proxy-churn re-resolve. The re-resolver produces a fresh localhost URL when the
+-- extension's proxy server has been churned — this persists it so a paused+resumed
+-- download retries the NEW url, not the dead one.
+updateDownloadVideoUrl:
+UPDATE download_queue
+SET video_url = :video_url, updated_at = :updated_at
+WHERE id = :id;
+
 -- REVIEW-5 M9+M11: set RETRYING state with retry metadata.
 setRetryingStatus:
 UPDATE download_queue

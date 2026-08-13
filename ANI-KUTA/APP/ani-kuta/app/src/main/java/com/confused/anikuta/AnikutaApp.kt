@@ -240,6 +240,12 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
 
             // D.2: Download orchestrator + re-resolver (bridges :core:video-resolver + :core:download)
             single { com.confused.anikuta.download.ReResolver(get<com.confused.anikuta.core.videoresolver.VideoResolver>()) }
+            // D-149-fix: adapter that bridges HttpDownloader.ReResolver (local fun interface
+            // in :core:download) to the app-class ReResolver above. DownloadModule.kt resolves
+            // this via getOrNull<HttpDownloader.ReResolver>().
+            single<com.confused.anikuta.core.download.HttpDownloader.ReResolver> {
+                com.confused.anikuta.download.ReResolverAdapter(get(), get())
+            }
             single {
                 com.confused.anikuta.download.DownloadOrchestrator(
                     get<com.confused.anikuta.core.videoresolver.VideoResolver>(),

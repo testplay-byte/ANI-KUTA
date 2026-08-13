@@ -679,7 +679,9 @@ private fun MenuOption(
 //  Helpers
 // ════════════════════════════════════════════════════════════════════════════
 
-private fun formatBytes(bytes: Long): String = when {
+// D-151-fix: made internal (was private) so DownloadedFilesScreen can reuse it
+// (same package — com.confused.anikuta.feature.download).
+internal fun formatBytes(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     bytes < 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"

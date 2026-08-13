@@ -274,7 +274,10 @@ class HttpDownloader(
             throw e
         } catch (e: IOException) {
             // ── Proxy-churn fix (REVIEW-5 M15) ──
-            if (url.startsWith("http://localhost") && resolveContextJson != null && reResolver != null
+            // D-149-fix: also guard on http://127.0.0.1 (some extensions use this
+            // instead of localhost — see lessons-learned D-092).
+            val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
+            if (isLocalhost && resolveContextJson != null && reResolver != null
                 && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
             ) {
                 DownloadLogger.w {
@@ -283,8 +286,10 @@ class HttpDownloader(
                 }
                 val fresh = reResolver.reResolve(resolveContextJson)
                 if (fresh != null) {
-                    // Update the task's video_url + resolve_context in the DB.
-                    store.updateResult(taskId, fresh.url, emptyList()) // best-effort URL update
+                    // D-149-fix: update video_url (the source URL), NOT video_uri (the
+                    // content:// result URI). The old code called updateResult which
+                    // writes video_uri — wrong column for a re-resolve.
+                    store.updateDownloadVideoUrl(taskId, fresh.url)
                     // Truncate the temp file (the new proxy may not support Range).
                     FileOutputStream(tempFile).use { /* truncate to 0 */ }
                     return downloadNormal(
@@ -298,7 +303,7 @@ class HttpDownloader(
                     )
                 }
             }
-            if (url.startsWith("http://localhost") && reResolveAttempts >= MAX_RE_RESOLVE_ATTEMPTS) {
+            if (isLocalhost && reResolveAttempts >= MAX_RE_RESOLVE_ATTEMPTS) {
                 throw DownloadException(
                     "Proxy URL died after $MAX_RE_RESOLVE_ATTEMPTS re-resolve attempt(s) — " +
                         "the extension's proxy server is being churned by another playback. " +

@@ -61,6 +61,9 @@ class DownloadViewModel(
                         .map { dEp ->
                             // Re-wrap as a DownloadTask for the UI (the UI reuses the
                             // task's request fields — videoServer/quality/audio).
+                            // D-151-fix: populate videoServer + videoAudio + sourceId +
+                            // downloadedBytes so the downloaded-files page shows the
+                            // real resolver server + audio version + file size.
                             DownloadTask(
                                 id = dEp.episode.episodeKey.hashCode().toLong(),
                                 content = dEp.content,
@@ -71,7 +74,11 @@ class DownloadViewModel(
                                 status = DownloadStatus.COMPLETED,
                                 progress = 100,
                                 totalBytes = dEp.sizeBytes,
+                                downloadedBytes = dEp.sizeBytes,
                                 completedAt = dEp.completedAt,
+                                videoServer = dEp.videoServer ?: "",
+                                videoAudio = dEp.videoAudio ?: "",
+                                sourceId = dEp.sourceId,
                             )
                         }
                 }.toMap()

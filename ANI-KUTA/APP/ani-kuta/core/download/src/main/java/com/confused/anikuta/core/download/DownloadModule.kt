@@ -86,10 +86,11 @@ val downloadModule = module {
             hlsDownloader = get(),
             store = get(),
             preferences = get(),
-            // D.1: reResolver is null (the proxy-churn fix is wired in D.2 via the
-            // :app module's downloadAppModule). The HttpDownloader's catch block
-            // handles `reResolver == null` by falling through to the standard error.
-            reResolver = null,
+            // D-149-fix: wired via Koin lazy resolution. The :app module registers
+            // an HttpDownloader.ReResolver adapter (ReResolverAdapter) that bridges
+            // to the app-class ReResolver. If no binding exists (e.g. in a test
+            // context), getOrNull returns null + the catch block falls through.
+            reResolver = getOrNull<HttpDownloader.ReResolver>(),
         )
     }
 
@@ -112,6 +113,8 @@ val downloadModule = module {
     }
 
     // ── Queue + Manager (SQLDelight-backed + Mutex — see 02-queue-management.md §13) ──
+    // D-151-fix: RetryPolicy for the outer retry loop. Default 3 attempts, 5s base backoff.
+    single { RetryPolicy() }
     single {
         val notifScope = get<CoroutineScope>(named("downloadScope"))
         DownloadQueue(
@@ -121,6 +124,7 @@ val downloadModule = module {
             downloader = get(),
             notifier = get(),
             connectivityCheck = { wifiOnlyCheck(androidContext(), get()) },
+            retryPolicy = get(),
             onTaskCompleted = { task ->
                 // Post the completion notification (with sound + thumbnail). The
                 // callback is `suspend` — runs on the queue's scope (Dispatchers.IO).

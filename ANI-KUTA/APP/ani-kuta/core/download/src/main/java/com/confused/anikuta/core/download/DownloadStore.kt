@@ -175,6 +175,15 @@ class DownloadStore(private val database: AnikutaDatabase) {
         )
     }
 
+    /** D-149-fix: updates the video_url (source URL) after a proxy-churn re-resolve. */
+    fun updateDownloadVideoUrl(id: Long, videoUrl: String) {
+        queueQueries.updateDownloadVideoUrl(
+            video_url = videoUrl,
+            updated_at = System.currentTimeMillis(),
+            id = id,
+        )
+    }
+
     /** REVIEW-5 M9+M11: sets RETRYING status + retry metadata. */
     fun setRetryingStatus(id: Long, attempt: Int, maxAttempts: Int, errorMessage: String?) {
         queueQueries.setRetryingStatus(

@@ -35,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,7 +91,9 @@ import com.confused.anikuta.settings.NotificationsSettingsScreen
 import com.confused.anikuta.settings.NotificationsLibraryScreen
 import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 
@@ -210,6 +213,11 @@ fun AppRoot() {
     // watch screen's episode list only shows downloaded episodes (often just 1).
     val dataCacheRepository = koinInject<com.confused.anikuta.core.datacache.DataCacheRepository>()
 
+    // D-151-fix: coroutine scope for launching off-main-thread work from synchronous
+    // callbacks (e.g. the Downloads→Watch onPlayEpisode lambda — was using runBlocking,
+    // an ANR risk). rememberCoroutineScope is tied to the composition — cancelled on dispose.
+    val appScope = rememberCoroutineScope()
+
     // D.CRASH-FIX: First-run setup dialog — prompts for POST_NOTIFICATIONS permission
     // + download folder selection on every launch until both are granted.
     FirstRunSetupDialog(preferences = downloadPreferences)
@@ -298,13 +306,14 @@ fun AppRoot() {
                                 contentRepository = contentRepository,
                             )
                         },
-                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr ->
+                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
                             handleDownloadSpecificVideo(
                                 detailsKey = currentKey,
                                 episode = episode,
                                 video = video,
                                 serverName = serverName,
                                 sourceIdStr = sourceIdStr,
+                                audioLabel = audioLabel,
                                 orchestrator = orchestrator,
                                 contentRepository = contentRepository,
                             )
@@ -324,13 +333,14 @@ fun AppRoot() {
                                 contentRepository = contentRepository,
                             )
                         },
-                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr ->
+                        onDownloadSpecificVideo = { episode, video, serverName, sourceIdStr, audioLabel ->
                             handleDownloadSpecificVideo(
                                 detailsKey = currentKey,
                                 episode = episode,
                                 video = video,
                                 serverName = serverName,
                                 sourceIdStr = sourceIdStr,
+                                audioLabel = audioLabel,
                                 orchestrator = orchestrator,
                                 contentRepository = contentRepository,
                             )
@@ -383,129 +393,28 @@ fun AppRoot() {
             is DownloadedFilesKey -> DownloadedFilesScreen(
                 onBack = pop,
                 onPlayEpisode = { mainId, episodeKey ->
-                    // D.FIX: Build a proper WatchKey with the local content:// URI
-                    // + episode metadata from the downloaded_episode DB table.
-                    val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey)
-                    if (localUri != null) {
-                        // Look up the downloaded episode for metadata.
-                        // Try exact match first, then fall back to mainId-only match
-                        // (the episodeKey format may differ between the Downloads page
-                        // and the downloaded_episode table).
-                        val allDownloaded = downloadManager.getDownloadedEpisodes().value
-                        val downloaded = allDownloaded
-                            .firstOrNull { it.content.mainId == mainId && it.episode.episodeKey == episodeKey }
-                            ?: allDownloaded.firstOrNull { it.content.mainId == mainId }
-                        val animeTitle = downloaded?.content?.title ?: "Downloaded"
-                        val epTitle = downloaded?.episode?.name ?: "Episode"
-                        val epNum = downloaded?.episode?.episodeNumber ?: 0f
-                        val quality = downloaded?.quality ?: ""
-
-                        // D.FIX: Load the FULL episode list from the data cache (not just
-                        // downloaded episodes). The old code only built the episode list
-                        // from downloaded episodes — so if the user only downloaded 1
-                        // episode, the watch screen's episode list showed only 1 entry.
-                        // Now we load ALL cached episodes for this anime, so the user
-                        // can see + switch between all episodes (downloaded ones play
-                        // offline, non-downloaded ones resolve from the source).
-                        val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(mainId)
-                        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                        val epListStr = if (cachedEpisodes.isNotEmpty()) {
-                            Logger.i("Anikuta:MainActivity") { "Downloads→Watch: loaded ${cachedEpisodes.size} episodes from cache for episode list" }
-                            cachedEpisodes
-                                .sortedBy { it.episodeNumber }
-                                .joinToString("\n") { meta ->
-                                    "${meta.episodeUrl ?: episodeKey}${delim}${meta.episodeNumber}${delim}${meta.title ?: "Episode ${meta.episodeNumber.toInt()}"}"
-                                }
-                        } else {
-                            // Fallback: no cache — use downloaded episodes only.
-                            Logger.w("Anikuta:MainActivity") { "Downloads→Watch: no cached episodes — falling back to downloaded episodes only" }
-                            val allDl = downloadManager.getDownloadedEpisodes().value
-                                .filter { it.content.mainId == mainId }
-                                .sortedBy { it.episode.episodeNumber }
-                            allDl.joinToString("\n") { e ->
-                                "${e.episode.episodeKey}${delim}${e.episode.episodeNumber}${delim}${e.episode.name}"
-                            }
-                        }
-
-                        // D.FIX: Build episodeMetadataSerialized from the cache so the
-                        // watch screen's "currently playing" + episode list show proper
-                        // titles, descriptions, thumbnails, and air dates.
-                        val epMetaStr = if (cachedEpisodes.isNotEmpty()) {
-                            cachedEpisodes.joinToString("\n") { meta ->
-                                listOf(
-                                    meta.episodeNumber.toInt().toString(),
-                                    meta.title ?: "",
-                                    meta.thumbnailUrl ?: "",
-                                    (meta.airDate ?: 0L).toString(),
-                                    meta.description ?: "",
-                                    meta.scanlator ?: "", // Phase DB-OPT: now cached (audio-variants fix)
-                                ).joinToString(delim)
-                            }
-                        } else ""
-
-                        // D.FIX: Pass local subtitle URIs from the downloaded episode.
-                        // The DownloadedEpisode.subtitleUris contains content:// URIs
-                        // for subtitle files stored alongside the video. Without this,
-                        // the subtitles option shows nothing for downloaded episodes.
-                        //
-                        // D-FIX-SUB: extract the language label from the on-disk filename
-                        // (.subtitle_E{num}_{lang}_{index}.{ext}) so the subtitle picker
-                        // shows "English" / "Japanese" instead of "Subtitle 1" / "Subtitle 2".
-                        // Falls back to "Subtitle N" for legacy files (pre-fix naming) or
-                        // if the lang segment can't be parsed.
-                        val subtitleUris = downloaded?.subtitleUris ?: emptyList()
-                        Logger.i("Anikuta:MainActivity") {
-                            "Downloads→Watch: downloaded=${downloaded != null}, " +
-                                "downloaded.subtitleUris.size=${subtitleUris.size}, " +
-                                "uris=${subtitleUris.joinToString("; ") { it.take(60) }}"
-                        }
-                        // Fallback: if subtitleUris is empty, try to find subtitle files
-                        // on disk by scanning the content folder's subtitles/ subfolder.
-                        val effectiveSubUris = if (subtitleUris.isNotEmpty()) {
-                            subtitleUris
-                        } else {
-                            Logger.w("Anikuta:MainActivity") {
-                                "Downloads→Watch: subtitleUris empty in DB — trying disk scan"
-                            }
-                            kotlinx.coroutines.runBlocking {
-                                scanSubtitleFilesOnDisk(mainId, downloaded?.episode?.episodeNumber?.toInt() ?: 0)
-                            }
-                        }
-                        val subtitleTracksStr = effectiveSubUris.mapIndexed { index, uri ->
-                            val langLabel = extractSubtitleLangFromUri(uri, index)
-                            "$uri${delim}$langLabel"
-                        }.joinToString("\n")
-                        Logger.i("Anikuta:MainActivity") {
-                            "Downloads→Watch: passing ${effectiveSubUris.size} local subtitle track(s), subtitleTracksStr.length=${subtitleTracksStr.length}"
-                        }
-
-                        // D.FIX: Look up the sourceId from the content database so the
-                        // watch screen can re-resolve non-downloaded episodes when the
-                        // user switches. Without this, sourceId=0 → "source not available"
-                        // error when trying to switch to a non-downloaded episode.
-                        val sourceId = contentRepository.getExtensionDetail(mainId)?.sourceId ?: 0L
-                        Logger.i("Anikuta:MainActivity") { "Downloads→Watch: sourceId=$sourceId (for episode switching)" }
-
-                        backstack.add(
-                            WatchKey(
-                                videoUrl = localUri,
-                                animeTitle = animeTitle,
-                                quality = quality,
-                                episodeUrl = episodeKey,
-                                episodeNumber = epNum,
-                                episodeTitle = epTitle,
-                                episodeListSerialized = epListStr,
-                                videoHeaders = "",
-                                resolvedVideosKey = "",
-                                sourceId = sourceId,
+                    // D-151-fix: moved off the main thread. The old code used
+                    // `runBlocking { scanSubtitleFilesOnDisk(...) }` (ANR risk) AND
+                    // called multiple synchronous DB queries on the main thread. Now
+                    // the entire WatchKey-building logic runs on Dispatchers.IO, and
+                    // backstack.add fires on the main thread when it completes.
+                    appScope.launch {
+                        val watchKey = withContext(Dispatchers.IO) {
+                            buildWatchKeyForDownloadedEpisode(
                                 mainId = mainId,
-                                subtitleTracksSerialized = subtitleTracksStr,
-                                audioTracksSerialized = "",
-                                episodeMetadataSerialized = epMetaStr,
-                            ),
-                        )
-                    } else {
-                        Logger.e("Anikuta:MainActivity") { "Downloads→Watch: no local URI found for mainId=$mainId, episodeKey=$episodeKey" }
+                                episodeKey = episodeKey,
+                                downloadManager = downloadManager,
+                                contentRepository = contentRepository,
+                                dataCacheRepository = dataCacheRepository,
+                            )
+                        }
+                        if (watchKey != null) {
+                            backstack.add(watchKey)
+                        } else {
+                            Logger.e("Anikuta:MainActivity") {
+                                "Downloads→Watch: no local URI found for mainId=$mainId, episodeKey=$episodeKey"
+                            }
+                        }
                     }
                 },
                 onNavigateToDetails = { mainId ->
@@ -831,8 +740,11 @@ private fun handleDownloadEpisode(
  *
  * @param episode The SEpisode to download.
  * @param video The ResolverVideo the user picked from the resolver sheet.
- * @param serverName The server name (from the linked source).
+ * @param serverName The server name (from the resolver — the actual server
+ *   the user picked, e.g. "Vidstream" / "HD-1", NOT the extension name).
  * @param sourceIdStr The source ID as a string.
+ * @param audioLabel The audio version label (from the resolver — e.g. "SUB",
+ *   "DUB", "HSUB". Empty string if the resolver didn't label it).
  */
 private fun handleDownloadSpecificVideo(
     detailsKey: AnimeDetailsKey,
@@ -840,6 +752,7 @@ private fun handleDownloadSpecificVideo(
     video: com.confused.anikuta.core.videoresolver.ResolvedVideo,
     serverName: String,
     sourceIdStr: String,
+    audioLabel: String,
     orchestrator: DownloadOrchestrator,
     contentRepository: com.confused.anikuta.core.content.ContentRepository,
 ) {
@@ -928,7 +841,7 @@ private fun handleDownloadSpecificVideo(
                     audioTracks = video.audioTracks,
                 ),
                 serverName = serverName,
-                audioLabel = "",
+                audioLabel = audioLabel,
             )
             com.confused.anikuta.core.common.Logger.i("MainActivity") {
                 "handleDownloadSpecificVideo — enqueueSpecific result: $result"
@@ -1153,6 +1066,114 @@ private fun PlaceholderScreen(
             )
         }
     }
+}
+
+/**
+ * D-151-fix: Builds a [WatchKey] for playing a downloaded episode, with ALL DB
+ * queries + the subtitle disk-scan running off the main thread (called from
+ * `withContext(Dispatchers.IO)` in the onPlayEpisode callback).
+ *
+ * Returns null if no local URI is found for the (mainId, episodeKey) pair.
+ *
+ * This was extracted from the old inline `onPlayEpisode` lambda which used
+ * `runBlocking` (ANR risk) + called synchronous DB queries on the main thread.
+ */
+private suspend fun buildWatchKeyForDownloadedEpisode(
+    mainId: String,
+    episodeKey: String,
+    downloadManager: com.confused.anikuta.core.download.DownloadManager,
+    contentRepository: com.confused.anikuta.core.content.ContentRepository,
+    dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
+): com.confused.anikuta.feature.watch.api.WatchKey? {
+    val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episodeKey) ?: return null
+
+    // Look up the downloaded episode for metadata.
+    val allDownloaded = downloadManager.getDownloadedEpisodes().value
+    val downloaded = allDownloaded
+        .firstOrNull { it.content.mainId == mainId && it.episode.episodeKey == episodeKey }
+        ?: allDownloaded.firstOrNull { it.content.mainId == mainId }
+    val animeTitle = downloaded?.content?.title ?: "Downloaded"
+    val epTitle = downloaded?.episode?.name ?: "Episode"
+    val epNum = downloaded?.episode?.episodeNumber ?: 0f
+    val quality = downloaded?.quality ?: ""
+
+    // Load the FULL episode list from the data cache (not just downloaded episodes).
+    val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(mainId)
+    val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+    val epListStr = if (cachedEpisodes.isNotEmpty()) {
+        Logger.i("Anikuta:MainActivity") { "Downloads→Watch: loaded ${cachedEpisodes.size} episodes from cache for episode list" }
+        cachedEpisodes
+            .sortedBy { it.episodeNumber }
+            .joinToString("\n") { meta ->
+                "${meta.episodeUrl ?: episodeKey}${delim}${meta.episodeNumber}${delim}${meta.title ?: "Episode ${meta.episodeNumber.toInt()}"}"
+            }
+    } else {
+        Logger.w("Anikuta:MainActivity") { "Downloads→Watch: no cached episodes — falling back to downloaded episodes only" }
+        val allDl = downloadManager.getDownloadedEpisodes().value
+            .filter { it.content.mainId == mainId }
+            .sortedBy { it.episode.episodeNumber }
+        allDl.joinToString("\n") { e ->
+            "${e.episode.episodeKey}${delim}${e.episode.episodeNumber}${delim}${e.episode.name}"
+        }
+    }
+
+    // Build episodeMetadataSerialized from the cache.
+    val epMetaStr = if (cachedEpisodes.isNotEmpty()) {
+        cachedEpisodes.joinToString("\n") { meta ->
+            listOf(
+                meta.episodeNumber.toInt().toString(),
+                meta.title ?: "",
+                meta.thumbnailUrl ?: "",
+                (meta.airDate ?: 0L).toString(),
+                meta.description ?: "",
+                meta.scanlator ?: "",
+            ).joinToString(delim)
+        }
+    } else ""
+
+    // Pass local subtitle URIs from the downloaded episode.
+    val subtitleUris = downloaded?.subtitleUris ?: emptyList()
+    Logger.i("Anikuta:MainActivity") {
+        "Downloads→Watch: downloaded=${downloaded != null}, " +
+            "downloaded.subtitleUris.size=${subtitleUris.size}, " +
+            "uris=${subtitleUris.joinToString("; ") { it.take(60) }}"
+    }
+    // Fallback: if subtitleUris is empty, scan the content folder's subtitles/ subfolder.
+    // D-151-fix: was `runBlocking { ... }` (ANR risk) — now runs naturally on Dispatchers.IO.
+    val effectiveSubUris = if (subtitleUris.isNotEmpty()) {
+        subtitleUris
+    } else {
+        Logger.w("Anikuta:MainActivity") { "Downloads→Watch: subtitleUris empty in DB — trying disk scan" }
+        scanSubtitleFilesOnDisk(mainId, downloaded?.episode?.episodeNumber?.toInt() ?: 0)
+    }
+    val subtitleTracksStr = effectiveSubUris.mapIndexed { index, uri ->
+        val langLabel = extractSubtitleLangFromUri(uri, index)
+        "$uri${delim}$langLabel"
+    }.joinToString("\n")
+    Logger.i("Anikuta:MainActivity") {
+        "Downloads→Watch: passing ${effectiveSubUris.size} local subtitle track(s), subtitleTracksStr.length=${subtitleTracksStr.length}"
+    }
+
+    // Look up the sourceId so the watch screen can re-resolve non-downloaded episodes.
+    val sourceId = contentRepository.getExtensionDetail(mainId)?.sourceId ?: 0L
+    Logger.i("Anikuta:MainActivity") { "Downloads→Watch: sourceId=$sourceId (for episode switching)" }
+
+    return com.confused.anikuta.feature.watch.api.WatchKey(
+        videoUrl = localUri,
+        animeTitle = animeTitle,
+        quality = quality,
+        episodeUrl = episodeKey,
+        episodeNumber = epNum,
+        episodeTitle = epTitle,
+        episodeListSerialized = epListStr,
+        videoHeaders = "",
+        resolvedVideosKey = "",
+        sourceId = sourceId,
+        mainId = mainId,
+        subtitleTracksSerialized = subtitleTracksStr,
+        audioTracksSerialized = "",
+        episodeMetadataSerialized = epMetaStr,
+    )
 }
 
 /**

@@ -235,43 +235,102 @@ private fun DownloadedAnimeCard(
             // Episode list.
             if (expanded) {
                 episodes.sortedBy { it.episode.episodeNumber }.forEach { task ->
+                    // D-151-fix: 2-line row — episode info on top, metadata chips below.
+                    // Server name uses primary color (matches ResolverSheet ServerCard).
+                    // Audio chip uses secondaryContainer (matches ResolverSheet audio chips).
                     Row(
                         modifier = Modifier.fillMaxWidth()
                             .clickable { onPlay(task.episode.episodeKey) }
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            "EP ${task.episode.episodeNumber.toInt()}",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.width(48.dp),
-                        )
-                        Text(
-                            task.episode.name.ifBlank {
-                                "Episode ${task.episode.episodeNumber.toInt()}"
-                            },
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (task.videoQuality.isNotBlank()) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                            ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            // ── Top line: EP label + episode name ──
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    task.videoQuality,
+                                    "EP ${task.episode.episodeNumber.toInt()}",
                                     fontFamily = RobotoFamily,
-                                    fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.width(48.dp),
                                 )
+                                Text(
+                                    task.episode.name.ifBlank {
+                                        "Episode ${task.episode.episodeNumber.toInt()}"
+                                    },
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            // ── Bottom line: server (primary) + audio chip + quality chip + size ──
+                            val hasServer = task.videoServer.isNotBlank()
+                            val hasAudio = task.videoAudio.isNotBlank()
+                            val hasQuality = task.videoQuality.isNotBlank()
+                            val hasSize = task.totalBytes > 0
+                            if (hasServer || hasAudio || hasQuality || hasSize) {
+                                Row(
+                                    modifier = Modifier.padding(top = 3.dp, start = 48.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // Server name — themed primary, ExtraBold (matches ResolverSheet).
+                                    if (hasServer) {
+                                        Text(
+                                            task.videoServer,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    // Audio version — secondaryContainer chip (matches ResolverSheet).
+                                    if (hasAudio) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(6.dp),
+                                        ) {
+                                            Text(
+                                                task.videoAudio.uppercase(),
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                            )
+                                        }
+                                    }
+                                    // Quality chip — surfaceVariant (existing style).
+                                    if (hasQuality) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                        ) {
+                                            Text(
+                                                task.videoQuality,
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                            )
+                                        }
+                                    }
+                                    // File size — shows actual downloaded size.
+                                    if (hasSize) {
+                                        Text(
+                                            formatBytes(task.totalBytes),
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                         }
                         IconButton(

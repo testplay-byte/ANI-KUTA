@@ -80,7 +80,10 @@ fun ResolverSheet(
     resolverState: ResolverState,
     episodeNumber: Float = 0f,
     downloadMode: Boolean = false,
-    onPickVideo: (ResolvedVideo) -> Unit,
+    // D-151-fix: onPickVideo now carries serverName + audioLabel so the
+    // download path stores the actual resolver server (not the extension
+    // name) + the audio version the user picked.
+    onPickVideo: (ResolvedVideo, String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -229,14 +232,16 @@ fun ResolverSheet(
                         // Collapsible server accordion
                         ServerAccordion(
                             servers = servers,
-                            onPickVideo = { resolverVideo ->
+                            onPickVideo = { resolverVideo, serverName, audioLabel ->
                                 // Find the matching flat ResolvedVideo by URL.
                                 // The accordion uses ResolverVideo (structured) but
                                 // onPickVideo expects ResolvedVideo (flat, carries
                                 // subtitleTracks for WatchKey serialization).
+                                // D-151-fix: serverName + audioLabel thread through
+                                // so the download path stores the real resolver server.
                                 val flatVideo = resolverState.videos.firstOrNull { it.url == resolverVideo.url }
                                 if (flatVideo != null) {
-                                    onPickVideo(flatVideo)
+                                    onPickVideo(flatVideo, serverName, audioLabel)
                                 } else {
                                     // Fallback: create a ResolvedVideo from the ResolverVideo.
                                     onPickVideo(
@@ -247,7 +252,9 @@ fun ResolverSheet(
                                             headers = resolverVideo.videoHeaders ?: "",
                                             subtitleTracks = resolverVideo.subtitleTracks,
                                             audioTracks = resolverVideo.audioTracks,
-                                        )
+                                        ),
+                                        serverName,
+                                        audioLabel,
                                     )
                                 }
                             },
@@ -268,7 +275,7 @@ fun ResolverSheet(
 @Composable
 private fun ServerAccordion(
     servers: List<ResolverServer>,
-    onPickVideo: (com.confused.anikuta.core.videoresolver.ResolverVideo) -> Unit,
+    onPickVideo: (com.confused.anikuta.core.videoresolver.ResolverVideo, String, String) -> Unit,
 ) {
     // Track which server is expanded (only one at a time). null = all collapsed.
     var expandedServer by remember { mutableStateOf<String?>(servers.firstOrNull()?.name) }
@@ -297,7 +304,7 @@ private fun ServerCard(
     server: ResolverServer,
     isExpanded: Boolean,
     onToggle: () -> Unit,
-    onPickVideo: (com.confused.anikuta.core.videoresolver.ResolverVideo) -> Unit,
+    onPickVideo: (com.confused.anikuta.core.videoresolver.ResolverVideo, String, String) -> Unit,
 ) {
     Surface(
         color = if (isExpanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
@@ -387,7 +394,10 @@ private fun ServerCard(
                             av.videos.forEach { video ->
                                 QualityChip(
                                     quality = video.quality,
-                                    onClick = { onPickVideo(video) },
+                                    // D-151-fix: pass server.name + av.label so the
+                                    // download path stores the real resolver server +
+                                    // audio version the user picked.
+                                    onClick = { onPickVideo(video, server.name, av.label) },
                                 )
                             }
                         }

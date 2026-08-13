@@ -57,6 +57,10 @@ class DownloadQueue(
     private val connectivityCheck: () -> Boolean = { true },
     private val onTaskCompleted: (suspend (DownloadTask) -> Unit)? = null,
     private val onTaskError: (suspend (DownloadTask) -> Unit)? = null,
+    // D-151-fix: the outer retry policy. Caps total download attempts at
+    // retryPolicy.maxAttempts (default 3). See [RetryPolicy] for retryable
+    // exception classification + backoff.
+    private val retryPolicy: RetryPolicy = RetryPolicy(),
     private val mutex: Mutex = Mutex(),
 ) {
 
@@ -351,13 +355,20 @@ class DownloadQueue(
     private fun launchDownload(task: DownloadTask) {
         DownloadLogger.i { "launchDownload — START task ${task.id}, videoUrl=${task.videoUrl.take(80)}" }
         val job = scope.launch {
+            // D-151-fix: outer retry loop. Catches retryable exceptions (IOException,
+            // HttpException 5xx/429) + retries up to retryPolicy.maxAttempts with
+            // exponential backoff. Non-retryable exceptions go straight to ERROR.
             try {
-                permits.withPermit {
-                    DownloadLogger.i { "launchDownload — permit acquired for task ${task.id}" }
+                var attempt = 0
+                while (true) {
+                    attempt++
+                    try {
+                        permits.withPermit {
+                            DownloadLogger.i { "launchDownload — permit acquired for task ${task.id} (attempt $attempt/${retryPolicy.maxAttempts})" }
                     mutex.withLock {
-                        val current = _tasks.value.firstOrNull { it.id == task.id }
-                        if (current?.status != DownloadStatus.QUEUED) {
-                            DownloadLogger.w { "launchDownload — task ${task.id} status is ${current?.status}, not QUEUED — aborting" }
+                                val current = _tasks.value.firstOrNull { it.id == task.id }
+                                if (current?.status != DownloadStatus.QUEUED && current?.status != DownloadStatus.RETRYING) {
+                                    DownloadLogger.w { "launchDownload — task ${task.id} status is ${current?.status}, not QUEUED/RETRYING — aborting" }
                             return@withLock
                         }
                         mutateTaskLocked(task.id) {
@@ -478,7 +489,8 @@ class DownloadQueue(
                                 episode = completedTask.episode,
                                 videoUri = completedTask.videoUri,
                                 subtitleUris = decodeSubtitleUris(completedTask.subtitleUris),
-                                sizeBytes = 0L, // Best-effort — the actual file size is on disk.
+                                sizeBytes = completedTask.totalBytes.takeIf { it > 0 }
+                                    ?: completedTask.downloadedBytes,
                                 quality = completedTask.videoQuality.ifBlank { null },
                                 completedAt = completedTask.completedAt ?: now(),
                                 // D-192 Phase 4: pass source tracking fields (were lost on transition)
@@ -493,19 +505,41 @@ class DownloadQueue(
                         scheduleAutoClear(task.id)
                     }
                     onTaskCompleted?.invoke(completed)
-                }
-            } catch (e: CancellationException) {
-                // REVIEW-5 M37: pause preserves resume metadata. The status was already
-                // set to PAUSED by pauseInternal before cancel() returned — nothing to do.
-                DownloadLogger.d { "launchDownload — Job cancelled: id=${task.id}" }
-            } catch (e: DownloadException) {
-                DownloadLogger.e(e) { "launchDownload — DownloadException for task ${task.id}: ${e.message}" }
-                setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
-                _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
-            } catch (e: Exception) {
-                DownloadLogger.e(e) { "launchDownload — Exception for task ${task.id}: ${e.message}" }
-                setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
-                _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
+                        }
+                        // D-151-fix: success — exit the retry loop.
+                        return@launch
+                    } // end permits.withPermit
+                    } // end inner try
+                    catch (e: CancellationException) {
+                        // REVIEW-5 M37: pause/cancel — never retry, just propagate.
+                        throw e
+                    } catch (e: Exception) {
+                        // D-151-fix: check if retryable.
+                        if (retryPolicy.shouldRetry(e, attempt)) {
+                            val backoff = retryPolicy.backoffMillis(attempt)
+                            DownloadLogger.w(e) {
+                                "launchDownload — retryable error on attempt $attempt/${retryPolicy.maxAttempts} " +
+                                    "for task ${task.id}: ${e.message}. Retrying in ${backoff}ms."
+                            }
+                            setRetryingStatus(
+                                taskId = task.id,
+                                attempt = attempt,
+                                maxAttempts = retryPolicy.maxAttempts,
+                                lastError = e.message ?: e.javaClass.simpleName,
+                            )
+                            delay(backoff)
+                            // Loop continues — re-acquire permit on next iteration.
+                        } else {
+                            DownloadLogger.e(e) {
+                                "launchDownload — non-retryable error (attempt $attempt/${retryPolicy.maxAttempts}) " +
+                                    "for task ${task.id}: ${e.message}"
+                            }
+                            setErrorStatus(task.id, e.message ?: e.javaClass.simpleName)
+                            _tasks.value.firstOrNull { it.id == task.id }?.let { onTaskError?.invoke(it) }
+                            return@launch
+                        }
+                    }
+                } // end while(true)
             } finally {
                 jobs.remove(task.id)
                 tryStartNext()
