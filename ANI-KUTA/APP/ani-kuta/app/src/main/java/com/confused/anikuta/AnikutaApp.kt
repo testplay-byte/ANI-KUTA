@@ -45,6 +45,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import kotlinx.coroutines.launch
 import org.koin.core.qualifier.named
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -169,6 +170,24 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             org.koin.core.context.GlobalContext.get().get<com.confused.anikuta.core.updates.UpdateScheduler>().reschedule()
         } catch (e: Exception) {
             Logger.e("AnikutaApp", e) { "Failed to schedule UpdateCheckWorker" }
+        }
+
+        // D-151-fix: Run the download scanner on app startup. This reconciles the
+        // on-disk .data.json files with the DB (write-back of latest metadata) +
+        // discovers any downloaded episodes that aren't in the DB (e.g. from a
+        // fresh install where the DB was wiped but the SAF folder persists).
+        // Runs on a background scope — non-blocking, best-effort.
+        try {
+            val downloadManager = org.koin.core.context.GlobalContext.get()
+                .get<com.confused.anikuta.core.download.DownloadManager>()
+            kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+            ).launch {
+                downloadManager.requestFolderRescan()
+                Logger.i("AnikutaApp") { "Download folder scan completed (data.json reconciliation)" }
+            }
+        } catch (e: Exception) {
+            Logger.w("AnikutaApp") { "Failed to run download folder scan: ${e.message}" }
         }
     }
 

@@ -99,6 +99,13 @@ class DownloadScanner(
                     upsertAniListDetail(dataJson)
                 }
 
+                // D-151-fix: write-back — update data.json with the latest DB data.
+                // After upsertContentRecord (which ensures the DB has at least the
+                // data.json data), fetch the latest ContentRecord + details from the
+                // DB (which may have been updated by AniList sync, extension refresh,
+                // etc.) and write them back to data.json if any field differs.
+                reconcileDataJsonFromContent(contentDir, index, dataJson)
+
                 // Discover episode files. Look in the "episodes" subfolder first (new
                 // folder structure), then fall back to the content folder root (legacy).
                 val episodesDir = index["episodes"]?.takeIf { it.isDirectory }
@@ -230,6 +237,78 @@ class DownloadScanner(
             updatedAt = System.currentTimeMillis(),
         )
         contentRepository.upsertAniListDetail(detail)
+    }
+
+    /**
+     * D-151-fix: Write-back — updates the on-disk `.data.json` with the latest
+     * ContentRecord + AniListDetail + ExtensionDetail from the DB.
+     *
+     * The user's scenario: "when the user has some episodes downloaded and
+     * refreshes + downloads a new episode, the old data.json should be updated
+     * with the proper new description, new data source ID, systemId, extensionRepoId,
+     * extensionId, sourceId, animeUrl, anilistId."
+     *
+     * This runs inside [scan] after [upsertContentRecord] (which ensures the DB has
+     * at least the data.json data for reinstall recognition). It then fetches the
+     * latest DB state (which may be NEWER than data.json — updated by AniList sync,
+     * extension detail refresh, etc.) and writes it back to data.json if any field
+     * differs. Only writes if there's an actual change (avoids unnecessary SAF I/O).
+     */
+    private suspend fun reconcileDataJsonFromContent(
+        contentDir: DocumentFile,
+        index: Map<String, DocumentFile>,
+        dataJson: ContentDataJson,
+    ) {
+        val record = contentRepository.getContentByMainId(dataJson.mainId) ?: return
+        val anilistDetail = contentRepository.getAniListDetail(dataJson.mainId)
+        val extDetail = contentRepository.getExtensionDetail(dataJson.mainId)
+
+        // Build the latest DownloadContentInfo from the DB state.
+        val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+        val latest = DownloadContentInfo(
+            mainId = record.mainId,
+            contentId = record.contentId,
+            title = record.title,
+            coverUrl = coverUrl,
+            coverColor = null,
+            contentFormat = record.contentFormat,
+            contentType = record.contentType,
+            description = record.description ?: extDetail?.description,
+            dataSourceId = record.dataSourceId,
+            systemId = record.systemId,
+            extensionRepoId = record.extensionRepoId,
+            extensionId = record.extensionId ?: extDetail?.extensionId,
+            sourceId = record.sourceId ?: extDetail?.sourceId,
+            animeUrl = record.animeUrl ?: extDetail?.animeUrl,
+            displaySource = record.displaySource,
+            anilistId = anilistDetail?.anilistId,
+        )
+
+        // Compare key fields — only write if something changed.
+        val changed = dataJson.title != latest.title ||
+            dataJson.description != latest.description ||
+            dataJson.dataSourceId != latest.dataSourceId ||
+            dataJson.systemId != latest.systemId ||
+            dataJson.extensionRepoId != latest.extensionRepoId ||
+            dataJson.extensionId != latest.extensionId ||
+            dataJson.sourceId != latest.sourceId ||
+            dataJson.animeUrl != latest.animeUrl ||
+            dataJson.anilistId != latest.anilistId ||
+            dataJson.coverUrl != latest.coverUrl ||
+            dataJson.contentType != latest.contentType ||
+            dataJson.contentFormat != latest.contentFormat ||
+            dataJson.displaySource != latest.displaySource
+
+        if (!changed) return
+
+        DownloadLogger.i {
+            "reconcileDataJsonFromContent — updating ${contentDir.name} data.json " +
+                "(description changed=${dataJson.description != latest.description}, " +
+                "dataSourceId changed=${dataJson.dataSourceId != latest.dataSourceId}, " +
+                "sourceId changed=${dataJson.sourceId != latest.sourceId}, " +
+                "anilistId changed=${dataJson.anilistId != latest.anilistId})"
+        }
+        storage.writeDataJson(latest, contentDir, index)
     }
 
     /** Returns true if [fileName] looks like a downloaded video file. */
