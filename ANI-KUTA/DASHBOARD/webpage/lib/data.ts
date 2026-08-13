@@ -13,8 +13,8 @@
  * :core (26), :data (1), :feature (18 — api/impl splits count as separate
  * Gradle modules). Nav3 REMOVED (D-150) — hand-rolled navigation via
  * `mutableStateListOf<NavKey>` + `when(currentKey)` dispatch; R7 (process-
- * death backstack survival) accepted as known limitation. 28 DB tables
- * across 15 .sq files (SQLDelight 2.0.2). 315 Kotlin files in APP/ani-kuta/.
+ * death backstack survival) accepted as known limitation. 26 DB tables
+ * across 15 .sq files (SQLDelight 2.0.2). 331 Kotlin files in APP/ani-kuta/.
  *
  * Hardcoded for the static demo — no API calls.
  */
@@ -45,7 +45,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "dashboard", desc: "Project summary, metrics, phase timeline" },
   { label: "Architecture", href: "/architecture/", icon: "architecture", desc: "Module tree, dependency rules, data flow, identity, multi-extension (D-150: Nav3 removed)" },
   { label: "Modules", href: "/modules/", icon: "modules", desc: "46 modules built — module hierarchy + tree view" },
-  { label: "Database", href: "/database/", icon: "database", desc: "28 tables across 15 .sq files, ER diagram, indexes, FK relationships" },
+  { label: "Database", href: "/database/", icon: "database", desc: "26 tables across 15 .sq files, ER diagram, indexes, FK relationships" },
+  { label: "DB Review", href: "/database-review/", icon: "dbreview", desc: "Schema review — merge candidates, optimization plan, top improvements" },
   { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
   { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
@@ -89,7 +90,7 @@ export const MODULES: ModuleInfo[] = [
   // --- :core (26 modules — infrastructure, no UI screens) ---
   { name: ":core:common", job: "Logger (lambda-based, zero-overhead), Dispatchers, Result, ContentType enum, base models", dependsOn: [], layer: "core", files: 14, status: "scaffold" },
   { name: ":core:designsystem", job: "Compose theme engine + reusable components (atoms + molecules — :core:ui merged here)", dependsOn: [":core:common"], layer: "core", files: 42, status: "scaffold" },
-  { name: ":core:database", job: "SQLDelight schema (28 tables across 15 .sq files — content, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations (onOpen idempotent — D-166) + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
+  { name: ":core:database", job: "SQLDelight schema (26 tables across 15 .sq files — content, anilist_detail, extension_detail, episode_update, anime_update_state, episode_schedule, user_rating, user_episode_rating, notification_config/sent, etc.) + migrations (onOpen idempotent — D-166) + driver factory", dependsOn: [], layer: "core", files: 32, status: "scaffold" },
   { name: ":core:preferences", job: "PreferenceStore (reactive Flow<T> API — D.0), ThemePreferences, SettingsPreferences, WatchPreferences (Phase WP)", dependsOn: [], layer: "core", files: 16, status: "scaffold" },
   { name: ":core:navigation-api", job: "NavKey sealed-class contracts (D-150: hand-rolled, Nav3 removed — `mutableStateListOf<NavKey>` backstack; NOT rememberSaveable, NOT StateFlow), ContentMode, Saver helpers", dependsOn: [":core:common"], layer: "core", files: 9, status: "scaffold" },
   { name: ":core:network", job: "OkHttp + ktor client + shared interceptors + timeouts (incl. qualified 'download' OkHttpClient — D.0)", dependsOn: [":core:common"], layer: "core", files: 12, status: "scaffold" },
@@ -176,7 +177,7 @@ export const MODULE_TREE: TreeNode[] = [
         children: [
           { label: "common", layer: "core", note: "Logger, Dispatchers, Result, ContentType" },
           { label: "designsystem", layer: "core", note: "Theme engine + components (:core:ui merged)" },
-          { label: "database", layer: "core", note: "SQLDelight schema — 28 tables across 15 .sq files (incl. Phase WP/UP/SC/TR/NOTIF additions + D-166 optimization)" },
+          { label: "database", layer: "core", note: "SQLDelight schema — 26 tables across 15 .sq files (actual current schema post-D-192; PRAGMA foreign_keys = ON)" },
           { label: "preferences", layer: "core", note: "PreferenceStore (reactive Flow<T> — D.0) + Theme/Settings/Watch prefs" },
           { label: "navigation-api", layer: "core", note: "NavKey sealed classes (D-150: Nav3 REMOVED — `mutableStateListOf<NavKey>` backstack; NOT rememberSaveable, NOT StateFlow) + ContentMode" },
           { label: "network", layer: "core", note: "OkHttp 5.0.0-alpha.14 + ktor + shared interceptors (incl. 'download' qualified client)" },
@@ -981,10 +982,10 @@ export const METRIC_CARDS: MetricCardData[] = [
   },
   {
     label: "DB Tables",
-    value: "28",
-    sublabel: "28 tables across 15 .sq files · 13 logical groups (incl. Updates/Ratings/Notifications)",
+    value: "26",
+    sublabel: "26 tables across 15 .sq files · 13 logical groups (incl. Updates/Ratings/Notifications)",
     accent: "var(--c-warning)",
-    sparkline: [4, 6, 11, 15, 19, 21, 21, 21, 24, 26, 28],
+    sparkline: [4, 6, 11, 15, 19, 21, 21, 21, 24, 26, 26],
     trend: "up",
     href: "/database/",
   },
@@ -1000,7 +1001,7 @@ export const QUICK_STATS = {
   scaffoldModules: PHASE2_SCAFFOLD.length,
   phase3Modules: 15,
   totalFiles: MODULES.reduce((sum, m) => sum + m.files, 0),
-  kotlinFiles: 315, // actual .kt files in APP/ani-kuta/ (excluding /build/)
+  kotlinFiles: 331, // actual .kt files in APP/ani-kuta/ (excluding /build/)
   decisions: 186,
   decisionsConfirmed: 186,
   decisionsNeedsInput: 0,

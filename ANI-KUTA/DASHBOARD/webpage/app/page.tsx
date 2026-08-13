@@ -44,7 +44,7 @@ export default function OverviewPage() {
             A calm, living dashboard for the ANI-KUTA project: 46 modules
             built (1 app + 26 core + 1 data + 18 feature — ALL PLANNED MODULES
             BUILT), all phases 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete
-            + Profile UI v1–v6, 28 DB tables across 15 .sq files (13 logical
+            + Profile UI v1–v6, 26 DB tables across 15 .sq files (13 logical
             groups), + CI verified GREEN on branch {`main`} (all feature branches
             merged + deleted). Phase DL (download system — all 9 phases D.0–D.8)
             + Phase WP/HI/UP/SC/TR/NOTIF/CW + Phase DB debug-bubble all shipped.
@@ -165,7 +165,7 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>28 tables</span>
+                <span>26 tables</span>
                 <span className="opacity-50">·</span>
                 <span>15 .sq files</span>
                 <span className="opacity-50">·</span>

@@ -444,6 +444,16 @@ function NavIcon({ name, className = "" }: { name: string; className?: string })
         <path d="M8.5 13l2.2 2.2L15.5 10.5" />
       </>
     ),
+    dbreview: (
+      <>
+        {/* Database + magnifier — database review */}
+        <ellipse cx="11" cy="6" rx="6" ry="2" />
+        <path d="M5 6v4c0 1.1 2.7 2 6 2s6-.9 6-2V6" />
+        <path d="M8 12.5v3c0 1.1 1.3 2 3 2" />
+        <circle cx="17.5" cy="15.5" r="3.5" />
+        <path d="M20 18l2 2" />
+      </>
+    ),
   };
 
   return (

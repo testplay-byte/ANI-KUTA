@@ -22,15 +22,19 @@ type FilterKey = "all" | SchemaGroup | "Deferred";
  * ------------------------------------------------------------------------- */
 const FILTERS: { key: FilterKey; label: string; colorVar: string }[] = [
   { key: "all", label: "All", colorVar: "var(--c-primary)" },
-  { key: "Identity", label: "Identity", colorVar: "var(--c-primary)" },
+  { key: "Content", label: "Content", colorVar: "var(--c-primary)" },
   { key: "Library", label: "Library", colorVar: "var(--c-success)" },
   { key: "Watch", label: "Watch", colorVar: "var(--c-warning)" },
+  { key: "Cache", label: "Cache", colorVar: "#EC4899" },
   { key: "Downloads", label: "Downloads", colorVar: "var(--c-secondary)" },
-  { key: "Trackers", label: "Trackers", colorVar: "var(--c-danger)" },
-  { key: "Extensions", label: "Extensions", colorVar: "#0EA5E9" },
-  { key: "Metadata", label: "Metadata", colorVar: "#EC4899" },
+  { key: "Updates", label: "Updates", colorVar: "#10B981" },
+  { key: "Schedule", label: "Schedule", colorVar: "#06B6D4" },
+  { key: "Genres", label: "Genres", colorVar: "#F43F5E" },
+  { key: "Ratings", label: "Ratings", colorVar: "#D946EF" },
+  { key: "Notifications", label: "Notif", colorVar: "var(--c-danger)" },
+  { key: "Activity", label: "Activity", colorVar: "#A8A29E" },
   { key: "App", label: "App", colorVar: "#22C55E" },
-  { key: "Deferred", label: "Deferred", colorVar: "#A8A29E" },
+  { key: "AppSettings", label: "Settings", colorVar: "#0EA5E9" },
 ];
 
 /* ---------------------------------------------------------------------------
@@ -85,31 +89,32 @@ export default function DatabasePage() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary">
-              Database Schema (Phase 3 + WP/UP/SC/TR/NOTIF additions)
+              Database Schema (actual current schema — post-D-166/D-189/D-192)
             </span>
             <StatusDot color="var(--c-primary)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              SQLDelight schema · the engine room every module depends on · 28 tables across 15 .sq files (13 groups)
+              SQLDelight schema · the engine room every module depends on · 26 tables across 15 .sq files (13 groups)
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
             Database Schema{" "}
             <span className="text-text-secondary font-medium">
-              — 28 tables, 15 .sq files
+              — 26 tables, 15 .sq files
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            The complete SQL schema for the ANI-KUTA app — ContentUID backbone,
-            library + watch + downloads + trackers + extensions + metadata +
-            app_metadata, plus Phase WP/UP/SC/TR/NOTIF additions (episode_update,
-            anime_update_state, episode_schedule, user_rating, user_episode_rating,
-            notification_config, notification_sent), plus 2 deferred (activity + ads).
-            D-166 optimization removed extensions.sq + metadata.sq. The dashboard
-            visualizes the planned Phase 1 schema representation. Documented in{" "}
+            The complete SQL schema for the ANI-KUTA app — <code className="font-mono text-text-primary">content</code> backbone,
+            library + watch + downloads + cache + updates + schedule + genres +
+            ratings + notifications + activity + app_metadata + app_settings.
+            D-166 enabled PRAGMA foreign_keys = ON + dropped extensions.sq +
+            metadata.sq; D-189 cleaned up FKs; D-192 dropped content_ext +
+            content_ext_repo + user_customization (dead code). 0 deferred —
+            activity_event is active, ad system was never built. The dashboard
+            visualizes the actual current schema. Documented in{" "}
             <code className="font-mono text-text-primary">
-              17-database-schema.md
+              core/database/src/main/sqldelight/
             </code>
-            . Filter by group or focus on the deferred tables.
+            . Filter by group.
           </p>
 
           {/* Summary stat strip */}
@@ -170,11 +175,12 @@ export default function DatabasePage() {
           </span>
         </div>
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          <code className="font-mono text-text-primary">content_uid</code> is the
-          backbone — every watch, download, tracker link, and metadata entry
-          hangs off it.{" "}
-          <code className="font-mono text-text-primary">episode_uid</code>{" "}
-          branches from content for per-episode progress, downloads, and history.
+          <code className="font-mono text-text-primary">content</code> (main_id)
+          is the backbone — every watch, download, library entry, and metadata
+          cache hangs off it. Episodes are keyed by a composite <code className="font-mono text-text-primary">episode_key</code>{" "}
+          string (not a separate table). Detail tables (anilist_detail,
+          extension_detail, other_source_detail) branch from content for
+          per-source metadata.
         </p>
         <ERDiagram />
         <div className="mt-4 flex flex-wrap gap-3">
@@ -274,17 +280,17 @@ export default function DatabasePage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12.5px] text-text-secondary leading-relaxed">
           <div>
             <span className="text-text-primary font-medium">
-              ContentUID is a String UUID
+              main_id is a String UUID
             </span>{" "}
             — stable forever, survives source switches. Auto-increment IDs only
-            for log tables (history, identity_event, activity_event,
-            ad_impression).
+            for log/queue tables (activity_event, episode_update,
+            episode_schedule, download_queue).
           </div>
           <div>
             <span className="text-text-primary font-medium">
               ON DELETE CASCADE
             </span>{" "}
-            on all FKs — deleting a content_uid cleans up all related data.
+            on all FKs — deleting a content (main_id) cleans up all related data.
           </div>
           <div>
             <span className="text-text-primary font-medium">
@@ -295,10 +301,12 @@ export default function DatabasePage() {
           </div>
           <div>
             <span className="text-text-primary font-medium">
-              Partial unique indexes
+              Partial indexes
             </span>{" "}
-            — used where SQLite&apos;s UNIQUE treats NULL as distinct
-            (external_reference, episode_external_ref).
+            — used to optimize hot queries (e.g. <code className="font-mono">idx_watch_progress_continue</code>,
+            <code className="font-mono"> idx_anime_update_due</code>,
+            <code className="font-mono"> idx_episode_update_ack_at</code>) and
+            harden dedup (<code className="font-mono">idx_library_item_unique</code>).
           </div>
         </div>
         <div className="mt-4 pt-4 border-t border-border/60 flex flex-wrap gap-3 text-[11.5px]">

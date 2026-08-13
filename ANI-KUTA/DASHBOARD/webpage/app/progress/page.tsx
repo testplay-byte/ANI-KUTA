@@ -11,7 +11,7 @@ import {
 /**
  * Progress page (v8) — ALL PHASES DONE. Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB
  * complete + Profile UI v1–v6 + CI verified GREEN on branch `main` (all feature
- * branches merged + deleted). 46 modules built, 28 DB tables across 15 .sq
+ * branches merged + deleted). 46 modules built, 26 DB tables across 15 .sq
  * files, 186 decisions confirmed.
  *
  * Sections:
@@ -60,7 +60,7 @@ export default function ProgressPage() {
           Phase 4 (feature screens + accent palette), Phase 5 (5a–5e — 5f deferred),
           and Phase 10 (post-Phase-5 work: B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL) are
           all done. 46 modules built (1 app + 26 core + 1 data + 18 feature),
-          28 DB tables across 15 .sq files, 186 decisions confirmed
+          26 DB tables across 15 .sq files, 186 decisions confirmed
           (D-001..D-186). Nav3 REMOVED (D-150) — hand-rolled nav via
           {`mutableStateListOf<NavKey>`} + {`when(currentKey)`} dispatch (R7
           process-death backstack survival accepted as known limitation).

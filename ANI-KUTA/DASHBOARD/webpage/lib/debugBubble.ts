@@ -185,9 +185,9 @@ export const TABS: {
     name: "Database",
     icon: "🗄️",
     conditional: false,
-    desc: "Read-only browser for all 28 SQLDelight tables. Table chips + scrollable grid + search.",
+    desc: "Read-only browser for all 26 SQLDelight tables. Table chips + scrollable grid + search.",
     features: [
-      "Table list as horizontally-scrollable chips (28 tables)",
+      "Table list as horizontally-scrollable chips (26 tables)",
       "Scrollable grid: column headers + rows (first 100)",
       "Search/filter: column LIKE '%query%' (parameterized — bound params, no injection)",
       "BLOB columns render as <BLOB: N bytes>; long text as <long text: N chars>",

@@ -516,7 +516,7 @@ class DownloadQueue(
                         // D-151-fix: check if retryable.
                         if (retryPolicy.shouldRetry(e, attempt)) {
                             val backoff = retryPolicy.backoffMillis(attempt)
-                            DownloadLogger.w(e) {
+                            DownloadLogger.w {
                                 "launchDownload — retryable error on attempt $attempt/${retryPolicy.maxAttempts} " +
                                     "for task ${task.id}: ${e.message}. Retrying in ${backoff}ms."
                             }

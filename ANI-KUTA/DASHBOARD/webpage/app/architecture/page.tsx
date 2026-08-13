@@ -62,7 +62,7 @@ export default function ArchitecturePage() {
             all complete + Profile UI v1–v6. Nav3 REMOVED (D-150) — hand-rolled
             nav via {`mutableStateListOf<NavKey>`} + {`when(currentKey)`} dispatch
             (R7 process-death backstack survival accepted as known limitation).
-            28 DB tables across 15 .sq files. Future-proof,
+            26 DB tables across 15 .sq files. Future-proof,
             modular, agent-friendly.
           </p>
           <div className="flex flex-wrap gap-2 pt-1">
