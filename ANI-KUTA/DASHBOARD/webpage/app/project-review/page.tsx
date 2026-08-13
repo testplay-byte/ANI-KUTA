@@ -1,319 +1,657 @@
-"use client";
-
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/Card";
 import { StatusDot } from "@/components/StatusDot";
 import {
-  CHECKLIST_HERO,
-  FOOTER_NOTE,
-  STATUS_META,
-  TEST_CHECKLIST,
-  groupByCategory,
-  type ChecklistStatus,
-  type TestChecklistItem,
+  CONCERNS_ACCEPTED,
+  CONCERNS_DASHBOARD,
+  CONCERNS_OPEN,
+  CONCERNS_RESOLVED,
+  CONCERNS_VERIFIED_FACTS,
+  DOC_DRIFT,
+  DOC_DRIFT_INTRO,
+  DOC_DRIFT_ROOT_CAUSE,
+  FEATURES_REMAINING,
+  FOOTER_NOTE_BULLETS,
+  FORWARD_DIRECTION,
+  HEALTH,
+  REVIEW_META,
+  SEVERITY_META,
+  SNAPSHOT,
+  TOP_RISKS,
+  WHAT_BUILT,
+  type Severity,
+  type BacklogGroup,
 } from "@/lib/projectReview";
 
-/* ---------------------------------------------------------------------------
- * Project Review → Test Checklist page.
+/**
+ * /project-review/ — Live Project Review.
  *
- * Replaces the former project-review content (concerns, features, risks) with
- * an interactive TEST CHECKLIST for on-device verification of the DC1–DC5
- * fixes. State persists to localStorage so progress isn't lost on refresh.
+ * Renders the 9-section review findings (verified against the actual codebase
+ * on 2026-08-13) per DESIGN.md (MEMORY OS v3). Static Server Component — no
+ * interactivity needed, no "use client".
  *
- * Design follows DESIGN.md (MEMORY OS v3):
- *  - Warm canvas / sharp data
- *  - Hero Card with kicker + title + description + progress summary
- *  - Overall progress bar at top (teal fill per §5.15)
- *  - Per-category Cards grouping checklist rows
- *  - Each row: checkbox + title + description + status chip
- *  - Status cycle: pending → pass → fail → n/a → pending (click chip)
- *  - Checkbox: toggles between pending ↔ pass quickly
- *  - "Reset all" button in hero
- *  - Light + dark mode via CSS variables (no hardcoded colors)
- * ------------------------------------------------------------------------- */
-
-const STORAGE_KEY = "ani-kuta:test-checklist:v1";
-
-/** localStorage persisted shape — only the user-edited fields. */
-type StoredEntry = {
-  status: ChecklistStatus;
-  notes?: string;
-};
-
-type StoredState = Record<string, StoredEntry>;
-
-const STATUS_CYCLE: ChecklistStatus[] = ["pending", "pass", "fail", "n/a"];
-
-/* ---------------------------------------------------------------------------
- * Page
- * ------------------------------------------------------------------------- */
-
+ * Sections:
+ *  1. Snapshot (hero + verified metrics table + tech stack)
+ *  2. Project Health Verdict (verdict + health indicators table)
+ *  3. What's Built (feature areas grid)
+ *  4. Concerns & Issues (Open · Accepted · Resolved · Dashboard debt)
+ *  5. Doc Drift Caught (table)
+ *  6. Features Remaining / Backlog (Phase 6+)
+ *  7. Forward Direction / Recommendations (4 prioritized steps)
+ *  8. Top Risks (table)
+ *  9. Footer Note (temporary section notice)
+ */
 export default function ProjectReviewPage() {
-  const grouped = useMemo(() => groupByCategory(TEST_CHECKLIST), []);
-
-  /* ---------------------------------------------------------------------
-   * State — kept in a single Record keyed by item.id.
-   * Initial render uses the defaults from TEST_CHECKLIST (status:"pending").
-   * On mount we hydrate from localStorage. Subsequent updates write back.
-   * ------------------------------------------------------------------ */
-  const [overrides, setOverrides] = useState<StoredState>({});
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as StoredState;
-        if (parsed && typeof parsed === "object") {
-          setOverrides(parsed);
-        }
-      }
-    } catch {
-      /* localStorage unavailable or payload corrupt → ignore */
-    } finally {
-      setHydrated(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
-    } catch {
-      /* storage full or unavailable → ignore */
-    }
-  }, [overrides, hydrated]);
-
-  /** Effective state of an item = override ?? default. */
-  const getStatus = useCallback(
-    (item: TestChecklistItem): ChecklistStatus =>
-      overrides[item.id]?.status ?? item.status,
-    [overrides],
-  );
-
-  const setStatus = useCallback(
-    (id: string, status: ChecklistStatus) => {
-      setOverrides((prev) => {
-        const next: StoredState = { ...prev };
-        const current = next[id];
-        // If the new status matches the default, drop the override entry
-        // (keeps storage small + lets future default changes show through).
-        const defaultStatus = TEST_CHECKLIST.find((it) => it.id === id)?.status;
-        if (status === defaultStatus) {
-          delete next[id];
-        } else {
-          next[id] = { ...(current ?? {}), status };
-        }
-        return next;
-      });
-    },
-    [],
-  );
-
-  /** Checkbox click: toggle between pending ↔ pass. */
-  const toggleCheckbox = useCallback(
-    (item: TestChecklistItem) => {
-      const current = getStatus(item);
-      const next: ChecklistStatus = current === "pass" ? "pending" : "pass";
-      setStatus(item.id, next);
-    },
-    [getStatus, setStatus],
-  );
-
-  /** Status chip click: cycle pending → pass → fail → n/a → pending. */
-  const cycleStatus = useCallback(
-    (item: TestChecklistItem) => {
-      const current = getStatus(item);
-      const idx = STATUS_CYCLE.indexOf(current);
-      const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-      setStatus(item.id, next);
-    },
-    [getStatus, setStatus],
-  );
-
-  /** Reset all overrides — wipes localStorage + returns every item to default. */
-  const resetAll = useCallback(() => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "Reset all checklist progress? This will mark every item as Pending.",
-      )
-    ) {
-      return;
-    }
-    setOverrides({});
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  /* ---------------------------------------------------------------------
-   * Derived metrics for the hero + per-category progress.
-   * ------------------------------------------------------------------ */
-  const allStatuses = useMemo(
-    () => TEST_CHECKLIST.map((it) => getStatus(it)),
-    [getStatus],
-  );
-  const total = TEST_CHECKLIST.length;
-  const passCount = allStatuses.filter((s) => s === "pass").length;
-  const failCount = allStatuses.filter((s) => s === "fail").length;
-  const naCount = allStatuses.filter((s) => s === "n/a").length;
-  const pendingCount = allStatuses.filter((s) => s === "pending").length;
-  const verifiedCount = passCount + failCount + naCount;
-  const overallPct =
-    total === 0 ? 0 : Math.round((verifiedCount / total) * 100);
-
   return (
     <div className="space-y-6">
-      {/* ── Hero ─────────────────────────────────────────────────────── */}
+      {/* ───────────────────────────────────────────────────────────────
+       *  HERO
+       * ─────────────────────────────────────────────────────────────── */}
       <Card>
         <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
           <div className="min-w-0">
             <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1.5">
-              {CHECKLIST_HERO.kicker}
+              Live Project Review
             </div>
             <h1 className="text-[22px] sm:text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
-              {CHECKLIST_HERO.title}
+              Project Review
             </h1>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <span
-              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary"
-              title={`Reference commit: ${CHECKLIST_HERO.commitRef}`}
-            >
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
               <StatusDot color="var(--c-success)" size="sm" />
-              {CHECKLIST_HERO.sessionRef} · {CHECKLIST_HERO.commitRef}
+              Reviewed {REVIEW_META.reviewDate}
             </span>
-            <button
-              type="button"
-              onClick={resetAll}
-              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border border-border bg-surface text-text-secondary hover:text-text-primary hover:bg-canvas hover:-translate-y-[1px] transition-all duration-200"
-              title="Reset all checklist progress"
+            <span
+              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border"
+              style={{
+                backgroundColor: "color-mix(in srgb, var(--c-warning) 12%, transparent)",
+                borderColor: "color-mix(in srgb, var(--c-warning) 35%, transparent)",
+                color: "var(--c-warning)",
+              }}
+              title="Temporary section — remove when no longer needed"
             >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: "var(--c-warning)" }}
                 aria-hidden="true"
-              >
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
-              Reset all
-            </button>
+              />
+              Temporary
+            </span>
           </div>
         </div>
         <p className="text-[12.5px] sm:text-[13.5px] text-text-secondary leading-[1.5] max-w-2xl">
-          {CHECKLIST_HERO.description}
+          A fresh, simplified read of where ANI-KUTA stands today — verified
+          against the actual codebase (not docs). All key findings in one
+          scannable place: snapshot, health verdict, what&apos;s built, concerns,
+          doc drift, backlog, recommendations, and top risks.
         </p>
-
-        {/* Overall progress bar */}
-        <div className="mt-5">
-          <div className="flex items-baseline justify-between mb-1.5">
-            <div className="flex items-baseline gap-2">
-              <span className="text-[13px] font-semibold text-text-primary">
-                Overall progress
-              </span>
-              <span className="text-[11px] text-text-secondary">
-                {verifiedCount} of {total} items verified
-              </span>
-            </div>
-            <span className="font-mono text-[12.5px] tabular-nums text-text-primary">
-              {overallPct}%
-            </span>
-          </div>
-          <div className="h-2 rounded-full bg-canvas overflow-hidden">
-            <div
-              className="h-full rounded-full bg-[var(--c-success)] transition-all duration-500 ease-out"
-              style={{ width: `${overallPct}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Status metric pills */}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <MetricPill
-            color="var(--c-success)"
-            value={passCount}
-            label="pass"
-          />
-          <MetricPill
-            color="var(--c-danger)"
-            value={failCount}
-            label="fail"
-          />
-          <MetricPill
-            color="var(--c-text-secondary)"
-            value={naCount}
-            label="n/a"
-          />
-          <MetricPill
-            color="var(--c-warning)"
-            value={pendingCount}
-            label="pending"
-          />
-        </div>
-
-        {/* Status legend / how-to */}
-        <div className="mt-4 pt-3 border-t border-border/60 flex items-start gap-2 flex-wrap text-[11px] text-text-secondary">
-          <span className="font-medium text-text-primary">Tip:</span>
-          <span>
-            Click the checkbox to mark{" "}
-            <span className="text-[var(--c-success)] font-medium">pass</span>.
-          </span>
-          <span className="text-border">·</span>
-          <span>
-            Click the status chip on the right to cycle{" "}
-            <span className="text-[var(--c-warning)]">pending</span> →{" "}
-            <span className="text-[var(--c-success)]">pass</span> →{" "}
-            <span className="text-[var(--c-danger)]">fail</span> →{" "}
-            <span className="text-text-secondary">n/a</span>.
-          </span>
-        </div>
+        <p className="text-[11.5px] text-text-secondary leading-relaxed mt-3 pt-3 border-t border-border/60">
+          <span className="font-medium text-text-primary">Reviewer:</span>{" "}
+          {REVIEW_META.reviewer}
+          <span className="mx-2 text-border">·</span>
+          <span className="font-medium text-text-primary">Repo state:</span>{" "}
+          <span className="font-mono">{REVIEW_META.repoState}</span>
+        </p>
       </Card>
 
-      {/* ── Category cards ────────────────────────────────────────────── */}
-      {grouped.map((group) => {
-        const groupStatuses = group.items.map((it) => getStatus(it));
-        const groupPass = groupStatuses.filter((s) => s === "pass").length;
-        const groupTotal = group.items.length;
-        const groupPct =
-          groupTotal === 0 ? 0 : Math.round((groupPass / groupTotal) * 100);
-        return (
-          <Card key={group.category}>
-            <CategoryHeader
-              title={group.category}
-              passCount={groupPass}
-              totalCount={groupTotal}
-              pct={groupPct}
-            />
-            <ul className="space-y-1.5 mt-1">
-              {group.items.map((item) => (
-                <ChecklistRow
-                  key={item.id}
-                  item={item}
-                  status={getStatus(item)}
-                  onToggleCheckbox={() => toggleCheckbox(item)}
-                  onCycleStatus={() => cycleStatus(item)}
-                  hydrated={hydrated}
-                />
-              ))}
-            </ul>
-          </Card>
-        );
-      })}
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 1 — SNAPSHOT
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§1 — Snapshot"
+        title="Project at a glance"
+        right={
+          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
+            <StatusDot color="var(--c-success)" size="sm" />
+            CI green
+          </span>
+        }
+      >
+        <div className="space-y-2 mb-5">
+          <KVRow label="Project" value={SNAPSHOT.project} mono={false} />
+          <KVRow label="App ID" value={SNAPSHOT.appId} />
+          <KVRow label="GitHub" value={SNAPSHOT.github} />
+          <KVRow label="Dashboard" value={SNAPSHOT.dashboard} />
+        </div>
 
-      {/* ── Footer note ────────────────────────────────────────────────── */}
-      <p className="text-[11.5px] text-text-secondary leading-relaxed text-center px-4 py-2">
-        {FOOTER_NOTE}
-      </p>
+        <SubLabel>{SNAPSHOT.metricsIntro}</SubLabel>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-[480px] text-left border-collapse">
+            <thead>
+              <tr className="text-[10.5px] uppercase tracking-widest text-text-secondary">
+                <Th>Metric</Th>
+                <Th>Value</Th>
+                <Th>Note</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {SNAPSHOT.metrics.map((m) => (
+                <tr
+                  key={m.metric}
+                  className="border-t border-border hover:bg-canvas/50 transition-colors"
+                >
+                  <Td className="font-medium text-text-primary">{m.metric}</Td>
+                  <Td className="font-mono font-semibold text-text-primary whitespace-nowrap">
+                    {m.value}
+                  </Td>
+                  <Td className="text-text-secondary">{m.note}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <SubLabel className="mt-6">{SNAPSHOT.techStackIntro}</SubLabel>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {SNAPSHOT.techStack.map((t) => (
+            <div
+              key={t.label}
+              className="rounded-[12px] border border-border bg-surface-alt/40 p-3"
+            >
+              <div className="text-[10.5px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+                {t.label}
+              </div>
+              <div className="font-mono text-[11.5px] text-text-primary leading-snug break-words">
+                {t.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 2 — PROJECT HEALTH VERDICT
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§2 — Project Health Verdict"
+        title="Overall health"
+      >
+        <div
+          className="rounded-[14px] border p-4 mb-5"
+          style={{
+            backgroundColor: "color-mix(in srgb, var(--c-success) 8%, transparent)",
+            borderColor: "color-mix(in srgb, var(--c-success) 30%, transparent)",
+          }}
+        >
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-[10.5px] font-medium uppercase tracking-widest text-[var(--c-success)]">
+              Verdict
+            </span>
+          </div>
+          <div className="text-[18px] font-bold tracking-extra-tight text-text-primary mb-3">
+            {HEALTH.verdict}
+          </div>
+          <ul className="space-y-1.5">
+            {HEALTH.bullets.map((b, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2 text-[12.5px] text-text-primary leading-relaxed"
+              >
+                <span
+                  className="font-mono text-[12px] shrink-0 mt-[1px] text-[var(--c-success)]"
+                  aria-hidden="true"
+                >
+                  ●
+                </span>
+                <span>{b}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <SubLabel>Health indicators</SubLabel>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-[480px] text-left border-collapse">
+            <thead>
+              <tr className="text-[10.5px] uppercase tracking-widest text-text-secondary">
+                <Th>Area</Th>
+                <Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {HEALTH.indicators.map((ind) => (
+                <tr
+                  key={ind.area}
+                  className="border-t border-border hover:bg-canvas/50 transition-colors"
+                >
+                  <Td className="font-medium text-text-primary whitespace-nowrap">
+                    {ind.area}
+                  </Td>
+                  <Td>
+                    <span className="inline-flex items-center gap-2 text-[12.5px] text-text-primary">
+                      <StatusDot
+                        color={toneColor(ind.tone)}
+                        size="sm"
+                      />
+                      <span>{ind.status}</span>
+                    </span>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 3 — WHAT'S BUILT
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§3 — What's Built"
+        title="Feature areas shipped"
+        right={
+          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
+            <StatusDot color="var(--c-success)" size="sm" />
+            {WHAT_BUILT.length} areas
+          </span>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {WHAT_BUILT.map((area) => (
+            <div
+              key={area.title}
+              className="rounded-[14px] border border-border bg-surface-alt/40 p-4 hover:bg-canvas/40 transition-colors"
+            >
+              <div className="flex items-start gap-2 mb-1.5">
+                <StatusDot color={accentColor(area.accent)} size="md" />
+                <div className="min-w-0">
+                  <div className="text-[13.5px] font-semibold text-text-primary leading-tight">
+                    {area.title}
+                  </div>
+                  <div className="text-[11.5px] text-text-secondary leading-snug mt-0.5">
+                    {area.summary}
+                  </div>
+                </div>
+              </div>
+              <ul className="space-y-1 mt-2 pl-4">
+                {area.items.map((it, i) => (
+                  <li
+                    key={i}
+                    className="text-[12px] text-text-primary leading-relaxed relative before:content-['·'] before:absolute before:left-[-12px] before:text-text-secondary"
+                  >
+                    {it}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 4 — CONCERNS & ISSUES
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§4 — Concerns & Issues"
+        title="The core of the review"
+        right={
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <CountPill
+              color="var(--c-danger)"
+              count={CONCERNS_OPEN.length}
+              label="open"
+            />
+            <CountPill
+              color="var(--c-secondary)"
+              count={CONCERNS_ACCEPTED.length}
+              label="accepted"
+            />
+            <CountPill
+              color="var(--c-success)"
+              count={CONCERNS_RESOLVED.length}
+              label="resolved"
+            />
+            <CountPill
+              color="var(--c-warning)"
+              count={CONCERNS_DASHBOARD.length}
+              label="dashboard"
+            />
+          </div>
+        }
+      >
+        {/* Verified facts */}
+        <SubLabel>Verified facts (this session, against actual code)</SubLabel>
+        <ul className="space-y-1.5 mb-6">
+          {CONCERNS_VERIFIED_FACTS.map((fact, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 rounded-[10px] border border-border bg-surface-alt/40 p-2.5"
+            >
+              <span
+                className="font-mono text-[12px] shrink-0 mt-[1px] text-[var(--c-primary)]"
+                aria-hidden="true"
+              >
+                ✓
+              </span>
+              <span className="text-[12px] text-text-primary leading-relaxed">
+                {fact}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {/* Open Concerns */}
+        <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+          <SubLabel className="mb-0">
+            Open Concerns — need work
+          </SubLabel>
+          <span className="text-[11px] text-text-secondary">
+            {CONCERNS_OPEN.length} items · sorted by severity
+          </span>
+        </div>
+        <div className="space-y-2">
+          {CONCERNS_OPEN.map((c) => (
+            <ConcernRow
+              key={c.id}
+              id={c.id}
+              concern={c.concern}
+              severity={c.severity}
+              effort={c.effort}
+              howToFix={c.howToFix}
+            />
+          ))}
+        </div>
+
+        {/* Accepted / Low-Priority */}
+        <SubLabel className="mt-6">
+          Accepted / Low-Priority
+        </SubLabel>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {CONCERNS_ACCEPTED.map((c) => (
+            <SimpleConcernCard
+              key={c.id}
+              id={c.id}
+              concern={c.concern}
+              severity={c.severity}
+              note={c.note}
+            />
+          ))}
+        </div>
+
+        {/* Recently Resolved */}
+        <SubLabel className="mt-6">
+          Recently Resolved (D-192 / D-193) — ✅ DONE
+        </SubLabel>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {CONCERNS_RESOLVED.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-start gap-3 rounded-[12px] border bg-surface-alt/40 p-3"
+              style={{
+                borderColor: "color-mix(in srgb, var(--c-success) 30%, var(--c-border))",
+              }}
+            >
+              <span
+                className="inline-flex items-center justify-center w-7 h-7 rounded-[8px] shrink-0 text-[13px] font-bold"
+                style={{
+                  backgroundColor: "color-mix(in srgb, var(--c-success) 15%, transparent)",
+                  color: "var(--c-success)",
+                  border: "1.5px solid var(--c-success)",
+                }}
+                aria-hidden="true"
+              >
+                ✓
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2 mb-0.5">
+                  <span className="font-mono text-[11px] font-semibold text-text-secondary">
+                    #{c.id}
+                  </span>
+                  <span className="text-[12.5px] font-medium text-text-primary">
+                    {c.concern}
+                  </span>
+                </div>
+                <div className="text-[11.5px] text-text-secondary leading-snug">
+                  <span className="font-medium text-[var(--c-success)]">Resolved by:</span>{" "}
+                  {c.resolvedBy}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Dashboard debt */}
+        <SubLabel className="mt-6">Dashboard debt</SubLabel>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {CONCERNS_DASHBOARD.map((c) => (
+            <SimpleConcernCard
+              key={c.id}
+              id={c.id}
+              concern={c.concern}
+              severity={c.severity}
+              note={c.note}
+            />
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 5 — DOC DRIFT CAUGHT
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§5 — Doc Drift Caught"
+        title="Documentation vs reality"
+        right={
+          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
+            <StatusDot color="var(--c-danger)" size="sm" />
+            {DOC_DRIFT.length} discrepancies
+          </span>
+        }
+      >
+        <p className="text-[12px] text-text-secondary leading-relaxed mb-4 max-w-2xl">
+          {DOC_DRIFT_INTRO}
+        </p>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-[640px] text-left border-collapse">
+            <thead>
+              <tr className="text-[10.5px] uppercase tracking-widest text-text-secondary">
+                <Th>What docs say</Th>
+                <Th>Actual (verified)</Th>
+                <Th>Files affected</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {DOC_DRIFT.map((row, i) => (
+                <tr
+                  key={i}
+                  className="border-t border-border hover:bg-canvas/50 transition-colors align-top"
+                >
+                  <Td className="text-text-secondary whitespace-nowrap">
+                    <span className="line-through opacity-70">
+                      {row.whatDocsSay}
+                    </span>
+                  </Td>
+                  <Td className="font-mono font-semibold text-[var(--c-danger)] whitespace-nowrap">
+                    {row.actual}
+                  </Td>
+                  <Td className="text-text-secondary">{row.filesAffected}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 p-3 rounded-[12px] border border-border bg-surface-alt/40 text-[11.5px] text-text-secondary leading-relaxed">
+          <span className="font-medium text-text-primary">Root cause:</span>{" "}
+          {DOC_DRIFT_ROOT_CAUSE}
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 6 — FEATURES REMAINING / BACKLOG
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§6 — Features Remaining / Backlog"
+        title="Phase 6+ items"
+        right={
+          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
+            <StatusDot color="var(--c-warning)" size="sm" />
+            {FEATURES_REMAINING.length} groups
+          </span>
+        }
+      >
+        <div className="space-y-5">
+          {FEATURES_REMAINING.map((group) => (
+            <BacklogGroupView key={group.title} group={group} />
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 7 — FORWARD DIRECTION / RECOMMENDATIONS
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§7 — Forward Direction"
+        title="Recommendations (prioritized)"
+        right={
+          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
+            <StatusDot color="var(--c-primary)" size="sm" />
+            {FORWARD_DIRECTION.length} steps
+          </span>
+        }
+      >
+        <div className="space-y-3">
+          {FORWARD_DIRECTION.map((step) => (
+            <div
+              key={step.step}
+              className="flex items-start gap-4 rounded-[14px] border border-border bg-surface-alt/40 p-4"
+            >
+              <div
+                className="inline-flex items-center justify-center w-9 h-9 rounded-full shrink-0 font-mono text-[14px] font-bold"
+                style={{
+                  backgroundColor: "color-mix(in srgb, var(--c-primary) 15%, transparent)",
+                  color: "var(--c-primary)",
+                  border: "1.5px solid var(--c-primary)",
+                }}
+                aria-hidden="true"
+              >
+                {step.step}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[14px] font-bold tracking-extra-tight text-text-primary leading-tight mb-1">
+                  {step.title}
+                </h3>
+                {step.body && (
+                  <p className="text-[12.5px] text-text-secondary leading-relaxed mb-2">
+                    {step.body}
+                  </p>
+                )}
+                {step.bullets && (
+                  <ul className="space-y-1.5">
+                    {step.bullets.map((b, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-2 text-[12.5px] text-text-primary leading-relaxed"
+                      >
+                        <span
+                          className="font-mono text-[12px] shrink-0 mt-[1px] text-[var(--c-primary)]"
+                          aria-hidden="true"
+                        >
+                          →
+                        </span>
+                        <span>{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {step.why && (
+                  <div className="mt-2.5 pt-2.5 border-t border-border/60 text-[11.5px] text-text-secondary leading-relaxed">
+                    <span className="font-medium text-[var(--c-warning)]">Why:</span>{" "}
+                    {step.why}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 8 — TOP RISKS
+       * ─────────────────────────────────────────────────────────────── */}
+      <SectionCard
+        kicker="§8 — Top Risks"
+        title="What could bite us"
+        right={
+          <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
+            <StatusDot color="var(--c-danger)" size="sm" />
+            {TOP_RISKS.length} risks
+          </span>
+        }
+      >
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-[640px] text-left border-collapse">
+            <thead>
+              <tr className="text-[10.5px] uppercase tracking-widest text-text-secondary">
+                <Th>Risk</Th>
+                <Th>Why it matters</Th>
+                <Th>Mitigation</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {TOP_RISKS.map((r) => (
+                <tr
+                  key={r.risk}
+                  className="border-t border-border hover:bg-canvas/50 transition-colors align-top"
+                >
+                  <Td className="whitespace-nowrap">
+                    <span className="inline-flex items-center gap-2">
+                      <StatusDot color={toneColor(r.tone)} size="sm" />
+                      <span className="font-semibold text-text-primary">
+                        {r.risk}
+                      </span>
+                    </span>
+                  </Td>
+                  <Td className="text-text-secondary">{r.whyItMatters}</Td>
+                  <Td className="text-text-primary">{r.mitigation}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      {/* ───────────────────────────────────────────────────────────────
+       *  SECTION 9 — FOOTER NOTE
+       * ─────────────────────────────────────────────────────────────── */}
+      <Card>
+        <div className="flex items-start gap-3 mb-2">
+          <span
+            className="inline-flex items-center justify-center w-7 h-7 rounded-[8px] shrink-0 text-[12px] font-bold"
+            style={{
+              backgroundColor: "color-mix(in srgb, var(--c-warning) 15%, transparent)",
+              color: "var(--c-warning)",
+              border: "1.5px solid var(--c-warning)",
+            }}
+            aria-hidden="true"
+          >
+            !
+          </span>
+          <div>
+            <div className="text-[10.5px] font-medium uppercase tracking-widest text-[var(--c-warning)] mb-0.5">
+              §9 — Footer Note
+            </div>
+            <h2 className="text-[16px] font-bold tracking-extra-tight text-text-primary leading-tight">
+              Temporary section notice
+            </h2>
+          </div>
+        </div>
+        <ul className="space-y-1.5 mt-3">
+          {FOOTER_NOTE_BULLETS.map((b, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 text-[12px] text-text-secondary leading-relaxed"
+            >
+              <span
+                className="font-mono text-[12px] shrink-0 mt-[1px] text-text-secondary"
+                aria-hidden="true"
+              >
+                ·
+              </span>
+              <span>{b}</span>
+            </li>
+          ))}
+        </ul>
+      </Card>
     </div>
   );
 }
@@ -322,166 +660,369 @@ export default function ProjectReviewPage() {
  * Sub-components
  * ------------------------------------------------------------------------- */
 
-function MetricPill({
-  color,
+function SectionCard({
+  kicker,
+  title,
+  right,
+  children,
+}: {
+  kicker: string;
+  title: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+            {kicker}
+          </div>
+          <h2 className="text-[18px] sm:text-[20px] font-bold tracking-extra-tight text-text-primary leading-tight">
+            {title}
+          </h2>
+        </div>
+        {right && <div className="shrink-0">{right}</div>}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+function SubLabel({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`text-[10.5px] font-medium uppercase tracking-widest text-text-secondary mb-2 ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function KVRow({
+  label,
   value,
+  mono = true,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline gap-3">
+      <span className="text-[11px] font-medium uppercase tracking-widest text-text-secondary w-[88px] shrink-0">
+        {label}
+      </span>
+      <span
+        className={`text-[12.5px] text-text-primary leading-snug break-words ${
+          mono ? "font-mono" : ""
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return (
+    <th className="py-2 pr-3 font-medium text-text-secondary text-[10.5px] uppercase tracking-widest first:pl-0 last:pr-0">
+      {children}
+    </th>
+  );
+}
+
+function Td({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <td className={`py-2.5 pr-3 text-[12.5px] leading-snug first:pl-0 last:pr-0 ${className}`}>
+      {children}
+    </td>
+  );
+}
+
+function CountPill({
+  color,
+  count,
   label,
 }: {
   color: string;
-  value: number;
+  count: number;
   label: string;
 }) {
   return (
     <span
-      className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11.5px] border bg-surface border-border"
-      title={`${value} ${label}`}
+      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-medium border whitespace-nowrap"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)`,
+        borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
+        color: color,
+      }}
     >
       <StatusDot color={color} size="sm" />
-      <span className="font-mono font-semibold tabular-nums text-text-primary">
-        {value}
-      </span>
-      <span className="text-text-secondary">{label}</span>
+      <span className="font-mono font-semibold tabular-nums">{count}</span>
+      <span className="opacity-80">{label}</span>
     </span>
   );
 }
 
-function CategoryHeader({
-  title,
-  passCount,
-  totalCount,
-  pct,
+function SeverityBadge({ severity }: { severity: Severity }) {
+  const meta = SEVERITY_META[severity];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-medium border whitespace-nowrap"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${meta.colorVar} 12%, transparent)`,
+        borderColor: `color-mix(in srgb, ${meta.colorVar} 35%, transparent)`,
+        color: meta.colorVar,
+      }}
+    >
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full"
+        style={{ backgroundColor: meta.colorVar }}
+        aria-hidden="true"
+      />
+      {meta.label}
+    </span>
+  );
+}
+
+function ConcernRow({
+  id,
+  concern,
+  severity,
+  effort,
+  howToFix,
 }: {
-  title: string;
-  passCount: number;
-  totalCount: number;
-  pct: number;
+  id: number;
+  concern: string;
+  severity: Severity;
+  effort: string;
+  howToFix: string;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
-      <div className="min-w-0">
-        <h2 className="text-[18px] font-bold tracking-extra-tight text-text-primary leading-tight">
-          {title}
-        </h2>
-        <div className="text-[11px] text-text-secondary mt-1">
-          {passCount} of {totalCount} verified
+    <div className="rounded-[12px] border border-border bg-surface-alt/40 p-3.5 hover:bg-canvas/40 transition-colors">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+          <span className="font-mono text-[12px] font-semibold text-text-secondary shrink-0 mt-[1px]">
+            #{id}
+          </span>
+          <span className="text-[13px] font-semibold text-text-primary leading-snug">
+            {concern}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <SeverityBadge severity={severity} />
+          <span className="inline-flex items-center gap-1 h-6 px-2 rounded-[8px] text-[10.5px] font-medium border bg-surface border-border text-text-secondary whitespace-nowrap">
+            <span className="font-mono">⏱</span>
+            <span className="font-mono">{effort}</span>
+          </span>
         </div>
       </div>
-      <div className="shrink-0 flex items-center gap-3">
-        <div className="w-32 h-1.5 rounded-full bg-canvas overflow-hidden">
-          <div
-            className="h-full rounded-full bg-[var(--c-success)] transition-all duration-500 ease-out"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <span className="font-mono text-[11.5px] tabular-nums text-text-secondary w-9 text-right">
-          {pct}%
-        </span>
+      <div className="pl-7 text-[12px] text-text-secondary leading-relaxed">
+        <span className="font-medium text-[var(--c-primary)]">Fix:</span>{" "}
+        {howToFix}
       </div>
     </div>
   );
 }
 
-function ChecklistRow({
-  item,
-  status,
-  onToggleCheckbox,
-  onCycleStatus,
-  hydrated,
+function SimpleConcernCard({
+  id,
+  concern,
+  severity,
+  note,
 }: {
-  item: TestChecklistItem;
-  status: ChecklistStatus;
-  onToggleCheckbox: () => void;
-  onCycleStatus: () => void;
-  hydrated: boolean;
+  id: number;
+  concern: string;
+  severity: Severity;
+  note: string;
 }) {
-  const meta = STATUS_META[status];
-  const isPass = status === "pass";
-  // Avoid hydration mismatch: render as pending on the server + first client
-  // paint, then reveal the persisted state after mount.
-  const effectiveStatus = hydrated ? status : "pending";
-  const effectiveMeta = STATUS_META[effectiveStatus];
-  const effectiveIsPass = hydrated && isPass;
-
+  const meta = SEVERITY_META[severity];
   return (
-    <li
-      className="group flex items-start gap-3 rounded-[12px] border border-transparent hover:border-border hover:bg-canvas/60 px-2 -mx-2 py-2 transition-all duration-150"
-      data-status={effectiveStatus}
+    <div
+      className="rounded-[12px] border bg-surface-alt/40 p-3"
+      style={{
+        borderColor: `color-mix(in srgb, ${meta.colorVar} 25%, var(--c-border))`,
+      }}
     >
-      {/* Checkbox */}
-      <button
-        type="button"
-        onClick={onToggleCheckbox}
-        aria-pressed={effectiveIsPass}
-        aria-label={
-          effectiveIsPass
-            ? `Mark "${item.title}" as pending`
-            : `Mark "${item.title}" as pass`
-        }
-        className={`mt-[2px] w-[18px] h-[18px] rounded-[6px] border flex items-center justify-center shrink-0 transition-all duration-150 ${
-          effectiveIsPass
-            ? "bg-[var(--c-success)] border-[var(--c-success)]"
-            : "border-border bg-surface hover:border-text-secondary"
-        }`}
-      >
-        {effectiveIsPass && (
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="3.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M5 13l4 4L19 7" />
-          </svg>
-        )}
-      </button>
+      <div className="flex items-start gap-2 mb-1.5">
+        <span className="font-mono text-[11px] font-semibold text-text-secondary shrink-0 mt-[1px]">
+          #{id}
+        </span>
+        <span className="text-[12.5px] font-medium text-text-primary leading-snug flex-1 min-w-0">
+          {concern}
+        </span>
+        <SeverityBadge severity={severity} />
+      </div>
+      <div className="pl-5 text-[11.5px] text-text-secondary leading-relaxed">
+        {note}
+      </div>
+    </div>
+  );
+}
 
-      {/* Title + description */}
-      <div className="min-w-0 flex-1">
-        <div
-          className={`text-[13px] font-semibold leading-snug ${
-            effectiveIsPass
-              ? "text-text-secondary line-through opacity-70"
-              : "text-text-primary"
-          }`}
-        >
-          {item.title}
+function BacklogGroupView({ group }: { group: BacklogGroup }) {
+  return (
+    <div className="rounded-[14px] border border-border bg-surface-alt/30 p-4">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+        <div>
+          <h3 className="text-[14px] font-bold tracking-extra-tight text-text-primary leading-tight">
+            {group.title}
+          </h3>
+          {group.subtitle && (
+            <p className="text-[11.5px] text-text-secondary leading-snug mt-0.5">
+              {group.subtitle}
+            </p>
+          )}
         </div>
-        <div className="text-[12px] text-text-secondary leading-relaxed mt-0.5">
-          {item.description}
-        </div>
-        {item.notes && (
-          <div className="text-[11px] text-text-secondary leading-relaxed mt-1.5 pl-2.5 border-l-2 border-border">
-            <span className="font-medium text-text-primary">Note: </span>
-            {item.notes}
-          </div>
-        )}
       </div>
 
-      {/* Status chip */}
-      <button
-        type="button"
-        onClick={onCycleStatus}
-        title={`Click to cycle status (current: ${effectiveMeta.label})`}
-        aria-label={`Status: ${effectiveMeta.label}. Click to change.`}
-        className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[10.5px] font-medium border whitespace-nowrap shrink-0 transition-all duration-200 hover:-translate-y-[1px]"
-        style={{
-          backgroundColor: `color-mix(in srgb, ${effectiveMeta.colorVar} 12%, transparent)`,
-          borderColor: `color-mix(in srgb, ${effectiveMeta.colorVar} 35%, transparent)`,
-          color: effectiveMeta.colorVar,
-        }}
-      >
-        <span
-          className="inline-block w-1.5 h-1.5 rounded-full"
-          style={{ backgroundColor: effectiveMeta.colorVar }}
-          aria-hidden="true"
-        />
-        {effectiveMeta.label}
-      </button>
-    </li>
+      {group.rows && group.rows.length > 0 && (
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-[560px] text-left border-collapse">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-widest text-text-secondary">
+                <Th>Feature</Th>
+                <Th>Decision</Th>
+                <Th>Effort</Th>
+                <Th>How to do it</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.rows.map((r) => (
+                <tr
+                  key={r.feature}
+                  className="border-t border-border hover:bg-canvas/50 transition-colors align-top"
+                >
+                  <Td className="font-semibold text-text-primary whitespace-nowrap">
+                    {r.feature}
+                  </Td>
+                  <Td className="font-mono text-text-secondary whitespace-nowrap">
+                    {r.decision}
+                  </Td>
+                  <Td className="font-mono text-[var(--c-warning)] whitespace-nowrap">
+                    {r.effort}
+                  </Td>
+                  <Td className="text-text-secondary">{r.howToDoIt}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {group.bullets && group.bullets.length > 0 && (
+        <ul className="space-y-1.5">
+          {group.bullets.map((b, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 text-[12.5px] text-text-primary leading-relaxed"
+            >
+              <span
+                className="font-mono text-[12px] shrink-0 mt-[1px] text-[var(--c-warning)]"
+                aria-hidden="true"
+              >
+                ·
+              </span>
+              <span>
+                <span className="font-medium">{b.label}</span>
+                {b.note && (
+                  <span className="text-text-secondary">
+                    {" "}
+                    — {b.note}
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {group.numbered && group.numbered.length > 0 && (
+        <ol className="space-y-1.5">
+          {group.numbered.map((n, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2.5 text-[12.5px] text-text-primary leading-relaxed"
+            >
+              <span
+                className="inline-flex items-center justify-center w-5 h-5 rounded-[6px] font-mono text-[11px] font-bold shrink-0"
+                style={{
+                  backgroundColor: "color-mix(in srgb, var(--c-primary) 15%, transparent)",
+                  color: "var(--c-primary)",
+                  border: "1px solid color-mix(in srgb, var(--c-primary) 35%, transparent)",
+                }}
+                aria-hidden="true"
+              >
+                {i + 1}
+              </span>
+              <span>
+                <span className="font-medium">{n.label}</span>
+                {n.note && (
+                  <span className="text-text-secondary">
+                    {" "}
+                    — {n.note}
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {group.footer && (
+        <div className="mt-3 pt-2.5 border-t border-border/60 text-[11.5px] text-text-secondary">
+          {group.footer}
+        </div>
+      )}
+    </div>
   );
+}
+
+/* ---------------------------------------------------------------------------
+ * Helpers
+ * ------------------------------------------------------------------------- */
+
+function toneColor(
+  tone: "good" | "warning" | "danger" | "secondary",
+): string {
+  switch (tone) {
+    case "good":
+      return "var(--c-success)";
+    case "warning":
+      return "var(--c-warning)";
+    case "danger":
+      return "var(--c-danger)";
+    case "secondary":
+      return "var(--c-secondary)";
+  }
+}
+
+function accentColor(
+  accent: "primary" | "success" | "warning" | "secondary" | "danger",
+): string {
+  switch (accent) {
+    case "primary":
+      return "var(--c-primary)";
+    case "success":
+      return "var(--c-success)";
+    case "warning":
+      return "var(--c-warning)";
+    case "secondary":
+      return "var(--c-secondary)";
+    case "danger":
+      return "var(--c-danger)";
+  }
 }
