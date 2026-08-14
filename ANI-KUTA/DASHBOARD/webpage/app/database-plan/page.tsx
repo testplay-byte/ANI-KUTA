@@ -3,10 +3,10 @@ import { StatusDot } from "@/components/StatusDot";
 import {
   COLUMN_STATUS_META,
   CONS_RISKS,
+  CONTENT_DETAILS_SCHEMA,
   CORE_CHANGES,
-  DATA_SOURCE_DETAIL_SCHEMA,
   DEFERRED_ITEMS,
-  EXTENSION_DETAIL_SCHEMA,
+  DROPPED_TABLES,
   FINAL_TABLES,
   FOOTER_NOTE,
   FOOTER_NOTE_BULLETS,
@@ -27,30 +27,38 @@ import {
 } from "@/lib/databasePlan";
 
 /**
- * /database-plan/ — Database Restructuring Plan.
+ * /database-plan/ — Database Restructuring Plan v2.
  *
  * Renders the 11-section plan (transcribed in full from
- * APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md) per
- * DESIGN.md (MEMORY OS v3). Static Server Component — no interactivity
+ * APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md, v2)
+ * per DESIGN.md (MEMORY OS v3). Static Server Component — no interactivity
  * needed, no "use client".
  *
  * The user reviews this page to decide whether to APPROVE the restructuring.
  * Completeness matters: every table column, every query, every con, every
  * deferred item is shown.
  *
+ * v2 deltas (per PLAN.md v2 header note):
+ *  - ONE wide content_details table (Option A — 26 cols, data_* + ext_* prefixes)
+ *    — NOT two tables (the v1 Option C decision was reversed)
+ *  - 26 → 22 tables (was 26 → 24 in v1)
+ *  - 4 core changes (was 3): drop app_metadata is now a core change
+ *  - 10-group presentation (was a flat list in v1)
+ *  - Keep extension_repo_id, keep display_source as single UX column
+ *
  * Sections:
  *  1.  Hero / Snapshot (badges + reviewer + date + verified metrics)
- *  2.  The 3 Core Changes (cards)
- *  3.  New Table Schemas (main_entry, data_source_detail, extension_detail —
- *      every column, color-coded NEW / MODIFIED / DROPPED / RENAMED / UNCHANGED)
+ *  2.  The 4 Core Changes (cards)
+ *  3.  New Table Schemas (main_entry + content_details — the centerpiece — +
+ *      4 dropped tables with where-their-data-goes)
  *  4.  Queries (new / changed / renamed, grouped by table)
  *  5.  Independent Improvements (11 bundled items)
- *  6.  Tables NOT Changing (24 final tables, grouped, with status)
+ *  6.  Final Tables (22 tables, 10 groups, with status)
  *  7.  Cons + Risks (severity color-coded: HIGH / MEDIUM / LOW / RESOLVED)
- *  8.  Deferred / Skipped (9 items)
- *  9.  Future-Proofing (3 scenarios)
+ *  8.  Deferred / Skipped (10 items)
+ *  9.  Future-Proofing (4 scenarios)
  *  10. Review Process (4 iterations — what each found + fixed)
- *  11. Footer Note (PROPOSAL — awaiting approval)
+ *  11. Footer Note (PROPOSAL v2 — awaiting approval)
  */
 export default function DatabasePlanPage() {
   return (
@@ -133,10 +141,10 @@ export default function DatabasePlanPage() {
       </Card>
 
       {/* ───────────────────────────────────────────────────────────────
-       *  SECTION 2 — THE 3 CORE CHANGES
+       *  SECTION 2 — THE 4 CORE CHANGES (v2 — was 3 in v1)
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
-        kicker="§2 — The 3 Core Changes"
+        kicker="§2 — The 4 Core Changes (v2)"
         title="What's actually changing"
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
@@ -145,7 +153,7 @@ export default function DatabasePlanPage() {
           </span>
         }
       >
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {CORE_CHANGES.map((c) => {
             const color = accentColor(c.accent);
             return (
@@ -223,15 +231,24 @@ export default function DatabasePlanPage() {
 
       {/* ───────────────────────────────────────────────────────────────
        *  SECTION 3 — NEW TABLE SCHEMAS (every column, color-coded)
+       *  v2: main_entry + content_details (the centerpiece) + 4 dropped tables
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
-        kicker="§3 — New Table Schemas"
+        kicker="§3 — New Table Schemas (v2)"
         title="Every column, every constraint"
         right={<ColumnLegend />}
       >
         <p className="text-[12px] text-text-secondary leading-relaxed mb-5 max-w-2xl">
-          The 3 most consequential tables — main_entry (renamed from content),
-          data_source_detail (NEW), extension_detail (UPDATED). Every column is
+          The 2 most consequential tables — <span className="font-mono font-semibold text-text-primary">main_entry</span>{" "}
+          (renamed from <span className="font-mono">content</span>, with v2 changes: keep{" "}
+          <span className="font-mono">extension_repo_id</span>, keep{" "}
+          <span className="font-mono">display_source</span> as a single UX column, drop{" "}
+          <span className="font-mono">description</span>) +{" "}
+          <span className="font-mono font-semibold text-text-primary">content_details</span>{" "}
+          (NEW — the centerpiece — ONE wide table that merges 4 old tables via
+          Option A: 26 cols, <span className="font-mono">data_*</span> +{" "}
+          <span className="font-mono">ext_*</span> prefixes, 2 indexes, 11 queries).
+          Plus the 4 dropped tables with where-their-data-goes. Every column is
           listed with its type, constraints, and a description. Color-coded by
           change status so you can scan what&apos;s new, what&apos;s modified,
           and what&apos;s dropped.
@@ -240,35 +257,33 @@ export default function DatabasePlanPage() {
         {/* main_entry */}
         <SchemaTable
           title={MAIN_ENTRY_SCHEMA.tableName}
-          subtitle={`RENAMED from \`${MAIN_ENTRY_SCHEMA.renameFrom}\` · ${MAIN_ENTRY_SCHEMA.sqFile}`}
+          subtitle={`RENAMED from \`${MAIN_ENTRY_SCHEMA.renameFrom}\` · ${MAIN_ENTRY_SCHEMA.sqFile} · v2 keeps extension_repo_id + display_source (NOT split)`}
           purpose={MAIN_ENTRY_SCHEMA.purpose}
           columns={MAIN_ENTRY_SCHEMA.columns}
           indexes={MAIN_ENTRY_SCHEMA.indexes}
+          queries={MAIN_ENTRY_SCHEMA.queries}
           accent="primary"
         />
 
-        {/* data_source_detail */}
+        {/* content_details — THE CENTERPIECE */}
         <div className="mt-5">
           <SchemaTable
-            title={DATA_SOURCE_DETAIL_SCHEMA.tableName}
-            subtitle={`NEW · replaces ${DATA_SOURCE_DETAIL_SCHEMA.replaces.join(" + ")} · ${DATA_SOURCE_DETAIL_SCHEMA.sqFile}`}
-            purpose={DATA_SOURCE_DETAIL_SCHEMA.purpose}
-            columns={DATA_SOURCE_DETAIL_SCHEMA.columns}
-            queries={DATA_SOURCE_DETAIL_SCHEMA.queries}
+            title={CONTENT_DETAILS_SCHEMA.tableName}
+            subtitle={`NEW · THE CENTERPIECE · merges ${CONTENT_DETAILS_SCHEMA.replaces.length} tables (${CONTENT_DETAILS_SCHEMA.replaces.join(
+              " + ",
+            )}) · ${CONTENT_DETAILS_SCHEMA.sqFile}`}
+            purpose={CONTENT_DETAILS_SCHEMA.purpose}
+            columns={CONTENT_DETAILS_SCHEMA.columns}
+            indexes={CONTENT_DETAILS_SCHEMA.indexes}
+            queries={CONTENT_DETAILS_SCHEMA.queries}
             accent="success"
+            emphasize
           />
         </div>
 
-        {/* extension_detail */}
+        {/* Dropped tables — where their data goes */}
         <div className="mt-5">
-          <SchemaTable
-            title={EXTENSION_DETAIL_SCHEMA.tableName}
-            subtitle={`UPDATED (extended, not replaced) · ${EXTENSION_DETAIL_SCHEMA.sqFile}`}
-            purpose={EXTENSION_DETAIL_SCHEMA.purpose}
-            columns={EXTENSION_DETAIL_SCHEMA.columns}
-            queries={EXTENSION_DETAIL_SCHEMA.queries}
-            accent="warning"
-          />
+          <DroppedTablesCard />
         </div>
       </SectionCard>
 
@@ -436,18 +451,20 @@ export default function DatabasePlanPage() {
       </SectionCard>
 
       {/* ───────────────────────────────────────────────────────────────
-       *  SECTION 6 — TABLES NOT CHANGING (24 final tables)
+       *  SECTION 6 — FINAL TABLES (22 tables, 10 groups) — v2
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
-        kicker="§6 — Final Tables (24)"
-        title="Every table, grouped by .sq file"
+        kicker="§6 — Final Tables (22, 10 groups)"
+        title="Every table, grouped by function"
         right={<TableStatusLegend />}
       >
         <p className="text-[12px] text-text-secondary leading-relaxed mb-4 max-w-2xl">
-          All 24 final tables (down from 26 — dropped other_source_detail +
-          anime_metadata_cache; renames net 0). Each table is tagged with its
-          status. Most are UNCHANGED; some get minor bundled improvements
-          (rename FK to main_entry, add CHECKs, fix episode_number type).
+          All 22 final tables (down from 26 — dropped anilist_detail +
+          extension_detail + other_source_detail + anime_metadata_cache +
+          app_metadata; added content_details; renamed content → main_entry).
+          Organized in 10 functional groups per R-2 research. Most are
+          UNCHANGED; some get minor bundled improvements (rename FK to
+          main_entry, add CHECKs, fix episode_number type, add missing FKs).
         </p>
         <div className="space-y-3">
           {FINAL_TABLES.map((g) => (
@@ -711,10 +728,10 @@ export default function DatabasePlanPage() {
       </SectionCard>
 
       {/* ───────────────────────────────────────────────────────────────
-       *  SECTION 10 — REVIEW PROCESS (4 iterations)
+       *  SECTION 10 — REVIEW PROCESS (4 iterations — v2: 1, 2A, 2B, 3+4)
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
-        kicker="§10 — Review Process"
+        kicker="§10 — Review Process (v2)"
         title="4 review iterations — what each found + fixed"
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
@@ -724,10 +741,11 @@ export default function DatabasePlanPage() {
         }
       >
         <p className="text-[12px] text-text-secondary leading-relaxed mb-4 max-w-2xl">
-          The plan was reviewed by 4 sub-agent iterations before being marked
+          The v2 plan was reviewed by 4 sub-agent iterations before being marked
           ready for the dashboard. Each iteration found issues; the next
           iteration verified they were fixed. This demonstrates the rigor
-          behind the plan — nothing was rubber-stamped.
+          behind the plan — nothing was rubber-stamped. Final verdict:
+          APPROVED WITH MINOR FIXES — ready for dashboard.
         </p>
         <div className="space-y-3">
           {REVIEW_ITERATIONS.map((it) => {
@@ -856,7 +874,7 @@ export default function DatabasePlanPage() {
               §11 — Footer Note
             </div>
             <h2 className="text-[16px] font-bold tracking-extra-tight text-text-primary leading-tight">
-              Proposal — awaiting your approval
+              Proposal v2 — awaiting your approval
             </h2>
           </div>
         </div>
@@ -961,6 +979,7 @@ function ColumnLegend() {
     "modified",
     "dropped",
     "renamed",
+    "axis",
     "unchanged",
   ];
   return (
@@ -997,6 +1016,7 @@ function TableStatusLegend() {
     "UPDATED",
     "UNCHANGED",
     "DROPPED",
+    "ABSORBED",
   ];
   return (
     <div className="flex items-center gap-1 flex-wrap max-w-full">
@@ -1062,6 +1082,7 @@ function SchemaTable({
   indexes,
   queries,
   accent,
+  emphasize = false,
 }: {
   title: string;
   subtitle: string;
@@ -1080,24 +1101,33 @@ function SchemaTable({
   }[];
   queries?: string[];
   accent: "primary" | "success" | "warning" | "secondary" | "danger";
+  emphasize?: boolean;
 }) {
   const color = accentColor(accent);
+  const axisColor = "var(--c-secondary)";
   return (
     <div
       className="rounded-[14px] border bg-surface/60 overflow-hidden"
       style={{
-        borderColor: `color-mix(in srgb, ${color} 25%, var(--c-border))`,
+        borderColor: emphasize
+          ? color
+          : `color-mix(in srgb, ${color} 25%, var(--c-border))`,
+        boxShadow: emphasize
+          ? `0 0 0 1px color-mix(in srgb, ${color} 25%, transparent), 0 4px 24px color-mix(in srgb, ${color} 8%, transparent)`
+          : undefined,
       }}
     >
       {/* Header */}
       <div
         className="px-4 py-3 border-b"
         style={{
-          backgroundColor: `color-mix(in srgb, ${color} 6%, transparent)`,
+          backgroundColor: emphasize
+            ? `color-mix(in srgb, ${color} 10%, transparent)`
+            : `color-mix(in srgb, ${color} 6%, transparent)`,
           borderColor: `color-mix(in srgb, ${color} 25%, var(--c-border))`,
         }}
       >
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span
             className="inline-flex items-center justify-center w-6 h-6 rounded-[8px] font-mono text-[11px] font-bold shrink-0"
             style={{
@@ -1112,8 +1142,20 @@ function SchemaTable({
           <h3 className="font-mono text-[15px] font-bold tracking-extra-tight text-text-primary leading-tight">
             {title}
           </h3>
+          {emphasize && (
+            <span
+              className="inline-flex items-center gap-1 h-5 px-2 rounded-[6px] text-[10px] font-medium border whitespace-nowrap"
+              style={{
+                backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
+                borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
+                color: color,
+              }}
+            >
+              ★ CENTERPIECE
+            </span>
+          )}
         </div>
-        <div className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1.5">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-text-secondary mb-1.5 break-words">
           {subtitle}
         </div>
         <p className="text-[12px] text-text-secondary leading-relaxed">
@@ -1139,6 +1181,51 @@ function SchemaTable({
             {columns.map((c) => {
               const meta = COLUMN_STATUS_META[c.status];
               const isDropped = c.status === "dropped";
+              const isAxis = c.status === "axis";
+              // Axis divider row — full-width banner spanning all 4 cols
+              if (isAxis) {
+                return (
+                  <tr
+                    key={c.name}
+                    className="border-t"
+                    style={{
+                      borderColor: "var(--c-border)",
+                      backgroundColor: `color-mix(in srgb, ${axisColor} 10%, transparent)`,
+                    }}
+                  >
+                    <td
+                      colSpan={4}
+                      className="py-2.5 px-3"
+                      style={{
+                        borderTop: `2px solid color-mix(in srgb, ${axisColor} 40%, transparent)`,
+                      }}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className="inline-flex items-center justify-center w-4 h-4 rounded-[5px] font-mono text-[9px] font-bold shrink-0"
+                          style={{
+                            backgroundColor: `color-mix(in srgb, ${axisColor} 15%, transparent)`,
+                            color: axisColor,
+                            border: `1px solid color-mix(in srgb, ${axisColor} 35%, transparent)`,
+                          }}
+                          aria-hidden="true"
+                        >
+                          {meta.symbol}
+                        </span>
+                        <span
+                          className="font-mono text-[12px] font-bold tracking-wider"
+                          style={{ color: axisColor }}
+                        >
+                          {c.name}
+                        </span>
+                      </div>
+                      <p className="text-[11.5px] text-text-secondary leading-snug mt-1 pl-6">
+                        {c.description}
+                      </p>
+                    </td>
+                  </tr>
+                );
+              }
               return (
                 <tr
                   key={c.name}
@@ -1280,6 +1367,134 @@ function SchemaTable({
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Dropped tables card — what they were + where their data goes
+ * ------------------------------------------------------------------------- */
+
+function DroppedTablesCard() {
+  return (
+    <div
+      className="rounded-[14px] border bg-surface/60 overflow-hidden"
+      style={{
+        borderColor: `color-mix(in srgb, var(--c-danger) 25%, var(--c-border))`,
+      }}
+    >
+      <div
+        className="px-4 py-3 border-b"
+        style={{
+          backgroundColor: `color-mix(in srgb, var(--c-danger) 6%, transparent)`,
+          borderColor: `color-mix(in srgb, var(--c-danger) 25%, var(--c-border))`,
+        }}
+      >
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <span
+            className="inline-flex items-center justify-center w-6 h-6 rounded-[8px] font-mono text-[11px] font-bold shrink-0"
+            style={{
+              backgroundColor: `color-mix(in srgb, var(--c-danger) 15%, transparent)`,
+              color: "var(--c-danger)",
+              border: `1px solid var(--c-danger)`,
+            }}
+            aria-hidden="true"
+          >
+            ×
+          </span>
+          <h3 className="font-mono text-[15px] font-bold tracking-extra-tight text-text-primary leading-tight">
+            {DROPPED_TABLES.length} dropped tables
+          </h3>
+          <span
+            className="inline-flex items-center gap-1.5 h-5 px-2 rounded-[6px] text-[10px] font-medium border whitespace-nowrap"
+            style={{
+              backgroundColor: `color-mix(in srgb, var(--c-danger) 10%, transparent)`,
+              borderColor: `color-mix(in srgb, var(--c-danger) 30%, transparent)`,
+              color: "var(--c-danger)",
+            }}
+          >
+            merged into content_details + app_settings
+          </span>
+        </div>
+        <p className="text-[12px] text-text-secondary leading-relaxed">
+          Every dropped table is either DROPPED (dead code, 0 callers, never
+          written) or ABSORBED (columns duplicated elsewhere or explicitly
+          migrated). Verified by 7 research sub-agents (5 prior session + 2
+          this session). Zero data loss.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] text-left border-collapse">
+          <thead>
+            <tr
+              className="text-[10px] uppercase tracking-widest"
+              style={{ color: "var(--c-text-secondary)" }}
+            >
+              <th className="py-2 px-3 font-medium text-left">Table</th>
+              <th className="py-2 px-3 font-medium text-left">Status</th>
+              <th className="py-2 px-3 font-medium text-left">What it was</th>
+              <th className="py-2 px-3 font-medium text-left">Where data goes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {DROPPED_TABLES.map((t) => {
+              const isAbsorbed = t.status === "ABSORBED";
+              const color = "var(--c-danger)";
+              return (
+                <tr
+                  key={t.table}
+                  className="border-t align-top hover:bg-canvas/50 transition-colors"
+                  style={{
+                    borderColor: "var(--c-border)",
+                    backgroundColor:
+                      "color-mix(in srgb, var(--c-danger) 3%, transparent)",
+                  }}
+                >
+                  <td className="py-2.5 px-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="font-mono text-[12.5px] font-semibold text-text-primary line-through opacity-80">
+                        {t.table}
+                      </span>
+                      <span className="font-mono text-[10.5px] text-text-secondary">
+                        {t.sqFile}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3 whitespace-nowrap">
+                    <span
+                      className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full text-[10.5px] font-medium border whitespace-nowrap"
+                      style={{
+                        backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
+                        borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
+                        color: color,
+                      }}
+                    >
+                      <span
+                        className="inline-block w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: color }}
+                        aria-hidden="true"
+                      />
+                      {isAbsorbed ? "ABSORBED" : "DROPPED"}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-[11.5px] text-text-secondary leading-snug">
+                    {t.whatItWas}
+                  </td>
+                  <td className="py-2.5 px-3 text-[11.5px] text-text-secondary leading-snug">
+                    {t.whereDataGoes}
+                    <span className="block mt-1.5 pt-1.5 border-t border-border/60 text-[11px]">
+                      <span className="font-medium text-text-primary">
+                        Callers:
+                      </span>{" "}
+                      {t.callers}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
