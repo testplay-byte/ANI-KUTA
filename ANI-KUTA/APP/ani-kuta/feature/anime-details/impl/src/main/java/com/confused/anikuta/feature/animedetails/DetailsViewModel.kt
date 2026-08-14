@@ -1441,6 +1441,11 @@ class DetailsViewModel(
 
         Logger.i(TAG) { "Manually linking extension entry to anilistId=$anilistId" }
         autoLinkService.cacheManualLink(sourceId, animeUrl, anilistId)
+        // D-199: Save the source link so loadLinkedSource() can find the extension
+        // source when reopening from Library. Without this, the Library open path
+        // reads KEY_SOURCE_LINK_PREFIX + anilistId → empty → source not found →
+        // episodes not fetched → UI shows "source removed" + empty episode list.
+        preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + anilistId, "$sourceId:$animeUrl")
 
         viewModelScope.launch {
             mergeAniListIntoUnified(anilistId)

@@ -586,22 +586,23 @@ fun WatchScreen(
                             Logger.e(TAG) { "Failed to open file descriptor for content:// URI" }
                         }
                     }
-                    if (!isLocalhost && !isContentUri) {
+                    // D-199: ALWAYS set http-header-fields, even for localhost proxy URLs.
+                    // The extension's local proxy server (HttpServer/NanoHTTPD) forwards the
+                    // inbound User-Agent to the upstream CDN. If we don't set the extension-
+                    // provided headers (which include the correct User-Agent), MPV uses its
+                    // default "libmpv" UA → the CDN returns 403 Forbidden.
+                    if (!isContentUri) {
                         val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                             else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                         MPVLib.setOptionString("http-header-fields", headers)
-                        Logger.i(TAG) { "=== MPV LOADFILE (network) ===" }
+                        Logger.i(TAG) { "=== MPV LOADFILE (${if (isLocalhost) "localhost proxy" else "network"}) ===" }
                         Logger.i(TAG) { "URL: $loadUrl" }
-                        Logger.i(TAG) { "Headers (full): $headers" }
+                        Logger.i(TAG) { "Headers: $headers" }
                         Logger.i(TAG) { "Video title: $currentVideoTitle" }
-                    } else if (isContentUri) {
+                    } else {
                         Logger.i(TAG) { "=== MPV LOADFILE (offline fd://) ===" }
                         Logger.i(TAG) { "loadUrl: $loadUrl" }
                         Logger.i(TAG) { "originalUrl: $currentVideoUrl" }
-                    } else {
-                        Logger.i(TAG) { "=== MPV LOADFILE (localhost proxy) ===" }
-                        Logger.i(TAG) { "URL: $loadUrl" }
-                        Logger.i(TAG) { "No headers set (localhost proxy)" }
                     }
                 } catch (e: Exception) {
                     Logger.w(TAG) { "Failed to set http-header-fields: ${e.message}" }
@@ -772,15 +773,10 @@ fun WatchScreen(
         // Set switching flag so efEvent from old file doesn't show a spurious error.
         stateHolder.setSwitching(true)
         try {
-            // For localhost proxy URLs, don't set upstream headers.
-            val isLocalhost = video.url.contains("127.0.0.1") || video.url.contains("localhost")
-            if (!isLocalhost) {
-                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
-                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                MPVLib.setOptionString("http-header-fields", headers)
-            } else {
-                Logger.i(TAG) { "Quality switch — localhost proxy URL, no headers set" }
-            }
+            // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
+            val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+            MPVLib.setOptionString("http-header-fields", headers)
             MPVLib.command(arrayOf("loadfile", video.url, "replace"))
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to switch quality" }
@@ -1004,19 +1000,10 @@ fun WatchScreen(
                                     // Set headers + loadfile.
                                     // CRITICAL: For localhost proxy URLs (AniKotoS),
                                     // do NOT set upstream headers (Referer, Origin, etc.).
-                                    // The proxy doesn't need them and they may cause
-                                    // issues. Only set headers for non-localhost URLs.
-                                    val isLocalhost = video.url.contains("127.0.0.1") ||
-                                        video.url.contains("localhost")
-                                    if (!isLocalhost && video.headers.isNotBlank()) {
-                                        MPVLib.setOptionString("http-header-fields", video.headers)
-                                        Logger.i(TAG) { "Set http-header-fields for non-localhost URL" }
-                                    } else if (!isLocalhost) {
-                                        MPVLib.setOptionString("http-header-fields",
-                                            "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
-                                    } else {
-                                        Logger.i(TAG) { "Localhost proxy URL — no headers set" }
-                                    }
+                                    // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
+                                    val headers = if (video.headers.isNotBlank()) video.headers
+                                        else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                                    MPVLib.setOptionString("http-header-fields", headers)
                                     MPVLib.command(arrayOf("loadfile", video.url, "replace"))
                                     Logger.i(TAG) { "Episode switch — loadfile sent for ${video.url.take(80)}" }
                                 } else {

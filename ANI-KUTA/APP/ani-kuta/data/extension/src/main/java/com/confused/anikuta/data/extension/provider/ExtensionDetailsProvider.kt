@@ -54,6 +54,13 @@ class ExtensionDetailsProvider(
             sAnime
         }
 
+        // D-199: Many extensions only populate thumbnail_url in searchAnimeParse,
+        // NOT in animeDetailsParse. The enriched SAnime may have thumbnail_url=null
+        // even though the search result had it. Fall back to the stub's thumbnail.
+        if (enrichedAnime.thumbnail_url.isNullOrBlank() && !sAnime.thumbnail_url.isNullOrBlank()) {
+            enrichedAnime.thumbnail_url = sAnime.thumbnail_url
+        }
+
         enrichedAnime.toUnifiedAnime(sourceId, source.name)
     }
 
