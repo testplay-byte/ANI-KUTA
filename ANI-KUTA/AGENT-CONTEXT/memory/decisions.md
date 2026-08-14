@@ -1641,3 +1641,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Dashboard:** `/database-plan/` page live at https://testplay-byte.github.io/ANI-KUTA/database-plan/ — shows every table, every column, every query, every con, every deferred item.
 - **Status:** ⚠️ PROPOSAL — awaiting user approval. NO schema changes made. Implementation will be a separate session after approval.
 - **Date:** Database restructuring plan session.
+
+---
+
+### D-198 — Database restructuring plan v2 (PROPOSAL — not implemented)
+- **What:** Revised plan (from D-197) to restructure the database from 26 → 22 tables. Key change from v1: ONE wide `content_details` table (Option A — 26 cols, `data_*`/`ext_*` prefixes) instead of two tables (Option C). Also: drop `app_metadata` (dead code), keep `data_source`+`system` separate (R-2 recommendation), keep `extension_repo_id` (user directive), keep `display_source` as single UX-preference column (values `'data_source'`|`'extension'` — not split). 10-group presentation. 4 changes + 11 independent improvements.
+- **Why:** User reversed v1's Option C decision — wants ONE unified `content_details` table that handles ALL content types (video/novel/image/manga) + ALL data sources (AniList/Kitsu/MAL/TMDB) + ALL extensions (Aniyomi/CloudStream/Sora/MangaYomi). Simpler than two tables, future-proof (zero schema change for new sources/extensions/content-types).
+- **Table count:** 22 (above user's "under 15" preference). Research confirms remaining 22 tables are genuinely better separate — merging any would create sparse/awkward tables, break FK integrity, or corrupt backup semantics.
+- **Review:** 4 iterations via sub-agents. Iter 1: 2 FLAWS fixed. Iter 2A+2B: 0 FLAWS + 7 CONCERNS fixed. Iter 3+4: APPROVED.
+- **Plan location:** `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (v2, 446 lines).
+- **Dashboard:** `/database-plan/` live — shows every table, column, query, con, deferred item.
+- **Status:** ⚠️ PROPOSAL v2 — awaiting user approval. NO schema changes made.
+- **Date:** Database restructuring plan v2 session.

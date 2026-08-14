@@ -1127,3 +1127,27 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Dashboard: `/database-plan/` live at https://testplay-byte.github.io/ANI-KUTA/database-plan/
 - Plan doc: `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md`
 - **This is a PROPOSAL — no schema changes made. Awaiting user approval before implementation.**
+
+---
+
+## Session — Database Restructuring Plan v2 (commits 78db1955 → 23d7839c, on `main`)
+
+### What was done
+- User reviewed plan v1 (`/database-plan/` dashboard) + gave revised direction: merge `data_source_detail` + `extension_detail` into ONE wide `content_details` table (Option A — reversed v1's Option C two-table decision). Drop `app_metadata`. Keep `data_source`+`system` separate. Keep `extension_repo_id`. Keep `display_source` as single UX column. Target under 15 tables (preference, not hard). Group tables logically (presentation, not forced merging).
+- **RESEARCH**: 2 Explore sub-agents (R-1 design content_details, R-2 re-evaluate merges + grouping). R-1 designed the 26-column `content_details` table with `data_*`/`ext_*` prefixes + discriminators + `extra_json`. R-2 confirmed: keep `data_source`+`system` separate, drop `app_metadata` (dead), all 7 keep-separate groups confirmed, library NOT in app-settings group, 10-group presentation.
+- **PLAN v2**: Rewrote `PLAN.md` (446 lines). 26→22 tables via 4 changes: (1) rename `content`→`main_entry`, (2) merge 4 tables→`content_details` (Option A, 26 cols), (3) drop `app_metadata`, (4) keep `data_source`+`system` separate.
+- **REVIEW (4 iterations via sub-agents)**: Iter 1 (2 FLAWS + 4 CONCERNS → fixed: extension lookup contradiction, description caller migration). Iter 2A+2B parallel (0 FLAWS + 7 CONCERNS → fixed: episode_number scope, transaction boundaries, display_source values, MAL related_anime, idx drops, Long↔TEXT conversion, effort estimate). Iter 3+4 sign-off (0 FLAWS + 1 minor → APPROVED).
+- **DASHBOARD**: Full-stack-dev sub-agent updated `/database-plan/` with v2 content. 20/20 routes build. Mobile overflow=0 at all scroll positions.
+- **Verified**: Agent Browser desktop (all 10 sections, v2 content present) + mobile (overflow=0).
+- **CI**: Deploy Dashboard success.
+- **Table count honesty**: 22 tables (above user's 15 preference). Research confirms remaining 22 are genuinely better separate — merging any would create sparse/awkward tables, break FK integrity, or corrupt backup semantics. 22 is the floor without forcing bad merges.
+
+### Key decisions
+- **D-198**: Database restructuring plan v2 (PROPOSAL — not implemented). 26→22 tables. Key change from v1 (D-197): ONE wide `content_details` table (Option A) instead of two tables (Option C). Also: drop `app_metadata`, keep `data_source`+`system` separate, keep `extension_repo_id`, keep `display_source` as single UX column.
+
+### Status
+- Branch: `main` (feature branch merged + deleted).
+- CI: GREEN (Deploy Dashboard success on commit 23d7839c).
+- Dashboard: `/database-plan/` live at https://testplay-byte.github.io/ANI-KUTA/database-plan/ — updated with v2 content.
+- Plan doc: `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (v2).
+- **This is a PROPOSAL v2 — no schema changes made. Awaiting user approval before implementation.**
