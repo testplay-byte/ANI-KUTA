@@ -5,6 +5,7 @@ import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,6 +82,12 @@ class AppUpdateManager(
     // records the cooldown so the same version doesn't re-prompt for 6h).
     private val _shouldShowUpdateSheet = MutableStateFlow(false)
     val shouldShowUpdateSheet: StateFlow<Boolean> = _shouldShowUpdateSheet.asStateFlow()
+
+    // D-199: transient "up to date" state — true for ~3 seconds after a manual
+    // check finds no update, then auto-resets to false. The UI uses this to show
+    // "You are on the latest version" briefly before reverting to "Check for updates".
+    private val _isUpToDate = MutableStateFlow(false)
+    val isUpToDate: StateFlow<Boolean> = _isUpToDate.asStateFlow()
 
     /**
      * Gets the installed app's version name from the package manager.
@@ -181,6 +188,12 @@ class AppUpdateManager(
             _latestUpdate.value = null
             _shouldShowUpdateSheet.value = false
             preferences.setLastCheckTimestamp(System.currentTimeMillis())
+            // D-199: flash "up to date" for 3 seconds.
+            _isUpToDate.value = true
+            scope.launch {
+                delay(3000)
+                _isUpToDate.value = false
+            }
             Logger.i(TAG) { "checkForUpdate: no update available" }
             return null
         } catch (e: Exception) {

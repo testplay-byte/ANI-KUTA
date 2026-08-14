@@ -95,15 +95,6 @@ fun MoreScreen(
                             onClick = onOpenSettings,
                         )
                     }
-                    item {
-                        MoreListRow(
-                            icon = Icons.Filled.Info,
-                            title = "About & Updates",
-                            subtitle = "App version, update checks, downloaded APKs",
-                            onClick = onOpenAbout,
-                            showDot = showAboutDot,
-                        )
-                    }
 
                     // ── Activities ──
                     item {
@@ -157,6 +148,20 @@ fun MoreScreen(
                             title = "Trackers",
                             subtitle = "AniList, MAL",
                             onClick = { /* Phase 4c: navigate to Trackers */ },
+                        )
+                    }
+
+                    // ── About ── (at the very bottom per user request)
+                    item {
+                        MoreSectionLabel("About")
+                    }
+                    item {
+                        MoreListRow(
+                            icon = Icons.Filled.Info,
+                            title = "About & Updates",
+                            subtitle = "Version + update checks",
+                            onClick = onOpenAbout,
+                            showDot = showAboutDot,
                         )
                     }
                 }

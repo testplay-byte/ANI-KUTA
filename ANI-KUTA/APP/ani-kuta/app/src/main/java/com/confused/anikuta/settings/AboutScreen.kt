@@ -130,6 +130,12 @@ fun AboutScreen(
     val showUpdateDot = latestUpdate != null ||
         (downloadProgress != null && !downloadProgress!!.isComplete && downloadProgress!!.error == null)
 
+    // D-199: "Up to date" transient state — shows "You are on the latest version"
+    // for ~3 seconds after a manual check finds no update, then reverts to
+    // "Check for updates". Tracked via a separate StateFlow so it survives
+    // recomposition but not process death (acceptable — it's a brief UX flash).
+    val showUpToDate by updateManager.isUpToDate.collectAsStateWithLifecycle()
+
     // Get installed version.
     val installedVersionName = remember {
         try {
@@ -223,8 +229,7 @@ fun AboutScreen(
                     item {
                         GeneralToggleCard(
                             title = "Auto-check for updates",
-                            subtitle = "Check for new versions when the app starts. If an update is " +
-                                "available, the update dialog appears automatically.",
+                            subtitle = "Show update available dialog",
                             checked = autoCheckEnabled,
                             onCheckedChange = { updatePrefs.setUpdateCheckEnabled(it) },
                         )
@@ -289,8 +294,13 @@ fun AboutScreen(
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column(modifier = Modifier.weight(1f)) {
+                                    val checkButtonText = when {
+                                        isChecking -> "Checking…"
+                                        showUpToDate -> "You are on the latest version"
+                                        else -> "Check for updates"
+                                    }
                                     Text(
-                                        text = if (isChecking) "Checking…" else "Check for updates",
+                                        text = checkButtonText,
                                         fontFamily = RobotoFamily,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.ExtraBold,
