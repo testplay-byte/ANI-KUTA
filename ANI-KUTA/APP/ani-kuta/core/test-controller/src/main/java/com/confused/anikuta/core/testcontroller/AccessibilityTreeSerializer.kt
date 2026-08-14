@@ -52,7 +52,7 @@ class AccessibilityTreeSerializer {
         previous.values.forEach { runCatching { it.recycle() } }
         counter.set(0)
         val freshMap = HashMap<Int, AccessibilityNodeInfo>()
-        val result = if (root != null && root.packageName == OUR_PACKAGE) {
+        val result = if (root != null && root.packageName?.toString() == OUR_PACKAGE) {
             serializeNode(root, freshMap)
         } else {
             // No window, or a different-package window overlaying ours. Return a synthetic root
@@ -82,7 +82,7 @@ class AccessibilityTreeSerializer {
         val actions = node.actionList?.map { it.id.toString() } ?: emptyList()
         val children = (0 until node.childCount).mapNotNull { i ->
             val child = runCatching { node.getChild(i) }.getOrNull()
-            if (child != null && child.packageName == OUR_PACKAGE) serializeNode(child, into)
+            if (child != null && child.packageName?.toString() == OUR_PACKAGE) serializeNode(child, into)
             else { runCatching { child?.recycle() } ; null }
         }
         return NodeInfo(
@@ -112,7 +112,7 @@ class AccessibilityTreeSerializer {
         className: String?,
         limit: Int,
     ): List<NodeInfo> {
-        if (root == null || root.packageName != OUR_PACKAGE) return emptyList()
+        if (root == null || root.packageName?.toString() != OUR_PACKAGE) return emptyList()
         // Recycle the previous map first (we're about to rebuild it).
         map.values.forEach { runCatching { it.recycle() } }
         counter.set(0)
@@ -169,7 +169,7 @@ class AccessibilityTreeSerializer {
         for (i in 0 until node.childCount) {
             if (results.size >= limit) return
             val child = runCatching { node.getChild(i) }.getOrNull() ?: continue
-            if (child.packageName == OUR_PACKAGE) {
+            if (child.packageName?.toString() == OUR_PACKAGE) {
                 findNodesRecursive(child, into, text, resourceId, className, limit, results)
             } else {
                 runCatching { child.recycle() }

@@ -53,6 +53,10 @@ class TestControllerExecutor(
     )
 
     suspend fun execute(command: TestCommand): ExecutionOutcome {
+        // D-198 v3.1: show a toast for every command so the user sees what's happening.
+        // Throttled to 1.5s to avoid spam on rapid commands.
+        val cmdLabel = commandLabel(command)
+        TestToaster.show("🤖 $cmdLabel", throttleMs = 1500L)
         return try {
             when (command) {
                 // ── Session / control ──
@@ -275,5 +279,48 @@ class TestControllerExecutor(
         is NavExecutor.NavResult.Ok -> TestResult.Ok(id, message = "nav ok")
         is NavExecutor.NavResult.Error -> TestResult.Error(id, message = r.message, type = r.code)
         is NavExecutor.NavResult.Backstack -> TestResult.Backstack(id, keys = r.names)
+    }
+
+    /**
+     * Human-readable label for a command (shown in the toast).
+     * D-198 v3.1: the user wants to see what the agent is doing.
+     */
+    private fun commandLabel(command: TestCommand): String = when (command) {
+        is TestCommand.Ping -> "Ping"
+        is TestCommand.GetDeviceInfo -> "Device info"
+        is TestCommand.KeepScreenOn -> if (command.enabled) "Keep screen ON" else "Keep screen OFF"
+        is TestCommand.Wait -> "Wait ${command.ms}ms"
+        is TestCommand.RestartApp -> "Restart app"
+        is TestCommand.GetState -> "Get state" + if (command.includeScreenshot) " + screenshot" else ""
+        is TestCommand.FindNodes -> "Find nodes"
+        is TestCommand.Screenshot -> "📸 Screenshot"
+        is TestCommand.Tap -> {
+            val target = command.nodeId?.let { "node #$it" } ?: command.x?.let { x -> command.y?.let { y -> "($x,$y)" } } ?: "?"
+            "👆 Tap $target"
+        }
+        is TestCommand.LongClick -> {
+            val target = command.nodeId?.let { "node #$it" } ?: command.x?.let { x -> command.y?.let { y -> "($x,$y)" } } ?: "?"
+            "👆 Long-click $target"
+        }
+        is TestCommand.Swipe -> "👋 Swipe (${command.x1},${command.y1})→(${command.x2},${command.y2})"
+        is TestCommand.Scroll -> "📜 Scroll ${command.direction} ×${command.amount}"
+        is TestCommand.SetText -> "⌨️ Set text: \"${command.text.take(20)}\""
+        is TestCommand.Back -> "⬅️ Back"
+        is TestCommand.Home -> "🏠 Home"
+        is TestCommand.Recents -> "📋 Recents"
+        is TestCommand.Notifications -> "🔔 Notifications"
+        is TestCommand.PushRoute -> "🧭 Navigate to ${command.route}"
+        is TestCommand.Pop -> "⬅️ Pop backstack"
+        is TestCommand.ClearToRoot -> "🧭 Clear to ${command.root}"
+        is TestCommand.GetBackstack -> "📋 Get backstack"
+        is TestCommand.GetLogcat -> "📋 Get logcat (${command.lines} lines)"
+        is TestCommand.GetNetworkLogs -> "📋 Get network logs"
+        is TestCommand.GetActivityLogs -> "📋 Get activity logs"
+        is TestCommand.DbListTables -> "📋 List DB tables"
+        is TestCommand.DbQuery -> "🗄️ Query ${command.table}"
+        is TestCommand.DbQuerySql -> "🗄️ SQL query"
+        is TestCommand.DbCount -> "🗄️ Count ${command.table}"
+        is TestCommand.GetPreference -> "⚙️ Get pref: ${command.key}"
+        is TestCommand.SetPreference -> "⚙️ Set pref: ${command.key}"
     }
 }
