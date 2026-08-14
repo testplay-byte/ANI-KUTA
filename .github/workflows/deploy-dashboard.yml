@@ -6,6 +6,9 @@
 #
 # NOTE: Per CORE_RULES §4, all project zones live inside a single wrapper folder
 # `ANI-KUTA/`. The `.github/` folder stays at repo root (GitHub Actions constraint).
+#
+# D-198 v4.3: combined build + deploy into a single job to avoid the BlobNotFound
+# error (artifact expiry between jobs). Added TEST_BETA_FEATURE to the branch list.
 
 name: Deploy Dashboard
 
@@ -29,9 +32,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     defaults:
       run:
         working-directory: ANI-KUTA/DASHBOARD/webpage
@@ -53,19 +59,14 @@ jobs:
       - name: Build (static export)
         run: bun run build
 
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ANI-KUTA/DASHBOARD/webpage/out
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    timeout-minutes: 5
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
