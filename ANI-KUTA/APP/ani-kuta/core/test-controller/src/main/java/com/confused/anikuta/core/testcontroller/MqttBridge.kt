@@ -98,33 +98,35 @@ class MqttBridge(
      * Connect to the first reachable broker + subscribe to the command topic.
      * Idempotent: no-op if already connected. If all brokers fail, schedules a retry in 30s.
      */
-    suspend fun start() = withContext(Dispatchers.IO) {
-        if (client?.isConnected == true) return@withContext
-        retryJob?.cancel()
+    suspend fun start() {
+        withContext(Dispatchers.IO) {
+            if (client?.isConnected == true) return@withContext
+            retryJob?.cancel()
 
-        for (broker in BROKERS) {
-            TestToaster.show("Connecting to ${broker.label}…", throttleMs = 1000L)
-            Logger.i(TAG) { "trying broker ${broker.label} (${broker.host}:${broker.port})" }
-            try {
-                connectToBroker(broker)
-                connectedBroker = broker
-                TestToaster.show("✅ Test controller connected (${broker.label})")
-                Logger.i(TAG) { "MQTT bridge started on ${broker.label} — listening on $CMD_TOPIC" }
-                return@withContext
-            } catch (e: Exception) {
-                Logger.w(TAG) { "broker ${broker.label} failed: ${e::class.java.simpleName}: ${e.message}" }
-                // Try the next broker.
+            for (broker in BROKERS) {
+                TestToaster.show("Connecting to ${broker.label}…", throttleMs = 1000L)
+                Logger.i(TAG) { "trying broker ${broker.label} (${broker.host}:${broker.port})" }
+                try {
+                    connectToBroker(broker)
+                    connectedBroker = broker
+                    TestToaster.show("✅ Test controller connected (${broker.label})")
+                    Logger.i(TAG) { "MQTT bridge started on ${broker.label} — listening on $CMD_TOPIC" }
+                    return@withContext
+                } catch (e: Exception) {
+                    Logger.w(TAG) { "broker ${broker.label} failed: ${e::class.java.simpleName}: ${e.message}" }
+                    // Try the next broker.
+                }
             }
-        }
 
-        // All brokers failed — schedule a retry.
-        TestToaster.show("❌ Test broker unreachable — will retry in 30s")
-        Logger.e(TAG) { "all ${BROKERS.size} brokers failed — scheduling retry in ${RETRY_DELAY_MS}ms" }
-        retryJob = GlobalScope.launch {
-            delay(RETRY_DELAY_MS)
-            if (client?.isConnected != true) {
-                Logger.i(TAG) { "retry: attempting broker fallback cycle again" }
-                start()
+            // All brokers failed — schedule a retry.
+            TestToaster.show("❌ Test broker unreachable — will retry in 30s")
+            Logger.e(TAG) { "all ${BROKERS.size} brokers failed — scheduling retry in ${RETRY_DELAY_MS}ms" }
+            retryJob = GlobalScope.launch {
+                delay(RETRY_DELAY_MS)
+                if (client?.isConnected != true) {
+                    Logger.i(TAG) { "retry: attempting broker fallback cycle again" }
+                    start()
+                }
             }
         }
     }
