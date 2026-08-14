@@ -5,8 +5,10 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
+import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.testapi.ScrollDirection
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 /**
@@ -113,16 +115,25 @@ class GestureExecutor(
         return dispatchGesture(gesture)
     }
 
-    private suspend fun dispatchGesture(gesture: GestureDescription): Boolean =
-        suspendCancellableCoroutine { cont ->
-            val callback = object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(gesture: GestureDescription) { if (cont.isActive) cont.resume(true) }
-                override fun onCancelled(gesture: GestureDescription) { if (cont.isActive) cont.resume(false) }
+    private suspend fun dispatchGesture(gesture: GestureDescription): Boolean {
+        // D-198 v4.2: add a 10s timeout — on some devices (OnePlus custom ROMs), dispatchGesture
+        // returns true but the callback NEVER fires (known ROM bug). Without a timeout, the
+        // command hangs forever. With the timeout, we return false + the agent can retry.
+        return withTimeoutOrNull(10_000L) {
+            suspendCancellableCoroutine { cont ->
+                val callback = object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(gesture: GestureDescription) { if (cont.isActive) cont.resume(true) }
+                    override fun onCancelled(gesture: GestureDescription) { if (cont.isActive) cont.resume(false) }
+                }
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                val dispatched = service.dispatchGesture(gesture, callback, handler)
+                if (!dispatched && cont.isActive) {
+                    cont.resume(false) // dispatchGesture returned false (canPerformGestures not set).
+                }
             }
-            val handler = android.os.Handler(android.os.Looper.getMainLooper())
-            val dispatched = service.dispatchGesture(gesture, callback, handler)
-            if (!dispatched && cont.isActive) {
-                cont.resume(false) // dispatchGesture returned false (e.g. canPerformGestures not set).
-            }
+        } ?: run {
+            Logger.w("Anikuta:Test:Gesture") { "dispatchGesture timed out after 10s — ROM bug?" }
+            false
         }
+    }
 }

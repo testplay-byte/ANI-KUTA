@@ -113,6 +113,12 @@ class WsRelayClient(
      * If all connection attempts fail, schedules a retry in [RECONNECT_DELAY_MS].
      */
     suspend fun start() {
+        // D-198 v4.2: check the master toggle. If OFF, don't connect (even if called by retry job).
+        if (!TestControllerStatus.isEnabled()) {
+            Logger.d(TAG) { "start: controller is toggled OFF — not connecting" }
+            return
+        }
+
         // Fast path: already connected.
         if (webSocket != null && isConnected()) return
 

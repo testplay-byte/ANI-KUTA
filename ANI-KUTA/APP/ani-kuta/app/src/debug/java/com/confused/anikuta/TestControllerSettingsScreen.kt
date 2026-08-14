@@ -124,7 +124,7 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
     // D-198 v4.1: toggle on/off — when OFF, the WsRelayClient disconnects + won't reconnect.
     // Uses a SettingsRepository key so the state persists across app restarts.
     var testControllerEnabled by remember {
-        mutableStateOf(settings.getSetting(SETTING_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true)
+        mutableStateOf(settings.getSetting(TestControllerStatus.SETTING_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true)
     }
 
     val configuredUrl = remember {
@@ -194,7 +194,7 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
                                         checked = testControllerEnabled,
                                         onCheckedChange = { enabled ->
                                             testControllerEnabled = enabled
-                                            settings.upsertSetting(SETTING_ENABLED_KEY, enabled.toString(), "bool", "debug")
+                                            settings.upsertSetting(TestControllerStatus.SETTING_ENABLED_KEY, enabled.toString(), "bool", "debug")
                                             if (enabled) {
                                                 showToast(context, "Test controller enabled — reconnecting…")
                                                 TestControllerStatus.ensureConnected()
@@ -544,9 +544,6 @@ private fun BackAction(onBack: () -> Unit) {
  * module boundary (keeping this file's surface minimal).
  */
 private const val RELAY_URL_KEY = "debug.test.relay_url"
-
-/** SettingsRepository key for the on/off toggle (D-198 v4.1). */
-private const val SETTING_ENABLED_KEY = "debug.test.enabled"
 
 /**
  * Show a short toast. Always posted to the main looper — safe to call from any
