@@ -11,7 +11,9 @@ name: Deploy Dashboard
 
 on:
   push:
-    branches: [ main ]
+    # 'TEST_BETA_FEATURE' added on this branch only (branch-only edit; main's trigger is unchanged).
+    # Remove before merging to main if the branch is short-lived.
+    branches: [ main, 'TEST_BETA_FEATURE' ]
     paths:
       - 'ANI-KUTA/DASHBOARD/webpage/**'
       - '.github/workflows/deploy-dashboard.yml'
