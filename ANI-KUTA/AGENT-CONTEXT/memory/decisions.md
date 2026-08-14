@@ -46,8 +46,8 @@
 - **Status:** ✅ Confirmed by user.
 - **Date:** Phase 0.
 
-### D-008 — SDK levels: minSdk 24, targetSdk 35, compileSdk 35, JDK 17
-- **What:** minSdk 24 (Android 7.0), targetSdk/compileSdk 35 (Android 15), JDK 17 for CI.
+### D-008 — SDK levels: minSdk 24, targetSdk 36, compileSdk 36, JDK 17
+- **What:** minSdk 24 (Android 7.0), targetSdk/compileSdk 36 (Android 16 — kept at 36 for Compose BOM 2025.03.00 + future-proofing; was originally bumped for Nav3 but Nav3 was removed in D-150 — SDK stays at 36 because reverting provides no benefit), JDK 17 for CI.
 - **Why:** User-approved recommendations.
 - **Status:** ✅ Confirmed by user.
 - **Date:** Phase 0.
@@ -1084,7 +1084,7 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **What:** The app's navigation uses a hand-rolled backstack — `mutableStateListOf<NavKey>` + a `when(currentKey)` dispatch in `MainActivity.kt`. `NavKey` is the project marker `com.confused.anikuta.core.navigation.NavKey`, NOT `androidx.navigation3.NavKey`. Nav3 1.1.5 is declared as a dependency in 7 `build.gradle.kts` files but has ZERO `androidx.navigation3.*` imports — it is unused dead weight on the classpath (and is the reason `compileSdk` was bumped to 36). **Decision: keep the hand-rolled navigation as-is. Do NOT migrate to Nav3.**
 - **Accepted limitation:** the hand-rolled backstack does NOT survive process death (held in `remember { }`, not `rememberSaveable`). This means R7 — the back-stack-recreation-on-process-death benefit that motivated choosing Nav3 in `12-nav-research.md` — is **NOT realized**. If the OS kills the app process while the user is several screens deep, the backstack is lost and the app reopens at the root screen. The manifest's `configChanges` mitigates configuration changes (rotation, theme toggle — Activity is not recreated), but NOT process death. This is accepted as a known limitation.
 - **Why:** (1) The hand-rolled nav works well for the current 16 screens; the `when`-dispatch is simple and agent-friendly. (2) Migrating to Nav3 is medium-large effort (~2-4 hours + CI) with a real risk — `WatchKey` has 13 fields / 4 large pre-serialized strings that could approach the 1MB `TransactionTooLargeException` Bundle limit. (3) No forcing function (deep links R6 / dynamic tabs R3) is on the near-term roadmap. (4) The user explicitly decided to keep hand-rolled.
-- **Nav3 dependency:** stays on the classpath for now (removing it touches 7 modules + could allow reverting `compileSdk` to 35 — a separate cleanup, deferred). Documented as unused.
+- **Nav3 dependency:** fully REMOVED from all build files (libs.versions.toml + all module build.gradle.kts). Zero `androidx.navigation3.*` imports remain. compileSdk stays at 36 (reverting provides no benefit — see D-008).
 - **If R7 becomes important later:** the smallest fix is a hybrid — swap `remember { mutableStateListOf<NavKey>(...) }` → `rememberSaveable(saver = listSaver(...))` using kotlinx.serialization polymorphism (~1-2 hours, fixes R7 only without a full Nav3 migration). Sketch in sandbox `ani-kuta-analysis/03-nav3-comparison.md` Option C.1.
 - **Status:** ✅ Decided (keep hand-rolled). Docs updated: `12-nav-research.md` (Resolution note at top), `progress.md` (What's Next item 3 → decided), `master.md` + `SESSION.md` (open items). Resolution recorded in `12-nav-research.md`.
 - **Date:** analysis-and-doc-update session.
@@ -1419,7 +1419,7 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **What:** Established a formal "Deferred Concerns" registry in `memory/progress.md` tracking 11 known issues that were identified during the project review but deferred to future phases per user direction. Each item has: severity, estimated effort, dependencies/notes. The 11 items:
   1. AniList tracker is a placeholder (expected — not yet implemented).
   2. HttpDownloader.reResolver orphaned (D-149) — built but not wired; signatures mismatched.
-  3. Main-thread runBlocking in Downloads→Watch SAF scan (MainActivity.kt:428) — ANR risk.
+  3. Main-thread runBlocking in Downloads→Watch SAF scan (MainActivity.kt:470) — ANR risk.
   4. Dead/unwired download code (D-151) — DownloadVideoPickerSheet, setRetryingStatus.
   5. Outer retry loop not implemented (D-151) — RetryPolicy class doesn't exist.
   6. WatchKey god-object (15 fields, 5 pre-serialized strings) — refactor to identifier-only.

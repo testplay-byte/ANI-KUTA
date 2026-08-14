@@ -25,7 +25,7 @@ Per CORE_RULES §4, the repo root contains exactly ONE wrapper folder (`ANI-KUTA
 ANI-KUTA/                        ← repo root (git)
 ├── ANI-KUTA/                    ← SINGLE wrapper folder (all project zones inside)
 │   ├── AGENT-CONTEXT/           ← you are here (agent memory + rules, versioned in repo)
-│   ├── APP/ani-kuta/            ← Android app (46 Gradle modules, 315 .kt, 28 DB tables / 15 .sq files)
+│   ├── APP/ani-kuta/            ← Android app (46 Gradle modules, 331 .kt, 26 DB tables / 15 .sq files)
 │   ├── DASHBOARD/webpage/       ← Next.js dashboard (14 pages → GitHub Pages)
 │   └── REFERENCES/              ← old-kuta + animiru + webview-cloudflare-captcha (read-only)
 └── .github/workflows/           ← CI: build APK + deploy dashboard
@@ -74,7 +74,7 @@ ANI-KUTA/                        ← repo root (git)
 
 - **Branch**: `main` (all feature branches — `download-system-plan`, `feature/watch-progress-history-updates`, `feature/debug-bubble`, `feature/db-optimization-ratings-cw` — merged + deleted; only `main` remains).
 - **Phase**: **ALL MAJOR PHASES COMPLETE.** Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress — SQLDelight-persisted), Phase HI (history), Phase UP (updates + WorkManager), Phase SC (schedule + calendar), Phase TR (ratings store), Phase NOTIF (notifications), Phase CW (continue-watching logic), the Debug Bubble (DB-1..DB-9), and Profile UI v1-v6 are ALL DONE and on `main`.
-- **Modules**: 46 Gradle modules (1 `:app` + 26 `:core:*` + 1 `:data:extension` + 18 `:feature:*` with api/impl splits). 28 SQLDelight tables across 15 `.sq` files. 315 Kotlin files. Decisions D-001..D-186. 134 lessons learned.
+- **Modules**: 46 Gradle modules (1 `:app` + 26 `:core:*` + 1 `:data:extension` + 18 `:feature:*` with api/impl splits). 26 SQLDelight tables across 15 `.sq` files. 331 Kotlin files. Decisions D-001..D-193. 163 lessons learned.
 - **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/` (14 pages, data updated this session).
 - **Current focus** (next session): **Database management + quality** — user will provide a fresh DB export (via debug bubble) after a clean-install test run. Agent will analyze the DB for flaws (things not updating correctly, structural issues) and propose improvements.
 - **Deferred Concerns** (saved in `memory/progress.md` → "Deferred Concerns"):

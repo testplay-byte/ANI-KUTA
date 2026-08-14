@@ -29,7 +29,7 @@
 |--------|-----|-----------|------------|
 | `:core:common` | Logger wrapper (filtered, toggleable), Dispatchers, Result, ContentType, constants | `Logger.kt` | — |
 | `:core:designsystem` | AnikutaTheme — lime #B1F256 accent, warm-dark surfaces, 10 accent presets (D-053), components | `Theme.kt`, `Color.kt`, `Type.kt`, `Shapes.kt` | `:core:common` |
-| `:core:database` | SQLDelight schema — **28 tables / 15 .sq files**. `DatabaseDriverFactory` (onOpen migration: FK enforcement, index management). | `*.sq`, `DatabaseDriverFactory.kt` | `:core:common` |
+| `:core:database` | SQLDelight schema — **26 tables / 15 .sq files**. `DatabaseDriverFactory` (onOpen migration: FK enforcement, index management). | `*.sq`, `DatabaseDriverFactory.kt` | `:core:common` |
 | `:core:preferences` | `PreferenceStore` (reactive Flow accessors), AppPreferences, PlayerPreferences, DownloadPreferences, NotificationPreferences, AutoLinkPreferences, DebugBubblePreferences | `PreferenceStore.kt` | `:core:common` |
 | `:core:navigation-api` | `NavKey` sealed-class contracts (hand-rolled, D-150 — NOT Nav3), `ContentMode`, `\u001F` delimiter constant | `NavKey.kt` | `:core:common` |
 | `:core:network` | OkHttp `HttpClientFactory` (browser UA, 2 clients: default + download-qualified) | `HttpClientFactory.kt` | `:core:common` |

@@ -22,7 +22,7 @@ ANI-KUTA is an Android anime streaming/downloading app, rebuilt from scratch fro
 - **App ID**: `com.confused.anikuta`
 - **APK builds**: GitHub Actions only — `arm64-v8a` + `armeabi-v7a` only (CORE_RULES §8). Never local.
 - **Tech**: Kotlin 2.2.0 + Compose (BOM 2025.03.00) + MPV (aniyomi-mpv-lib 1.18.n) + SQLDelight 2.0.2 + Koin 4.2.2 + Injekt (isolated) + Coil 3.0.4 + OkHttp 5.0.0-alpha.14. compileSdk 36, minSdk 24.
-- **Scale**: 46 modules, 28 SQLDelight tables, 315 Kotlin files, D-001..D-186 decisions, 134 lessons learned.
+- **Scale**: 46 modules, 26 SQLDelight tables, 331 Kotlin files, D-001..D-193 decisions, 163 lessons learned.
 
 ## Scope
 - **Android app** (primary) — `APP/ani-kuta/`.

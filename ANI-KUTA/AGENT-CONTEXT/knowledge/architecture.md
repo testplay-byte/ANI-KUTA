@@ -23,7 +23,7 @@ The app is split into two independent layers per screen/feature. The UI can be c
 │  BACKEND (Data Layer)                    │
 │  - Fetches data (AniList GraphQL / ext)  │
 │  - Processes / transforms / caches       │
-│  - Persists to SQLDelight (28 tables)    │
+│  - Persists to SQLDelight (26 tables)    │
 │  - Exposes Flow<T> / StateFlow<UiState>  │
 └─────────────────────────────────────────┘
 ```
@@ -98,12 +98,12 @@ when (currentKey) {                          ← single dispatch in AppRoot()
 
 ---
 
-## Database (SQLDelight — 28 tables / 15 .sq files)
+## Database (SQLDelight — 26 tables / 15 .sq files)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  SQLDelight 2.0.2  (AndroidSqliteDriver — system SQLite)│
-│  28 tables across 15 .sq files                           │
+│  26 tables across 15 .sq files                           │
 │  PRAGMA foreign_keys = ON (D-166)                        │
 │  onOpen migration (idempotent: hasColumn + IF [NOT] EX)  │
 └─────────────────────────────────────────────────────────┘
@@ -125,7 +125,7 @@ when (currentKey) {                          ← single dispatch in AppRoot()
 | Genres | `genres.sq` | genre, content_genre | 2 |
 | Notifications | `notifications.sq` | notification_config, notification_sent | 2 |
 | Ratings | `ratings.sq` | user_rating, user_episode_rating | 2 |
-| **Total** | **15 files** | | **28 tables** |
+| **Total** | **15 files** | | **26 tables** |
 
 ### SQLite constraints
 - minSdk 24 → API 24-28 ships SQLite 3.9-3.22 → **no UPSERT** (needs 3.24+). `INSERT OR REPLACE` used instead.

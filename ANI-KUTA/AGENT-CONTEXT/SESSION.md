@@ -12,7 +12,7 @@ GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `AN
 ## 📂 If The Environment Was Just Cloned
 1. `cd /home/z/my-project/ANI-KUTA` (if missing → re-clone from GitHub; the wrapper folder is `ANI-KUTA/ANI-KUTA/` inside).
 2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers + **Deferred Concerns** (read the top sections first).
-3. Read `AGENT-CONTEXT/memory/decisions.md` → "Pending Decisions" section (latest = D-186; all pending items answered).
+3. Read `AGENT-CONTEXT/memory/decisions.md` → "Pending Decisions" section (latest = D-193; all pending items answered).
 4. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task.
 
 ## 🔑 Key Rules (full detail in `CORE_RULES.md` — 30 sections)

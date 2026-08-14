@@ -11,7 +11,7 @@
 
 ## New Project (this one)
 - **Location**: `APP/ani-kuta/`.
-- **Size**: 46 Gradle modules, 315 Kotlin files, 28 SQLDelight tables.
+- **Size**: 46 Gradle modules, 331 Kotlin files, 26 SQLDelight tables.
 - **Package**: `com.confused.anikuta.*`.
 - **Status**: Clean rebuild. Modular, documented, customizable, future-proof. All major phases complete. Debug builds only.
 
@@ -20,7 +20,7 @@
 | Aspect | Old Project | New Project |
 |--------|-------------|-------------|
 | Modules | 36 active | 46 (1 app + 26 core + 1 data + 18 feature) |
-| Kotlin files | 451 | 315 (leaner — less duplication) |
+| Kotlin files | 451 | 331 (leaner — less duplication) |
 | DI | Koin + Injekt (spread everywhere) | Koin 4.2.2 (primary) + Injekt (isolated to Aniyomi ext only — D-034) |
 | Persistence | SQLDelight | SQLDelight 2.0.2 (same choice — D-035) |
 | Navigation | Voyager 1.0.1 | Hand-rolled `mutableStateListOf<NavKey>` (D-150 — Nav3 was tried + removed) |
