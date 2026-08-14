@@ -5,6 +5,7 @@ import android.content.Context
 import app.cash.sqldelight.db.SqlDriver
 import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.anilist.di.anilistModule
+import com.confused.anikuta.core.appupdate.di.appUpdateModule
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
@@ -107,6 +108,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 ratingsModule,
                 notificationsModule,
                 activityTrackerModule,
+                appUpdateModule,
                 extensionModule,
                 playerModule,
                 videoResolverModule,

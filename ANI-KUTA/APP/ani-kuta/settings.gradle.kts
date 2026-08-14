@@ -47,6 +47,7 @@ include(":core:updates")
 include(":core:schedule")
 include(":core:ratings")
 include(":core:notifications")
+include(":core:app-update")
 include(":core:debug-api")
 
 // ── :data ──
