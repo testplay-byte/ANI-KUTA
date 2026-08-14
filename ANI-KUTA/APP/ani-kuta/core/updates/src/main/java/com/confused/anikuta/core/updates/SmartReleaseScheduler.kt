@@ -57,7 +57,7 @@ class SmartReleaseScheduler(
             SmartReleaseCheckWorker.schedule(
                 context = context,
                 mainId = state.mainId,
-                episodeNumber = episodeNumber,
+                episodeNumber = episodeNumber.toDouble(),
                 airingAt = airingAt,
                 attempt = 1,
             )
