@@ -115,6 +115,7 @@ class TestAccessibilityService : AccessibilityService() {
         TestToaster.init(applicationContext)
         wsClient = WsRelayClient(executor = executor, settings = settingsRepo, scope = scope)
         TestControllerStatus.register(wsClient!!)
+        TestControllerStatus.registerOverlay(actionPreviewOverlay)
         TestToaster.show("🔌 Test controller starting…")
         scope.launch { wsClient?.start() }
         Logger.i(TAG) { "test controller connected — WS relay client starting" }

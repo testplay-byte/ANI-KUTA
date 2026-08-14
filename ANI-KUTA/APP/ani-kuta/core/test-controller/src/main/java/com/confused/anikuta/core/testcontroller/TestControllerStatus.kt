@@ -33,12 +33,19 @@ object TestControllerStatus {
     const val SETTING_ENABLED_KEY = "debug.test.enabled"
 
     @Volatile private var clientRef: WeakReference<WsRelayClient>? = null
+    @Volatile private var overlayRef: WeakReference<ActionPreviewOverlay>? = null
     @Volatile private var lastCheckTime: Long = 0L
 
     /** Called by [TestAccessibilityService.onServiceConnected]. */
     fun register(client: WsRelayClient) {
         clientRef = WeakReference(client)
         Logger.i(TAG) { "WS client registered" }
+    }
+
+    /** Called by [TestAccessibilityService.onServiceConnected] to register the overlay. */
+    fun registerOverlay(overlay: ActionPreviewOverlay) {
+        overlayRef = WeakReference(overlay)
+        Logger.i(TAG) { "overlay registered" }
     }
 
     /** Called by [TestAccessibilityService.onUnbind]. */
@@ -69,6 +76,7 @@ object TestControllerStatus {
     /**
      * Disconnect the client (D-198 v4.1 — user toggled the controller OFF).
      * The client will NOT auto-reconnect because [ensureConnected] checks [isEnabled] first.
+     * D-198 v5.2: also clears all overlay dots from the screen.
      */
     fun disconnect() {
         val client = clientRef?.get()
@@ -79,6 +87,8 @@ object TestControllerStatus {
             }
             Logger.i(TAG) { "client disconnected by user toggle" }
         }
+        // D-198 v5.2: clear all overlay dots from the screen.
+        overlayRef?.get()?.clearAllOverlays()
     }
 
     /**

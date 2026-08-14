@@ -10,25 +10,27 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.view.animation.AlphaAnimation
-import android.view.animation.Animation
-import android.view.animation.ScaleAnimation
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * Visual action preview overlay (D-198 v5.1).
+ * Visual action preview overlay (D-198 v5.2).
  *
- * Shows a small accent-colored circle at the action location for 1 second before
- * performing the action. The circle is:
+ * Shows a small accent-colored circle at the action location for 1 second, then
+ * removes it and performs the action.
+ *
+ * D-198 v5.2 fixes:
+ *  - Removed ALL animations (AlphaAnimation, ScaleAnimation) — the animation listeners
+ *    never fire on TYPE_ACCESSIBILITY_OVERLAY windows, causing dots to stay forever
+ *    and actions to never execute.
+ *  - Now uses a simple Handler.postDelayed to remove the view + call onComplete.
+ *  - Added clearAllOverlays() for toggle-off cleanup.
+ *  - Tracks all active overlay views in a Set for cleanup.
+ *
+ * The circle is:
  *  - Small (24dp diameter)
- *  - No text inside
- *  - No border
+ *  - No text, no border
  *  - Accent green (#B1F256) at 70% opacity
- *  - Pulsing scale animation (grows slightly then shrinks)
- *
- * Uses [WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY] — no extra permissions.
- *
- * The 1-second delay is intentional — it shows the user what's about to happen
- * before the action is performed.
+ *  - Shown for 1 second, then removed
  */
 class ActionPreviewOverlay(
     private val service: AccessibilityService,
@@ -44,17 +46,34 @@ class ActionPreviewOverlay(
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val density = service.resources.displayMetrics.density
 
+    /** All active overlay views — used by clearAllOverlays() to remove everything. */
+    private val activeOverlays = CopyOnWriteArraySet<View>()
+
     var previewDurationMs: Long = DEFAULT_PREVIEW_DURATION_MS
 
     /**
      * Show a small accent-colored circle at (x, y) for [previewDurationMs], then call [onComplete].
+     * The circle is removed + the action is performed after the delay.
      */
     fun showTapPreview(x: Float, y: Float, onComplete: () -> Unit) {
         handler.post {
-            val view = createCircleView()
-            val size = (CIRCLE_SIZE_DP * density).toInt()
-            val params = createOverlayParams(x.toInt(), y.toInt(), size)
-            addOverlayWithAnimation(view, params, onComplete)
+            try {
+                val view = createCircleView()
+                val size = (CIRCLE_SIZE_DP * density).toInt()
+                val params = createOverlayParams(x.toInt(), y.toInt(), size)
+
+                windowManager.addView(view, params)
+                activeOverlays.add(view)
+
+                // Simple delayed removal — NO animations (they don't fire on TYPE_ACCESSIBILITY_OVERLAY).
+                handler.postDelayed({
+                    removeOverlay(view)
+                    onComplete()
+                }, previewDurationMs)
+            } catch (e: Exception) {
+                // If the overlay fails, just proceed with the action immediately.
+                onComplete()
+            }
         }
     }
 
@@ -70,6 +89,19 @@ class ActionPreviewOverlay(
 
     fun showLabelPreview(x: Float, y: Float, label: String, onComplete: () -> Unit) {
         showTapPreview(x, y, onComplete)
+    }
+
+    /**
+     * Remove ALL active overlay views from the screen.
+     * Called when the test controller is toggled OFF — ensures no dots remain.
+     */
+    fun clearAllOverlays() {
+        handler.post {
+            for (view in activeOverlays) {
+                removeOverlay(view)
+            }
+            activeOverlays.clear()
+        }
     }
 
     // ── Internals ──
@@ -99,48 +131,12 @@ class ActionPreviewOverlay(
         }
     }
 
-    private fun addOverlayWithAnimation(
-        view: View,
-        params: WindowManager.LayoutParams,
-        onComplete: () -> Unit,
-    ) {
+    private fun removeOverlay(view: View) {
         try {
-            // Scale animation: start small, grow to 1.2x, shrink back.
-            val scaleAnim = ScaleAnimation(
-                0.5f, 1.2f, 0.5f, 1.2f,
-                Animation.RELATIVE_TO_SELF, 0.5f,
-                Animation.RELATIVE_TO_SELF, 0.5f,
-            ).apply {
-                duration = 300
-                fillAfter = true
-            }
-            // Fade in.
-            val fadeIn = AlphaAnimation(0f, 1f).apply {
-                duration = 150
-                fillAfter = true
-            }
-            view.startAnimation(fadeIn)
-            windowManager.addView(view, params)
-
-            // After the preview duration, fade out + remove + perform action.
-            handler.postDelayed({
-                val fadeOut = AlphaAnimation(1f, 0f).apply {
-                    duration = 200
-                    fillAfter = true
-                    setAnimationListener(object : Animation.AnimationListener {
-                        override fun onAnimationStart(a: Animation?) {}
-                        override fun onAnimationRepeat(a: Animation?) {}
-                        override fun onAnimationEnd(a: Animation?) {
-                            runCatching { windowManager.removeView(view) }
-                            onComplete()
-                        }
-                    })
-                }
-                view.startAnimation(fadeOut)
-            }, previewDurationMs)
+            windowManager.removeView(view)
         } catch (e: Exception) {
-            runCatching { windowManager.removeView(view) }
-            onComplete()
+            // View might already be removed — ignore.
         }
+        activeOverlays.remove(view)
     }
 }
