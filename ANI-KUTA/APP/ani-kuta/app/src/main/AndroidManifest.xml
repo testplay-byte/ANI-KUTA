@@ -62,6 +62,16 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- App self-update download foreground service.
+             Keeps the download alive when the app is killed from recents.
+             Shares NOTIFICATION_ID 9999 with UpdateNotificationManager so the
+             service's startForeground notification and the manager's progress
+             updates merge into a single shade notification. -->
+        <service
+            android:name="com.confused.anikuta.core.appupdate.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Phase UP: Disable default WorkManagerInitializer (we use Configuration.Provider) -->
         <provider
             android:name="androidx.startup.InitializationProvider"

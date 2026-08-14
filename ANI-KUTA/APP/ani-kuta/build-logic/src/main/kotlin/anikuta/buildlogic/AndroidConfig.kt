@@ -10,7 +10,7 @@ object AndroidConfig {
     const val minSdk = 24
     const val targetSdk = 36
     const val versionCode = 5
-    const val versionName = "0.2.3"
+    const val versionName = "0.2.4"
 
     // HARD RULE (CORE_RULES.md §8): ONLY arm64-v8a + armeabi-v7a. No x86/x86_64.
     val abiFilters = listOf("arm64-v8a", "armeabi-v7a")

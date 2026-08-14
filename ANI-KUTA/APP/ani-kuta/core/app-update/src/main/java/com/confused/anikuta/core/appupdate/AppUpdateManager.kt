@@ -1,9 +1,14 @@
 package com.confused.anikuta.core.appupdate
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,7 +66,64 @@ class AppUpdateManager(
     private val downloader = UpdateDownloader(context, createOkHttpClient())
     private val installer = ApkInstaller(context)
 
+    /**
+     * Manages the system notification (progress + completion + cancel action).
+     * Lazily-initialized on first use (creates the notification channel in [init]).
+     */
+    private val updateNotificationManager = UpdateNotificationManager(context)
+
+    /**
+     * The coroutine job for the active download flow. Stored so that
+     * [cancelDownload] can call `cancel()` on it — without this, the
+     * download flow would keep emitting progress after the user tapped
+     * Cancel, causing the UI to flicker (null → non-null → null → non-null)
+     * and the download to continue.
+     */
+    private var downloadJob: Job? = null
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /**
+     * BroadcastReceiver for the notification's "Cancel" action button.
+     *
+     * Registered in [init] (package-scoped on API 33+). When the user taps
+     * "Cancel" in the system shade notification, the
+     * [UpdateNotificationManager] fires a broadcast with the
+     * [UpdateNotificationManager.ACTION_CANCEL] intent → this receiver
+     * catches it → calls [cancelDownload].
+     */
+    private val cancelReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == UpdateNotificationManager.ACTION_CANCEL) {
+                Logger.i(TAG) { "cancelReceiver: cancel broadcast received from notification" }
+                cancelDownload()
+            }
+        }
+    }
+
+    init {
+        // Create the notification channel up-front (idempotent).
+        updateNotificationManager.createChannel()
+
+        // Register the cancel-action receiver. Package-scoped (the broadcast
+        // is sent with setPackage(context.packageName) by
+        // UpdateNotificationManager, so other apps can't trigger it).
+        try {
+            val filter = IntentFilter(UpdateNotificationManager.ACTION_CANCEL)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(cancelReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                context.registerReceiver(cancelReceiver, filter)
+            }
+            Logger.i(TAG) { "init: cancel broadcast receiver registered" }
+        } catch (e: Exception) {
+            // Best-effort — the receiver is only used to wire the notification's
+            // Cancel button to cancelDownload(). If registration fails (e.g.
+            // receiver-heavy context), the in-app UI still works.
+            Logger.w(TAG, e) { "init: failed to register cancel receiver" }
+        }
+    }
 
     private val _latestUpdate = MutableStateFlow<AppUpdateInfo?>(null)
     val latestUpdate: StateFlow<AppUpdateInfo?> = _latestUpdate.asStateFlow()
@@ -314,10 +376,40 @@ class AppUpdateManager(
         // D-199: set a "starting" state immediately so the UI shows progress
         // right away (instead of staying on "Download" until the first byte arrives).
         _downloadProgress.value = DownloadProgress.downloading(0L, update.apkSizeBytes, null)
-        scope.launch {
+
+        // ── Start the foreground service + post the initial notification ──
+        // The service keeps the process alive if the user swipes the app
+        // from recents. The notification is shared (same NOTIFICATION_ID)
+        // between the service's startForeground + UpdateNotificationManager.
+        try {
+            UpdateDownloadService.start(context, update.versionName)
+            updateNotificationManager.showProgress(
+                versionName = update.versionName,
+                percent = 0,
+                downloadedBytes = 0L,
+                totalBytes = update.apkSizeBytes,
+            )
+        } catch (e: Exception) {
+            // Best-effort — the download can still proceed without the
+            // foreground service / notification.
+            Logger.w(TAG, e) { "startDownload: failed to start foreground service / notification" }
+        }
+
+        downloadJob = scope.launch {
             try {
                 downloader.download(update).collect { progress ->
                     _downloadProgress.value = progress
+                    // Update the system notification on every progress emission
+                    // (the manager dedupes via setOnlyAlertOnce).
+                    if (!progress.isComplete && progress.error == null) {
+                        val percent = progress.percent ?: 0
+                        updateNotificationManager.showProgress(
+                            versionName = update.versionName,
+                            percent = percent,
+                            downloadedBytes = progress.bytesDownloaded,
+                            totalBytes = progress.totalBytes,
+                        )
+                    }
                     if (progress.isComplete && progress.error == null) {
                         // Record the downloaded APK.
                         val apkFile = downloader.getApkFile(update.versionName)
@@ -331,8 +423,26 @@ class AppUpdateManager(
                             ),
                         )
                         Logger.i(TAG) { "startDownload: download complete + recorded — ${apkFile.absolutePath}" }
+                        // Replace the progress notification with the
+                        // "ready to install" notification (auto-cancel on tap).
+                        updateNotificationManager.showComplete(update.versionName)
+                        // Stop the foreground service — the download is done,
+                        // no need to keep the process at foreground priority.
+                        UpdateDownloadService.stop(context)
+                    }
+                    if (progress.error != null) {
+                        // Download errored — stop the foreground service +
+                        // cancel the notification. The UI shows a Retry button
+                        // via the downloadProgress StateFlow.
+                        updateNotificationManager.cancel()
+                        UpdateDownloadService.stop(context)
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Expected — cancelDownload() cancelled the job. Re-throw so
+                // the coroutine machinery marks it as cancelled (not failed).
+                Logger.i(TAG) { "startDownload: download coroutine cancelled by cancelDownload()" }
+                throw e
             } catch (e: Exception) {
                 // D-199: defensive catch — if the flow itself throws (not just
                 // emits an error), capture it here so the app doesn't crash.
@@ -343,6 +453,9 @@ class AppUpdateManager(
                 // Clean up partial file.
                 val apkFile = downloader.getApkFile(update.versionName)
                 if (apkFile.exists()) apkFile.delete()
+                // Stop the foreground service + cancel the notification.
+                updateNotificationManager.cancel()
+                UpdateDownloadService.stop(context)
             }
         }
     }
@@ -392,13 +505,40 @@ class AppUpdateManager(
      *
      * Called when the user taps the cancel (X) button on the About page's
      * download progress bar, OR when they tap the delete button on the
-     * download error card. Clears `_downloadProgress` so the UI reverts
+     * download error card, OR when they tap "Cancel" on the system
+     * notification's progress bar (which fires a broadcast received by
+     * [cancelReceiver]). Clears `_downloadProgress` so the UI reverts
      * to the "Download" button state.
+     *
+     * # Why we cancel the job
+     *
+     * The download flow (`downloader.download(update).collect { ... }`)
+     * runs in a coroutine launched by [startDownload]. If we just set
+     * `_downloadProgress.value = null` without cancelling the job, the
+     * flow would keep emitting progress + the collect block would re-set
+     * `_downloadProgress` back to non-null — the UI would flicker (null →
+     * non-null → null → non-null) and the download would continue.
+     *
+     * Cancelling the job propagates a `CancellationException` into the
+     * `collect` block, which the existing try-catch handles gracefully
+     * (the catch clause for `CancellationException` just logs + re-throws
+     * so the coroutine machinery marks it as cancelled, not failed).
      */
     fun cancelDownload() {
         Logger.i(TAG) { "cancelDownload: cancelling + cleaning up" }
+        // ── Cancel the download coroutine FIRST ──
+        // This stops new progress emissions from re-setting _downloadProgress
+        // after we null it out below. The flow's `collect` will throw a
+        // CancellationException which the try-catch in startDownload handles.
+        downloadJob?.cancel()
+        downloadJob = null
+        // ── Cancel the system notification ──
+        updateNotificationManager.cancel()
+        // ── Stop the foreground service ──
+        UpdateDownloadService.stop(context)
+        // ── Clear the progress state ──
         _downloadProgress.value = null
-        // Delete the partial APK file if it exists.
+        // ── Delete the partial APK file if it exists ──
         _latestUpdate.value?.let { update ->
             val apkFile = downloader.getApkFile(update.versionName)
             if (apkFile.exists()) {

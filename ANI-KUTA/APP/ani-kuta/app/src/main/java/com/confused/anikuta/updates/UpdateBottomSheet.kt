@@ -25,8 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.InstallMobile
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,11 +36,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -121,6 +126,13 @@ fun UpdateBottomSheet(
 
     // Check if this version is already downloaded (file exists on disk)
     val isAlreadyDownloaded = updateManager.isLatestUpdateDownloaded()
+
+    // ── Cancel-confirmation dialog state ──
+    // When the user taps the download button during download, this flips
+    // to true + the AlertDialog renders. The download button itself swaps
+    // from the progress bar to a CircularProgressIndicator while the dialog
+    // is open (visual cue that the tap was registered).
+    var showCancelDialog by remember { mutableStateOf(false) }
 
     val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.75f
@@ -258,6 +270,13 @@ fun UpdateBottomSheet(
                         val path = updateManager.getDownloadedApkPath()
                         updateManager.installDownloadedApk(path)
                     },
+                    // While the cancel-confirmation dialog is showing, the
+                    // download button swaps from the progress bar to a small
+                    // spinner (visual cue that the tap was registered).
+                    showSpinner = showCancelDialog,
+                    // Tapping the downloading button opens the cancel
+                    // confirmation dialog (instead of being a no-op).
+                    onCancelClick = { showCancelDialog = true },
                     modifier = Modifier.weight(1f),
                 )
 
@@ -283,6 +302,27 @@ fun UpdateBottomSheet(
             }
         }
     }
+
+    // ── Cancel-confirmation dialog ──
+    // Renders OUTSIDE the ModalBottomSheet (AlertDialog is its own window).
+    // Shows when the user taps the download button during download. Yes →
+    // cancel the download. No → dismiss the dialog, download continues.
+    if (showCancelDialog) {
+        AlertDialog(
+            onDismissRequest = { showCancelDialog = false },
+            title = { Text("Cancel Download?") },
+            text = { Text("Do you want to cancel the download? Any downloaded data will be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCancelDialog = false
+                    updateManager.cancelDownload()
+                }) { Text("Yes, Cancel") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelDialog = false }) { Text("No") }
+            },
+        )
+    }
 }
 
 /**
@@ -307,6 +347,14 @@ private fun DownloadButtonWithProgress(
     onDownload: () -> Unit,
     onInstall: () -> Unit,
     modifier: Modifier = Modifier,
+    // While the cancel-confirmation dialog is showing, the downloading button
+    // swaps from the progress bar to a small spinner (visual cue that the
+    // tap was registered).
+    showSpinner: Boolean = false,
+    // Called when the user taps the button in the downloading state.
+    // Opens the cancel-confirmation dialog (passed down from the parent
+    // UpdateBottomSheet composable).
+    onCancelClick: () -> Unit = {},
 ) {
     val isDownloading = progress != null && !progress.isComplete && progress.error == null
     val isComplete = progress != null && progress.isComplete && progress.error == null
@@ -357,17 +405,40 @@ private fun DownloadButtonWithProgress(
             }
         }
         isDownloading -> {
-            // Downloading — in-button progress bar with fill animation
-            val percent = progress?.percent ?: 0
-            DownloadProgressButton(
-                percent = percent,
-                speedText = progress?.let {
-                    val downloaded = formatBytes(it.bytesDownloaded)
-                    val total = it.totalBytes?.let { formatBytes(it) } ?: "?"
-                    "$downloaded / $total"
-                } ?: "",
-                modifier = modifier,
-            )
+            // Downloading — in-button progress bar with fill animation.
+            // When [showSpinner] is true (the cancel-confirmation dialog is
+            // open), the progress bar is replaced by a small centered spinner
+            // so the user sees the dialog open + the button acknowledges the
+            // tap (instead of looking like a no-op).
+            if (showSpinner) {
+                Box(
+                    modifier = modifier
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                        .clickable(onClick = onCancelClick),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            } else {
+                // Downloading — in-button progress bar with fill animation
+                val percent = progress?.percent ?: 0
+                DownloadProgressButton(
+                    percent = percent,
+                    speedText = progress?.let {
+                        val downloaded = formatBytes(it.bytesDownloaded)
+                        val total = it.totalBytes?.let { formatBytes(it) } ?: "?"
+                        "$downloaded / $total"
+                    } ?: "",
+                    onCancelClick = onCancelClick,
+                    modifier = modifier,
+                )
+            }
         }
         else -> {
             // Initial state — show Download button
@@ -416,6 +487,10 @@ private fun DownloadProgressButton(
     percent: Int,
     speedText: String,
     modifier: Modifier = Modifier,
+    // Tapping the progress bar opens the cancel-confirmation dialog (instead
+    // of being a no-op). The dialog is rendered by the parent
+    // UpdateBottomSheet composable.
+    onCancelClick: () -> Unit = {},
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
@@ -442,7 +517,8 @@ private fun DownloadProgressButton(
         modifier = modifier
             .height(52.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+            .clickable(onClick = onCancelClick),
     ) {
         // Fill layer (left-to-right, proportional to percent)
         Box(
