@@ -29,6 +29,11 @@ dependencies {
     // Eclipse Paho v3 — lightweight (~500KB), supports wss:// (WebSocket Secure) natively.
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
 
+    // OkHttp — DebugNetworkStats (reused from debug-bubble) extends okhttp3.Interceptor.
+    // The test-controller doesn't make HTTP calls directly, but it references DebugNetworkStats
+    // (which implements Interceptor), so OkHttp must be on the compile classpath.
+    implementation(libs.okhttp)
+
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(platform(libs.koin.bom))
