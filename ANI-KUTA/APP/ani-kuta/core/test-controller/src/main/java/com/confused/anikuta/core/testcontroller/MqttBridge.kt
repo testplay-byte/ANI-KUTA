@@ -6,8 +6,11 @@ import com.confused.anikuta.core.testapi.TestResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
@@ -16,6 +19,7 @@ import org.eclipse.paho.client.mqttv3.IMqttToken
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
+import org.eclipse.paho.client.mqttv3.MqttException
 import org.eclipse.paho.client.mqttv3.MqttMessage
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import java.util.UUID
@@ -26,25 +30,27 @@ import kotlin.coroutines.resumeWithException
 /**
  * MQTT transport between the test-controller (phone) + the AI agent (sandbox). D-198 v2.
  *
- * **Broker fallback** (D-198 v2.1): tries multiple public brokers in order — mobile carriers
- * commonly block port 8884, so we fall back to 8084/8083/8000. The phone picks the FIRST broker
- * that connects + stays on it (with auto-reconnect). The agent script tries the SAME brokers
- * in the SAME order, so they converge on the same broker.
+ * **Single-flight** (D-198 v2.2): a [Mutex] ensures only ONE [start] runs at a time. Previous
+ * version had concurrent start() calls (initial connect + ensureConnected app-open hook + retry
+ * job all overlapping), which caused Paho's async client to interleave connect attempts + time out.
+ * Now, concurrent callers wait for the first to finish (or skip if it already succeeded).
  *
- * **App-open health-check** (user request): [TestControllerStatus.ensureConnected] is called
- * from `:app/src/debug/DebugInit.kt`'s `onActivityResumed` hook. If the bridge is disconnected,
- * it retries [start] — which runs the broker fallback again. Toasts show the status.
+ * **Broker fallback**: tries 4 brokers in order until one connects. Carriers commonly block 8884;
+ * 8084/8083/8000 are more commonly allowed. The phone picks the first that connects + stays on
+ * it (auto-reconnect). The agent script uses the SAME order, so they converge.
  *
- * **Toast notifications**: every state change (connecting / connected / failed / reconnecting)
- * shows a throttled toast via [TestToaster] so the user can see what's happening.
+ * **Timeouts**: 15s per broker (mobile networks need more time for the TLS + WebSocket handshake
+ * than the previous 8s allowed). Total max fallback cycle: 4 × 15s = 60s.
+ *
+ * **Retry**: if all brokers fail, schedules a single retry in 30s (not recursive — uses a Job
+ * that can be cancelled by stop() or a new successful start()).
+ *
+ * **Toast notifications**: every state change shows a throttled toast via [TestToaster].
  *
  * Topics (hardcoded — both phone + agent use the same strings):
  *  - `anikuta/test/v1/cmd` — agent → phone (TestCommand JSON).
  *  - `anikuta/test/v1/result` — phone → agent (TestResult JSON).
  *  - `anikuta/test/v1/shot/<commandId>` — phone → agent (JPEG bytes).
- *
- * **Security:** broker + topics are public (in source code). For debug-only with one user + one
- * phone, acceptable. The topic name acts as the channel password.
  */
 class MqttBridge(
     private val executor: TestControllerExecutor,
@@ -53,9 +59,6 @@ class MqttBridge(
     companion object {
         private const val TAG = "Anikuta:Test:Mqtt"
 
-        // Broker fallback list — tried in order. The phone picks the first that connects.
-        // Order matters: the agent script (mqtt-agent.py) uses the SAME order so they converge.
-        // Carriers commonly block 8884; 8084/8083/8000 are more commonly allowed.
         private val BROKERS = listOf(
             BrokerConfig("HiveMQ WSS", "broker.hivemq.com", 8884, "/mqtt", useTls = true),
             BrokerConfig("EMQX WSS", "broker.emqx.io", 8084, "/mqtt", useTls = true),
@@ -67,8 +70,8 @@ class MqttBridge(
         private const val RESULT_TOPIC = "anikuta/test/v1/result"
         private const val SHOT_TOPIC_PREFIX = "anikuta/test/v1/shot/"
 
-        private const val CONNECT_TIMEOUT_SEC = 8L  // per broker (8s × 4 = 32s max fallback cycle)
-        private const val RETRY_DELAY_MS = 30_000L  // if all brokers fail, retry after 30s
+        private const val CONNECT_TIMEOUT_SEC = 15L   // per broker (mobile networks need more time)
+        private const val RETRY_DELAY_MS = 30_000L     // if all brokers fail, retry after 30s
     }
 
     private data class BrokerConfig(
@@ -85,48 +88,68 @@ class MqttBridge(
         classDiscriminator = "type"
     }
 
-    @Volatile
-    private var client: MqttAsyncClient? = null
+    @Volatile private var client: MqttAsyncClient? = null
+    @Volatile private var connectedBroker: BrokerConfig? = null
+    @Volatile private var retryJob: Job? = null
 
-    @Volatile
-    private var connectedBroker: BrokerConfig? = null
-
-    @Volatile
-    private var retryJob: kotlinx.coroutines.Job? = null
+    /** Single-flight mutex: ensures only ONE start() runs at a time. */
+    private val startMutex = Mutex()
 
     /**
      * Connect to the first reachable broker + subscribe to the command topic.
-     * Idempotent: no-op if already connected. If all brokers fail, schedules a retry in 30s.
+     *
+     * **Single-flight**: if another start() is already running, this call waits for it to finish,
+     * then checks if the connection succeeded. If it did, this call is a no-op. If it didn't,
+     * this call runs the broker fallback cycle again.
+     *
+     * Idempotent: no-op if already connected. If all brokers fail, schedules a single retry in 30s.
      */
     suspend fun start() {
-        withContext(Dispatchers.IO) {
-            if (client?.isConnected == true) return@withContext
+        // Fast path: already connected.
+        if (client?.isConnected == true) return
+
+        // Single-flight: only one start() runs at a time. Concurrent callers wait.
+        startMutex.withLock {
+            // Re-check after acquiring the lock (another caller might have connected).
+            if (client?.isConnected == true) return@withLock
             retryJob?.cancel()
+            retryJob = null
 
             for (broker in BROKERS) {
-                TestToaster.show("Connecting to ${broker.label}…", throttleMs = 1000L)
-                Logger.i(TAG) { "trying broker ${broker.label} (${broker.host}:${broker.port})" }
+                TestToaster.show("Connecting to ${broker.label}…", throttleMs = 2000L)
+                Logger.i(TAG) { "trying broker ${broker.label} (${broker.host}:${broker.port}, tls=${broker.useTls})" }
                 try {
                     connectToBroker(broker)
                     connectedBroker = broker
                     TestToaster.show("✅ Test controller connected (${broker.label})")
                     Logger.i(TAG) { "MQTT bridge started on ${broker.label} — listening on $CMD_TOPIC" }
-                    return@withContext
+                    return@withLock
                 } catch (e: Exception) {
-                    Logger.w(TAG) { "broker ${broker.label} failed: ${e::class.java.simpleName}: ${e.message}" }
-                    // Try the next broker.
+                    // Log the FULL exception (not just the message) — MqttException has a reason code.
+                    val reason = if (e is MqttException) " (reasonCode=${e.reasonCode})" else ""
+                    Logger.w(TAG) { "broker ${broker.label} failed: ${e::class.java.simpleName}: ${e.message}$reason" }
+                    // Clean up the failed client so the next broker attempt starts fresh.
+                    runCatching { client?.disconnectForcibly(1, 2, true) }
+                    runCatching { client?.close() }
+                    client = null
                 }
             }
 
-            // All brokers failed — schedule a retry.
+            // All brokers failed — schedule a single retry (not recursive).
             TestToaster.show("❌ Test broker unreachable — will retry in 30s")
             Logger.e(TAG) { "all ${BROKERS.size} brokers failed — scheduling retry in ${RETRY_DELAY_MS}ms" }
-            retryJob = GlobalScope.launch {
-                delay(RETRY_DELAY_MS)
-                if (client?.isConnected != true) {
-                    Logger.i(TAG) { "retry: attempting broker fallback cycle again" }
-                    start()
-                }
+            scheduleRetry()
+        }
+    }
+
+    /** Schedule a single retry in [RETRY_DELAY_MS]. Cancels any previous retry job. */
+    private fun scheduleRetry() {
+        retryJob?.cancel()
+        retryJob = GlobalScope.launch(Dispatchers.IO) {
+            delay(RETRY_DELAY_MS)
+            if (client?.isConnected != true) {
+                Logger.i(TAG) { "retry: attempting broker fallback cycle again" }
+                start()
             }
         }
     }
@@ -158,13 +181,13 @@ class MqttBridge(
     private suspend fun connectToBroker(broker: BrokerConfig) {
         val uri = "${if (broker.useTls) "wss" else "ws"}://${broker.host}:${broker.port}${broker.path}"
         val clientId = "anikuta-phone-${UUID.randomUUID()}"
+        Logger.d(TAG) { "connecting to $uri (clientId=$clientId)" }
         val c = MqttAsyncClient(uri, clientId, MemoryPersistence())
         c.setCallback(object : MqttCallbackExtended {
             override fun connectComplete(reconnect: Boolean, serverURI: String?) {
                 if (reconnect) {
                     Logger.i(TAG) { "reconnected to ${broker.label}" }
                     TestToaster.show("🔄 Reconnected (${broker.label})")
-                    // Re-subscribe after reconnect (Paho drops subs on reconnect).
                     runCatching { c.subscribe(CMD_TOPIC, 1) }
                         .onFailure { Logger.w(TAG) { "re-subscribe failed: ${it.message}" } }
                 }
@@ -190,7 +213,10 @@ class MqttBridge(
             keepAliveInterval = 30
             maxInflight = 100
         }
-        c.connect(options).await(timeoutSec = CONNECT_TIMEOUT_SEC + 2)
+        // The connect() token resolves when the CONNACK is received. Await with a timeout
+        // slightly longer than connectionTimeout (to give the handshake room).
+        c.connect(options).await(timeoutSec = CONNECT_TIMEOUT_SEC + 5)
+        // Subscribe after connect succeeds.
         c.subscribe(CMD_TOPIC, 1).await(timeoutSec = 5)
         client = c
     }

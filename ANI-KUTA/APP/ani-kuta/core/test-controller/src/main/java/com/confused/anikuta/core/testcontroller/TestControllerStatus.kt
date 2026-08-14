@@ -13,6 +13,11 @@ import java.lang.ref.WeakReference
  * But the user wants an "app-open" health-check: when they open the app, the test-controller should
  * verify it's connected + restart if needed.
  *
+ * **Cooldown** (D-198 v2.2): [ensureConnected] is called on EVERY `onActivityResumed` (which fires
+ * multiple times — returning from settings, keyboard open/close, etc.). To avoid spamming toasts +
+ * launching redundant reconnect coroutines, it only runs the check once per [COOLDOWN_MS] (10s).
+ * The MqttBridge's single-flight mutex handles the actual serialization.
+ *
  * Flow:
  *   1. [TestAccessibilityService.onServiceConnected] → [register] (stores a WeakReference to the bridge).
  *   2. `:app/src/debug/DebugInit.kt` `onActivityResumed(MainActivity)` → [ensureConnected].
@@ -21,16 +26,14 @@ import java.lang.ref.WeakReference
  *      - Bridge is connected → toast "✅ Test controller online (broker label)".
  *      - Bridge is disconnected → toast "🔄 Reconnecting…" + calls bridge.start() (which runs the broker fallback).
  *
- * Uses GlobalScope for the reconnect coroutine — acceptable for a debug-only tool (the coroutine
- * is fire-and-forget + the bridge handles its own lifecycle).
- *
- * D-198 v2.1.
+ * D-198 v2.1 + v2.2.
  */
 object TestControllerStatus {
     private const val TAG = "Anikuta:Test:Status"
+    private const val COOLDOWN_MS = 10_000L  // only check once per 10s
 
-    @Volatile
-    private var bridgeRef: WeakReference<MqttBridge>? = null
+    @Volatile private var bridgeRef: WeakReference<MqttBridge>? = null
+    @Volatile private var lastCheckTime: Long = 0L
 
     /** Called by [TestAccessibilityService.onServiceConnected]. */
     fun register(bridge: MqttBridge) {
@@ -53,8 +56,15 @@ object TestControllerStatus {
     /**
      * Called from `:app/src/debug/DebugInit.kt`'s `onActivityResumed` hook (when the app opens).
      * Checks the bridge's state + shows a toast. If disconnected, triggers a reconnect.
+     *
+     * Cooldown: only runs once per [COOLDOWN_MS]. Concurrent calls within the cooldown are skipped
+     * (the MqttBridge's mutex would serialize them anyway, but this avoids the toast spam).
      */
     fun ensureConnected() {
+        val now = System.currentTimeMillis()
+        if (now - lastCheckTime < COOLDOWN_MS) return
+        lastCheckTime = now
+
         val bridge = bridgeRef?.get()
         if (bridge == null) {
             TestToaster.show("⚠️ Test controller disabled — enable in Settings → Accessibility", throttleMs = 10_000L)
@@ -68,7 +78,7 @@ object TestControllerStatus {
             Logger.i(TAG) { "ensureConnected: bridge disconnected — triggering reconnect" }
             GlobalScope.launch(Dispatchers.IO) {
                 runCatching { bridge.start() }
-                    .onFailure { Logger.e(TAG) { "reconnect failed: ${it.message}" } }
+                    .onFailure { Logger.e(TAG) { "reconnect failed: ${it::class.java.simpleName}: ${it.message}" } }
             }
         }
     }
