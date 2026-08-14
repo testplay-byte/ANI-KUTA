@@ -52,32 +52,32 @@ data class ContentRecord(
 data class ContentDetails(
     val mainId: String,
     // ── Data-source (metadata) axis ──
-    val dataSourceType: String?,        // 'anilist' | 'kitsu' | 'mal' | 'tmdb'. NULL = not linked.
-    val dataSourceRefId: String?,       // External ID as TEXT (anilistId/malId/kitsuId/tmdbId)
-    val dataScore: Long?,
-    val dataEpisodes: Long?,
-    val dataSeason: String?,
-    val dataSeasonYear: Long?,
-    val dataStatus: String?,
-    val dataGenres: String?,
-    val dataSynopsis: String?,
-    val dataCoverUrl: String?,
-    val dataBannerUrl: String?,
-    val dataExtraJson: String?,
-    val dataUpdatedAt: Long?,
+    val dataSourceType: String? = null,
+    val dataSourceRefId: String? = null,
+    val dataScore: Long? = null,
+    val dataEpisodes: Long? = null,
+    val dataSeason: String? = null,
+    val dataSeasonYear: Long? = null,
+    val dataStatus: String? = null,
+    val dataGenres: String? = null,
+    val dataSynopsis: String? = null,
+    val dataCoverUrl: String? = null,
+    val dataBannerUrl: String? = null,
+    val dataExtraJson: String? = null,
+    val dataUpdatedAt: Long? = null,
     // ── Extension (episode source) axis ──
-    val extensionType: String?,         // 'aniyomi' | 'cloudstream' | 'sora' | 'mangayomi'. NULL = not linked.
-    val extensionId: String?,           // TEXT (was INTEGER in extension_detail; Long stringified for Aniyomi)
-    val sourceId: Long?,                // Aniyomi internal source.id (kept as Long for back-compat)
-    val animeUrl: String?,
-    val extDescription: String?,
-    val extGenres: String?,
-    val extStatus: String?,
-    val extAuthor: String?,
-    val extArtist: String?,
-    val extThumbnailUrl: String?,
-    val extExtraJson: String?,
-    val extUpdatedAt: Long?,
+    val extensionType: String? = null,
+    val extensionId: String? = null,
+    val sourceId: Long? = null,
+    val animeUrl: String? = null,
+    val extDescription: String? = null,
+    val extGenres: String? = null,
+    val extStatus: String? = null,
+    val extAuthor: String? = null,
+    val extArtist: String? = null,
+    val extThumbnailUrl: String? = null,
+    val extExtraJson: String? = null,
+    val extUpdatedAt: Long? = null,
 ) {
     // ── Typed accessors for external IDs (per PLAN §4.8) ──
 

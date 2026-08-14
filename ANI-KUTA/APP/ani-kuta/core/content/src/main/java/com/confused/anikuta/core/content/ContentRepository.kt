@@ -100,7 +100,7 @@ class ContentRepository(
     }
 
     fun getMainEntryByAniListId(anilistId: Int): ContentRecord? {
-        return contentQueries.getMainEntryByAniListId(anilistId.toLong()).executeAsOneOrNull()?.let {
+        return contentQueries.getMainEntryByAniListId(anilistId.toString()).executeAsOneOrNull()?.let {
             ContentRecord(
                 mainId = it.main_id,
                 contentId = it.content_id,
