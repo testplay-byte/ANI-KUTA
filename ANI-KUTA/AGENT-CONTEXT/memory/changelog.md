@@ -1100,3 +1100,36 @@ Fixed all 14 issues identified in the audit + re-verification:
 - CI: GREEN on main commit af51be7e (Build APK + Deploy Dashboard both triggered).
 - Dashboard: schema.ts rewritten, /database-review/ live, doc-drift fixed across all live docs.
 - No device verification yet — user will test the download system fixes on device.
+
+---
+
+## Session — Autonomous Test Controller (branch `TEST_BETA_FEATURE`)
+
+### What was done
+- **Research phase**: Read CORE_RULES + all AGENT-CONTEXT + codebase (4 parallel Explore sub-agents) before coding. 3 research sub-agents verified: (A) AccessibilityService capabilities + screenshot APIs across API 24-36, (B) transport — ntfy.sh limits (250 msg/day + 2MB attachments — too low for interactive testing) + sandbox URL discoverability (Caddy XTransformPort is generic — verified empirically), (C) codebase patterns (debug-bubble module structure, debug source-set split, MainActivity nav backstack injection point, reuse of DebugLogBuffer/DebugNetworkStats/DebugDatabaseBrowser/ActivityTracker/AnikutaDatabase/SettingsRepository).
+- **Decisions D-197..D-202**: module structure, hybrid transport, AccessibilityService UI mechanism, PixelCopy screenshots, reuse of existing debug facilities, debug-only removability.
+- **Implementation**:
+  - New module `:core:test-api` (types-only): `TestCommand`/`TestResult` sealed classes (30 command types, 15 result types), `DebugNavRegistry`, `DebugWindowRegistry`, `AppRouteRegistry` interface, `TestControllerConstants`. Always on classpath.
+  - New module `:core:test-controller` (debug-only): `TestAccessibilityService` (AccessibilityService lifecycle), `AccessibilityTreeSerializer` (node tree → JSON with nodeId mapping), `GestureExecutor` (dispatchGesture + performAction + performGlobalAction), `ScreenshotCapture` (PixelCopy via DebugWindowRegistry), `TestControllerExecutor` (command dispatcher), `RelayClient` (OkHttp long-poll), providers (Logcat/NetworkLogs/ActivityLogs/Database/Preferences/Nav/DeviceInfo).
+  - `:app` wiring: `debugImplementation(:core:test-controller)` + `implementation(:core:test-api)`, `AppRouteRegistryImpl` (route → NavKey mapping, debug-only), `DebugNavBinder` (binds Compose backstack to DebugNavRegistry — debug impl + release no-op), `DebugInit.kt` extended (AppRouteRegistry Koin binding + ActivityLifecycleCallbacks for DebugWindowRegistry), `MainActivity.kt` hooks (DebugNavBinder call + testTagsAsResourceId on root Box, debug-gated).
+  - Bun relay mini-service (`mini-services/agent-bridge/`): HTTP long-poll relay on :3030 (POST /cmd, GET /poll, POST /result, POST /screenshot/:id, GET /result/:id, GET /screenshot/:id, GET /state). Token auth, per-IP rate limit, file storage for agent-side direct access. `agent.sh` helper script for the agent to send commands + read results + fetch screenshots.
+  - CI: `build-apk.yml` trigger extended to include `TEST_BETA_FEATURE` (branch-only edit; main's trigger unchanged).
+
+### CI compile-error fix loop (4 iterations → GREEN)
+- **Run 1** (f7a04aa3): 8 errors — DatabaseProvider Array<Int> vs Array<String>, AccessibilityTreeSerializer CharSequence? vs String?, GestureExecutor onCompleted/onCancelled wrong param types, RelayClient decodeFromJsonElement overload, ScreenshotCapture wrong Consumer type (android.util vs java.util.function), TestAccessibilityService onUnbind() wrong signature, TestControllerExecutor smart-cast across module boundary.
+- **Run 2** (ee0695a4): 2 errors — GestureResultCallback.onCompleted/onCancelled take ONLY 1 param (GestureDescription) in SDK 36, not 2; ScreenshotCapture takeScreenshot(Executor, Consumer) 2-arg form REMOVED in SDK 36, only 3-arg exists.
+- **Run 3** (7a3985d7): 0 errors in :core:test-controller, but :app/src/debug failed — Unresolved reference AppRouteRegistry/DebugWindowRegistry/DebugNavRegistry. Root cause: :app missing `implementation(project(":core:test-api"))` — Gradle `implementation` deps not transitively visible (lessons-learned #24).
+- **Run 4** (3b459ef7): ✅ GREEN. All steps passed: Build debug APK ✅, Verify ABIs (arm64-v8a + armeabi-v7a only) ✅, Upload artifacts ✅.
+
+### Key decisions
+- **D-197**: Module structure — `:core:test-api` (types, always on classpath) + `:core:test-controller` (impl, `debugImplementation`). Mirrors debug-bubble pattern.
+- **D-198**: Hybrid transport — ntfy.sh for one bootstrap message/session (delivers {relayUrl, token} to phone), Bun HTTP relay on :3030 for all real traffic. Pure-ntfy rejected (rate limits).
+- **D-199**: AccessibilityService UI mechanism — dispatchGesture (API 24+), performAction, performGlobalAction. Triple addressing: short-lived nodeId, {x,y} coords, text/resourceId query. testTagsAsResourceId at Compose root (debug-only).
+- **D-200**: PixelCopy screenshots for ALL API levels — takeScreenshot's 2-arg form was removed in SDK 36; PixelCopy(Window) is API 24+, captures SurfaceView, simpler.
+- **D-201**: Reuse of DebugLogBuffer, DebugNetworkStats, DebugDatabaseBrowser, AnikutaDatabase, SettingsRepository, OkHttpClient — all via Koin.
+- **D-202**: Debug-only removability — delete 2 modules + 1 debugImplementation line + :app/src/debug files to remove before publish. Zero test-controller code in release APKs.
+
+### Status
+- Branch: `TEST_BETA_FEATURE` — NOT merged to `main` (user will verify on device first).
+- CI: GREEN on commit 3b459ef7 (Build APK + Verify ABIs + Upload artifacts).
+- Pending: live smoke test (user pastes sandbox preview URL → phone connects → agent sends commands). Optional 6-digit PIN second factor not yet implemented.

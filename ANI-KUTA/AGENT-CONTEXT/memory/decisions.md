@@ -1629,3 +1629,41 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** The user reported that `.data.json` files were not being updated with the latest metadata (description, dataSourceId, etc.) after the initial download. Root cause: `writeDataJson` was only called by `publishVideoFile` (for the NEW download's folder). OLD data.json files were never re-touched. `requestFolderRescan()` had ZERO callers — the scanner was dead code at runtime. This fix wires the scanner + adds the write-back so old data.json files get updated with the latest DB state on every app launch.
 - **Status:** ✅ Confirmed + implemented. CI green.
 - **Date:** Download system fixes session.
+
+---
+
+### D-197 — Autonomous Test Controller (module structure + nav hook)
+- **What:** New debug-only feature: an in-app autonomous testing system that lets a remote AI agent inspect + control the running app on the user's phone. Mirrors the debug-bubble pattern (`:core:debug-api` types + `:feature:debug-bubble` impl, `debugImplementation` in `:app`). Two new modules: `:core:test-api` (types: `TestCommand`/`TestResult` sealed classes, `DebugNavRegistry`, `DebugWindowRegistry`, `AppRouteRegistry`, `TestControllerConstants`) + `:core:test-controller` (`TestAccessibilityService` + `AccessibilityTreeSerializer` + `GestureExecutor` + `ScreenshotCapture` + `RelayClient` + providers for logcat/network/activity-logs/database/preferences/nav + `TestControllerExecutor` dispatcher). Both `debugImplementation` in `:app`. Zero test-controller code in release APKs.
+- **Why:** The user needs to autonomously test the app on their phone — interact with the UI, take screenshots, read logs/DB/network — without manual adb commands. The debug-bubble proved the `:core:*-api` + `debugImplementation` pattern works; this follows it exactly. AccessibilityService gives full UI control at runtime without instrumentation.
+- **Status:** ✅ Confirmed + implemented. CI green on `TEST_BETA_FEATURE` (sha 3b459ef7).
+- **Date:** Autonomous test controller session.
+
+### D-198 — Hybrid transport (ntfy.sh bootstrap + Bun HTTP relay)
+- **What:** Transport architecture for the test-controller: ntfy.sh for ONE bootstrap message per session (delivers `{relayUrl, token, sessionId, expires}` to the phone); Bun HTTP long-poll relay on port 3030 (sandbox-side `mini-services/agent-bridge/`) for all real traffic. Pure-ntfy rejected (250 msg/day + 2MB attachment cap exhausted in 10-20 min of interactive testing). Pure-relay rejected (sandbox has no public-URL env var; can't auto-discover). Hybrid splits concerns cleanly.
+- **Why:** ntfy.sh rate limits (250 msgs/visitor/day, 2MB attachment cap) are too low for interactive testing but fine for one bootstrap message. The Bun relay has no rate limit + gives the agent local file access to results/screenshots. Caddy's `XTransformPort` rule is generic (any port forwards) — verified empirically.
+- **Status:** ✅ Confirmed + implemented (relay in `mini-services/agent-bridge/`, phone-side `RelayClient` in `:core:test-controller`).
+- **Date:** Autonomous test controller session.
+
+### D-199 — UI mechanism (AccessibilityService + triple addressing)
+- **What:** UI control via `AccessibilityService` (user enables once in Settings → Accessibility). `dispatchGesture` (API 24+) for taps/swipes/scrolls, `performAction(ACTION_CLICK/SET_TEXT/etc.)` for semantic actions, `performGlobalAction(BACK/HOME/RECENTS/NOTIFICATIONS)`. Triple node-addressing: short-lived `nodeId` from `get_state` snapshot (primary), `{x,y}` coordinates (universal fallback via `dispatchGesture`), text/resource-id query (via `findAccessibilityNodeInfosByText/ByViewId`). `Modifier.semantics { testTagsAsResourceId = true }` applied at Compose root (debug-only via `BuildConfig.DEBUG`) for stable node IDs.
+- **Why:** AccessibilityService is the standard Android UI-automation path at runtime (no instrumentation, no root). Works at API 24+ (matches minSdk). Triple addressing gives the agent flexibility: semantic nodeId for precision, coordinates for universality, text/id query for power-user lookups.
+- **Status:** ✅ Confirmed + implemented. `packageNames="com.confused.anikuta"` self-filters events; runtime package-check on every query/action.
+- **Date:** Autonomous test controller session.
+
+### D-200 — Screenshots (PixelCopy for all API levels)
+- **What:** Screenshot capture via `PixelCopy.request(Window, ...)` for ALL API levels (24-36). Originally planned `AccessibilityService.takeScreenshot()` on API 30+ + `PixelCopy` on API 24-29, but `takeScreenshot`'s 2-arg deprecated form was REMOVED in SDK 36 (only a 3-arg form exists with different param types). Simplified to `PixelCopy(Window)` only — API 24+, captures SurfaceView content (including MPV player surface), uses `DebugWindowRegistry` (bound by ActivityLifecycleCallbacks in `:app/src/debug/DebugInit.kt`). JPEG q70, max 1080px, 10s timeout guard.
+- **Why:** `PixelCopy` is simpler, API-agnostic, and captures SurfaceView content correctly. `takeScreenshot`'s signature changed across SDK versions, making it fragile to compile against SDK 36 while supporting API 30-32 at runtime. `PixelCopy(Window)` needs the Activity to be RESUMED (acceptable for a testing tool where the app is in the foreground).
+- **Status:** ✅ Confirmed + implemented. CI green.
+- **Date:** Autonomous test controller session.
+
+### D-201 — Reuse of existing debug facilities
+- **What:** The test-controller reuses (via Koin) the debug-bubble's data classes: `DebugLogBuffer` (10K-entry log ring buffer), `DebugNetworkStats` (OkHttp interceptor + 50-request deque), `DebugDatabaseBrowser` (read-only `SQLiteDatabase` connection). Also reuses `AnikutaDatabase` (for `trackingQueries`), `SettingsRepository` (for `app_settings` table), `OkHttpClient` (default, `DebugNetworkStats`-wrapped). No duplication.
+- **Why:** These are already built + wired (Phase DB). Reusing avoids code duplication + ensures the test-controller sees the same data as the debug bubble. Coupling note: could be refactored into a shared `:core:debug-data` module later.
+- **Status:** ✅ Confirmed + implemented. All providers fetch deps via `GlobalContext.get().get<T>()` in `TestAccessibilityService.onServiceConnected()`.
+- **Date:** Autonomous test controller session.
+
+### D-202 — Removability (debug-only, zero release code)
+- **What:** The entire test-controller is debug-only: `:core:test-api` + `:core:test-controller` are `debugImplementation` in `:app`. The `AccessibilityService` declaration is in `:core:test-controller`'s manifest (merged only in debug builds). `DebugNavBinder` + `AppRouteRegistryImpl` are in `:app/src/debug`. The release source set (`:app/src/release/DebugNavBinder.kt`) is a no-op mirror. `testTagsAsResourceId` is gated by `BuildConfig.DEBUG`. To remove before publish: delete 2 modules + 1 `debugImplementation` line + `:app/src/debug` files + `:app/src/debug/AndroidManifest.xml` entries.
+- **Why:** Matches the debug-bubble's `D-163` pattern. The user confirmed this is debug-only — removed before publishing. Zero test-controller code in release APKs.
+- **Status:** ✅ Confirmed + implemented. CI green (release variant not tested — CI only runs `assembleDebug`).
+- **Date:** Autonomous test controller session.
