@@ -832,8 +832,19 @@ class DetailsViewModel(
         anilistBase = null
         viewModelScope.launch {
             try {
+                // D-200: When opening from Library, thumbnailUrl may be null (the
+                // LibraryEntry.coverUrl comes from ext_thumbnail_url in DB which may
+                // not have been stored yet). Fall back to the DB-stored ext_thumbnail_url
+                // before calling fetchFromExtension — so the stub SAnime.thumbnail_url
+                // is non-null and the D-199 fallback in ExtensionDetailsProvider works.
+                val effectiveThumbnailUrl = thumbnailUrl ?: run {
+                    val existingContent = contentRepository.getMainEntryByExtension(sourceId, animeUrl)
+                    existingContent?.let {
+                        contentRepository.getContentDetails(it.mainId)?.extThumbnailUrl
+                    }
+                }
                 // Use the ExtensionDetailsProvider to fetch full details.
-                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, thumbnailUrl)
+                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, effectiveThumbnailUrl)
 
                 if (unifiedAnime != null) {
                     Logger.i(TAG) { "Loaded extension details: $title from source $sourceId" }

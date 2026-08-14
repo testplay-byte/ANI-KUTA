@@ -321,8 +321,7 @@ class HttpDownloader(
     private fun buildRequest(url: String, headers: String?, resumeFrom: Long): Request {
         return Request.Builder().url(url).apply {
             if (resumeFrom > 0) header("Range", "bytes=$resumeFrom-")
-            // D-199: Force identity encoding (same fix as HlsDownloader — see comment there).
-            header("Accept-Encoding", "identity")
+            // D-200: Removed Accept-Encoding: identity (same as HlsDownloader — see comment there).
             if (!headers.isNullOrBlank()) {
                 headers.split('\n').forEach { line ->
                     val sep = line.indexOf(':')
