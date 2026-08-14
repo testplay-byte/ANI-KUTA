@@ -3,11 +3,14 @@ package com.confused.anikuta
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessibilityNew
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Button
@@ -36,8 +40,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +63,7 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.SettingsRepository
 import com.confused.anikuta.core.testcontroller.TestControllerStatus
+import com.confused.anikuta.core.testcontroller.WsRelayClient
 import com.confused.anikuta.settings.SettingsSectionLabel
 import org.koin.core.context.GlobalContext
 
@@ -96,15 +103,33 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
         mutableStateOf(settings.getSetting(RELAY_URL_KEY)?.trim()?.ifBlank { null } ?: com.confused.anikuta.core.testcontroller.WsRelayClient.DEFAULT_RELAY_URL)
     }
 
-    // Snapshot of the live connection state — read on screen entry. Re-entering
-    // the screen (popping + pushing back) recomputes this. We don't poll
-    // continuously — the toast from WsRelayClient already tells the user when
-    // the connection succeeds/fails.
-    val connected = remember { TestControllerStatus.isConnected() }
-    val configuredUrl = remember {
-        settings.getSetting(RELAY_URL_KEY)?.trim()?.ifBlank { null } ?: com.confused.anikuta.core.testcontroller.WsRelayClient.DEFAULT_RELAY_URL
+    // D-198 v4.1: LIVE status updates — poll every 2s (no need to leave + re-enter the screen).
+    var connected by remember { mutableStateOf(TestControllerStatus.isConnected()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            connected = TestControllerStatus.isConnected()
+            kotlinx.coroutines.delay(2000)
+        }
     }
-    val accessibilityEnabled = remember { isAccessibilityServiceEnabled(context) }
+
+    // D-198 v4.1: LIVE accessibility check — poll every 3s.
+    var accessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            accessibilityEnabled = isAccessibilityServiceEnabled(context)
+            kotlinx.coroutines.delay(3000)
+        }
+    }
+
+    // D-198 v4.1: toggle on/off — when OFF, the WsRelayClient disconnects + won't reconnect.
+    // Uses a SettingsRepository key so the state persists across app restarts.
+    var testControllerEnabled by remember {
+        mutableStateOf(settings.getSetting(SETTING_ENABLED_KEY)?.toBooleanStrictOrNull() ?: true)
+    }
+
+    val configuredUrl = remember {
+        settings.getSetting(RELAY_URL_KEY)?.trim()?.ifBlank { null } ?: WsRelayClient.DEFAULT_RELAY_URL
+    }
 
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
@@ -132,6 +157,85 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
                             configuredUrl = configuredUrl,
                             accessibilityEnabled = accessibilityEnabled,
                         )
+                    }
+
+                    // ── D-198 v4.1: Toggle on/off + Accessibility button ──
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SettingsSectionLabel("Control")
+                        SettingsCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                            ) {
+                                // Toggle switch
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Test Controller",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                        )
+                                        Text(
+                                            text = if (testControllerEnabled) "Enabled" else "Disabled",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    Switch(
+                                        checked = testControllerEnabled,
+                                        onCheckedChange = { enabled ->
+                                            testControllerEnabled = enabled
+                                            settings.upsertSetting(SETTING_ENABLED_KEY, enabled.toString(), "bool", "debug")
+                                            if (enabled) {
+                                                showToast(context, "Test controller enabled — reconnecting…")
+                                                TestControllerStatus.ensureConnected()
+                                            } else {
+                                                showToast(context, "Test controller disabled")
+                                                TestControllerStatus.disconnect()
+                                            }
+                                        },
+                                    )
+                                }
+
+                                // Accessibility enable button (only shown if not enabled)
+                                if (!accessibilityEnabled) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Button(
+                                        onClick = {
+                                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                                        ),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AccessibilityNew,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Enable Accessibility",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // ── Relay URL input ──
@@ -283,23 +387,22 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
                                     .padding(16.dp),
                             ) {
                                 Text(
-                                    text = "1. Enable the Test Controller in Settings → Accessibility.",
+                                    text = "1. Enable the Test Controller in Settings → Accessibility (tap the button above).",
                                     fontFamily = RobotoFamily,
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "2. Enter the sandbox preview URL above " +
-                                        "(the URL you see in your browser, with " +
-                                        "?XTransformPort=3030 appended).",
+                                    text = "2. The relay URL is pre-configured (Cloudflare Workers). " +
+                                        "You can change it above if needed.",
                                     fontFamily = RobotoFamily,
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "3. Tap Save. The agent can now send commands to your phone.",
+                                    text = "3. Toggle the controller ON. The agent can now send commands.",
                                     fontFamily = RobotoFamily,
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurface,
@@ -441,6 +544,9 @@ private fun BackAction(onBack: () -> Unit) {
  * module boundary (keeping this file's surface minimal).
  */
 private const val RELAY_URL_KEY = "debug.test.relay_url"
+
+/** SettingsRepository key for the on/off toggle (D-198 v4.1). */
+private const val SETTING_ENABLED_KEY = "debug.test.enabled"
 
 /**
  * Show a short toast. Always posted to the main looper — safe to call from any

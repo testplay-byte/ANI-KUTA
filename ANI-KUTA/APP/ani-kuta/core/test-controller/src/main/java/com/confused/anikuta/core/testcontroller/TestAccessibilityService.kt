@@ -60,21 +60,25 @@ class TestAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        // Re-assert the service config (belt + suspenders — the XML should already set this,
-        // but some OEM builds ignore parts of the XML meta-data).
+        // D-198 v4.1: DO NOT override serviceInfo — the XML config (test_controller_service_config.xml)
+        // has canRetrieveWindowContent="true" + canPerformGestures="true". Overriding serviceInfo
+        // programmatically creates a new AccessibilityServiceInfo() that loses these XML-only
+        // attributes (they have no programmatic setter). This was the root cause of:
+        //   - getRootInActiveWindow() returning null (canRetrieveWindowContent lost)
+        //   - dispatchGesture callbacks never firing (canPerformGestures lost)
+        // The XML config is sufficient — just log what the system gave us for diagnostics.
         runCatching {
-            val info = serviceInfo ?: AccessibilityServiceInfo()
-            info.apply {
-                eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
-                    AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
-                feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-                flags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-                notificationTimeout = 100
-                packageNames = arrayOf(OUR_PACKAGE)
+            val info = serviceInfo
+            if (info != null) {
+                Logger.i(TAG) {
+                    "service config: canRetrieveWindowContent=${info.canRetrieveWindowContent}, " +
+                    "canPerformGestures=${info.canPerformGestures}, " +
+                    "flags=0x${info.flags.toString(16)}"
+                }
+            } else {
+                Logger.w(TAG) { "serviceInfo is null — XML config not loaded" }
             }
-            serviceInfo = info
-        }.onFailure { Logger.w(TAG) { "serviceInfo re-assert failed: ${it.message}" } }
+        }
 
         // Resolve all deps from Koin. AnikutaApp.onCreate has run before the service binds.
         val koin = GlobalContext.get()

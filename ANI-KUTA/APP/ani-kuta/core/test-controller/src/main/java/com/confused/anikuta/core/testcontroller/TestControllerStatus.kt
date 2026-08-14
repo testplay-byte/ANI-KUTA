@@ -54,6 +54,21 @@ object TestControllerStatus {
     fun isConnected(): Boolean = clientRef?.get()?.isConnected() == true
 
     /**
+     * Disconnect the client (D-198 v4.1 — user toggled the controller OFF).
+     * The client will NOT auto-reconnect until [ensureConnected] is called again.
+     */
+    fun disconnect() {
+        val client = clientRef?.get()
+        if (client != null) {
+            GlobalScope.launch(Dispatchers.IO) {
+                runCatching { client.stop() }
+                    .onFailure { Logger.e(TAG) { "disconnect failed: ${it::class.java.simpleName}: ${it.message}" } }
+            }
+            Logger.i(TAG) { "client disconnected by user toggle" }
+        }
+    }
+
+    /**
      * Called from `:app/src/debug/DebugInit.kt`'s `onActivityResumed` hook (when the app opens).
      * Checks the client's state + shows a toast. If disconnected, triggers a reconnect.
      *
