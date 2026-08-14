@@ -9,6 +9,7 @@ import com.confused.anikuta.core.testapi.TestResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
@@ -206,17 +207,18 @@ class TestControllerExecutor(
         val nodeId = cmd.nodeId
         val x = cmd.x
         val y = cmd.y
-        // D-198 v5: show visual preview overlay before the tap.
-        val previewX = x ?: 540f // default to center if no coords
+        val previewX = x ?: 540f
         val previewY = y ?: 1200f
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
             actionPreviewOverlay.showTapPreview(previewX, previewY) {
-                val ok = when {
-                    nodeId != null -> gestureExecutor.tapNode(nodeId)
-                    x != null && y != null -> gestureExecutor.tapCoords(x, y)
-                    else -> false
+                scope.launch {
+                    val ok = when {
+                        nodeId != null -> gestureExecutor.tapNode(nodeId)
+                        x != null && y != null -> gestureExecutor.tapCoords(x, y)
+                        else -> false
+                    }
+                    if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "tap")))
                 }
-                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "tap")))
             }
         }
         result
@@ -230,12 +232,14 @@ class TestControllerExecutor(
         val previewY = y ?: 1200f
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
             actionPreviewOverlay.showLabelPreview(previewX, previewY, "👆 LONG-CLICK") {
-                val ok = when {
-                    nodeId != null -> gestureExecutor.longClickNode(nodeId)
-                    x != null && y != null -> gestureExecutor.longClickCoords(x, y, cmd.durationMs)
-                    else -> false
+                scope.launch {
+                    val ok = when {
+                        nodeId != null -> gestureExecutor.longClickNode(nodeId)
+                        x != null && y != null -> gestureExecutor.longClickCoords(x, y, cmd.durationMs)
+                        else -> false
+                    }
+                    if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "long_click")))
                 }
-                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "long_click")))
             }
         }
         result
@@ -244,8 +248,10 @@ class TestControllerExecutor(
     private suspend fun doSwipe(cmd: TestCommand.Swipe): ExecutionOutcome = withContext(Dispatchers.Main) {
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
             actionPreviewOverlay.showSwipePreview(cmd.x1, cmd.y1, cmd.x2, cmd.y2) {
-                val ok = gestureExecutor.swipe(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.durationMs)
-                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "swipe")))
+                scope.launch {
+                    val ok = gestureExecutor.swipe(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.durationMs)
+                    if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "swipe")))
+                }
             }
         }
         result
@@ -256,8 +262,10 @@ class TestControllerExecutor(
         val scrollY = cmd.y ?: 1200f
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
             actionPreviewOverlay.showScrollPreview(scrollX, scrollY, cmd.direction.name) {
-                val ok = gestureExecutor.scroll(cmd.x, cmd.y, cmd.direction, cmd.amount)
-                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "scroll")))
+                scope.launch {
+                    val ok = gestureExecutor.scroll(cmd.x, cmd.y, cmd.direction, cmd.amount)
+                    if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "scroll")))
+                }
             }
         }
         result
