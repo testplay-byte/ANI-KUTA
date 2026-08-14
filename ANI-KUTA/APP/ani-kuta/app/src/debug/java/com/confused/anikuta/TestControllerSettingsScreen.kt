@@ -206,33 +206,40 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
                                     )
                                 }
 
-                                // Accessibility enable button (only shown if not enabled)
-                                if (!accessibilityEnabled) {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Button(
-                                        onClick = {
-                                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                                        ),
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.AccessibilityNew,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Enable Accessibility",
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                        )
-                                    }
+                                // Accessibility button — ALWAYS shown (status changes between enabled/disabled).
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Button(
+                                    onClick = {
+                                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (accessibilityEnabled)
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        else
+                                            MaterialTheme.colorScheme.primary,
+                                        contentColor = if (accessibilityEnabled)
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        else
+                                            MaterialTheme.colorScheme.onPrimary,
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.AccessibilityNew,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (accessibilityEnabled)
+                                            "Accessibility: Enabled"
+                                        else
+                                            "Accessibility: Disabled — Tap to enable",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                    )
                                 }
                             }
                         }
