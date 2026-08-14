@@ -121,7 +121,12 @@ fun UpdateBottomSheet(
     val isAlreadyDownloaded = updateManager.isLatestUpdateDownloaded()
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        // D-199: swipe-down / tap-outside = hideUpdateSheet (NO 6h cooldown).
+        // The sheet will re-appear on next app open or navigation to an allowed page.
+        onDismissRequest = {
+            updateManager.hideUpdateSheet()
+            onDismiss()
+        },
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
@@ -130,7 +135,9 @@ fun UpdateBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 320.dp, max = 620.dp)
+                // D-199: removed fixed max height — the sheet grows naturally
+                // as the What's New content scrolls. ModalBottomSheet caps at
+                // ~90% screen height by default.
                 .padding(top = 24.dp, start = 20.dp, end = 20.dp, bottom = 20.dp),
         ) {
             // ── Heading (bold + theme-colored) ──
@@ -186,7 +193,11 @@ fun UpdateBottomSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 80.dp, max = 280.dp)
+                        // D-199: removed fixed max height — the What's New area
+                        // now grows with its content (up to the ModalBottomSheet's
+                        // natural ~90% screen cap). The verticalScroll lets the user
+                        // scroll if the content exceeds the visible area.
+                        .heightIn(min = 80.dp)
                         .verticalScroll(rememberScrollState())
                         .padding(14.dp),
                 ) {
@@ -252,8 +263,13 @@ fun UpdateBottomSheet(
                 )
 
                 // X (cancel) button — square-ish, icon only
+                // D-199: X button = dismissUpdateSheet (WITH 6h cooldown).
+                // Swipe-down / tap-outside = hideUpdateSheet (NO cooldown).
                 IconButton(
-                    onClick = onDismiss,
+                    onClick = {
+                        updateManager.dismissUpdateSheet()
+                        onDismiss()
+                    },
                     modifier = Modifier
                         .size(52.dp)
                         .clip(RoundedCornerShape(14.dp))

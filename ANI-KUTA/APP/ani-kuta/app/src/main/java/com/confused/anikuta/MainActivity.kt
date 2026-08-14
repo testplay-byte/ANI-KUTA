@@ -727,16 +727,16 @@ fun AppRoot() {
         // bottom sheets (resolver / picker) or are critical UX (player) that
         // the update sheet would interrupt.
         //
-        // The onDismiss callback is invoked by the sheet's scrim-dismiss + the
-        // X button — it calls `dismissUpdateSheet()` which records the cooldown
-        // + clears the StateFlow so the sheet doesn't re-render on the next
-        // recomposition.
+        // D-199: the UpdateBottomSheet handles its own dismiss internally:
+        // - Swipe-down / tap-outside → hideUpdateSheet() (NO cooldown — re-shows)
+        // - X button → dismissUpdateSheet() (WITH 6h cooldown — snoozed)
+        // The onDismiss callback here is a no-op — the sheet manages the StateFlow.
         val canShowUpdateSheet = currentKey::class in allowedUpdateSheetKeys
         val showUpdateSheet by appUpdateManager.shouldShowUpdateSheet.collectAsStateWithLifecycle()
         if (canShowUpdateSheet && showUpdateSheet) {
             UpdateBottomSheet(
                 updateManager = appUpdateManager,
-                onDismiss = { appUpdateManager.dismissUpdateSheet() },
+                onDismiss = { },
             )
         }
         } // end CompositionLocalProvider Box

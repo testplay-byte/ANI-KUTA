@@ -9,7 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -149,6 +149,9 @@ class AppUpdateManager(
      *
      * Always runs regardless of the auto-check setting or dismiss cooldown.
      * Sets [latestUpdate] + returns the result.
+     *
+     * If an update is found, [shouldShowUpdateSheet] is set to true so the
+     * UpdateBottomSheet renders (the About page is in the allowed keys list).
      */
     suspend fun checkForUpdate(): AppUpdateInfo? {
         _isChecking.value = true
@@ -165,18 +168,12 @@ class AppUpdateManager(
                         _latestUpdate.value = update
                         preferences.setLastCheckTimestamp(System.currentTimeMillis())
                         Logger.i(TAG) { "checkForUpdate: found update ${update.versionName} from ${source.id}" }
-                        // ── Surface the update sheet (unless the user dismissed
-                        // this version < 6h ago). The cooldown prevents re-prompting
-                        // the same version on every app open. Manual checks still
-                        // flip the flow if not in cooldown — if the user explicitly
-                        // wants to re-prompt an in-cooldown version, they can use
-                        // the "downloaded versions" list or wait out the cooldown.
-                        if (!preferences.isDismissedInCooldown(update.versionName)) {
-                            _shouldShowUpdateSheet.value = true
-                            Logger.i(TAG) { "checkForUpdate: surfacing update sheet for ${update.versionName}" }
-                        } else {
-                            Logger.i(TAG) { "checkForUpdate: ${update.versionName} in dismiss cooldown — not surfacing sheet" }
-                        }
+                        // D-199: Manual check ALWAYS surfaces the sheet (even if in
+                        // cooldown). The cooldown only suppresses STARTUP checks.
+                        // If the user explicitly tapped "Check for updates", they
+                        // want to see the result.
+                        _shouldShowUpdateSheet.value = true
+                        Logger.i(TAG) { "checkForUpdate: surfacing update sheet for ${update.versionName}" }
                         return update
                     }
                 } catch (e: Exception) {
@@ -237,8 +234,27 @@ class AppUpdateManager(
      * 1. Records the dismissal via [dismissUpdate] (writes the cooldown prefs).
      * 2. Sets [shouldShowUpdateSheet] to false (hides the sheet on next frame).
      */
+    /**
+     * Dismisses the sheet WITHOUT recording the 6-hour cooldown.
+     *
+     * Used when the user swipes down or taps outside the sheet — the sheet
+     * closes but the update is NOT snoozed. On the next app open (or
+     * navigation to an allowed page), the sheet re-appears.
+     */
+    fun hideUpdateSheet() {
+        Logger.i(TAG) { "hideUpdateSheet: hiding sheet (NO cooldown — will re-show)" }
+        _shouldShowUpdateSheet.value = false
+    }
+
+    /**
+     * Dismisses the sheet AND records the 6-hour cooldown.
+     *
+     * Used ONLY when the user taps the X button — the update is snoozed
+     * for 6 hours. On the next app open, the sheet does NOT re-appear
+     * (unless 6 hours have passed).
+     */
     fun dismissUpdateSheet() {
-        Logger.i(TAG) { "dismissUpdateSheet: hiding sheet + recording cooldown" }
+        Logger.i(TAG) { "dismissUpdateSheet: hiding sheet + recording cooldown (X button)" }
         dismissUpdate()
         _shouldShowUpdateSheet.value = false
     }
@@ -295,8 +311,11 @@ class AppUpdateManager(
         }
 
         Logger.i(TAG) { "startDownload: starting download of ${update.versionName}" }
+        // D-199: set a "starting" state immediately so the UI shows progress
+        // right away (instead of staying on "Download" until the first byte arrives).
+        _downloadProgress.value = DownloadProgress.downloading(0L, update.apkSizeBytes, null)
         scope.launch {
-            downloader.download(update).collectLatest { progress ->
+            downloader.download(update).collect { progress ->
                 _downloadProgress.value = progress
                 if (progress.isComplete && progress.error == null) {
                     // Record the downloaded APK.
