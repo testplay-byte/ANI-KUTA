@@ -541,6 +541,18 @@ However, if you use `get_state` + tap by `nodeId`, you don't need to calculate c
 
 ## 11. Credentials + Configuration
 
+### ⚠️ Does the AI agent need the Cloudflare token?
+
+**NO.** The AI agent does **NOT** need the Cloudflare API token to perform autonomous tests. The agent only needs:
+1. The **relay URL** (`wss://anikuta-relay.k-h-u-r-r-a-m-n-o-o-r88888888888.workers.dev/`) — hardcoded in `agent.sh`
+2. Python 3.13 + the `websockets` library (already in the sandbox)
+3. The `agent.sh` + `ws-agent.py` scripts
+
+The agent connects to the relay as a **WebSocket client** — no authentication needed (the relay is a public endpoint). The Cloudflare API token is **only** needed for:
+- Deploying/redeploying the Worker (`wrangler deploy`)
+- Viewing real-time logs (`wrangler tail`)
+- Deleting the Worker
+
 ### Cloudflare Workers relay
 
 - **Relay URL**: `wss://anikuta-relay.k-h-u-r-r-a-m-n-o-o-r88888888888.workers.dev/`
@@ -548,17 +560,19 @@ However, if you use `get_state` + tap by `nodeId`, you don't need to calculate c
 - **Cloudflare account**: `K.h.u.r.r.a.m.n.o.o.r88888888888@gmail.com`
 - **Account ID**: `b073e9f3898336783a15aa371381f96e`
 - **Worker name**: `anikuta-relay`
-- **API token**: See `/home/z/my-project/mini-services/cf-relay/.env` (not committed to the repo — GitHub's secret scanning blocks it). The token has "Edit Cloudflare Workers" permissions.
-  - ⚠️ This token is for deploying/managing the Worker only. It's NOT needed for the agent or phone to connect — they just use the relay URL.
+- **API token**: Stored in `/home/z/my-project/mini-services/cf-relay/.env` (sandbox-only, NOT committed to the repo — GitHub's secret scanning blocks it). Also backed up in the zip at `ANI-KUTA/REFERENCES/test-controller-sandbox/test-controller-mini-services.zip` (but the .env file is excluded from the zip — the user must provide the token if the sandbox is cleared).
+  - Template: "Edit Cloudflare Workers"
+  - Permissions: Workers Scripts (Edit), Account (Read), Zone resources: All zones
 
 ### GitHub (for CI builds)
 
 - **Repo**: `https://github.com/testplay-byte/ANI-KUTA`
-- **Branch**: `TEST_BETA_FEATURE` (all test-controller code is here, NOT on `main`)
-- **GitHub token**: See `/home/z/my-project/.git-credentials` (not committed — GitHub's secret scanning blocks it). Used for: polling CI status, downloading artifacts, pushing commits.
+- **Branch**: `TEST_BETA_FEATURE` (all test-controller Android code is here, NOT on `main`)
+- **Dashboard**: Pushed to `main` (deployed to GitHub Pages at `https://testplay-byte.github.io/ANI-KUTA/test-controller/`)
+- **GitHub token**: Stored in `/home/z/my-project/.git-credentials` (sandbox-only). Used for: polling CI status, downloading artifacts, pushing commits.
 - **CI workflows**:
   - `build-apk.yml` — builds the debug APK (triggers on `main`, `feature/**`, `TEST_BETA_FEATURE`)
-  - `deploy-dashboard.yml` — deploys the dashboard to GitHub Pages (triggers on `main`, `TEST_BETA_FEATURE`)
+  - `deploy-dashboard.yml` — deploys the dashboard to GitHub Pages (triggers on `main`)
 
 ### Agent-side environment
 
@@ -803,6 +817,14 @@ ANI-KUTA/APP/ani-kuta/
 - **Worker**: `anikuta-relay` (account `b073e9f3898336783a15aa371381f96e`)
 - **URL**: `wss://anikuta-relay.k-h-u-r-r-a-m-n-o-o-r88888888888.workers.dev/`
 - **Durable Object**: `RelayRoom` (SQLite-backed, WebSocket Hibernation API)
+
+### Sandbox backup (zip)
+
+The sandbox-side mini-services are backed up as a zip in the repo:
+- **Location**: `ANI-KUTA/REFERENCES/test-controller-sandbox/test-controller-mini-services.zip`
+- **Contents**: `agent-bridge/` (Python client + agent.sh), `cf-relay/` (Worker code), `nextjs-api/` (legacy), `RESTORE.md`
+- **Excluded**: `node_modules/`, `data/` (results/screenshots), `.env` (tokens)
+- **Restore**: unzip to `/home/z/my-project/` + follow `RESTORE.md`
 
 ---
 
