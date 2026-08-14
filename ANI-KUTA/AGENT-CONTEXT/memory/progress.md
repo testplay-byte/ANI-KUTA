@@ -21,7 +21,17 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 - **CI**: Deploy Dashboard #44-#48 all `completed`/`success`. Build APK #532-#535 all `completed`/`success` (dashboard-only changes don't affect Android build). All verified via GitHub Actions API polling (lesson L128).
 - No D-NNN decision added (temporary dashboard rebuild, not a permanent architecture decision).
 
-**This session — Database Restructuring Plan + Dashboard (commits e64235cc → 324986cb, on `main`):**
+**This session — Database Restructuring Plan v2 (commits 78db1955 → 23d7839c, on `main`):**
+- User reviewed plan v1 + gave revised direction: merge into ONE wide `content_details` table (Option A — reversed v1's Option C). Drop `app_metadata`. Keep `data_source`+`system` separate. Keep `extension_repo_id`. Target under 15 (preference).
+- **RESEARCH**: 2 Explore sub-agents (R-1 content_details design, R-2 re-evaluate merges/grouping).
+- **PLAN v2**: Rewrote PLAN.md. 26→22 tables via 4 changes. `content_details` = 26 cols, `data_*`/`ext_*` prefixes, discriminators, `extra_json`.
+- **REVIEW (4 iterations)**: Iter 1 (2 FLAWS fixed), Iter 2A+2B parallel (0 FLAWS + 7 CONCERNS fixed), Iter 3+4 (0 FLAWS, APPROVED).
+- **DASHBOARD**: `/database-plan/` updated with v2. 20/20 routes. Mobile overflow=0.
+- **Table count**: 22 (above 15 preference — research confirms remaining are genuinely better separate).
+- New decision: **D-198** (plan v2 — PROPOSAL, not implemented).
+- **This is a PROPOSAL v2 — awaiting user approval.**
+
+**Previous session — Database Restructuring Plan + Dashboard (commits e64235cc → 324986cb, on `main`):**
 - User reviewed `/database-review/` + gave direction: rename `content`→`main_entry`, merge 3 detail tables (keeping data source ≠ extension SEPARATE), absorb `anime_metadata_cache`, keep `data_cache_episode` separate, create a beautiful dashboard page showing the full plan.
 - **RESEARCH**: 5 parallel Explore sub-agents (content table, detail tables + source-switch, cache trio, data source vs extension, keep-separate groups).
 - **PLAN**: `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (446 lines). 3 core changes + 11 improvements. 26→24 tables.
