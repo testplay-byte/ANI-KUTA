@@ -79,7 +79,7 @@ class WsRelayClient(
          * The user can override this in TestControllerSettingsScreen if needed (e.g., for
          * testing a local relay during development). If no override is set, this URL is used.
          */
-        const val DEFAULT_RELAY_URL = "wss://anikuta-relay.k-h-u-r-r-a-m-n-o-o-r88888888888.workers.dev/"
+        const val DEFAULT_RELAY_URL = "wss://anikuta-relay.anikuta.workers.dev/ws"
 
         /** Reconnect delay (if the WS drops). */
         private const val RECONNECT_DELAY_MS = 5_000L
@@ -135,7 +135,7 @@ class WsRelayClient(
             // The user can override it in TestControllerSettingsScreen (optional).
             val url = settings.getSetting(SETTING_RELAY_URL)?.trim()?.ifBlank { null } ?: DEFAULT_RELAY_URL
 
-            TestToaster.show("Connecting to relay…", throttleMs = 2000L)
+            TestToaster.show("Connecting to relay…", throttleMs = 30_000L)
             Logger.i(TAG) { "connecting to WS relay: $url" }
 
             try {
@@ -150,7 +150,7 @@ class WsRelayClient(
                 Logger.i(TAG) { "WebSocket opened — waiting for connection ack" }
             } catch (e: Exception) {
                 Logger.e(TAG) { "WS connect failed: ${e::class.java.simpleName}: ${e.message}" }
-                TestToaster.show("❌ Relay connection failed — retrying in 5s")
+                TestToaster.show("❌ Relay connection failed — retrying in 5s", throttleMs = 30_000L)
                 isStarting = false
                 scheduleRetry()
             }
@@ -253,7 +253,7 @@ class WsRelayClient(
         webSocket = null
         connectedUrl = null
         isStarting = false
-        TestToaster.show("⚠️ Connection lost — reconnecting in 5s")
+        TestToaster.show("⚠️ Connection lost — reconnecting in 5s", throttleMs = 30_000L)
         scheduleRetry()
     }
 
