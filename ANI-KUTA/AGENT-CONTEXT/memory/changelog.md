@@ -1100,3 +1100,30 @@ Fixed all 14 issues identified in the audit + re-verification:
 - CI: GREEN on main commit af51be7e (Build APK + Deploy Dashboard both triggered).
 - Dashboard: schema.ts rewritten, /database-review/ live, doc-drift fixed across all live docs.
 - No device verification yet — user will test the download system fixes on device.
+
+---
+
+## Session — Database Restructuring Plan + Dashboard (commits e64235cc → 324986cb, on `main`)
+
+### What was done
+- User reviewed the `/database-review/` dashboard + gave specific direction: rename `content` → `main_entry`, merge `anilist_detail` + `extension_detail` + `other_source_detail` into a unified `content_details` (keeping data source ≠ extension SEPARATE), absorb `anime_metadata_cache`, keep `data_cache_episode` separate, analyze `browse_cache`, do NOT merge updates/notifications/ratings/genres/library. Create a beautiful dashboard page showing the full plan.
+- **RESEARCH**: 5 parallel Explore sub-agents (Tasks 2-a through 2-e): content table deep-dive, detail tables + source-switch flows, cache trio, data source vs extension concept, confirm keep-separate groups. All returned file:line-precise findings.
+- **PLAN**: Wrote full plan at `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (446 lines). 3 core changes (rename, merge, absorb) + 11 independent improvements. 26 → 24 tables.
+- **REVIEW (4 iterations via sub-agents — NOT self-review per user instruction)**:
+  - Iteration 1: 1 FLAW + 9 CONCERNS → fixed (display_source migration, type-change note, DataSourceExtras, unlinkSource clarification, source_ref_id convention, FK precondition).
+  - Iteration 2A (architecture) + 2B (feasibility) parallel: 2 FLAWS + 11 CONCERNS → fixed (NOT NULL→nullable for clearExtensionAxis, content_id regeneration, ignoreUnknownKeys, getAniListDetail semantics, stale-title fix, episode_number scope, FK-add DROP TABLE, anilistId nullability, updateExtensionAxis atomicity, multi-size cover URLs).
+  - Iteration 3 (sign-off): 0 FLAWS + 7 minor → fixed (polish pass — migration narratives, updateContentTitle query, stale meta-commentary, future-proofing precision).
+  - Iteration 4 (confirmation): 2 cosmetic fixes → applied (dead-column count typo, query-naming consistency).
+- **DASHBOARD**: Full-stack-dev sub-agent built `/database-plan/` page — 11 sections, every table + every column + every query + every con + every deferred item. `lib/databasePlan.ts` (~830 lines) + `app/database-plan/page.tsx` (~870 lines). New "DB Plan" nav item + dbplan icon. Build passes (20/20 routes). Mobile overflow fix (3px sidebar artifact — not content).
+- **Verified via Agent Browser**: desktop 1280px (all 11 sections render, dark mode works), mobile 375px (no content overflow at any scroll position), existing pages unaffected.
+- **CI**: Deploy Dashboard #50 + #51 both `completed`/`success`.
+
+### Key decisions
+- **D-197**: Database restructuring plan (PROPOSAL — not implemented). 26→24 tables via: (1) rename `content`→`main_entry`, (2) merge 3 detail tables → `data_source_detail` + `extension_detail` (Option C — two tables, keeping data source ≠ extension separate), (3) absorb `anime_metadata_cache`. Plus 11 independent improvements. Plan reviewed via 4 sub-agent iterations. Awaiting user approval.
+
+### Status
+- Branch: `main` (feature branch merged + deleted).
+- CI: GREEN (Deploy Dashboard #51 success on commit 324986cb).
+- Dashboard: `/database-plan/` live at https://testplay-byte.github.io/ANI-KUTA/database-plan/
+- Plan doc: `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md`
+- **This is a PROPOSAL — no schema changes made. Awaiting user approval before implementation.**

@@ -21,7 +21,17 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 - **CI**: Deploy Dashboard #44-#48 all `completed`/`success`. Build APK #532-#535 all `completed`/`success` (dashboard-only changes don't affect Android build). All verified via GitHub Actions API polling (lesson L128).
 - No D-NNN decision added (temporary dashboard rebuild, not a permanent architecture decision).
 
-**This session — Download System Fixes + Database Review Dashboard (commits 8f0ea772 → af51be7e, on `main`):**
+**This session — Database Restructuring Plan + Dashboard (commits e64235cc → 324986cb, on `main`):**
+- User reviewed `/database-review/` + gave direction: rename `content`→`main_entry`, merge 3 detail tables (keeping data source ≠ extension SEPARATE), absorb `anime_metadata_cache`, keep `data_cache_episode` separate, create a beautiful dashboard page showing the full plan.
+- **RESEARCH**: 5 parallel Explore sub-agents (content table, detail tables + source-switch, cache trio, data source vs extension, keep-separate groups).
+- **PLAN**: `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (446 lines). 3 core changes + 11 improvements. 26→24 tables.
+- **REVIEW (4 iterations via sub-agents — NOT self-review per user instruction)**: Iter 1 (1 FLAW + 9 CONCERNS), Iter 2A+2B parallel (2 FLAWS + 11 CONCERNS), Iter 3 (0 FLAWS + 7 minor), Iter 4 (2 cosmetic). All fixed.
+- **DASHBOARD**: `/database-plan/` page — 11 sections, every table + column + query + con + deferred item. Build passes (20/20 routes). Mobile-clean.
+- **Verified**: Agent Browser desktop + mobile + dark mode.
+- New decision: **D-197** (DB restructuring plan — PROPOSAL, not implemented).
+- **This is a PROPOSAL — awaiting user approval before implementation.**
+
+**Previous session — Download System Fixes + Database Review Dashboard (commits 8f0ea772 → af51be7e, on `main`):**
 - User reviewed the /project-review/ dashboard + gave specific instructions: fix 5 open concerns (HttpDownloader.reResolver D-149, retry loop D-151, MainActivity runBlocking, file_size, data.json refresh), assess nav backstack R7 (DEFERRED), fix dashboard schema.ts, fix doc-drift, deep database review + optimization proposal, improve downloads page UI (server name + audio version).
 - **Phase A (D-149)**: reResolver wired — ReResolverAdapter.kt in :app, Koin binding, 2 latent bugs fixed (127.0.0.1 guard + updateDownloadVideoUrl). **RESOLVES Deferred Concern #2.**
 - **Phase B (D-151)**: RetryPolicy + outer retry loop in DownloadQueue. Max 3×2=6 attempts. **RESOLVES #5.**

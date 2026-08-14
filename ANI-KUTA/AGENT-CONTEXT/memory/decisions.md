@@ -1629,3 +1629,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Why:** The user reported that `.data.json` files were not being updated with the latest metadata (description, dataSourceId, etc.) after the initial download. Root cause: `writeDataJson` was only called by `publishVideoFile` (for the NEW download's folder). OLD data.json files were never re-touched. `requestFolderRescan()` had ZERO callers — the scanner was dead code at runtime. This fix wires the scanner + adds the write-back so old data.json files get updated with the latest DB state on every app launch.
 - **Status:** ✅ Confirmed + implemented. CI green.
 - **Date:** Download system fixes session.
+
+---
+
+### D-197 — Database restructuring plan (PROPOSAL — not implemented)
+- **What:** A full-fledged plan to restructure the database from 26 → 24 tables via 3 changes: (1) rename `content` → `main_entry` (identity hub, clearer name); (2) merge `anilist_detail` + `extension_detail` + `other_source_detail` → `data_source_detail` + `extension_detail` (Option C — two tables, keeping data source ≠ extension conceptually separate per user directive); (3) absorb `anime_metadata_cache` into `data_source_detail` (9/12 columns duplicated, 3 dead). Plus 11 independent improvements (drop 2 dead cols, fix 2 missing FKs, fix episode_number type, split display_source into active_data_source_type + active_extension_type, DataSourceExtras typed accessor, clearExtensionAxis unlink fix, etc.).
+- **Why:** User wants the database simpler, better-named, future-proof (handles AniList/Kitsu/MAL/TMDB data sources + Aniyomi/CloudStream/Sora/MangaYomi extensions without schema changes), with data source ≠ extension kept separate. The current 3-table detail split conflates nothing at the schema level but is verbose; the merge simplifies + enables in-place source switching.
+- **Design choice:** Option C (two tables) over Option A (one wide table) or Option B (two rows per content). Option C honors the user's "keep data source ≠ extension separate" directive at the schema level — each table has only columns relevant to its concept. Adding a new data source = UPDATE the row with a new `source_type` (zero schema change). Adding a new extension = UPDATE the row with a new `extension_type` (zero schema change for Long-ID extensions).
+- **Review:** 4 iterations via sub-agents (NOT self-review per user instruction). Iter 1 found 1 FLAW + 9 CONCERNS. Iter 2A (architecture) + 2B (feasibility) parallel found 2 FLAWS + 11 CONCERNS. Iter 3 (sign-off) found 0 FLAWS + 7 minor. Iter 4 (confirmation) found 2 cosmetic. All fixed. Plan is presentation-ready.
+- **Plan location:** `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (446 lines).
+- **Dashboard:** `/database-plan/` page live at https://testplay-byte.github.io/ANI-KUTA/database-plan/ — shows every table, every column, every query, every con, every deferred item.
+- **Status:** ⚠️ PROPOSAL — awaiting user approval. NO schema changes made. Implementation will be a separate session after approval.
+- **Date:** Database restructuring plan session.
