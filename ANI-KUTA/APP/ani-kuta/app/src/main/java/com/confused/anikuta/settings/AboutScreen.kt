@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Refresh
@@ -336,6 +337,7 @@ fun AboutScreen(
                                 Row(
                                     Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Text(
                                         "Downloading update…",
@@ -344,13 +346,30 @@ fun AboutScreen(
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
-                                    Text(
-                                        "${downloadProgress!!.percent ?: 0}%",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            "${downloadProgress!!.percent ?: 0}%",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                        // D-199: Cancel button — stops download + deletes partial file
+                                        IconButton(
+                                            onClick = { updateManager.cancelDownload() },
+                                            modifier = Modifier.size(28.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Close,
+                                                contentDescription = "Cancel download",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
                                 }
                                 Spacer(Modifier.height(6.dp))
                                 LinearProgressIndicator(
@@ -358,6 +377,58 @@ fun AboutScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     color = MaterialTheme.colorScheme.primary,
                                 )
+                            }
+                        }
+                    }
+
+                    // D-199: Download error display — shows the error + a clear/delete button.
+                    // The user can tap X to clear the error state + delete the partial APK
+                    // file, which resets the UI to show the "Download" button again.
+                    if (downloadProgress != null && downloadProgress!!.error != null) {
+                        item {
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Download failed",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                        )
+                                        Text(
+                                            text = downloadProgress!!.error ?: "",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    // Clear error + delete partial APK
+                                    IconButton(
+                                        onClick = { updateManager.cancelDownload() },
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Delete,
+                                            contentDescription = "Clear error + delete partial download",
+                                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

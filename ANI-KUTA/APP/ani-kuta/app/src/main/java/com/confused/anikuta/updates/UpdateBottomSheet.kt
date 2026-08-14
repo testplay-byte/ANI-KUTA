@@ -120,9 +120,11 @@ fun UpdateBottomSheet(
     // Check if this version is already downloaded (file exists on disk)
     val isAlreadyDownloaded = updateManager.isLatestUpdateDownloaded()
 
+    val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val maxSheetHeight = screenHeight * 0.75f
+
     ModalBottomSheet(
         // D-199: swipe-down / tap-outside = hideUpdateSheet (NO 6h cooldown).
-        // The sheet will re-appear on next app open or navigation to an allowed page.
         onDismissRequest = {
             updateManager.hideUpdateSheet()
             onDismiss()
@@ -135,9 +137,8 @@ fun UpdateBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // D-199: removed fixed max height — the sheet grows naturally
-                // as the What's New content scrolls. ModalBottomSheet caps at
-                // ~90% screen height by default.
+                .heightIn(max = maxSheetHeight)
+                .navigationBarsPadding()
                 .padding(top = 24.dp, start = 20.dp, end = 20.dp, bottom = 20.dp),
         ) {
             // ── Heading (bold + theme-colored) ──
@@ -188,23 +189,20 @@ fun UpdateBottomSheet(
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // D-199: removed fixed max height — the What's New area
-                        // now grows with its content (up to the ModalBottomSheet's
-                        // natural ~90% screen cap). The verticalScroll lets the user
-                        // scroll if the content exceeds the visible area.
-                        .heightIn(min = 80.dp)
+                        .heightIn(min = 80.dp, max = 300.dp)
                         .verticalScroll(rememberScrollState())
                         .padding(14.dp),
                 ) {
                     ClickableChangelogText(
                         text = info.changelog,
                         onLinkClick = { url ->
-                            // Open the URL in the system browser
                             val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
                                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
@@ -215,8 +213,6 @@ fun UpdateBottomSheet(
                             }
                         },
                     )
-                    // "View on GitHub" link — always present so the user can
-                    // see the full release page even if the changelog has no URLs.
                     Spacer(modifier = Modifier.height(10.dp))
                     val releaseUrl = "https://github.com/testplay-byte/ANI-KUTA/releases/tag/v${info.versionName}"
                     Text(
@@ -244,6 +240,7 @@ fun UpdateBottomSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             // ── Bottom row: Download (left) + Cancel/X (right) ──
+            // D-199: always visible — outside the scroll area, pinned at the bottom.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),

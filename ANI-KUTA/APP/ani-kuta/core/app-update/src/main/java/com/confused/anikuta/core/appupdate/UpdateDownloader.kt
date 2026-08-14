@@ -62,11 +62,14 @@ class UpdateDownloader(
         val request = Request.Builder()
             .url(info.downloadUrl)
             .header("User-Agent", "ANIKUTA-App-Update-Downloader")
+            .header("Accept", "application/octet-stream")
+            .header("Accept-Encoding", "identity")
             .build()
 
         var success = false
         try {
             val response = client.newCall(request).execute()
+            Logger.i(TAG) { "download: HTTP ${response.code} ${response.message} — redirect=${response.isRedirect}, contentLength=${response.body?.contentLength() ?: -1}" }
             if (!response.isSuccessful) {
                 emit(DownloadProgress.error("HTTP ${response.code} ${response.message}"))
                 response.close()

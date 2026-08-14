@@ -376,6 +376,28 @@ class AppUpdateManager(
     }
 
     /**
+     * Cancels the current download + deletes the partial APK file.
+     *
+     * Called when the user taps the cancel (X) button on the About page's
+     * download progress bar, OR when they tap the delete button on the
+     * download error card. Clears `_downloadProgress` so the UI reverts
+     * to the "Download" button state.
+     */
+    fun cancelDownload() {
+        Logger.i(TAG) { "cancelDownload: cancelling + cleaning up" }
+        _downloadProgress.value = null
+        // Delete the partial APK file if it exists.
+        _latestUpdate.value?.let { update ->
+            val apkFile = downloader.getApkFile(update.versionName)
+            if (apkFile.exists()) {
+                val deleted = apkFile.delete()
+                Logger.i(TAG) { "cancelDownload: deleted partial APK (${apkFile.absolutePath}) — $deleted" }
+            }
+            preferences.removeDownloadedApk(downloader.getApkFile(update.versionName).absolutePath)
+        }
+    }
+
+    /**
      * Clears the download progress state (for UI reset after the dialog closes).
      */
     fun clearDownloadProgress() {
@@ -544,8 +566,10 @@ class AppUpdateManager(
     private fun createOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(300, TimeUnit.SECONDS) // D-199: 5 min for large APKs
+            .writeTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
+            .followSslRedirects(true)
             .build()
     }
 
