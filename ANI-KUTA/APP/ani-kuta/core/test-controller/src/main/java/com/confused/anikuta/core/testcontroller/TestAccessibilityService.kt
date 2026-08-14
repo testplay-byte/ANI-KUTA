@@ -72,7 +72,6 @@ class TestAccessibilityService : AccessibilityService() {
             if (info != null) {
                 Logger.i(TAG) {
                     "service config: canRetrieveWindowContent=${info.canRetrieveWindowContent}, " +
-                    "canPerformGestures=${info.canPerformGestures}, " +
                     "flags=0x${info.flags.toString(16)}"
                 }
             } else {
