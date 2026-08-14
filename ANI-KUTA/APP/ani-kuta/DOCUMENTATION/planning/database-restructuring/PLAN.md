@@ -1,347 +1,365 @@
-# Database Restructuring Plan — ANI-KUTA
+# Database Restructuring Plan v2 — ANI-KUTA
 
-> **Status**: PROPOSAL — not yet implemented. Awaiting user approval.
+> **Status**: PROPOSAL v2 (revised from v1) — not yet implemented. Awaiting user approval.
 > **Date**: 2026-08-14
-> **Author**: Main agent (researched via 5 parallel Explore sub-agents, reviewed via 4 sub-agent iterations)
-> **Scope**: Schema restructuring of the 26-table SQLDelight database. No code changes this phase — this is the plan only.
+> **Author**: Main agent (researched via 2 Explore sub-agents R-1 + R-2, reviewed via 4 sub-agent iterations)
+> **Scope**: Schema restructuring of the 26-table SQLDelight database → **22 tables**. No code changes this phase — this is the plan only.
 > **Migration policy**: Debug builds only — schema can be rebuilt freely per CORE_RULES §30 (drop + recreate, no `.sqm` migration files needed).
+> **Change from v1**: The user reversed the Option C decision (two tables) → now Option A (one wide `content_details` table). Also: keep `extension_repo_id`, drop `app_metadata`, keep `data_source`+`system` separate, keep `display_source` as single UX column (not split), 10-group presentation.
 
 ---
 
 ## 1. Executive Summary
 
-This plan restructures the database from **26 tables → 24 tables** through 3 changes:
+This plan restructures the database from **26 tables → 22 tables** through 4 changes:
 
 1. **Rename** `content` → `main_entry` (the identity hub — clearer name, avoids `android.content.*` collision)
-2. **Merge** `anilist_detail` + `extension_detail` + `other_source_detail` (3 tables) → `data_source_detail` + `extension_detail` (2 tables), keeping data-source metadata + extension metadata **conceptually separate** per the user's directive
-3. **Absorb** `anime_metadata_cache` into `data_source_detail` (9/12 columns were duplicated; 3 columns were dead)
+2. **Merge** `anilist_detail` + `extension_detail` + `other_source_detail` + `anime_metadata_cache` (4 tables) → **one wide `content_details` table** (Option A — the user's revised direction). Handles ALL content types (video/novel/image/manga) + ALL data sources (AniList/Kitsu/MAL/TMDB) + ALL extensions (Aniyomi/CloudStream/Sora/MangaYomi).
+3. **Drop** `app_metadata` (dead code — 0 Kotlin callers, absorbed into `app_settings`)
+4. **Keep** `data_source` + `system` separate (different column shapes, FK integrity — per R-2 recommendation)
 
-Plus **independent improvements** bundled in (no merge required):
-- Drop 2 dead columns from `main_entry` (`description`, `extension_repo_id`)
+Plus **independent improvements** bundled in:
+- Drop `description` from `main_entry` (has 3 fallback-reader callers — migration specified in §4.1). **Keep `extension_repo_id`** per user directive.
 - Fix 2 missing FK declarations (`watch_progress`, `notification_sent`)
-- Fix `episode_number` type mismatch (INTEGER → REAL in `notification_sent` + `episode_schedule`)
-- Split `display_source` into `active_data_source_type` + `active_extension_type` (independent switching)
+- Fix `episode_number` type mismatch (INTEGER → REAL in `notification_sent` + `episode_schedule`) — schema + API (SQLDelight maps REAL→Double)
 - Drop 4 dead queries + 2 dead methods
+- Drop redundant indexes
+- `DataSourceExtras` + `ExtensionExtras` typed accessors for `extra_json`
+- `clearExtensionAxis` query (fixes the orphan-row unlink bug)
+- `updateMainEntryTitle` query (keeps title in sync on metadata refresh)
 - Standardize index naming + retention query param style
 
-**Tables NOT merged** (confirmed keep-separate via research): updates group, notifications group, ratings group, genres group, library group, `data_cache_episode`, `browse_cache`.
+**Tables NOT merged** (confirmed keep-separate via R-2 research): updates group, notifications group, ratings group, genres group, library group, downloads group, `data_cache_episode`, `browse_cache`, `data_source`, `system`. Each has a sound architectural reason (different cardinality, different retention, different access pattern, or classic M:N normalization).
+
+**Table count honesty**: 22 is above the user's "under 15" preference. The research confirms the remaining 22 tables are genuinely better separate — merging any of them would create sparse/awkward tables, break FK integrity, or corrupt backup semantics. 22 is the floor without forcing bad merges.
 
 ---
 
 ## 2. Design Principles (the "why" behind every decision)
 
-1. **Data sources ≠ extensions.** Data sources (AniList/Kitsu/MAL/TMDB) provide metadata. Extensions (Aniyomi/CloudStream/Sora/MangaYomi) provide video playback + episode lists. These are orthogonal — a user can switch either independently. The schema must reflect this separation.
+1. **One `content_details` table, two axes.** Data-source metadata (AniList/Kitsu/MAL/TMDB) + extension metadata (Aniyomi/CloudStream/Sora/MangaYomi) live in ONE table, distinguished by column prefixes (`data_*` / `ext_*`) + discriminator columns (`data_source_type` / `extension_type`). This is the user's revised direction — simpler than two tables, handles all content types.
 
-2. **Future-proof, not over-engineered.** Adding a new data source (e.g. AnimePlanet) or a new extension ecosystem (e.g. Kotatsu) must NOT require a schema change. Achieved via `source_type` / `extension_type` discriminator columns + `extra_json` for source-specific extras.
+2. **Future-proof, not over-engineered.** Adding a new data source (e.g. MAL) or a new extension ecosystem (e.g. CloudStream) = UPDATE the row with a new `data_source_type` / `extension_type`. **Zero schema change.** Source-specific extras go in `data_extra_json` / `ext_extra_json`.
 
-3. **In-place switching.** When the user switches the active data source or extension for a content, the existing row is UPDATEd — not deleted + re-inserted. The `main_id` stays stable throughout.
+3. **In-place switching.** When the user switches the active data source or extension, the existing row is UPDATEd (via `updateDataSourceAxis` / `updateExtensionAxis`) — not deleted + re-inserted. The `main_id` stays stable throughout. Both axes can be switched independently.
 
 4. **Stable identity.** `main_id` (UUID) is assigned once on first sighting, never changes, survives all source switches. All child tables FK to it with `ON DELETE CASCADE`.
 
-5. **No data loss.** Every column in every dropped table is either (a) duplicated elsewhere, (b) dead (zero callers), or (c) explicitly migrated. Verified by the 5 research sub-agents.
+5. **No data loss.** Every column in every dropped table is either (a) duplicated elsewhere, (b) dead (zero callers), or (c) explicitly migrated. Verified by 7 research sub-agents (5 in prior session + 2 this session).
+
+6. **Keep what's separate, separate.** The 7 groups confirmed keep-separate by R-2 research are NOT merged. Forcing them would create technical debt, not reduce it.
 
 ---
 
-## 3. The 3 Core Changes (detailed)
+## 3. The 4 Core Changes (detailed)
 
 ### Change 1 — Rename `content` → `main_entry`
 
-**Why**: The `content` table's real job is the identity hub — it holds the stable `main_id` + the changing `content_id` + links to all per-source detail tables. The name "content" is generic + collides with `android.content.ContentResolver` / `android.content.Context` (confusing for new agents). `main_entry` accurately reflects "the main entry row that all detail rows hang off of."
+**Why**: The `content` table's real job is the identity hub — it holds the stable `main_id` + the changing `content_id` + links to all per-source detail tables. The name "content" is generic + collides with `android.content.ContentResolver` / `android.content.Context`. `main_entry` accurately reflects "the main entry row that all detail rows hang off of."
 
 **What changes**:
 - Table name: `content` → `main_entry`
 - 4 indexes renamed: `idx_content_*` → `idx_main_entry_*`
 - 9 SQLDelight queries renamed: `getContentBy*` → `getMainEntryBy*`, `insertContent` → `insertMainEntry`, etc.
-- 1 NEW query added (per §4.12 item 8): `updateMainEntryTitle(mainId, title, updatedAt)` — keeps `main_entry.title` in sync when the anime metadata refresh flow updates the title (was previously only updating the now-dropped `anime_metadata_cache.title`).
+- 1 NEW query: `updateMainEntryTitle(mainId, title, updatedAt)` — keeps `main_entry.title` in sync when metadata refresh updates the title
 - 13 FK declarations across 9 `.sq` files updated: `REFERENCES content(main_id)` → `REFERENCES main_entry(main_id)`
 - 1 Kotlin string literal in `DatabaseDriverFactory.kt:168` updated
 - 1 `DbReference("content", ...)` in `DetailsScreen.kt:385` → `DbReference("main_entry", ...)`
 
-**What does NOT change** (optional, deferred to a future cleanup):
-- Kotlin class names (`ContentRecord`, `ContentRepository`, `ContentResolver`, etc.) — these are decoupled from the table name. Renaming them is a separate, larger churn (~24 caller files). The plan recommends keeping them for now.
-- The `.sq` FILE name (`content.sq`) — could be renamed to `main_entry.sq`, but that changes the SQLDelight-generated `database.contentQueries` → `database.mainEntryQueries` (19 references in ContentRepository + 1 in GenreRepository). The plan recommends renaming the file too, for consistency, but this is the riskier part.
+**What does NOT change** (deferred to separate sessions):
+- Kotlin class names (`ContentRecord`, `ContentRepository`, etc.) — decoupled from table name. ~24 caller files. Separate session.
+- The `.sq` FILE name (`content.sq`) — could be renamed to `main_entry.sq`, changes `database.contentQueries` property. Separate session.
 
 **Migration**: Debug builds — drop + recreate. No `.sqm` file needed.
 
-### Change 2 — Merge 3 detail tables → 2 (keeping data source ≠ extension separate)
+### Change 2 — Merge 4 tables → one wide `content_details` (Option A)
 
-**⚠️ Type-change note (per Review Iteration 1)**: The `extension_id` + `source_id` columns change from INTEGER → TEXT in the DB. However, **the Kotlin types stay `Long?`** to preserve `.data.json` compatibility (`ContentDataJson.extensionId: Long?` would fail to deserialize if the DB stored a String). The conversion happens at the DB boundary via SQLDelight's column adapter (Long ↔ TEXT). This keeps existing Kotlin code (9 call sites that do `content.extensionId ?: extDetail?.extensionId`) compiling unchanged. Future CloudStream extensions that use String source IDs would need a separate column or a hash-to-Long mapping (deferred — not a concern for Aniyomi-only today).
-
-**Why**: The user wants `anilist_detail` + `extension_detail` + `other_source_detail` merged into a unified structure that:
+**Why**: The user wants `anilist_detail` + `extension_detail` + `other_source_detail` + `anime_metadata_cache` merged into a single `content_details` table that:
 - Holds metadata from ANY data source (AniList now, Kitsu/MAL/TMDB later)
 - Holds metadata from ANY extension (Aniyomi now, CloudStream/Sora/MangaYomi later)
-- Updates in-place when the user switches source
-- Keeps the two concepts (data source vs extension) SEPARATE
+- Updates in-place when the user switches source (both axes independently)
+- Handles ALL content types (video, novel, image, manga — most fields shared)
+- Is future-proof (zero schema change for new sources/extensions/content-types)
 
-**Design choice**: Option C (from the research) — TWO tables, not one. This honors the user's "keep them separate" directive at the schema level, matching the existing `data_source` vs `system` lookup-table split.
+**Design choice**: Option A — one wide table with column prefixes (`data_*` / `ext_*`) + discriminators + `extra_json`. The two axes (data-source + extension) are conceptually orthogonal + linked independently. Column prefixes preserve the fact that AniList + extension metadata can differ (which the user wants to switch between).
 
-#### New table: `data_source_detail` (replaces `anilist_detail` + `other_source_detail`)
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `main_id` | TEXT | NOT NULL PRIMARY KEY, FK→main_entry(main_id) ON DELETE CASCADE | Stable identity link |
-| `source_type` | TEXT | nullable | Discriminator: 'anilist' \| 'kitsu' \| 'mal' \| 'tmdb' \| NULL (NULL = no data source linked). **Nullable per Review Iteration 2A** — allows `clearDataSourceAxis` to NULL the field on unlink. |
-| `source_ref_id` | TEXT | nullable | The external ID (anilist_id as string, mal_id, kitsu_id, tmdb_id). **Nullable** — NULL when no data source linked. |
-| `title` | TEXT | nullable | Display title from the data source |
-| `description` | TEXT | nullable | Synopsis/description |
-| `genres` | TEXT | nullable | Comma-separated genre list |
-| `status` | TEXT | nullable | 'FINISHED' \| 'RELEASING' \| 'CANCELLED' \| 'HIATUS' |
-| `score` | INTEGER | nullable | Average score 0-100 |
-| `episodes` | INTEGER | nullable | Total episode count |
-| `season` | TEXT | nullable | 'WINTER' \| 'SPRING' \| 'SUMMER' \| 'FALL' |
-| `season_year` | INTEGER | nullable | Year of season airing |
-| `cover_url` | TEXT | nullable | Cover image URL |
-| `banner_url` | TEXT | nullable | Banner image URL |
-| `extra_json` | TEXT | nullable | Source-specific extras (e.g. `{"id_mal":12345,"trailer_url":"..."}` for AniList; `{"age_rating":"TV-14"}` for Kitsu) |
-| `updated_at` | INTEGER | NOT NULL | Last-write timestamp |
-
-**Queries** (8):
-- `getDataSourceDetail(mainId)` — SELECT * WHERE main_id = :mainId
-- `getMainEntryByDataSourceRef(sourceType, sourceRefId)` — JOIN to main_entry for reverse lookup
-- `upsertDataSourceDetail(...)` — INSERT OR REPLACE (full row)
-- `updateDataSourceAxis(...)` — partial UPDATE of all data-source fields (for in-place switching)
-- `clearDataSourceAxis(mainId)` — NULL out all data-source fields (for unlink)
-- `deleteDataSourceDetail(mainId)` — DELETE (for hard unlink)
-- `getAllDataSourceDetails()` — for backup dump
-- `getDataSourceDetailByAniListId(anilistId)` — convenience: `WHERE source_type='anilist' AND source_ref_id = :anilistId` (preserves the hot lookup path)
-
-**Migration from `anilist_detail`**:
-- `anilist_id INTEGER` → `source_ref_id TEXT` (cast to string, nullable)
-- `id_mal INTEGER` → moves to `extra_json` as `{"id_mal": <value>}`
-- `synopsis TEXT` → renamed to `description TEXT`
-- All other columns map 1:1
-- Add `source_type TEXT` (nullable, per §4.12 item 1 — allows `clearDataSourceAxis` to NULL it on unlink). Existing rows get `source_type='anilist'` during migration.
-
-#### Updated table: `extension_detail` (extended, not replaced)
+#### New table: `content_details`
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `main_id` | TEXT | NOT NULL PRIMARY KEY, FK→main_entry(main_id) ON DELETE CASCADE | Stable identity link |
-| `extension_type` | TEXT | nullable | Discriminator: 'aniyomi' \| 'cloudstream' \| 'sora' \| 'mangayomi' \| NULL (NULL = no extension linked). **Nullable per Review Iteration 2A** — allows `clearExtensionAxis` to NULL the field on unlink. NEW COLUMN |
-| `extension_id` | TEXT | nullable | Aniyomi source.id (was INTEGER → TEXT for future CloudStream string IDs). **Nullable** — NULL when no extension linked. TYPE CHANGE |
-| `source_id` | TEXT | nullable | Same as extension_id (legacy dup, kept for compatibility). **Nullable**. TYPE CHANGE |
-| `anime_url` | TEXT | nullable | The content's URL on the source. **Nullable** — NULL when no extension linked. |
-| `title` | TEXT | nullable | Display title from the extension |
-| `description` | TEXT | nullable | Extension-provided description |
-| `genres` | TEXT | nullable | Extension-provided genres |
-| `status` | TEXT | nullable | Extension-provided status |
-| `author` | TEXT | nullable | Manga author (future manga support) |
-| `artist` | TEXT | nullable | Manga artist |
-| `thumbnail_url` | TEXT | nullable | Extension-provided thumbnail |
-| `extra_json` | TEXT | nullable | Source-specific extras — NEW COLUMN |
-| `updated_at` | INTEGER | NOT NULL | Last-write timestamp |
+| **── Data-source (metadata) axis ──** | | | |
+| `data_source_type` | TEXT | nullable | Discriminator: 'anilist' \| 'kitsu' \| 'mal' \| 'tmdb'. NULL = no data source linked. |
+| `data_source_ref_id` | TEXT | nullable | External ID as TEXT (anilist_id, mal_id, kitsu_id, tmdb_id). TEXT for uniformity. |
+| `data_score` | INTEGER | nullable | Average score 0-100 |
+| `data_episodes` | INTEGER | nullable | Total episode count |
+| `data_season` | TEXT | nullable | 'WINTER' \| 'SPRING' \| 'SUMMER' \| 'FALL' |
+| `data_season_year` | INTEGER | nullable | Year of season airing |
+| `data_status` | TEXT | nullable | 'FINISHED' \| 'RELEASING' \| 'CANCELLED' \| 'HIATUS' |
+| `data_genres` | TEXT | nullable | Comma-separated curated genres |
+| `data_synopsis` | TEXT | nullable | Long-form editorial synopsis |
+| `data_cover_url` | TEXT | nullable | Data-source CDN cover image |
+| `data_banner_url` | TEXT | nullable | Data-source CDN wide banner |
+| `data_extra_json` | TEXT | nullable | JSON: `{"id_mal":12345,"trailer_url":"...","age_rating":"PG-13","studio":"WIT"}` |
+| `data_updated_at` | INTEGER | nullable | When the data-source axis was last refreshed |
+| **── Extension (episode source) axis ──** | | | |
+| `extension_type` | TEXT | nullable | Discriminator: 'aniyomi' \| 'cloudstream' \| 'sora' \| 'mangayomi'. NULL = no extension linked. |
+| `extension_id` | TEXT | nullable | Extension source ID as TEXT (Aniyomi Long stringified; future CloudStream String) |
+| `source_id` | INTEGER | nullable | Aniyomi internal source.id (kept as INTEGER for back-compat; NULL for future extensions) |
+| `anime_url` | TEXT | nullable | Extension's content URL (nullable so `clearExtensionAxis` can NULL it) |
+| `ext_description` | TEXT | nullable | Source site's short description |
+| `ext_genres` | TEXT | nullable | Source site's raw genres |
+| `ext_status` | TEXT | nullable | Source site's free-text status |
+| `ext_author` | TEXT | nullable | Manga/novel author (NULL for video) |
+| `ext_artist` | TEXT | nullable | Manga artist (NULL for video + novels) |
+| `ext_thumbnail_url` | TEXT | nullable | Source site's thumbnail image URL |
+| `ext_extra_json` | TEXT | nullable | JSON: `{"scanlator_group":"...","chapter_count":42,"volume_count":8}` |
+| `ext_updated_at` | INTEGER | nullable | When the extension axis was last refreshed |
 
-**Queries** (7):
-- `getExtensionDetail(mainId)` — SELECT * WHERE main_id = :mainId
-- `getMainEntryByExtension(extensionType, extensionId, animeUrl)` — JOIN for reverse lookup
-- `upsertExtensionDetail(...)` — INSERT OR REPLACE (full row)
-- `updateExtensionAxis(...)` — partial UPDATE of all extension fields (for in-place switching) — NEW QUERY
-- `clearExtensionAxis(mainId)` — NULL out all extension fields (for unlink — **fixes the orphan-row bug**) — NEW QUERY
-- `deleteExtensionDetail(mainId)` — DELETE (for hard unlink)
-- `getAllExtensionDetails()` — for backup dump
+**Column count: 26** (1 PK + 13 data-axis + 12 extension-axis). SQLite supports 2000 — non-issue.
 
-**Migration from `extension_detail`**:
-- Add `extension_type TEXT` (nullable, per §4.12 item 1 — allows `clearExtensionAxis` to NULL it on unlink). Existing rows get `extension_type='aniyomi'` during migration.
-- Change `extension_id` + `source_id` + `anime_url` to nullable (were NOT NULL; now nullable per §4.12 item 1).
-- Change `extension_id` + `source_id` from INTEGER → TEXT (SQLite is dynamically typed, so existing Long values work; Kotlin types stay `Long?` per §3 Change 2 note).
-- Add `extra_json TEXT` (nullable)
-- All other columns unchanged
+**Indexes** (2):
+- `idx_content_details_data_ref` — partial WHERE `data_source_type = 'anilist'` on `data_source_ref_id` (replaces `idx_anilist_detail_anilist_id` — hot path for `getMainEntryByAniListId`)
+- `idx_content_details_data_source_ref` — composite on `(data_source_type, data_source_ref_id)` (generic, for future Kitsu/MAL/TMDB)
 
-#### Dropped: `other_source_detail` (DEAD CODE — 0 callers, never written)
+**Note on extension lookup** (per Review v2-1 FLAW 1): the `getMainEntryByExtension` hot path uses the **denormalized `extension_id` + `anime_url` columns on `main_entry`** (kept there for fast single-table lookup, no JOIN). The index for this query is `idx_main_entry_extension_url` on `main_entry` (renamed from `idx_content_extension_url`). No index needed on `content_details` for this query — the denormalized columns on `main_entry` are the source of truth for the reverse-lookup hot path.
 
-The generic KV table designed for "future TMDB/Kitsu/MAL" was never wired up. The new `data_source_detail` table handles all future data sources via the `source_type` discriminator. **Zero data loss** — the table was empty.
+**Queries** (11):
+- `getContentDetails(mainId)` — single-row read
+- `getMainEntryByAniListId(anilistId)` — JOIN for reverse lookup by AniList ID (hot path)
+- `getMainEntryByDataSourceRef(sourceType, sourceRefId)` — generic reverse lookup (for future Kitsu/MAL/TMDB)
+- `getMainEntryByExtension(extensionId, animeUrl)` — uses denormalized `main_entry.extension_id` + `main_entry.anime_url` (NO JOIN — hot path, kept on main_entry for performance)
+- `upsertContentDetails(...)` — full-row INSERT OR REPLACE (26 params)
+- `updateDataSourceAxis(...)` — partial UPDATE of all data-source fields (for switching data source — ext_* untouched)
+- `updateExtensionAxis(...)` — partial UPDATE of all extension fields (for switching extension — data_* untouched)
+- `clearDataSourceAxis(mainId)` — NULL all data-source fields (for unlink — fixes orphan-row bug)
+- `clearExtensionAxis(mainId)` — NULL all extension fields (for unlink — **NEW, fixes the orphan-row bug**)
+- `deleteContentDetails(mainId)` — hard delete
+- `getAllContentDetails()` — for backup dump
 
-### Change 3 — Absorb `anime_metadata_cache` → `data_source_detail`
+**Migration from the 4 dropped tables**:
+- `anilist_detail` → `content_details` data-axis: `anilist_id` → `data_source_ref_id` (TEXT), `synopsis` → `data_synopsis`, `id_mal` → `data_extra_json`, others map 1:1
+- `extension_detail` → `content_details` extension-axis: `extension_id` → TEXT, `description` → `ext_description`, `thumbnail_url` → `ext_thumbnail_url`, others map 1:1
+- `other_source_detail` → DROPPED (dead code, 0 callers — concept absorbed by `data_extra_json`)
+- `anime_metadata_cache` → ABSORBED into data-axis (9/12 columns duplicate `anilist_detail`; 3 unique cols dead: `title` duplicates `main_entry.title`, `source_type` hardcoded dead, `fetched_at` write-only dead)
 
-**Why**: 9 of 12 `anime_metadata_cache` columns duplicate `anilist_detail` (which becomes `data_source_detail`). The 3 unique columns are all dead:
-- `title` → duplicates `main_entry.title` (set from the same source)
-- `source_type` → hardcoded `'anilist'`, never read
-- `fetched_at` → write-only, no refresh-logic reader
+#### `main_entry` changes (bundled with Change 2)
+
+The `main_entry` table (renamed from `content`) gets these changes:
+- **Keep `extension_repo_id`** (user directive — will be wired up later, possibly renamed to a number)
+- **Keep `extension_id` + `source_id` + `anime_url`** (denormalized for the hot `getMainEntryByExtension` lookup — avoids a JOIN on every extension-source open)
+- **Keep `display_source`** as a single UX-preference column (which axis to PREFER for display — NOT a link-state flag; link state is implicit in `content_details` discriminators). **NOT split** into `active_data_source_type` + `active_extension_type` (that was v1's plan — no longer needed with the unified table). **Value semantics (per Review v2-2A Check 4)**: `display_source` stores the AXIS preference — values `'data_source'` \| `'extension'`. Migrate existing `'anilist'` values to `'data_source'` on schema rebuild. (The old values were source-name-level; the new values are axis-level, which scales to future Kitsu/MAL/TMDB.)
+- **Drop `description`** (has 3 fallback-reader callers — migration specified in §4.1; column is never written non-null today)
+- **Add `updateMainEntryTitle` query** (keeps title in sync when metadata refresh updates the title)
+
+#### Dropped tables (4):
+- `anilist_detail` → merged into `content_details` (data-axis)
+- `extension_detail` → merged into `content_details` (extension-axis)
+- `other_source_detail` → DROPPED (dead code, 0 callers, never written)
+- `anime_metadata_cache` → ABSORBED into `content_details` (data-axis — 9/12 cols duplicate, 3 dead)
+
+### Change 3 — Drop `app_metadata` (absorbed into `app_settings`)
+
+**Why**: `app_metadata` is dead code — 0 Kotlin callers (grep confirmed). Its 2-column schema (key, value) is a strict subset of `app_settings`' 5-column schema. The prior plan deferred this; R-2 research confirmed it's safe to do now.
 
 **What changes**:
-- DROP the `anime_metadata_cache` table
-- DROP the 3 `DataCacheRepository` methods: `getAnimeMetadata`, `upsertAnimeMetadata`, `deleteAnimeMetadata` (last one already dead)
-- DROP the `CachedAnimeMetadata` data class
-- Redirect 6 caller sites (4 in DetailsViewModel, 2 in LibraryViewModel) to read from `data_source_detail` instead
+- DROP the `app_metadata` table + its 2 queries (`setMetadata`, `getMetadata`)
+- Any planned-but-never-wired use cases (schema version tracking) go into `app_settings` with `setting_category='internal'`
+- Backup filter: `WHERE setting_category != 'internal'` (so internal flags don't pollute backups)
 
-**Migration**: The 9 duplicate columns are already in `anilist_detail` → `data_source_detail`. The `title` column's data is already in `main_entry.title`. No data loss.
+**No data loss** — the table was empty (0 rows, 0 callers).
+
+### Change 4 — Keep `data_source` + `system` separate (per R-2 recommendation)
+
+**Why**: The user asked about merging these. R-2 research evaluated + recommended **keep separate**:
+1. Different column shapes (`data_source` has `type` column; `system` has `package_prefix` column)
+2. FK integrity: `main_entry.data_source_id` → `data_source(id)` + `main_entry.system_id` → `system(id)` — merging into one `lookup` table would weaken FK integrity (can't enforce "data_source_id points to a data_source row" at the DB level)
+3. Conceptual separation is real: `data_source` = metadata providers (AniList/TMDB/Kitsu/MAL); `system` = extension ecosystems (Aniyomi/CloudStream/Sora/MangaYomi)
+4. Only saves 1 table — bad trade
+
+The user said "if keeping them separate is the best approach then we can go with that." R-2 confirms it is.
 
 ---
 
 ## 4. Independent Improvements (bundled, no merge required)
 
-These are improvements the research surfaced. They're independent of the 3 core changes but make sense to bundle:
+### 4.1 Drop `description` from `main_entry` (with caller migration)
+- `description TEXT` — used as a fallback in 3 places (per Review v2-1 FLAW 2):
+  - `MainActivity.kt:671, 800` — `description = content.description ?: extDetail?.description`
+  - `DownloadScanner.kt:276` — `description = record.description ?: extDetail?.description`
+  - `DownloadStorageProvider.kt:265, 281` — via `DownloadContentInfo`
+- These callers must be migrated to read `content_details.data_synopsis` (or `ext_description` as fallback) instead of `main_entry.description`.
+- The column is never WRITTEN non-null today (ContentRepository.insertContent always passes `description = null`), so dropping it loses no data — but the read-side callers need updating.
+- **Keep `extension_repo_id`** per user directive.
 
-### 4.1 Drop 2 dead columns from `main_entry`
-- `description TEXT` — no UI code reads `main_entry.description` directly (always reads `anilist_detail.synopsis` or `extension_detail.description`). Dead column.
-- `extension_repo_id INTEGER` — D-192 dropped the FK + the lookup table; column is always NULL.
-
-### 4.2 Split `display_source` into 2 columns
-
-Current: `display_source TEXT` with values `'anilist'` | `'extension'` — conflates data source + extension into one column.
-
-New:
-- `active_data_source_type TEXT` — nullable: `'anilist'` | `'kitsu'` | `'mal'` | `'tmdb'` | NULL
-- `active_extension_type TEXT` — nullable: `'aniyomi'` | `'cloudstream'` | `'sora'` | `'mangayomi'` | NULL
-
-This enables **independent switching** — the user can switch the data source (AniList→MAL) without touching the extension (still Aniyomi-extension-A), and vice versa.
-
-**Migration (corrected per Review Iteration 1)**: the migration must check the PRESENCE of link fields (`data_source_id` IS NOT NULL → data source is linked; `system_id` IS NOT NULL → extension is linked), NOT the `display_source` column value. This is because `linkAniList` + `linkExtensionToExisting` don't update `display_source` when cross-linking — so a content row with `display_source='anilist'` can have BOTH detail rows populated. The corrected migration:
-- If `data_source_id IS NOT NULL` → `active_data_source_type = 'anilist'` (current default), else NULL
-- If `system_id IS NOT NULL` (or `extension_id IS NOT NULL`) → `active_extension_type = 'aniyomi'` (current default), else NULL
-- DROP `display_source` after migration
-
-### 4.3 Fix 2 missing FK declarations (pre-existing bugs)
+### 4.2 Fix 2 missing FK declarations (pre-existing bugs)
 - `watch_progress.main_id` — `watch.sq:18` has only a comment, no FK clause. Add `FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE`.
 - `notification_sent.main_id` — `notifications.sq:38-45` has no FK. Add the same.
 
-**⚠️ Precondition (per Review Iteration 1)**: adding these FKs will FAIL if existing rows reference non-existent `main_id` values. Since this is debug-build-only (CORE_RULES §30), the fix is: wipe the DB (dev users clear app data once) before applying the new schema. No `.sqm` migration needed — the fresh CREATE TABLE includes the FK.
+**Precondition**: adding these FKs will FAIL if existing rows reference non-existent `main_id` values. Debug builds — wipe the DB (dev users clear app data once). No `.sqm` migration needed. SQLite can't ALTER TABLE to add a FK — DROP + CREATE the affected tables.
 
-### 4.4 Fix `episode_number` type mismatch (real bug)
+### 4.3 Fix `episode_number` type mismatch (schema + API)
 - `notification_sent.episode_number INTEGER` → `REAL` (was rounding 12.5→12, breaking dedup)
 - `episode_schedule.episode_number INTEGER` → `REAL` (same issue)
 
-4 other tables already use `REAL` for fractional episodes (12.5 for OVAs).
+**Scope correction (per Review v2-2B Check 9)**: SQLDelight maps `REAL` → Kotlin `Double` (not `Long`). So this change DOES affect the Kotlin API surface — callers in `ScheduleStore`, `NotificationConfigStore`, `ActualReleaseUpdater`, `UpdateEngine`, `SmartReleaseCheckWorker` that currently use `Long` must change to `Double`. This is a compile-safe migration (SQLDelight catches the type mismatch at compile time). The plan includes BOTH the schema change AND the Kotlin caller migration.
 
-### 4.5 Drop 4 dead queries
-- `deleteAnimeMetadata`, `deleteEpisodeMetadata`, `deleteBrowseCache`, `getAllBrowseCache` (all 0 callers)
-- `deleteExtensionDetail` (0 callers — but being repurposed in Change 2)
-- `getAllUserEpisodeRatings` (0 callers — but should be WIRED UP for backup, not deleted)
+### 4.4 Drop 4 dead queries
+- `deleteAnimeMetadata` (0 callers — table being dropped)
+- `deleteEpisodeMetadata` (0 callers — CASCADE handles it)
+- `deleteBrowseCache` + `getAllBrowseCache` (0 callers)
+- `deleteExtensionDetail` (0 callers — being replaced by `clearExtensionAxis`)
 
-### 4.6 Drop 2 dead methods from ContentRepository
+### 4.5 Drop 2 dead methods from ContentRepository
 - `deleteExtensionDetail()` (0 callers)
 - `getDefaultCategoryCount()` (0 callers)
 
-### 4.7 Drop redundant indexes
+### 4.6 Drop redundant indexes
 - `idx_content_data_source` — no query filters on `data_source_id` alone
+- `idx_content_extension` — single-column on `content(extension_id)`, redundant with composite `idx_content_extension_url` (leftmost column covered)
 - `idx_content_genre_main` — duplicates leftmost column of composite PK
 - `idx_library_item_main` — duplicates leftmost column of `idx_library_item_unique`
 
-### 4.8 Standardize naming
-- Indexes: `idx_<full_table_name>_<cols>[_unique|_partial]` (7 indexes have shortened names)
-- Retention query params: standardize on named `:cutoff` (2 use positional `?`)
-- `audio_variant` everywhere (currently `video_audio` in 2 download tables)
+### 4.7 `DataSourceExtras` + `ExtensionExtras` typed accessors
 
-### 4.9 Typed `DataSourceExtras` accessor for `extra_json` (per Review Iteration 1)
-
-The `extra_json` column on `data_source_detail` holds source-specific fields (e.g. AniList's `id_mal`, `trailer_url`; Kitsu's `age_rating`). To avoid repeating JSON-parse logic at every read site (5+ callers, including the episode metadata engine which needs `id_mal` for Jikan API calls), introduce a typed accessor:
+The `data_extra_json` + `ext_extra_json` columns hold source-specific fields. To avoid repeating JSON-parse logic at every read site, introduce typed accessors:
 
 ```kotlin
-// In :core:content, alongside DataSourceDetail
 @Serializable
 data class DataSourceExtras(
     val idMal: Long? = null,
     val trailerUrl: String? = null,
     val ageRating: String? = null,
-    val coverUrlLarge: String? = null,  // for multi-size cover URLs (§4.12 item 6)
+    val studio: String? = null,
+    val coverUrlLarge: String? = null,  // for multi-size cover URLs
     val coverUrlSmall: String? = null,
-    // future: add fields as new data sources are added
 ) {
     fun toJson(): String = extrasJson.encodeToString(this)
     companion object {
-        // Per §4.12 item 4: ignoreUnknownKeys = true so adding new fields
-        // doesn't break parsing of existing rows.
-        private val extrasJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        private val extrasJson = Json { ignoreUnknownKeys = true }
         fun fromJson(json: String?): DataSourceExtras =
             if (json.isNullOrBlank()) DataSourceExtras()
             else runCatching { extrasJson.decodeFromString(json) }.getOrDefault(DataSourceExtras())
     }
 }
+
+@Serializable
+data class ExtensionExtras(
+    val scanlatorGroup: String? = null,
+    val chapterCount: Int? = null,
+    val volumeCount: Int? = null,
+) {
+    // same pattern
+}
 ```
 
-The `DataSourceDetail` data class exposes `extras: DataSourceExtras` (parsed once on read). Callers do `detail.extras.idMal` instead of parsing JSON. This keeps type safety for the common fields while allowing future sources to add fields without schema changes.
+The `ContentDetails` data class exposes `dataExtras: DataSourceExtras` + `extExtras: ExtensionExtras` (parsed once on read). `ignoreUnknownKeys = true` so adding new fields doesn't break parsing of existing rows.
 
-### 4.10 `unlinkSource` flow clarification (per Review Iteration 1)
+### 4.8 `source_ref_id` String↔Int conversion convention
 
-The current `DetailsViewModel.unlinkSource()` (line 1693) does NOT touch the DB — it only clears SharedPreferences + in-memory state, leaving orphaned `extension_detail` rows. The plan introduces two queries:
-- `clearExtensionAxis(mainId)` — NULLs out the extension fields (keeps the row, marks "no extension linked")
-- `deleteExtensionDetail(mainId)` — DELETE the row entirely
+`data_source_ref_id` is TEXT (for uniformity). The episode metadata engine (D-190) calls `fetchEpisodeMetadata(anilistId: Int, malId: Int?, ...)`. The `ContentDetails` data class exposes typed accessors:
 
-**Decision**: `unlinkSource()` should call `clearExtensionAxis(mainId)` (not delete). Rationale:
-- Keeps the row for re-linking (the `main_id` stays, the data-source side is untouched)
-- Matches the asymmetry with `unlinkAniList()` which DELETES the `anilist_detail` row — but that's because AniList unlink is a heavier operation (removes the data-source identity entirely). Extension unlink is lighter — the user is just detaching the extension, not the identity.
-- The `active_extension_type` on `main_entry` is set to NULL by `clearExtensionAxis`.
-
-The existing `ContentResolver.unlinkAniList()` (which DELETES `anilist_detail` → will DELETE `data_source_detail`) stays as-is — that's the "hard unlink" path for the data-source side.
-
-### 4.11 `source_ref_id` String↔Int conversion convention (per Review Iteration 1)
-
-The `source_ref_id` column is TEXT (for uniformity across AniList/Kitsu/MAL/TMDB IDs). But the episode metadata engine (D-190) calls `fetchEpisodeMetadata(anilistId: Int, malId: Int?, ...)` — it expects Int.
-
-**Convention**: the `DataSourceDetail` data class exposes typed accessors:
 ```kotlin
-val anilistId: Int? get() = if (sourceType == "anilist") sourceRefId?.toIntOrNull() else null
-val malId: Int? get() = if (sourceType == "mal") sourceRefId?.toIntOrNull() else extras.idMal?.toInt()
-val kitsuId: Int? get() = if (sourceType == "kitsu") sourceRefId?.toIntOrNull() else null
-val tmdbId: Int? get() = if (sourceType == "tmdb") sourceRefId?.toIntOrNull() else null
+val anilistId: Int? get() = if (dataSourceType == "anilist") dataSourceRefId?.toIntOrNull() else null
+val malId: Int? get() = if (dataSourceType == "mal") dataSourceRefId?.toIntOrNull() else dataExtras.idMal?.toInt()
+val kitsuId: Int? get() = if (dataSourceType == "kitsu") dataSourceRefId?.toIntOrNull() else null
+val tmdbId: Int? get() = if (dataSourceType == "tmdb") dataSourceRefId?.toIntOrNull() else null
 ```
 
-Callers use `detail.anilistId` (typed Int?) instead of `detail.sourceRefId.toIntOrNull()`. This centralizes the conversion + handles the "AniList row also has id_mal in extras" case (for Jikan API calls which need MAL ID even when the active source is AniList).
+**Note**: the existing `AniListDetail.anilistId` is `Int` (non-null). Changing to `Int?` breaks 12+ non-null consumers. Kotlin compile-safety catches all missed sites.
 
-**⚠️ Note (per Review Iteration 2B Check 2)**: the existing `AniListDetail.anilistId` is `Int` (non-null). Changing to `Int?` (nullable via computed property) breaks 12+ non-null consumers. **Mitigation**: the `DataSourceDetail` data class keeps `sourceRefId: String?` (nullable), but the typed accessors return `Int?`. Callers that previously did `anilistDetail.anilistId` (non-null) must add a null check: `dataSourceDetail.anilistId ?: 0` or `dataSourceDetail.anilistId != null`. This is a deliberate API-surface change — the implementing agent must grep for all `anilistId` usages + add null handling. The compile-safety of Kotlin will catch every missed site.
+### 4.9 `unlinkSource` flow (fixes orphan-row bug)
 
-### 4.12 Review Iteration 2 — consolidated fixes
+The current `DetailsViewModel.unlinkSource()` doesn't touch the DB — leaves orphaned `extension_detail` rows. The new `clearExtensionAxis(mainId)` query NULLs the extension fields (keeps the row for re-linking). `unlinkAniList()` calls `clearDataSourceAxis(mainId)` (also NULLs — symmetric). Both also:
+1. Update `main_entry.display_source` if the unlinked axis was the preferred display
+2. Regenerate `main_entry.content_id` via `ContentIdGenerator.generate()` + `updateMainEntryContentId`
 
-**From Review 2A (architecture)**:
+All 3 writes (content_details + main_entry.display_source + main_entry.content_id) are in a single DB transaction.
 
-1. **NOT NULL → nullable (Check 5, FLAW)**: `data_source_detail.source_type` + `source_ref_id` + `extension_detail.extension_type` + `extension_id` + `source_id` + `anime_url` are now **nullable** (see updated schemas in §3 Change 2). This allows `clearDataSourceAxis` / `clearExtensionAxis` to NULL the fields on unlink. The "is linked" state is determined by `main_entry.active_data_source_type IS NOT NULL` / `active_extension_type IS NOT NULL` (or by the detail table fields being non-null).
+### 4.10 `content_id` regeneration + transaction boundaries
 
-2. **`updateExtensionAxis` / `updateDataSourceAxis` atomicity (Check 7)**: these are **single atomic UPDATE statements** (multi-column), wrapped in a DB transaction that ALSO updates `main_entry.active_data_source_type` / `active_extension_type` + regenerates `main_entry.content_id` (via `updateContentContentId`). The transaction ensures all 3 writes (detail table + active_*_type + content_id) succeed or fail together.
+Every source-switch operation (link/unlink/switch) MUST also call `ContentIdGenerator.generate()` + `repo.updateMainEntryContentId(mainId, newContentId)`. The existing `ContentResolver.linkAniList` / `linkExtensionToExisting` / `unlinkAniList` already do this — the new `updateDataSourceAxis` / `updateExtensionAxis` queries are called FROM these resolver methods, not directly from ViewModels.
 
-3. **`content_id` regeneration (Check 9)**: every source-switch operation (link/unlink/switch) MUST also call `ContentIdGenerator.generate()` + `repo.updateContentContentId(mainId, newContentId)` to regenerate `content_id` on `main_entry`. This preserves the invariant "content_id changes when sources switch." The existing `ContentResolver.linkAniList` / `linkExtensionToExisting` / `unlinkAniList` already do this — the new `updateDataSourceAxis` / `updateExtensionAxis` queries must be called FROM these resolver methods (which handle the content_id regeneration), not directly from ViewModels.
+**Transaction boundaries (per Review v2-2A Check 6)**:
+- **Switch flow** (`updateDataSourceAxis` / `updateExtensionAxis`): the detail-table UPDATE + `main_entry.content_id` UPDATE are wrapped in a single DB transaction at the resolver layer. `display_source` is NOT touched on switch (the axis preference stays the same).
+- **Unlink flow** (`clearDataSourceAxis` / `clearExtensionAxis`): the detail-table NULL UPDATE + `main_entry.content_id` UPDATE + `main_entry.display_source` UPDATE (if the unlinked axis was the preferred display) are wrapped in a single DB transaction.
 
-4. **`DataSourceExtras.fromJson` ignoreUnknownKeys (Check 4)**: the Json instance MUST use `Json { ignoreUnknownKeys = true }` (matching `ContentDataJson.kt:109-113`). Without it, adding any new field to `extra_json` in the future would silently break parsing of ALL existing rows (the `runCatching` swallows the exception + returns empty).
+**New method (per Review v2-2A)**: add `ContentResolver.unlinkExtension(mainId)` — calls `clearExtensionAxis` + content_id regeneration + display_source update per §4.9. (The existing `unlinkSource()` in DetailsViewModel currently doesn't touch the DB — this new resolver method fixes that.)
 
-5. **`malId` accessor type (Check 6)**: `extras.idMal` is `Long?` (matching AniList's id_mal which can exceed Int range for large IDs). The `malId` accessor returns `Int?` via `extras.idMal?.toInt()` — the episode metadata engine takes `Int?`, so the conversion is at the accessor. (If this is a concern, `DataSourceExtras.idMal` could be changed to `Int?` to match — but `Long?` is safer for future MAL IDs.)
-
-6. **Multi-size cover URLs (Check 12)**: convention — `cover_url` holds the PRIMARY cover (medium for MAL, large for AniList). Additional sizes go in `extra_json` as `{"cover_url_large": "...", "cover_url_small": "..."}`. The UI reads `cover_url` for default display + `extras.coverUrlLarge` when a larger image is needed.
-
-**From Review 2B (implementation feasibility)**:
-
-7. **`getAniListDetail != null` semantics change (Check 3)**: post-merge, `getDataSourceDetail(mainId) != null` means "ANY data source is linked" — NOT "AniList specifically is linked." Callers that branch on "AniList is linked" (e.g. `LibraryViewModel:350-365`) must instead check `dataSourceDetail?.sourceType == "anilist"`. The implementing agent must grep for `getAniListDetail` callers + audit each for this semantic change.
-
-8. **`cachedMeta.title → content.title` stale-title issue (Check 4)**: the `anime_metadata_cache` absorption redirects `cachedMeta.title` reads to `main_entry.title`. BUT the refresh flow currently updates `cachedMeta.title` (via `upsertAnimeMetadata`) WITHOUT updating `main_entry.title`. Post-merge, the refresh flow must ALSO call `repo.updateMainEntryTitle(mainId, newTitle)` (new query) to keep `main_entry.title` in sync. **New query needed**: `updateMainEntryTitle(mainId, title, updatedAt)` on `main_entry`.
-
-9. **`clearExtensionAxis` NULLs propagate to `.data.json` (Check 6)**: `DownloadScanner.reconcileDataJsonFromContent` reads `extension_detail` fields to write `.data.json`. If `clearExtensionAxis` NULLs them, the `.data.json` would lose the extension fields. **Mitigation**: `reconcileDataJsonFromContent` already handles nullable fields (it uses `?:` fallbacks). The `.data.json` would correctly reflect "no extension linked" — which is the desired behavior. No fix needed, but the implementing agent should verify the scanner handles NULLs gracefully.
-
-10. **`episode_number` INTEGER→REAL is a half-fix (Check 8)**: the DB type change is correct, but the Kotlin API surface (`episodeNumber: Long` in many places) truncates 12.5→12L at the call site BEFORE reaching the DB. **Scope clarification**: this plan fixes the SCHEMA type (DB column). The API surface change (Long→Float/Double in Kotlin callers) is a SEPARATE task — deferred. The schema fix is still worthwhile (it prevents future breakage if the API is ever updated to use Float). **Document this as "schema-only fix, API surface change deferred."**
-
-11. **FK-add requires DROP TABLE (Check 7)**: SQLite can't ALTER TABLE to add a FK. For debug builds (CORE_RULES §30), the implementing agent must DROP + CREATE the affected tables (`watch_progress`, `notification_sent`) with the FK included. The `DatabaseDriverFactory.onOpen` migration should include `DROP TABLE IF EXISTS` + `CREATE TABLE` blocks for these 2 tables. (Existing dev data is wiped — acceptable per §30.)
+### 4.11 Standardize naming
+- Indexes: `idx_<full_table_name>_<cols>[_unique|_partial]`
+- Retention query params: named `:cutoff` (not positional `?`)
+- `audio_variant` everywhere (currently `video_audio` in 2 download tables)
 
 ---
 
-## 5. Tables NOT Changing (confirmed keep-separate)
+## 5. Final Table List (22 tables, 10 groups)
 
-These 21 tables are confirmed correctly separated via research. No merge. (Some get the minor improvements from §4.)
+### Group 1 — Identity & Sources (4 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `main_entry` | content.sq | RENAMED from `content` | Identity hub. Drop `description`, keep `extension_repo_id`, keep `display_source` as UX preference. |
+| `data_source` | content.sq | UNCHANGED | Lookup: AniList/TMDB/Kitsu/MAL. Keep separate per R-2. |
+| `system` | content.sq | UNCHANGED | Lookup: Aniyomi/CloudStream/Sora/MangaYomi. Keep separate per R-2. |
+| `content_details` | content.sq | NEW (merges 4 tables) | One wide table, 26 cols, data_* + ext_* prefixes. |
 
-| Table | .sq file | Why kept separate | Improvements bundled |
-|-------|----------|-------------------|---------------------|
-| `data_source` | content.sq | Lookup table (AniList/TMDB/Kitsu/MAL) | — |
-| `system` | content.sq | Lookup table (Aniyomi/CloudStream/Sora/MangaYomi) | — |
-| `main_entry` (renamed from `content`) | content.sq | Identity hub | Drop 2 dead cols, split display_source, rename |
-| `data_source_detail` (merged from anilist_detail + other_source_detail) | content.sq | Data-source metadata | New table |
-| `extension_detail` (extended) | content.sq | Extension metadata | Add extension_type + extra_json, fix unlink bug |
-| `data_cache_episode` | dataCache.sq | Episode-level metadata (AniZip/Jikan/Kitsu) — different cardinality + sources | Keep PK, maybe switch to INSERT ON CONFLICT |
-| `browse_cache` | dataCache.sq | JSON blob cache for Browse page — different shape | — |
-| `app_metadata` | app.sq | Generic KV (schema version) | (Future: merge into app_settings — deferred) |
-| `app_settings` | appSettings.sq | User settings KV | — |
-| `watch_progress` | watch.sq | Episode watch progress | Add missing FK |
-| `activity_event` | tracking.sq | Activity log | — |
-| `library_category` | library.sq | User categories | Drop redundant UNIQUE |
-| `library_item` | library.sq | Library junction | Drop redundant id + index, rename FK |
-| `genre` | genres.sq | Genre lookup | — |
-| `content_genre` | genres.sq | Genre junction | Drop redundant index, rename FK |
-| `episode_update` | episodeUpdate.sq | Updates feed | Drop redundant id, rename FK, add CHECKs |
-| `anime_update_state` | animeUpdateState.sq | Per-anime update state | Rename FK, add CHECKs |
-| `episode_schedule` | episodeSchedule.sq | Airing schedule | Fix episode_number type, rename FK |
-| `notification_config` | notifications.sq | Per-content notif prefs | Rename FK, add CHECKs |
-| `notification_sent` | notifications.sq | Notif dedup log | Add missing FK, fix episode_number type, add CHECKs |
-| `user_rating` | ratings.sq | Per-anime rating | Rename FK, add CHECK |
-| `user_episode_rating` | ratings.sq | Per-episode rating | Rename FK, add CHECK |
-| `download_queue` | downloadQueue.sq | Download queue | — |
-| `downloaded_episode` | downloadedEpisode.sq | Downloaded episodes index | — |
+### Group 2 — Library (2 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `library_category` | library.sq | UNCHANGED | User-defined categories. |
+| `library_item` | library.sq | UNCHANGED | M:N junction (content ↔ category). Drop redundant id + index. |
 
-**Total: 24 tables** (down from 26 — dropped `other_source_detail` + `anime_metadata_cache`; `content`→`main_entry` + `anilist_detail`→`data_source_detail` are renames, net 0).
+### Group 3 — User Activity (2 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `watch_progress` | watch.sq | UPDATED | Add missing FK. |
+| `activity_event` | tracking.sq | UNCHANGED | Activity log. |
+
+### Group 4 — Updates & Schedule (3 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `episode_update` | episodeUpdate.sq | UNCHANGED | New-episodes feed (1:N). |
+| `anime_update_state` | animeUpdateState.sq | UNCHANGED | Per-anime smart-update state (1:1). |
+| `episode_schedule` | episodeSchedule.sq | UPDATED | Fix `episode_number` type (INTEGER→REAL). |
+
+### Group 5 — Notifications (2 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `notification_config` | notifications.sq | UNCHANGED | Per-content prefs (1:1, backup-eligible). |
+| `notification_sent` | notifications.sq | UPDATED | Add missing FK, fix `episode_number` type. |
+
+### Group 6 — Ratings (2 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `user_rating` | ratings.sq | UNCHANGED | Per-anime rating (1:1). |
+| `user_episode_rating` | ratings.sq | UNCHANGED | Per-episode rating (1:N). |
+
+### Group 7 — Downloads (2 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `download_queue` | downloadQueue.sq | UNCHANGED | Active downloads (transient). |
+| `downloaded_episode` | downloadedEpisode.sq | UNCHANGED | Completed downloads index (permanent). |
+
+### Group 8 — Content Classification (2 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `genre` | genres.sq | UNCHANGED | Genre lookup (~40 AniList canonical). |
+| `content_genre` | genres.sq | UNCHANGED | M:N junction. Drop redundant index. |
+
+### Group 9 — Caches (2 tables)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `data_cache_episode` | dataCache.sq | UNCHANGED | Episode metadata (AniZip/Jikan/Kitsu). Handles 100k rows. |
+| `browse_cache` | dataCache.sq | UNCHANGED | JSON blob cache for Browse page (6h TTL). |
+
+### Group 10 — App Configuration (1 table)
+| Table | .sq file | Status | Notes |
+|-------|----------|--------|-------|
+| `app_settings` | appSettings.sq | UPDATED | Absorbs `app_metadata` (dropped). Add `setting_category='internal'` convention. |
+
+**Dropped tables (4)**: `anilist_detail`, `extension_detail`, `other_source_detail`, `anime_metadata_cache` → all merged into `content_details`.
+
+**Total: 22 tables** (down from 26).
 
 ---
 
@@ -349,31 +367,27 @@ These 21 tables are confirmed correctly separated via research. No merge. (Some 
 
 ### Change 1 — Rename `content` → `main_entry`
 - **Con**: Mechanical churn — 9 .sq files + 4 indexes + 9 queries + 1 Kotlin string + 1 DbReference. Pure cost, no functional benefit beyond clarity.
-- **Con**: If the `.sq` FILE is also renamed, `database.contentQueries` → `database.mainEntryQueries` (20 references). Riskier.
 - **Risk**: LOW. SQLDelight's type-safe generation catches any missed rename at compile time.
-- **Mitigation**: Do the table rename first (low risk). Defer the file rename to a separate session if desired.
 
-### Change 2 — Merge 3 detail tables → 2
-- **Con**: ~600 lines across ~25 files need updating (ContentRepository, ContentResolver, ContentModels, 13 read-caller files, 4 write-caller files — actual file count is ~25 per Review 2B Check 10).
-- **Con**: The `extension_id` type change (INTEGER → TEXT in DB; Kotlin stays `Long?` per §3 note). The `getAniListDetail != null` semantics change (now means "any data source linked" — callers must check `sourceType == "anilist"` per §4.12 item 7).
-- **Con**: `extra_json` loses some type safety (acceptable — `DataSourceExtras` typed accessor covers the 80% case per §4.9).
-- **Con**: `anilistId` accessor changes from `Int` (non-null) to `Int?` (nullable) — breaks 12+ non-null consumers (§4.11 note). Kotlin compile-safety catches all.
-- **Risk**: MEDIUM. The write-path convergence is the riskiest part — if a call site is missed, the merged row could be partially stale.
-- **Risk (RESOLVED)**: the `clearExtensionAxis` / `clearDataSourceAxis` queries originally couldn't NULL NOT NULL columns — **resolved** by making the axis fields nullable (§4.12 item 1).
-- **Mitigation**: Debug builds — drop + recreate (CORE_RULES §30). Sub-agent compile review before push. CI is the final gate.
+### Change 2 — Merge 4 tables → `content_details`
+- **Con**: ~750-900 lines across ~32-38 files need updating (ContentRepository, ContentResolver, ContentModels, DataCacheRepository, 13 read-caller files, 4 write-caller files, 5 episode_number type-change sites). **Effort estimate corrected per Review v2-2B Check 11** (prior estimate of ~600 lines / ~25 files was under by ~20-30%).
+- **Con**: The `extension_id` type change (INTEGER → TEXT in DB; Kotlin stays `Long?`). The `getAniListDetail != null` semantics change (now means "any data source linked" — callers must check `dataSourceType == "anilist"`).
+- **Con**: `anilistId` accessor changes from `Int` (non-null) to `Int?` (nullable) — breaks 12+ non-null consumers. Kotlin compile-safety catches all.
+- **Con**: AniList-only rows have ~13 NULL extension cols; extension-only rows have ~14 NULL data-source cols. ~1 byte/NULL overhead — negligible.
+- **Risk**: MEDIUM. The write-path convergence is the riskiest part — if a call site is missed, the row could be partially stale.
+- **Mitigation**: Debug builds — drop + recreate. Sub-agent compile review before push. CI is the final gate.
 
-### Change 3 — Absorb `anime_metadata_cache`
-- **Con**: 6 caller sites (4 in DetailsViewModel, 2 in LibraryViewModel) need redirecting.
-- **Risk**: MEDIUM — write-path convergence (must redirect both reads AND writes to avoid partial staleness).
-- **Mitigation**: Same 2-step approach.
+### Change 3 — Drop `app_metadata`
+- **Con**: None — table is dead code (0 callers, 0 rows).
+- **Risk**: ZERO.
 
-### Independent improvements
-- **Con**: The `episode_number` type fix (INTEGER → REAL) requires a table rebuild for `notification_sent` + `episode_schedule` (can't ALTER COLUMN type in SQLite). Debug builds — drop + recreate is fine.
-- **Risk**: LOW. All improvements are additive or fix existing bugs.
+### Change 4 — Keep `data_source` + `system` separate
+- **Con**: None — this is a keep-separate decision, not a change.
+- **Trade-off**: 1 table "saved" by merging, but FK integrity weakened. Not worth it per R-2.
 
 ### Overall migration risk
-- **Debug builds only** — no production users, no migration scripts needed (CORE_RULES §30). Dev users clear app data once.
-- **No data loss** — every dropped column/table is either duplicated, dead, or explicitly migrated. Verified by 5 research sub-agents.
+- **Debug builds only** — no production users, no migration scripts needed (CORE_RULES §30).
+- **No data loss** — every dropped column/table is either duplicated, dead, or explicitly migrated.
 - **CI is the final gate** — sub-agent compile review before push, then CI verifies.
 
 ---
@@ -382,65 +396,69 @@ These 21 tables are confirmed correctly separated via research. No merge. (Some 
 
 1. **Kotlin class renames** (`ContentRecord` → `MainEntryRecord`, etc.) — deferred. ~24 caller files. Separate session.
 2. **`.sq` file rename** (`content.sq` → `main_entry.sq`) — deferred. Changes `database.contentQueries` property. Separate session.
-3. **Merge `app_metadata` → `app_settings`** — deferred. Degenerate KV duplication, but low priority. Separate session.
-4. **Split `AnimeDetailsProvider` interface** into `DataSourceProvider` + `ExtensionDetailsProvider` — deferred. Code-layer refactor, not schema. Separate session.
-5. **`RetentionCoordinator` worker** — deferred. Would centralize the 5 retention queries. Separate session.
-6. **`data_cache_episode` → `INSERT ON CONFLICT DO UPDATE`** — deferred. Performance optimization for batch refresh. Not needed at current scale.
-7. **CHECK constraints** — included in the plan but optional. Can be added incrementally.
-8. **`episode_number` API surface change** (Long→Float/Double in Kotlin callers) — deferred per §4.12 item 10. This plan fixes the SCHEMA type only; the Kotlin API surface still truncates fractional episodes at the call site. Separate task.
-9. **CloudStream/Sora/MangaYomi String extension IDs** — deferred. The `extension_id` column is TEXT (DB) but Kotlin types stay `Long?` for Aniyomi compatibility. When a future extension ecosystem uses truly-String IDs (e.g. CloudStream's `"kawaiiyomistreams.com"`), a separate `extension_id_str TEXT` column or a hash-to-Long mapping will be needed. Not a concern for Aniyomi-only today.
+3. **Split `AnimeDetailsProvider` interface** into `DataSourceProvider` + `ExtensionDetailsProvider` — deferred. Code-layer refactor, not schema. Separate session.
+4. **`RetentionCoordinator` worker** — deferred. Would centralize the 5 retention queries. Separate session.
+5. **`data_cache_episode` → `INSERT ON CONFLICT DO UPDATE`** — deferred. Performance optimization for batch refresh. Not needed at current scale.
+6. **CHECK constraints** — included in the plan but optional. Can be added incrementally.
+7. **`episode_number` API surface change** (Long→Double in Kotlin callers) — included in this plan per Review v2-2B Check 9. SQLDelight maps REAL→Double, so the schema change forces the Kotlin API change. NOT deferred (corrected from prior plan version).
+8. **CloudStream/Sora/MangaYomi String extension IDs** — deferred. The `extension_id` column is TEXT (DB) but Kotlin types stay `Long?` for Aniyomi compatibility. When a future extension uses truly-String IDs, a separate `extension_id_str TEXT` column will be needed.
+9. **`data_source` + `system` merge** — evaluated per R-2, recommended keep-separate. Revisit if the FK integrity concern can be solved cleanly.
+10. **Library in "app settings" group** — evaluated per R-2, recommended keep as own group. Library is user data, not app config.
 
 ---
 
 ## 8. Future-Proofing (how this handles the multi-source + multi-extension vision)
 
 ### Adding a new data source (e.g. MAL)
-1. Implement `MalDataSourceProvider : DataSourceProvider` (code layer — mirrors the D-190 episode metadata engine pattern)
-2. User switches data source → `ContentResolver.linkDataSource("mal", malId, ...)` → UPDATEs the `data_source_detail` row: `source_type='mal'`, `source_ref_id= malId`, new metadata fields
-3. The `main_id` stays the same. The previous AniList ID is preserved in `extra_json` as `{"previous_anilist_id": 12345}` for re-switching back.
-4. **Zero schema change.** (MAL-specific fields like `main_picture.medium`/`.large` go into `extra_json` + `cover_url` per §4.12 item 6.)
+1. Implement `MalDataSourceProvider : DataSourceProvider` (code layer)
+2. User switches data source → `ContentResolver.linkDataSource("mal", malId, ...)` → calls `updateDataSourceAxis` on `content_details`: sets `data_source_type='mal'`, `data_source_ref_id=malId`, new metadata fields
+3. The `main_id` stays the same. The previous AniList ID is preserved in `data_extra_json` as `{"previous_anilist_id": 12345}` for re-switching back.
+4. **Zero schema change.** (MAL-specific fields like `main_picture.medium`/`.large` go into `data_extra_json` + `data_cover_url`.) **⚠️ Note (per Review v2-2A Check 7)**: MAL's `related_anime` (relations list — sequels/prequels/side stories) is NOT addressable via `extra_json` alone if cross-content navigation is needed — a future `content_relation` junction table would be added when that feature is wired. Out of scope for this plan.
 
 ### Adding a new extension ecosystem (e.g. CloudStream)
 1. Implement `CloudStreamVideoExtensionProvider : VideoExtensionProvider` with `ecosystemId="cloudstream"` (code layer)
-2. User switches extension → `ContentResolver.linkExtension("cloudstream", cloudStreamSourceId, animeUrl, ...)` → UPDATEs the `extension_detail` row: `extension_type='cloudstream'`, new `extension_id`/`source_id`/`anime_url`
+2. User switches extension → `ContentResolver.linkExtension("cloudstream", ...)` → calls `updateExtensionAxis` on `content_details`: sets `extension_type='cloudstream'`, new `extension_id`/`source_id`/`anime_url`
 3. The `main_id` stays the same. Episode list changes (different numbering) — `data_cache_episode` rows for the old extension are invalidated + re-fetched.
-4. **Zero schema change for Long-ID extensions.** ⚠️ CloudStream uses String source IDs (e.g. `"kawaiiyomistreams.com"`) — the current `extension_id` column is TEXT but Kotlin types are `Long?`. A future `extension_id_str TEXT` column or hash-to-Long mapping would be needed (deferred per §7 item 9). For Aniyomi-only (Long IDs), zero schema change.
+4. **Zero schema change for Long-ID extensions.** ⚠️ CloudStream uses String source IDs — a future `extension_id_str TEXT` column would be needed (deferred per §7 item 8).
 
 ### Independent switching
-The split `active_data_source_type` + `active_extension_type` columns on `main_entry` allow the user to switch either independently. Example: AniList metadata + Aniyomi extension-A → MAL metadata + Aniyomi-extension-A → MAL metadata + CloudStream-extension-B. Each combination is a valid state.
+The `data_*` + `ext_*` column prefixes + independent `updateDataSourceAxis` / `updateExtensionAxis` queries allow the user to switch either independently. Example: AniList metadata + Aniyomi extension-A → MAL metadata + Aniyomi-extension-A → MAL metadata + CloudStream-extension-B. Each combination is a valid state.
+
+### Future content types (manga, novels, images)
+- **Manga**: `ext_author` + `ext_artist` already in schema. `ext_extra_json` for `chapter_count`/`volume_count`/`scanlator_group`.
+- **Novels**: `ext_extra_json` for `publisher`/`isbn`. Most fields shared (title, description, genres, cover, status).
+- **Images**: sparse row, mostly NULLs. No schema change.
+- **Zero schema change** for any content type — the 26-column schema + `extra_json` covers all of them.
 
 ---
 
 ## 9. Verification Checklist (for the implementation session)
 
 - [ ] All 13 FK declarations renamed `content` → `main_entry`
-- [ ] 2 missing FKs added (`watch_progress`, `notification_sent`)
-- [ ] `display_source` split into `active_data_source_type` + `active_extension_type`
-- [ ] `anilist_detail` migrated to `data_source_detail` (columns + `source_type` + `source_ref_id` + `extra_json`)
-- [ ] `extension_detail` extended (`extension_type` + `extra_json` + INTEGER→TEXT type change)
-- [ ] `other_source_detail` DROPPED
-- [ ] `anime_metadata_cache` DROPPED + 6 callers redirected
+- [ ] 2 missing FKs added (`watch_progress`, `notification_sent`) — DROP + CREATE the tables
+- [ ] `content_details` table created (26 cols, 2 indexes, 11 queries)
+- [ ] `anilist_detail` + `extension_detail` + `other_source_detail` + `anime_metadata_cache` DROPPED
+- [ ] `app_metadata` DROPPED (absorbed into `app_settings`)
+- [ ] `main_entry`: drop `description`, keep `extension_repo_id`, keep `display_source`, add `updateMainEntryTitle`
 - [ ] `episode_number` type fixed in `notification_sent` + `episode_schedule`
-- [ ] Dead columns/queries/methods/indexes removed
+- [ ] Dead queries/methods/indexes removed
+- [ ] `DataSourceExtras` + `ExtensionExtras` typed accessors implemented
 - [ ] Sub-agent compile review passes
 - [ ] CI green
 - [ ] Device test: link source, switch source, unlink source — verify no orphaned rows
-- [ ] Device test: download episode, verify data.json + downloaded_episode correct
-- [ ] Doc update: progress.md, decisions.md (D-197), changelog.md, knowledge/architecture.md, dashboard schema.ts
+- [ ] Doc update: progress.md, decisions.md, changelog.md, knowledge/architecture.md, dashboard
 
 ---
 
 ## 10. Research Basis
 
-This plan is grounded in 5 parallel Explore sub-agents (Tasks 2-a through 2-e) that read the actual codebase + decisions + knowledge files. Key findings:
-- **Task 2-a**: `content` table is functionally sound; rename is low-risk mechanical.
-- **Task 2-b**: The 3 detail tables can be merged; the `unlinkSource` orphan-row bug is fixed by the new `clearExtensionAxis` query.
-- **Task 2-c**: `anime_metadata_cache` has 9/12 duplicate columns + 2 dead → absorb is sound. `data_cache_episode` + `browse_cache` stay separate.
-- **Task 2-d**: The codebase already separates data source vs extension at the lookup-table level; Option C (two tables) honors this.
-- **Task 2-e**: All 5 keep-separate groups confirmed. Real bugs found: `episode_number` type mismatch, 2 missing FKs.
+This plan v2 is grounded in:
+- **Prior session**: 5 Explore sub-agents (Tasks 2-a through 2-e) — content table, detail tables, cache trio, data source vs extension, keep-separate groups.
+- **This session**: 2 Explore sub-agents (R-1 + R-2) — content_details design (Option A) + re-evaluate merges + grouping.
+- **4 review iterations** via sub-agents (not self-review per user instruction).
 
-Full research is in `/home/z/my-project/worklog.md` (Tasks 2-a through 2-e).
+Full research is in `/home/z/my-project/worklog.md` (Tasks 2-a through 2-e, R-1, R-2, review-1 through review-4).
 
 ---
 
-*This is a PROPOSAL. No schema changes will be made until the user approves. The dashboard at `/database-plan/` presents this plan in a scannable format for review.*
+*This is a PROPOSAL v2. No schema changes will be made until the user approves. The dashboard at `/database-plan/` presents this plan in a scannable format for review.*
