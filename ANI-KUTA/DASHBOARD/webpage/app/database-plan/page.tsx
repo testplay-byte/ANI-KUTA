@@ -1217,7 +1217,7 @@ function SchemaTable({
               return (
                 <div
                   key={idx.name}
-                  className="flex items-start gap-2 text-[11.5px] leading-snug"
+                  className="flex items-start gap-2 text-[11.5px] leading-snug min-w-0"
                 >
                   <span
                     className="inline-flex items-center justify-center w-4 h-4 rounded-[5px] font-mono text-[9px] font-bold shrink-0 mt-[1px]"
@@ -1231,13 +1231,13 @@ function SchemaTable({
                     {meta.symbol}
                   </span>
                   <span
-                    className={`font-mono text-[12px] font-semibold text-text-primary ${
+                    className={`font-mono text-[12px] font-semibold text-text-primary shrink-0 ${
                       idx.status === "dropped" ? "line-through opacity-70" : ""
                     }`}
                   >
                     {idx.name}
                   </span>
-                  <span className="text-text-secondary">{idx.def}</span>
+                  <span className="text-text-secondary min-w-0 break-words">{idx.def}</span>
                 </div>
               );
             })}
