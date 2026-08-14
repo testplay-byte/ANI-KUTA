@@ -21,6 +21,20 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 - **CI**: Deploy Dashboard #44-#48 all `completed`/`success`. Build APK #532-#535 all `completed`/`success` (dashboard-only changes don't affect Android build). All verified via GitHub Actions API polling (lesson L128).
 - No D-NNN decision added (temporary dashboard rebuild, not a permanent architecture decision).
 
+**This session — Download System Fixes + Database Review Dashboard (commits 8f0ea772 → af51be7e, on `main`):**
+- User reviewed the /project-review/ dashboard + gave specific instructions: fix 5 open concerns (HttpDownloader.reResolver D-149, retry loop D-151, MainActivity runBlocking, file_size, data.json refresh), assess nav backstack R7 (DEFERRED), fix dashboard schema.ts, fix doc-drift, deep database review + optimization proposal, improve downloads page UI (server name + audio version).
+- **Phase A (D-149)**: reResolver wired — ReResolverAdapter.kt in :app, Koin binding, 2 latent bugs fixed (127.0.0.1 guard + updateDownloadVideoUrl). **RESOLVES Deferred Concern #2.**
+- **Phase B (D-151)**: RetryPolicy + outer retry loop in DownloadQueue. Max 3×2=6 attempts. **RESOLVES #5.**
+- **Phase C**: runBlocking → buildWatchKeyForDownloadedEpisode (suspend, Dispatchers.IO). **RESOLVES #3.**
+- **Phase D**: ResolverSheet carries (serverName, audioLabel). DownloadedFilesScreen 2-line row (server/audio/quality/size). file_size fix. **RESOLVES #16 + #17.**
+- **Phase E**: data.json write-back via DownloadScanner.reconcileDataJsonFromContent + AnikutaApp.onCreate scan.
+- **Phase F (R7)**: DEFERRED — accepted limitation, WatchKey ignored, player fragile.
+- **Phase G**: schema.ts rewritten (26 tables), 14 stale strings fixed, AGENT-CONTEXT doc-drift fixed (28→26, 315→331, D-186→D-193, 134→163, 428→470, compileSdk 35→36, Nav3 removed).
+- **Phase H**: NEW /database-review/ dashboard section — 8 merge candidates, top 3 improvements, 26→23 ideal.
+- **Resolved this session**: #2, #3, #5, #16, #17 (5 of 22 concerns).
+- New decisions: D-194 (ReResolverAdapter), D-195 (RetryPolicy), D-196 (data.json write-back).
+- CI GREEN (#540). Compile review caught 3 errors (2 pre-push sub-agent, 1 via CI).
+
 **Previous session — Project Review + Dashboard Section (commits b51d43ad + 5b8351ef, on `main`):**
 - Conducted a full read-through of CORE_RULES + AGENT-CONTEXT (navigation, master, workflow, SESSION, memory/*, knowledge/*) + codebase structure verification (46 modules confirmed, settings.gradle.kts, sqldelight, god-class line counts, HttpDownloader re-resolve orphan status).
 - Dispatched 5 parallel Explore sub-agents to digest progress.md (80KB), decisions.md (226KB), changelog.md (120KB), lessons-learned.md (77KB), + the Android codebase structure. Summaries appended to `/home/z/my-project/worklog.md`.

@@ -1070,3 +1070,33 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Dashboard live at `https://testplay-byte.github.io/ANI-KUTA/project-review/` — verified end-to-end via Agent Browser (mobile 375px no overflow + desktop 1280px + dark mode + existing pages unaffected).
 - Temporary review section is live for the user to review the fresh findings + decide the forward direction.
 - No D-NNN decision added (temporary dashboard rebuild, not a permanent architecture decision).
+
+---
+
+## Session — Download System Fixes + Database Review Dashboard (commits 8f0ea772 → af51be7e, on `main`)
+
+### What was done
+- User reviewed the `/project-review/` dashboard + gave specific instructions: fix 5 open concerns (HttpDownloader.reResolver, retry loop, runBlocking, file_size, data.json), assess nav backstack R7, fix dashboard schema.ts, fix doc-drift, deep database review + optimization proposal, improve downloads page UI (server name + audio version).
+- **RESEARCH**: Dispatched 5 parallel Explore sub-agents (2-a download system deep-dive, 2-b downloads UI + data.json, 2-c MainActivity + nav, 2-d database schema analysis, 2-e dashboard schema.ts + doc-drift audit). All returned comprehensive file:line-precise findings.
+- **Phase A (D-149)**: HttpDownloader.reResolver wiring — new `ReResolverAdapter.kt` in `:app` (bridges the local fun interface to the app-class ReResolver), Koin binding in AnikutaApp, `DownloadModule.kt` `reResolver = getOrNull()`, fixed 2 latent bugs (127.0.0.1 guard + `updateDownloadVideoUrl` new SQL query — the old code wrote to `video_uri` not `video_url`).
+- **Phase B (D-151)**: Outer retry loop — new `RetryPolicy.kt` in `:core:download` (classifies retryable: IOException + HttpException 5xx/429; non-retryable: DownloadException, 4xx, generic Exception; exponential backoff 5s/10s/20s capped 60s). `DownloadQueue.launchDownload` refactored with `while(true)` retry loop wrapping the existing permit-acquire + download body. `setRetryingStatus` (was dead code) now wired. Max 3 outer × 2 inner = 6 total attempts.
+- **Phase C**: MainActivity runBlocking fix (ANR risk) — extracted the `onPlayEpisode` lambda body into `buildWatchKeyForDownloadedEpisode` (suspend helper running on `Dispatchers.IO` via `withContext`). `AppRoot` uses `rememberCoroutineScope` + `scope.launch`. Eliminates `runBlocking` + 5 synchronous DB queries on the main thread.
+- **Phase D**: Downloads page UI — (D-1) `ResolverSheet.onPickVideo` now carries `(serverName, audioLabel)` through `DetailsScreen` → `MainActivity` (was: `linked.sourceName` = extension name + `audioLabel = ""`; now: the actual resolver server + audio version). (D-2) `DownloadedFilesScreen` redesigned — 2-line episode row with server name (primary ExtraBold, matches ResolverSheet), audio chip (secondaryContainer, matches ResolverSheet), quality chip, file size. `DownloadViewModel` re-wrap fixed (was discarding `videoServer`/`videoAudio`/`sourceId`/`downloadedBytes`). `DownloadQueue.kt` file_size fix (was `0L`, now `completedTask.totalBytes`).
+- **Phase E**: data.json refresh path — new `reconcileDataJsonFromContent` method in `DownloadScanner` (fetches latest ContentRecord + AniListDetail + ExtensionDetail from DB, writes back to data.json if any field differs — only on change). `requestFolderRescan()` wired into `AnikutaApp.onCreate` (background IO scope, non-blocking). Handles the user's scenario: old data.json files get updated on every app launch.
+- **Phase F (nav backstack R7)**: DEFERRED per sub-agent recommendation — accepted limitation (D-150), configChanges handles rotation/theme, process death is the only trigger, WatchKey fits in Bundle but fix touches fragile player area + user is ignoring WatchKey this session. Risk > reward.
+- **Phase G (dashboard schema.ts + doc-drift)**: Full-stack-dev sub-agent rewrote `lib/schema.ts` (26 actual tables, 13 groups, ER nodes/edges), fixed 14 stale strings across dashboard pages. Main agent fixed AGENT-CONTEXT doc-drift: 28→26 tables, 315→331 .kt, D-186→D-193, 134→163 lessons, 428→470, compileSdk 35→36, Nav3 "stays on classpath"→"fully REMOVED" — across master.md, SESSION.md, knowledge/* (7 files), decisions.md (D-008 + D-150).
+- **Phase H (database review dashboard)**: Full-stack-dev sub-agent built NEW `/database-review/` section — 6 sections (Snapshot, Schema Inventory 26 tables, 8 Merge Candidates with MERGE/KEEP_SEPARATE/DROP/INVESTIGATE badges, Top 3 Improvements, Overall Assessment, Footer). New `lib/databaseReview.ts` + `app/database-review/page.tsx` + NAV_ITEMS entry + new "dbreview" icon.
+- **Compile review**: Explore sub-agent caught 2 critical errors before push (DownloadQueue.kt extra brace, MainActivity.kt wrong WatchKey package). CI caught 1 more (DownloadLogger.w doesn't take exception arg). All fixed → CI GREEN.
+- **CI status**: Build APK #540 `completed`/`success` on commit af51be7e. Deploy Dashboard triggered on main push.
+
+### Key decisions
+- **D-194**: HttpDownloader.reResolver wired via adapter pattern (ReResolverAdapter in :app implements HttpDownloader.ReResolver, bridges to app-class ReResolver). Keeps :core:download independent of :core:video-resolver (dep graph minimal per M17/M49).
+- **D-195**: RetryPolicy classifies retryable exceptions — IOException + HttpException 5xx/429 retryable; DownloadException (non-Http) + 4xx + generic Exception not retryable. Exponential backoff 5s/10s/20s capped 60s. Max 3 outer × 2 inner = 6 total attempts.
+- **D-196**: data.json write-back via DownloadScanner.reconcileDataJsonFromContent — runs on app startup, fetches latest DB state, writes to data.json only on change. Handles the "old data.json not updated" scenario.
+- **Database optimization proposal** (not a decision — a proposal for user review on the new /database-review/ dashboard page): drop other_source_detail (dead, 0 callers), merge app_metadata → app_settings (degenerate KV), consolidate anime_metadata_cache + anilist_detail (9-column duplication). 26 → 23 tables ideal.
+
+### Status
+- Branch: `main` (feature branch merged + deleted).
+- CI: GREEN on main commit af51be7e (Build APK + Deploy Dashboard both triggered).
+- Dashboard: schema.ts rewritten, /database-review/ live, doc-drift fixed across all live docs.
+- No device verification yet — user will test the download system fixes on device.

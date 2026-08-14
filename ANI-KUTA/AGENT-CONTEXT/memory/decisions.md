@@ -1607,3 +1607,25 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **What:** New `ScheduleNotificationWorker` (OneTimeWorkRequest) fires the on_schedule notification at the exact airing time. ScheduleEngine schedules it when it discovers a future airing. The REPLACE policy means schedule changes reschedule it.
 - **Why:** Previously on_schedule fired opportunistically during a schedule refresh that happened to be within ±1h of airing — imprecise. A timed worker is a true "airing time reached" reminder.
 - **Date:** this session.
+
+---
+
+### D-194 — HttpDownloader.ReResolver adapter pattern (wiring D-149)
+- **What:** The proxy-churn re-resolver (D-149) is wired via an adapter class `ReResolverAdapter` in `:app` that implements the local `HttpDownloader.ReResolver` fun interface (defined in `:core:download`) and bridges to the app-class `ReResolver` (which depends on `:core:video-resolver`). The adapter decodes the `resolveContextJson` string → `ResolveContext`, looks up the source via `ExtensionManager.getSource()`, builds a minimal `SEpisode`, delegates to `appReResolver.reResolve()`, and maps the result to `ReResolvedVideo`.
+- **Why:** `:core:download` cannot depend on `:core:video-resolver` (keeps the dep graph minimal per REVIEW-5 M17/M49). The local fun interface in `HttpDownloader` + the adapter in `:app` is the cleanest bridge. `DownloadModule.kt` resolves it via `getOrNull<HttpDownloader.ReResolver>()` (lazy — :core:download doesn't need :app on its compile classpath).
+- **Also fixed:** (1) HttpDownloader guards now check both `http://localhost` AND `http://127.0.0.1` (some extensions use 127.0.0.1 — lessons D-092). (2) New `updateDownloadVideoUrl` SQL query — the old code called `updateResult` which writes to `video_uri` (the content:// result URI), not `video_url` (the source URL). A re-resolve produces a new source URL, so it must update `video_url`.
+- **Status:** ✅ Confirmed + implemented. CI green (run #540).
+- **Date:** Download system fixes session.
+
+### D-195 — RetryPolicy: retryable exception classification + exponential backoff
+- **What:** New `RetryPolicy` class in `:core:download` classifies which exceptions are retryable: `IOException` + `HttpException` 5xx/429 → retryable; `DownloadException` (non-Http, e.g. validation/empty/proxy-churn exhaustion) + `HttpException` 4xx + generic `Exception` → not retryable; `CancellationException` → never (pause/cancel). Exponential backoff: 5s, 10s, 20s (capped at 60s). Max 3 outer attempts × 2 inner (re-resolve) = 6 total download attempts.
+- **Why:** The outer retry loop was referenced in KDoc (HttpException.kt) but the `RetryPolicy` class didn't exist (D-151). `setRetryingStatus` + `RETRYING` state + `retry_attempt`/`retry_max_attempts` DB columns all existed but were dead code (zero callers). This wires them all together.
+- **How:** `DownloadQueue.launchDownload` refactored — the existing permit-acquire + download body is wrapped in a `while(true)` retry loop. On retryable exception: `setRetryingStatus` + `delay(backoff)` + retry (re-acquires permit). On exhaustion/non-retryable: `setErrorStatus`. The `RETRYING` state is cleared by the next `DOWNLOADING` flip (status check now accepts `QUEUED || RETRYING`).
+- **Status:** ✅ Confirmed + implemented. CI green.
+- **Date:** Download system fixes session.
+
+### D-196 — data.json write-back via DownloadScanner.reconcileDataJsonFromContent
+- **What:** New `reconcileDataJsonFromContent` method in `DownloadScanner` — for each content folder, fetches the latest `ContentRecord` + `AniListDetail` + `ExtensionDetail` from the DB, compares key fields (description, dataSourceId, systemId, extensionRepoId, extensionId, sourceId, animeUrl, anilistId, coverUrl, title, contentType, contentFormat, displaySource) with the existing `.data.json`, and writes back if any field differs (only on change — avoids unnecessary SAF I/O). `requestFolderRescan()` is wired into `AnikutaApp.onCreate` (background IO scope, non-blocking) so the reconciliation runs on every app launch.
+- **Why:** The user reported that `.data.json` files were not being updated with the latest metadata (description, dataSourceId, etc.) after the initial download. Root cause: `writeDataJson` was only called by `publishVideoFile` (for the NEW download's folder). OLD data.json files were never re-touched. `requestFolderRescan()` had ZERO callers — the scanner was dead code at runtime. This fix wires the scanner + adds the write-back so old data.json files get updated with the latest DB state on every app launch.
+- **Status:** ✅ Confirmed + implemented. CI green.
+- **Date:** Download system fixes session.
