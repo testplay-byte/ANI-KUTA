@@ -81,6 +81,7 @@ dependencies {
     implementation(project(":core:ratings"))
     implementation(project(":core:notifications"))
     implementation(project(":core:debug-api"))  // always on classpath (types only)
+    implementation(project(":core:test-api"))   // D-197: test-controller types (always on classpath; debug-only impl)
 
     // Debug bubble — debug builds only (D-163). Release builds contain zero
     // debug-bubble code. Wiring in :app/src/debug/DebugInit.kt.
