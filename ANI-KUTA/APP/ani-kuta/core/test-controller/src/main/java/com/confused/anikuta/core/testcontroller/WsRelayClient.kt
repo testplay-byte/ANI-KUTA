@@ -225,9 +225,13 @@ class WsRelayClient(
             val shotMsg = """{"kind":"screenshot","id":"${outcome.result.id}","data":"$b64"}"""
             ws.send(shotMsg)
         }
-        // Send the result JSON.
+        // Send the result JSON — WRAPPED in a {"kind":"result",...} envelope so the relay
+        // knows it's a result (the relay routes by the "kind" field; TestResult uses "type"
+        // as its discriminator, so without the "kind" wrapper the relay wouldn't match it).
         val resultJson = json.encodeToString(TestResult.serializer(), outcome.result)
-        ws.send(resultJson)
+        // Inject "kind":"result" at the start of the JSON object.
+        val envelope = resultJson.replaceRange(0, 1, """{"kind":"result",""")
+        ws.send(envelope)
         Logger.d(TAG) { "result sent for ${outcome.result.id}" }
     }
 
