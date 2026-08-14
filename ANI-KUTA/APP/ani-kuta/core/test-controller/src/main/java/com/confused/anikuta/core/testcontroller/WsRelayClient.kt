@@ -79,7 +79,7 @@ class WsRelayClient(
          * The user can override this in TestControllerSettingsScreen if needed (e.g., for
          * testing a local relay during development). If no override is set, this URL is used.
          */
-        const val DEFAULT_RELAY_URL = "wss://anikuta-relay.anikuta.workers.dev/ws"
+        const val DEFAULT_RELAY_URL = "wss://anikuta-relay.anikuta.workers.dev/"
 
         /** Reconnect delay (if the WS drops). */
         private const val RECONNECT_DELAY_MS = 5_000L
