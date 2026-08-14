@@ -345,6 +345,12 @@ class HlsDownloader(
     private fun buildRequest(url: String, headers: String?, range: String? = null): Request {
         return Request.Builder().url(url).apply {
             if (range != null) header("Range", range)
+            // D-199: Force identity encoding — OkHttp adds accept-encoding: gzip by
+            // default, which some CDNs reject on M3U8 playlists with 403 Forbidden.
+            // MPV (which uses ffmpeg's HTTP stack) doesn't send accept-encoding, so
+            // playback works but downloads fail. Setting identity explicitly prevents
+            // OkHttp from adding gzip.
+            header("Accept-Encoding", "identity")
             if (!headers.isNullOrBlank()) {
                 headers.split('\n').forEach { line ->
                     val sep = line.indexOf(':')
