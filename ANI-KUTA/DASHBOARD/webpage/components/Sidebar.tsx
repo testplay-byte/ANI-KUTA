@@ -454,6 +454,15 @@ function NavIcon({ name, className = "" }: { name: string; className?: string })
         <path d="M20 18l2 2" />
       </>
     ),
+    dbplan: (
+      <>
+        {/* Database + pencil — restructuring plan (proposal) */}
+        <ellipse cx="9" cy="6" rx="5" ry="2" />
+        <path d="M4 6v5c0 1.1 2.2 2 5 2s5-.9 5-2V6" />
+        <path d="M7 13v2.5c0 1.1 1.8 2 4 2" />
+        <path d="M14 11l6-6 1.5 1.5L15.5 13H14v-2z" />
+      </>
+    ),
   };
 
   return (

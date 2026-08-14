@@ -47,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Modules", href: "/modules/", icon: "modules", desc: "46 modules built — module hierarchy + tree view" },
   { label: "Database", href: "/database/", icon: "database", desc: "26 tables across 15 .sq files, ER diagram, indexes, FK relationships" },
   { label: "DB Review", href: "/database-review/", icon: "dbreview", desc: "Schema review — merge candidates, optimization plan, top improvements" },
+  { label: "DB Plan", href: "/database-plan/", icon: "dbplan", desc: "D-197: 26→24 table restructuring plan — every table, column, query, con, deferred item. Awaiting approval." },
   { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
   { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
