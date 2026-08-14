@@ -459,6 +459,7 @@ fun AppRoot() {
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
+                onOpenTestController = { backstack.add(com.confused.anikuta.core.testapi.TestControllerSettingsKey) },
                 onBack = pop,
             )
             // D-193 Phase 3: combined Updates & Notifications settings
@@ -467,6 +468,8 @@ fun AppRoot() {
                 onOpenCategories = { backstack.add(UpdateCategoriesKey) },
             )
             is UpdateCategoriesKey -> UpdateCategoriesScreen(onBack = pop)
+            // D-198 v3: Test Controller settings screen (debug-only impl, no-op in release)
+            is com.confused.anikuta.core.testapi.TestControllerSettingsKey -> TestControllerSettingsScreen(onBack = pop)
             is NotificationsKey -> NotificationsSettingsScreen(
                 onBack = pop,
                 onOpenLibrary = { backstack.add(NotificationsLibraryKey) },

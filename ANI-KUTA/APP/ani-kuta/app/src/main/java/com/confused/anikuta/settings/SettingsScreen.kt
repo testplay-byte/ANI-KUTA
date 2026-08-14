@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
@@ -53,6 +54,7 @@ fun SettingsScreen(
     onOpenAutoLink: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
+    onOpenTestController: () -> Unit,
     onBack: () -> Unit,
 ) {
     val lazyListState = rememberLazyListState()
@@ -73,6 +75,17 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 110.dp),
                 ) {
+                    // D-198 v3: Test Controller — at the very top (debug-only, no-op in release)
+                    item {
+                        SettingsSectionLabel("Debug")
+                        SettingsNavRow(
+                            icon = Icons.Filled.BugReport,
+                            title = "Test Controller",
+                            subtitle = "Remote testing via WebSocket relay",
+                            onClick = onOpenTestController,
+                        )
+                    }
+
                     item {
                         SettingsSectionLabel("Appearance")
                         SettingsNavRow(

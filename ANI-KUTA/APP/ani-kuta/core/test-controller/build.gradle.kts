@@ -25,13 +25,9 @@ dependencies {
     // Coupling note: could be refactored into a shared `:core:debug-data` later.
     implementation(project(":feature:debug-bubble"))
 
-    // MQTT client (D-198 v2: replaced ntfy+relay with MQTT for plug-and-play, no user config).
-    // Eclipse Paho v3 — lightweight (~500KB), supports wss:// (WebSocket Secure) natively.
-    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
-
-    // OkHttp — DebugNetworkStats (reused from debug-bubble) extends okhttp3.Interceptor.
-    // The test-controller doesn't make HTTP calls directly, but it references DebugNetworkStats
-    // (which implements Interceptor), so OkHttp must be on the compile classpath.
+    // OkHttp — used for the WebSocket relay client (WsRelayClient) + DebugNetworkStats
+    // (reused from debug-bubble) extends okhttp3.Interceptor. D-198 v3: replaced Paho MQTT
+    // with OkHttp WebSocket (more reliable on mobile networks, uses port 443 via Caddy).
     implementation(libs.okhttp)
 
     implementation(libs.kotlinx.serialization.json)

@@ -2,6 +2,7 @@ package com.confused.anikuta
 
 import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.core.testapi.AppRouteRegistry
+import com.confused.anikuta.core.testapi.TestControllerSettingsKey
 import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
@@ -45,6 +46,7 @@ class AppRouteRegistryImpl : AppRouteRegistry {
         "extension_detail", "source_preferences",
         "history", "updates",
         "anime_details_anilist", "anime_details_extension",
+        "test_controller_settings",
     )
 
     override fun navKeyFor(route: String, args: Map<String, String>): NavKey? = when (route) {
@@ -81,6 +83,7 @@ class AppRouteRegistryImpl : AppRouteRegistry {
             val title = args["title"] ?: return null
             AnimeDetailsKey.Extension(sourceId = sid, animeUrl = url, title = title)
         }
+        "test_controller_settings" -> TestControllerSettingsKey
         else -> null
     }
 }

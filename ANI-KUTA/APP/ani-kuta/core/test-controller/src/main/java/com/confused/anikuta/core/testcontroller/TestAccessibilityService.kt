@@ -32,14 +32,17 @@ import org.koin.core.context.GlobalContext
  *      AnikutaDatabase, SettingsRepository, AppRouteRegistry (the last is implemented in
  *      `:app/src/debug` + registered in `debugKoinModules()`).
  *   3. Construct the executor + providers.
- *   4. Start the [MqttBridge] — connects to the public MQTT broker (hardcoded, no user config).
+ *   4. Start the [WsRelayClient] — connects to the sandbox WebSocket relay.
  *
- * [onAccessibilityEvent] is a no-op. [onUnbind] stops the MQTT bridge + cancels the scope.
- * The system auto-restarts the service on process death (state lost — the bridge reconnects
- * automatically via Paho's auto-reconnect).
+ * [onAccessibilityEvent] is a no-op. [onUnbind] stops the WS client + cancels the scope.
+ * The system auto-restarts the service on process death (state lost — the client reconnects
+ * automatically).
  *
- * **D-198 v2**: replaced ntfy.sh + Bun HTTP relay with MQTT for plug-and-play (no user config,
- * no URL discovery, no persistent background process in the sandbox).
+ * **D-198 v3**: replaced MQTT with a sandbox-hosted WebSocket relay (the MQTT approach failed
+ * because all 4 public brokers timed out on the user's mobile network — carrier blocking
+ * MQTT ports). The WS relay runs on port 3030 inside the Next.js dev server (persistent),
+ * and the phone connects via wss://PUBLIC_URL/?XTransformPort=3030 (port 443, no carrier blocks).
+ * The user configures the relay URL in the TestControllerSettingsScreen (More → Settings).
  *
  * **Release builds**: this class is NOT on the classpath (`:core:test-controller` is
  * `debugImplementation` in `:app`), and the `<service>` declaration is only in the debug
@@ -53,7 +56,7 @@ class TestAccessibilityService : AccessibilityService() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var mqttBridge: MqttBridge? = null
+    private var wsClient: WsRelayClient? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -101,15 +104,15 @@ class TestAccessibilityService : AccessibilityService() {
             navExecutor = navExecutor,
         )
 
-        // D-198 v2: MQTT bridge — connects to the public broker (hardcoded, no user config).
-        // Auto-reconnect handles broker drops. The agent sends commands via one-shot MQTT
-        // publish (no persistent process on the agent side either).
+        // D-198 v3: WebSocket relay client — connects to the sandbox relay.
+        // The relay URL is configured by the user in the TestControllerSettingsScreen.
+        // Auto-reconnect handles relay drops.
         TestToaster.init(applicationContext)
-        mqttBridge = MqttBridge(executor = executor, scope = scope)
-        TestControllerStatus.register(mqttBridge!!)
+        wsClient = WsRelayClient(executor = executor, settings = settingsRepo, scope = scope)
+        TestControllerStatus.register(wsClient!!)
         TestToaster.show("🔌 Test controller starting…")
-        scope.launch { mqttBridge?.start() }
-        Logger.i(TAG) { "test controller connected — MQTT bridge starting (4-broker fallback)" }
+        scope.launch { wsClient?.start() }
+        Logger.i(TAG) { "test controller connected — WS relay client starting" }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -121,9 +124,9 @@ class TestAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        mqttBridge?.let { TestControllerStatus.unregister(it) }
-        mqttBridge?.stop()
-        mqttBridge = null
+        wsClient?.let { TestControllerStatus.unregister(it) }
+        wsClient?.stop()
+        wsClient = null
         scope.cancel()
         Logger.i(TAG) { "test controller unbound" }
         return super.onUnbind(intent)
