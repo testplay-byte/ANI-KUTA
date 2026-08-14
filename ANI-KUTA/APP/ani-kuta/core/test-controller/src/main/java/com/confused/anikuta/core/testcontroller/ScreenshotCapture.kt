@@ -1,9 +1,6 @@
 package com.confused.anikuta.core.testcontroller
 
-import android.accessibilityservice.AccessibilityService
-import android.annotation.SuppressLint
 import android.graphics.Bitmap
-import android.os.Build
 import android.view.PixelCopy
 import android.view.Window
 import com.confused.anikuta.core.common.Logger
@@ -12,32 +9,31 @@ import com.confused.anikuta.core.testapi.TestControllerConstants
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.Executor
-import java.util.function.Consumer
 import kotlin.coroutines.resume
 
 /**
- * Captures screenshots across API 24-36 (D-200).
+ * Captures screenshots via [PixelCopy.request] on the foreground Activity's [Window] (D-200).
  *
- *  - API 30+: [AccessibilityService.takeScreenshot] (2-arg form — deprecated in API 33 but
- *    functional through 36; captures the full display frame buffer including MPV SurfaceViews).
- *  - API 24-29: [PixelCopy.request] on the foreground Activity's [Window] (registered in
- *    [DebugWindowRegistry] by `:app/src/debug` via ActivityLifecycleCallbacks). Also captures
- *    SurfaceView content.
+ * Originally planned to use [AccessibilityService.takeScreenshot] on API 30+ + [PixelCopy] on
+ * API 24-29. But `takeScreenshot`'s signature changed across SDK versions (2-arg deprecated form
+ * removed in SDK 36; replaced by a 3-arg form whose first param type varies), making it fragile
+ * to compile against SDK 36 while supporting API 30-32 at runtime.
  *
- * Both paths produce a software ARGB_8888 bitmap (the API 30+ hardware bitmap is copied to
- * ARGB_8888 before the hardware buffer is closed). Output: downscale to
- * [TestControllerConstants.SCREENSHOT_MAX_DIMENSION] + JPEG q[SCREENSHOT_JPEG_QUALITY].
+ * [PixelCopy.request] works on ALL API levels (24+), captures SurfaceView content (including the
+ * MPV player surface — verified per R-A research), and uses the [DebugWindowRegistry] (bound by
+ * ActivityLifecycleCallbacks in `:app/src/debug/DebugInit.kt`). Simpler + more robust than the
+ * multi-API `takeScreenshot` path.
  *
- * Returns null on failure (no window, takeScreenshot rejected, PixelCopy error, or 10s timeout)
- * — the executor reports "NO_WINDOW" or "SCREENSHOT_FAILED" to the agent.
+ * Limitation: [PixelCopy] captures only our Activity's window (not the full screen including
+ * system bars). For testing purposes, the app's window IS the target — system bars are irrelevant.
+ * If the Activity is PAUSED (not foregrounded), [DebugWindowRegistry.window] is null → returns
+ * null → executor reports "NO_WINDOW".
  *
- * The 10s [withTimeoutOrNull] guard prevents a hung callback (takeScreenshot returns true but
- * the Consumer never fires — e.g., display off, service disconnected) from hanging the
- * command-execution coroutine forever.
+ * Output: downscale to [TestControllerConstants.SCREENSHOT_MAX_DIMENSION] + JPEG q[SCREENSHOT_JPEG_QUALITY].
+ * The 10s [withTimeoutOrNull] guard prevents a hung PixelCopy callback from hanging the executor.
  */
 class ScreenshotCapture(
-    private val service: AccessibilityService,
+    @Suppress("unused") private val service: android.accessibilityservice.AccessibilityService,
 ) {
     companion object {
         private const val TAG = "Anikuta:Test:Screenshot"
@@ -56,54 +52,14 @@ class ScreenshotCapture(
         }
     }
 
-    /** Capture a software ARGB_8888 bitmap. Caller recycles. */
-    private suspend fun captureRaw(): Bitmap? = when {
-        Build.VERSION.SDK_INT >= 30 -> captureViaTakeScreenshot()
-        else -> {
-            val window = DebugWindowRegistry.window
-                ?: run {
-                    Logger.w(TAG) { "no window (API ${Build.VERSION.SDK_INT}) — DebugWindowRegistry unbound" }
-                    null
-                }
-            window?.let { captureViaPixelCopy(it) }
-        }
-    }
-
-    /**
-     * API 30+: AccessibilityService.takeScreenshot(Executor, Consumer<ScreenshotResult>).
-     *
-     * Returns `boolean` (true if the request was accepted). If it returns false, the callback
-     * won't fire — we resume null immediately. If it returns true but the callback never fires
-     * (display off, service disconnected), the [withTimeoutOrNull] in [capture] handles the hang.
-     *
-     * The Consumer is `java.util.function.Consumer` (per AOSP source). We pass it explicitly
-     * (not via trailing lambda) to avoid any SAM-ambiguity with `android.util.Consumer` which
-     * is also on the classpath.
-     */
-    @SuppressLint("NewApi")
-    @Suppress("DEPRECATION")
-    private suspend fun captureViaTakeScreenshot(): Bitmap? =
-        suspendCancellableCoroutine { cont ->
-            val executor = Executor { r -> r.run() }
-            val consumer = Consumer<AccessibilityService.ScreenshotResult> { result ->
-                var softwareBmp: Bitmap? = null
-                try {
-                    val hardwareBmp = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
-                    if (hardwareBmp != null) {
-                        // Copy to software (ARGB_8888) so we can safely recycle + compress.
-                        softwareBmp = hardwareBmp.copy(Bitmap.Config.ARGB_8888, false)
-                        runCatching { hardwareBmp.recycle() }
-                    }
-                } catch (e: Exception) {
-                    Logger.w(TAG) { "takeScreenshot wrap/copy failed: ${e::class.java.simpleName}: ${e.message}" }
-                } finally {
-                    runCatching { result.hardwareBuffer.close() }
-                }
-                if (cont.isActive) cont.resume(softwareBmp)
+    private suspend fun captureRaw(): Bitmap? {
+        val window = DebugWindowRegistry.window
+            ?: run {
+                Logger.w(TAG) { "no foreground window — DebugWindowRegistry unbound (app not resumed?)" }
+                return null
             }
-            val accepted = service.takeScreenshot(executor, consumer)
-            if (!accepted && cont.isActive) cont.resume(null)
-        }
+        return captureViaPixelCopy(window)
+    }
 
     private suspend fun captureViaPixelCopy(window: Window): Bitmap? {
         val w = window.decorView.width.coerceAtLeast(1)

@@ -116,8 +116,8 @@ class GestureExecutor(
     private suspend fun dispatchGesture(gesture: GestureDescription): Boolean =
         suspendCancellableCoroutine { cont ->
             val callback = object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(gesture: GestureDescription, gestureId: Int) { if (cont.isActive) cont.resume(true) }
-                override fun onCancelled(gesture: GestureDescription, gestureId: Int) { if (cont.isActive) cont.resume(false) }
+                override fun onCompleted(gesture: GestureDescription) { if (cont.isActive) cont.resume(true) }
+                override fun onCancelled(gesture: GestureDescription) { if (cont.isActive) cont.resume(false) }
             }
             val handler = android.os.Handler(android.os.Looper.getMainLooper())
             val dispatched = service.dispatchGesture(gesture, callback, handler)
