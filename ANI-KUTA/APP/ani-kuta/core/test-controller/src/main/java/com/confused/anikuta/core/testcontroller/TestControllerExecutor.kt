@@ -9,7 +9,9 @@ import com.confused.anikuta.core.testapi.TestResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 
 /**
  * The central command dispatcher (D-197).
@@ -40,6 +42,7 @@ class TestControllerExecutor(
     private val databaseProvider: DatabaseProvider,
     private val preferencesProvider: PreferencesProvider,
     private val navExecutor: NavExecutor,
+    private val actionPreviewOverlay: ActionPreviewOverlay,
 ) {
     companion object {
         private const val TAG = "Anikuta:Test:Executor"
@@ -53,10 +56,9 @@ class TestControllerExecutor(
     )
 
     suspend fun execute(command: TestCommand): ExecutionOutcome {
-        // D-198 v3.1: show a toast for every command so the user sees what's happening.
-        // Throttled to 1.5s to avoid spam on rapid commands.
-        val cmdLabel = commandLabel(command)
-        TestToaster.show("🤖 $cmdLabel", throttleMs = 1500L)
+        // D-198 v5: replaced toast notifications with the visual action preview overlay.
+        // The overlay is shown inside each action handler (doTap, doSwipe, etc.) at the
+        // action's coordinates. Non-visual commands (ping, db_query, etc.) skip the overlay.
         return try {
             when (command) {
                 // ── Session / control ──
@@ -89,7 +91,7 @@ class TestControllerExecutor(
                 is TestCommand.Swipe -> doSwipe(command)
                 is TestCommand.Scroll -> doScroll(command)
                 is TestCommand.SetText -> doSetText(command)
-                is TestCommand.Back -> ExecutionOutcome(okResult(command.id, gestureExecutor.back(), "back"))
+                is TestCommand.Back -> handleBack(command.id)
                 is TestCommand.Home -> ExecutionOutcome(okResult(command.id, gestureExecutor.home(), "home"))
                 is TestCommand.Recents -> ExecutionOutcome(okResult(command.id, gestureExecutor.recents(), "recents"))
                 is TestCommand.Notifications -> ExecutionOutcome(okResult(command.id, gestureExecutor.notifications(), "notifications"))
@@ -204,39 +206,71 @@ class TestControllerExecutor(
         val nodeId = cmd.nodeId
         val x = cmd.x
         val y = cmd.y
-        val ok = when {
-            nodeId != null -> gestureExecutor.tapNode(nodeId)
-            x != null && y != null -> gestureExecutor.tapCoords(x, y)
-            else -> false
+        // D-198 v5: show visual preview overlay before the tap.
+        val previewX = x ?: 540f // default to center if no coords
+        val previewY = y ?: 1200f
+        val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
+            actionPreviewOverlay.showTapPreview(previewX, previewY) {
+                val ok = when {
+                    nodeId != null -> gestureExecutor.tapNode(nodeId)
+                    x != null && y != null -> gestureExecutor.tapCoords(x, y)
+                    else -> false
+                }
+                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "tap")))
+            }
         }
-        ExecutionOutcome(okResult(cmd.id, ok, "tap"))
+        result
     }
 
     private suspend fun doLongClick(cmd: TestCommand.LongClick): ExecutionOutcome = withContext(Dispatchers.Main) {
         val nodeId = cmd.nodeId
         val x = cmd.x
         val y = cmd.y
-        val ok = when {
-            nodeId != null -> gestureExecutor.longClickNode(nodeId)
-            x != null && y != null -> gestureExecutor.longClickCoords(x, y, cmd.durationMs)
-            else -> false
+        val previewX = x ?: 540f
+        val previewY = y ?: 1200f
+        val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
+            actionPreviewOverlay.showLabelPreview(previewX, previewY, "👆 LONG-CLICK") {
+                val ok = when {
+                    nodeId != null -> gestureExecutor.longClickNode(nodeId)
+                    x != null && y != null -> gestureExecutor.longClickCoords(x, y, cmd.durationMs)
+                    else -> false
+                }
+                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "long_click")))
+            }
         }
-        ExecutionOutcome(okResult(cmd.id, ok, "long_click"))
+        result
     }
 
     private suspend fun doSwipe(cmd: TestCommand.Swipe): ExecutionOutcome = withContext(Dispatchers.Main) {
-        val ok = gestureExecutor.swipe(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.durationMs)
-        ExecutionOutcome(okResult(cmd.id, ok, "swipe"))
+        val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
+            actionPreviewOverlay.showSwipePreview(cmd.x1, cmd.y1, cmd.x2, cmd.y2) {
+                val ok = gestureExecutor.swipe(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.durationMs)
+                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "swipe")))
+            }
+        }
+        result
     }
 
     private suspend fun doScroll(cmd: TestCommand.Scroll): ExecutionOutcome = withContext(Dispatchers.Main) {
-        val ok = gestureExecutor.scroll(cmd.x, cmd.y, cmd.direction, cmd.amount)
-        ExecutionOutcome(okResult(cmd.id, ok, "scroll"))
+        val scrollX = cmd.x ?: 540f
+        val scrollY = cmd.y ?: 1200f
+        val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
+            actionPreviewOverlay.showScrollPreview(scrollX, scrollY, cmd.direction.name) {
+                val ok = gestureExecutor.scroll(cmd.x, cmd.y, cmd.direction, cmd.amount)
+                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "scroll")))
+            }
+        }
+        result
     }
 
     private suspend fun doSetText(cmd: TestCommand.SetText): ExecutionOutcome = withContext(Dispatchers.Main) {
-        val ok = gestureExecutor.setText(cmd.nodeId, cmd.text)
-        ExecutionOutcome(okResult(cmd.id, ok, "set_text"))
+        val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
+            actionPreviewOverlay.showLabelPreview(540f, 600f, "⌨️ SET TEXT: ${cmd.text.take(15)}") {
+                val ok = gestureExecutor.setText(cmd.nodeId, cmd.text)
+                if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "set_text")))
+            }
+        }
+        result
     }
 
     private fun keepScreenOn(id: String, enabled: Boolean): ExecutionOutcome {
@@ -269,6 +303,32 @@ class TestControllerExecutor(
             android.os.Process.killProcess(android.os.Process.myPid())
         }, 200L)
         return ExecutionOutcome(TestResult.Ok(id, message = "restart scheduled"))
+    }
+
+    /**
+     * D-198 v5: Back button safety — on the home page (AnimeBrowseKey), pressing Back would
+     * exit the app. Instead, we move the app to the background (like pressing the Home button).
+     * On any other screen, Back works normally (pops the backstack).
+     */
+    private suspend fun handleBack(id: String): ExecutionOutcome = withContext(Dispatchers.Main) {
+        val screenName = navExecutor.currentScreenName()
+        if (screenName == "AnimeBrowseKey") {
+            // On the home page — move to background instead of exiting.
+            Logger.i(TAG) { "back: on home page — moving to background instead of exiting" }
+            val activity = com.confused.anikuta.core.testapi.DebugWindowRegistry.activity
+            if (activity != null) {
+                activity.moveTaskToBack(true)
+                ExecutionOutcome(TestResult.Ok(id, message = "back: moved to background (home page)"))
+            } else {
+                // Fallback: if we can't get the activity, just send Home.
+                gestureExecutor.home()
+                ExecutionOutcome(TestResult.Ok(id, message = "back: sent Home (home page, no activity ref)"))
+            }
+        } else {
+            // Not on home page — normal Back.
+            val ok = gestureExecutor.back()
+            ExecutionOutcome(okResult(id, ok, "back"))
+        }
     }
 
     private fun okResult(id: String, ok: Boolean, what: String): TestResult =

@@ -92,6 +92,7 @@ class TestAccessibilityService : AccessibilityService() {
         val gestureExecutor = GestureExecutor(this, treeSerializer)
         val screenshotCapture = ScreenshotCapture(this)
         val navExecutor = NavExecutor(routeRegistry)
+        val actionPreviewOverlay = ActionPreviewOverlay(this)
 
         val executor = TestControllerExecutor(
             service = this,
@@ -105,6 +106,7 @@ class TestAccessibilityService : AccessibilityService() {
             databaseProvider = DatabaseProvider(applicationContext, dbBrowser),
             preferencesProvider = PreferencesProvider(settingsRepo),
             navExecutor = navExecutor,
+            actionPreviewOverlay = actionPreviewOverlay,
         )
 
         // D-198 v3: WebSocket relay client — connects to the sandbox relay.
