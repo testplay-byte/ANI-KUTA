@@ -315,22 +315,34 @@ class AppUpdateManager(
         // right away (instead of staying on "Download" until the first byte arrives).
         _downloadProgress.value = DownloadProgress.downloading(0L, update.apkSizeBytes, null)
         scope.launch {
-            downloader.download(update).collect { progress ->
-                _downloadProgress.value = progress
-                if (progress.isComplete && progress.error == null) {
-                    // Record the downloaded APK.
-                    val apkFile = downloader.getApkFile(update.versionName)
-                    preferences.addDownloadedApk(
-                        DownloadedApk(
-                            versionName = update.versionName,
-                            filePath = apkFile.absolutePath,
-                            downloadedAt = System.currentTimeMillis(),
-                            sizeBytes = apkFile.length(),
-                            source = update.source,
-                        ),
-                    )
-                    Logger.i(TAG) { "startDownload: download complete + recorded — ${apkFile.absolutePath}" }
+            try {
+                downloader.download(update).collect { progress ->
+                    _downloadProgress.value = progress
+                    if (progress.isComplete && progress.error == null) {
+                        // Record the downloaded APK.
+                        val apkFile = downloader.getApkFile(update.versionName)
+                        preferences.addDownloadedApk(
+                            DownloadedApk(
+                                versionName = update.versionName,
+                                filePath = apkFile.absolutePath,
+                                downloadedAt = System.currentTimeMillis(),
+                                sizeBytes = apkFile.length(),
+                                source = update.source,
+                            ),
+                        )
+                        Logger.i(TAG) { "startDownload: download complete + recorded — ${apkFile.absolutePath}" }
+                    }
                 }
+            } catch (e: Exception) {
+                // D-199: defensive catch — if the flow itself throws (not just
+                // emits an error), capture it here so the app doesn't crash.
+                Logger.e(TAG, e) { "startDownload: download flow threw exception" }
+                _downloadProgress.value = DownloadProgress.error(
+                    "${e::class.java.simpleName}: ${e.message ?: "Download failed"}",
+                )
+                // Clean up partial file.
+                val apkFile = downloader.getApkFile(update.versionName)
+                if (apkFile.exists()) apkFile.delete()
             }
         }
     }

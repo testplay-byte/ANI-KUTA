@@ -129,8 +129,12 @@ fun AboutScreen(
     // notification dot on the "Check for updates" row to flag it.
     val downloadProgress by updateManager.downloadProgress.collectAsStateWithLifecycle()
     val latestUpdate by updateManager.latestUpdate.collectAsStateWithLifecycle()
+    // D-199: capture in local vals for null-safe smart-casting inside lambdas.
+    // Using `!!` inside Compose lambdas (like LinearProgressIndicator's progress
+    // lambda) causes NPE when the state transitions to null during recomposition.
+    val progress = downloadProgress
     val showUpdateDot = latestUpdate != null ||
-        (downloadProgress != null && !downloadProgress!!.isComplete && downloadProgress!!.error == null)
+        (progress != null && !progress.isComplete && progress.error == null)
 
     // D-199: "Up to date" transient state — shows "You are on the latest version"
     // for ~3 seconds after a manual check finds no update, then reverts to
@@ -323,11 +327,11 @@ fun AboutScreen(
                     }
 
                     // ── Live download progress bar (only while downloading) ──
-                    // Visible without expanding the update sheet — gives the user a
-                    // glance-able progress indicator right inside About.
-                    if (downloadProgress != null &&
-                        !downloadProgress!!.isComplete &&
-                        downloadProgress!!.error == null
+                    // D-199: use `progress` (local val capture) instead of `downloadProgress!!`
+                    // to avoid NPE when the state transitions to null mid-recomposition.
+                    if (progress != null &&
+                        !progress.isComplete &&
+                        progress.error == null
                     ) {
                         item {
                             Column(
@@ -352,7 +356,7 @@ fun AboutScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            "${downloadProgress!!.percent ?: 0}%",
+                                            "${progress.percent ?: 0}%",
                                             fontFamily = RobotoFamily,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.ExtraBold,
@@ -374,7 +378,7 @@ fun AboutScreen(
                                 }
                                 Spacer(Modifier.height(6.dp))
                                 LinearProgressIndicator(
-                                    progress = { (downloadProgress!!.percent ?: 0) / 100f },
+                                    progress = { (progress.percent ?: 0) / 100f },
                                     modifier = Modifier.fillMaxWidth(),
                                     color = MaterialTheme.colorScheme.primary,
                                 )
@@ -383,9 +387,7 @@ fun AboutScreen(
                     }
 
                     // D-199: Download error display — shows the error + a clear/delete button.
-                    // The user can tap X to clear the error state + delete the partial APK
-                    // file, which resets the UI to show the "Download" button again.
-                    if (downloadProgress != null && downloadProgress!!.error != null) {
+                    if (progress != null && progress.error != null) {
                         item {
                             Surface(
                                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
@@ -410,7 +412,7 @@ fun AboutScreen(
                                             color = MaterialTheme.colorScheme.onErrorContainer,
                                         )
                                         Text(
-                                            text = downloadProgress!!.error ?: "",
+                                            text = progress.error ?: "",
                                             fontFamily = RobotoFamily,
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onErrorContainer,
