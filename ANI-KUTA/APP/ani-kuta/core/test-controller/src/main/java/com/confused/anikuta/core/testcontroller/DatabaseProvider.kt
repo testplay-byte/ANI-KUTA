@@ -41,7 +41,7 @@ class DatabaseProvider(
             val rows = mutableListOf<Map<String, String>>()
             db.rawQuery(
                 "SELECT * FROM $table LIMIT ? OFFSET ?",
-                arrayOf(limit, offset),
+                arrayOf(limit.toString(), offset.toString()),
             ).use { c ->
                 while (c.moveToNext()) {
                     val row = LinkedHashMap<String, String>(c.columnCount)

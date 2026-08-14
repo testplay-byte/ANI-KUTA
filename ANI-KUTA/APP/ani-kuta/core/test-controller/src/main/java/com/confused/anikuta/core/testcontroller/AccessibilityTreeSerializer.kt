@@ -60,7 +60,7 @@ class AccessibilityTreeSerializer {
             NodeInfo(
                 nodeId = 0,
                 bounds = NodeBounds(0, 0, 0, 0),
-                packageName = root?.packageName,
+                packageName = root?.packageName?.toString(),
                 children = emptyList(),
                 isVisibleToUser = false,
             )

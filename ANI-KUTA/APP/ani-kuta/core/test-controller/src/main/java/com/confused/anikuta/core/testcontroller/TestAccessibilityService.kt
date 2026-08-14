@@ -2,6 +2,7 @@ package com.confused.anikuta.core.testcontroller
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.database.AnikutaDatabase
@@ -51,7 +52,6 @@ class TestAccessibilityService : AccessibilityService() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var executor: TestControllerExecutor? = null
     private var relayClient: RelayClient? = null
 
     override fun onServiceConnected() {
@@ -86,7 +86,7 @@ class TestAccessibilityService : AccessibilityService() {
         val screenshotCapture = ScreenshotCapture(this)
         val navExecutor = NavExecutor(routeRegistry)
 
-        exec = TestControllerExecutor(
+        val executor = TestControllerExecutor(
             service = this,
             scope = scope,
             treeSerializer = treeSerializer,
@@ -99,7 +99,6 @@ class TestAccessibilityService : AccessibilityService() {
             preferencesProvider = PreferencesProvider(settingsRepo),
             navExecutor = navExecutor,
         )
-        executor = exec
 
         val relayHttp = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -110,7 +109,7 @@ class TestAccessibilityService : AccessibilityService() {
 
         relayClient = RelayClient(
             appContext = applicationContext,
-            executor = exec,
+            executor = executor,
             settings = settingsRepo,
             httpClient = relayHttp,
             scope = scope,
@@ -127,20 +126,16 @@ class TestAccessibilityService : AccessibilityService() {
         Logger.w(TAG) { "test controller interrupted" }
     }
 
-    override fun onUnbind(): Boolean {
+    override fun onUnbind(intent: Intent?): Boolean {
         relayClient?.stop()
         relayClient = null
-        executor = null
         scope.cancel()
         Logger.i(TAG) { "test controller unbound" }
-        return super.onUnbind()
+        return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
     }
-
-    // Held as a field so the compiler doesn't complain about nullability in onServiceConnected.
-    private lateinit var exec: TestControllerExecutor
 }

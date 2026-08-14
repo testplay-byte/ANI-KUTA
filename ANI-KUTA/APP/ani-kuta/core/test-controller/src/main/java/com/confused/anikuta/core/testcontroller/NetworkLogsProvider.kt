@@ -16,27 +16,21 @@ class NetworkLogsProvider(
 ) {
     fun recent(lines: Int, filter: String?): List<NetworkLogEntry> {
         val snapshot = stats.snapshot()
-        return snapshot.recentRequests
-            .asSequence()
-            .filter { filter.isNullOrBlank() || "${it.host}${it.path}".contains(filter, true) }
-            .takeLast(lines)
-            .map { r ->
-                NetworkLogEntry(
-                    timestamp = r.timestamp,
-                    method = r.method,
-                    url = "${r.host}${r.path}",
-                    statusCode = r.status,
-                    durationMs = r.latencyMs,
-                    requestSize = 0L, // not tracked separately
-                    responseSize = r.bytes,
-                )
-            }
-            .toList()
+        val filtered = snapshot.recentRequests.filter { req ->
+            filter.isNullOrBlank() || "${req.host}${req.path}".contains(filter, true)
+        }
+        // Take the last `lines` (most recent). List.takeLast is in Kotlin stdlib.
+        val start = (filtered.size - lines).coerceAtLeast(0)
+        return filtered.subList(start, filtered.size).map { r ->
+            NetworkLogEntry(
+                timestamp = r.timestamp,
+                method = r.method,
+                url = "${r.host}${r.path}",
+                statusCode = r.status,
+                durationMs = r.latencyMs,
+                requestSize = 0L,
+                responseSize = r.bytes,
+            )
+        }
     }
-}
-
-private fun <T> Sequence<T>.takeLast(n: Int): List<T> {
-    val list = toList()
-    if (n >= list.size) return list
-    return list.subList(list.size - n, list.size)
 }

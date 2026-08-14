@@ -2,7 +2,6 @@ package com.confused.anikuta.core.testcontroller
 
 import android.accessibilityservice.AccessibilityService
 import android.view.WindowManager
-import android.view.accessibility.AccessibilityNodeInfo
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.testapi.NodeInfo
 import com.confused.anikuta.core.testapi.TestCommand
@@ -198,18 +197,24 @@ class TestControllerExecutor(
     }
 
     private suspend fun doTap(cmd: TestCommand.Tap): ExecutionOutcome = withContext(Dispatchers.Main) {
+        val nodeId = cmd.nodeId
+        val x = cmd.x
+        val y = cmd.y
         val ok = when {
-            cmd.nodeId != null -> gestureExecutor.tapNode(cmd.nodeId)
-            cmd.x != null && cmd.y != null -> gestureExecutor.tapCoords(cmd.x, cmd.y)
+            nodeId != null -> gestureExecutor.tapNode(nodeId)
+            x != null && y != null -> gestureExecutor.tapCoords(x, y)
             else -> false
         }
         ExecutionOutcome(okResult(cmd.id, ok, "tap"))
     }
 
     private suspend fun doLongClick(cmd: TestCommand.LongClick): ExecutionOutcome = withContext(Dispatchers.Main) {
+        val nodeId = cmd.nodeId
+        val x = cmd.x
+        val y = cmd.y
         val ok = when {
-            cmd.nodeId != null -> gestureExecutor.longClickNode(cmd.nodeId)
-            cmd.x != null && cmd.y != null -> gestureExecutor.longClickCoords(cmd.x, cmd.y, cmd.durationMs)
+            nodeId != null -> gestureExecutor.longClickNode(nodeId)
+            x != null && y != null -> gestureExecutor.longClickCoords(x, y, cmd.durationMs)
             else -> false
         }
         ExecutionOutcome(okResult(cmd.id, ok, "long_click"))
@@ -271,8 +276,4 @@ class TestControllerExecutor(
         is NavExecutor.NavResult.Error -> TestResult.Error(id, message = r.message, type = r.code)
         is NavExecutor.NavResult.Backstack -> TestResult.Backstack(id, keys = r.names)
     }
-
-    @Suppress("unused")
-    private fun isOurPackage(node: AccessibilityNodeInfo?): Boolean =
-        node?.packageName?.toString() == OUR_PACKAGE
 }

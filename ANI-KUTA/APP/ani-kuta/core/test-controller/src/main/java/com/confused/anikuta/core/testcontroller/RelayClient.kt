@@ -119,7 +119,7 @@ class RelayClient(
             val envelope = runCatching { json.decodeFromString<PollEnvelope>(body) }.getOrNull()
             if (envelope == null) { delay(POLL_BACKOFF_MS); return }
             if (envelope.command == null) return // empty / keepalive — poll again immediately
-            val command = runCatching { json.decodeFromJsonElement<TestCommand>(envelope.command) }.getOrNull()
+            val command = runCatching { json.decodeFromString<TestCommand>(envelope.command.toString()) }.getOrNull()
             if (command == null) {
                 Logger.w(TAG) { "failed to decode command: ${envelope.command}" }
                 return
