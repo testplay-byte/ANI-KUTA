@@ -47,7 +47,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Modules", href: "/modules/", icon: "modules", desc: "46 modules built — module hierarchy + tree view" },
   { label: "Database", href: "/database/", icon: "database", desc: "26 tables across 15 .sq files, ER diagram, indexes, FK relationships" },
   { label: "DB Review", href: "/database-review/", icon: "dbreview", desc: "Schema review — merge candidates, optimization plan, top improvements" },
-  { label: "DB Plan", href: "/database-plan/", icon: "dbplan", desc: "D-197: 26→24 table restructuring plan — every table, column, query, con, deferred item. Awaiting approval." },
   { label: "DB Viewer", href: "/db-viewer/", icon: "database", desc: "Upload + view database JSON exports" },
   { label: "Design", href: "/design/", icon: "design", desc: "App design language — lime/dark surfaces, accent presets, components" },
   { label: "Progress", href: "/progress/", icon: "progress", desc: "All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW)" },
@@ -55,6 +54,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
   { label: "Updates Plan", href: "/updates-notifications-plan/", icon: "bell", desc: "D-193: Updates + Notifications architecture plan" },
   { label: "Project Review", href: "/project-review/", icon: "review", desc: "Live project review — concerns, features left, recommendations" },
+  { label: "Test Controller", href: "/test-controller/", icon: "testcontroller", desc: "Autonomous remote UI testing — Cloudflare Workers relay + AccessibilityService (D-198 v4)" },
 ];
 
 /* ---------------------------------------------------------------------------
