@@ -454,6 +454,18 @@ function NavIcon({ name, className = "" }: { name: string; className?: string })
         <path d="M20 18l2 2" />
       </>
     ),
+    testcontroller: (
+      <>
+        {/* Satellite dish — remote-control via Cloudflare relay (D-198 v4).
+            The dish represents the outbound WebSocket to the relay;
+            the dot represents the radio signal. */}
+        <path d="M4 20a8 8 0 0 1 8-8" />
+        <path d="M4 20a4 4 0 0 1 4-4" />
+        <circle cx="4" cy="20" r="1.4" fill="currentColor" stroke="none" />
+        <path d="M12 12l5-5" />
+        <path d="M17 3l4 4-4 4-4-4z" />
+      </>
+    ),
   };
 
   return (

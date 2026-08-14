@@ -152,7 +152,7 @@ class TestControllerExecutor(
                 TestResult.Error(
                     id = command.id,
                     message = "${e::class.java.simpleName}: ${e.message ?: "(no message)"}",
-                    type = "EXCEPTION",
+                    errorCode = "EXCEPTION",
                 )
             )
         }

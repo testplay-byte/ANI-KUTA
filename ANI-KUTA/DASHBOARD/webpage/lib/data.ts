@@ -54,6 +54,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
   { label: "Updates Plan", href: "/updates-notifications-plan/", icon: "bell", desc: "D-193: Updates + Notifications architecture plan" },
   { label: "Project Review", href: "/project-review/", icon: "review", desc: "Live project review — concerns, features left, recommendations" },
+  { label: "Test Controller", href: "/test-controller/", icon: "testcontroller", desc: "Autonomous remote UI testing — Cloudflare Workers relay + AccessibilityService (D-198 v4)" },
 ];
 
 /* ---------------------------------------------------------------------------
