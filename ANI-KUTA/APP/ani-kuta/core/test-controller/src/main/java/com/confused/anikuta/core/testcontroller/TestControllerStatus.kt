@@ -72,16 +72,12 @@ object TestControllerStatus {
         if (client.isConnected()) {
             TestToaster.show("✅ Test controller online", throttleMs = 10_000L)
         } else {
-            val url = client.configuredUrl()
-            if (url.isNullOrBlank()) {
-                TestToaster.show("⚠️ No relay URL — configure in Settings → Test Controller", throttleMs = 10_000L)
-            } else {
-                TestToaster.show("🔄 Reconnecting test controller…", throttleMs = 5000L)
-                Logger.i(TAG) { "ensureConnected: client disconnected — triggering reconnect" }
-                GlobalScope.launch(Dispatchers.IO) {
-                    runCatching { client.start() }
-                        .onFailure { Logger.e(TAG) { "reconnect failed: ${it::class.java.simpleName}: ${it.message}" } }
-                }
+            // D-198 v4: there's always a default URL (Cloudflare), so just reconnect.
+            TestToaster.show("🔄 Reconnecting test controller…", throttleMs = 5000L)
+            Logger.i(TAG) { "ensureConnected: client disconnected — triggering reconnect" }
+            GlobalScope.launch(Dispatchers.IO) {
+                runCatching { client.start() }
+                    .onFailure { Logger.e(TAG) { "reconnect failed: ${it::class.java.simpleName}: ${it.message}" } }
             }
         }
     }

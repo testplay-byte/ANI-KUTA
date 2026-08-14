@@ -90,10 +90,10 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val settings = remember { GlobalContext.get().get<SettingsRepository>() }
 
-    // Local editable state — initialized from the persisted setting, updated on
-    // every keystroke, only persisted to the DB when the user taps Save.
+    // Local editable state — initialized from the persisted setting (or the default Cloudflare URL).
+    // D-198 v4: the default URL is hardcoded in WsRelayClient.DEFAULT_RELAY_URL.
     var relayUrl by remember {
-        mutableStateOf(settings.getSetting(RELAY_URL_KEY).orEmpty())
+        mutableStateOf(settings.getSetting(RELAY_URL_KEY)?.trim()?.ifBlank { null } ?: com.confused.anikuta.core.testcontroller.WsRelayClient.DEFAULT_RELAY_URL)
     }
 
     // Snapshot of the live connection state — read on screen entry. Re-entering
@@ -102,7 +102,7 @@ fun TestControllerSettingsScreen(onBack: () -> Unit) {
     // the connection succeeds/fails.
     val connected = remember { TestControllerStatus.isConnected() }
     val configuredUrl = remember {
-        settings.getSetting(RELAY_URL_KEY)?.trim()?.ifBlank { null }
+        settings.getSetting(RELAY_URL_KEY)?.trim()?.ifBlank { null } ?: com.confused.anikuta.core.testcontroller.WsRelayClient.DEFAULT_RELAY_URL
     }
     val accessibilityEnabled = remember { isAccessibilityServiceEnabled(context) }
 

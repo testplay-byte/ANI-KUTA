@@ -40,24 +40,24 @@ import java.util.concurrent.TimeUnit
  *   └─ disconnect (one-shot)          │  (phone stays connected, auto-reconnect)
  * ```
  *
- * **Persistence:** the relay runs inside the Next.js dev server process (persistent — survives
- * across Bash tool calls because the dev server is the sandbox's main process). The phone
- * maintains a persistent WS connection + auto-reconnects on drop.
+ * **D-198 v4**: the relay is now a Cloudflare Workers + Durable Object deployment.
+ * The default URL is hardcoded ([DEFAULT_RELAY_URL]) — the user doesn't need to configure
+ * anything. The relay is always-on (Cloudflare managed, 99.9% SLA), uses port 443 (no
+ * carrier blocks), + costs $0/month on the free tier (100K req/day, 50× headroom).
  *
- * **Relay URL:** read from [SettingsRepository] (key `debug.test.relay_url`). Set by the user
- * in the TestControllerSettingsScreen (More → Settings → Test Controller). The URL format is
- * `wss://SANDBOX_PUBLIC_URL/?XTransformPort=3030` (the sandbox's public preview URL + the
- * Caddy gateway port-forward query param).
+ * **Override:** the user can still set a custom relay URL in the TestControllerSettingsScreen
+ * (More → Settings → Test Controller) — useful for testing a local relay during development.
+ * If no custom URL is set, [DEFAULT_RELAY_URL] is used.
  *
  * **Single-flight:** [start] uses a Mutex so concurrent calls (app-open health-check + initial
  * connect + retry) don't overlap. Idempotent (no-op if already connected).
  *
  * **Auto-reconnect:** OkHttp's WebSocket has built-in reconnect (via [RETRY_DELAY_MS]).
- * If the relay is down (e.g., Next.js dev server restarted), the phone keeps retrying.
+ * If the relay is down, the phone keeps retrying.
  *
  * **Toast notifications:** every state change shows a throttled toast via [TestToaster].
  *
- * D-198 v3.
+ * D-198 v4.
  */
 class WsRelayClient(
     private val executor: TestControllerExecutor,
@@ -67,8 +67,19 @@ class WsRelayClient(
     companion object {
         private const val TAG = "Anikuta:Test:Ws"
 
-        /** SettingsRepository key for the relay URL. */
+        /** SettingsRepository key for the relay URL (optional override). */
         const val SETTING_RELAY_URL = "debug.test.relay_url"
+
+        /**
+         * The default relay URL — Cloudflare Workers + Durable Object (D-198 v4).
+         *
+         * Always-on (Cloudflare managed, 99.9% SLA). Port 443 (no carrier blocks).
+         * Free tier (100K req/day). WebSocket Hibernation API (idle connections = $0).
+         *
+         * The user can override this in TestControllerSettingsScreen if needed (e.g., for
+         * testing a local relay during development). If no override is set, this URL is used.
+         */
+        const val DEFAULT_RELAY_URL = "wss://anikuta-relay.k-h-u-r-r-a-m-n-o-o-r88888888888.workers.dev/"
 
         /** Reconnect delay (if the WS drops). */
         private const val RECONNECT_DELAY_MS = 5_000L
@@ -114,13 +125,9 @@ class WsRelayClient(
             retryJob?.cancel()
             retryJob = null
 
-            val url = settings.getSetting(SETTING_RELAY_URL)?.trim()
-            if (url.isNullOrBlank()) {
-                TestToaster.show("⚠️ No relay URL — configure in Settings → Test Controller", throttleMs = 10_000L)
-                Logger.w(TAG) { "no relay URL configured (setting=$SETTING_RELAY_URL)" }
-                isStarting = false
-                return@withLock
-            }
+            // D-198 v4: use the hardcoded Cloudflare relay URL by default.
+            // The user can override it in TestControllerSettingsScreen (optional).
+            val url = settings.getSetting(SETTING_RELAY_URL)?.trim()?.ifBlank { null } ?: DEFAULT_RELAY_URL
 
             TestToaster.show("Connecting to relay…", throttleMs = 2000L)
             Logger.i(TAG) { "connecting to WS relay: $url" }
@@ -271,6 +278,7 @@ class WsRelayClient(
     /** The connected relay URL (for status display). Null if not connected. */
     fun connectedUrl(): String? = connectedUrl
 
-    /** The configured relay URL (from SettingsRepository, even if not connected). */
-    fun configuredUrl(): String? = settings.getSetting(SETTING_RELAY_URL)?.trim()?.ifBlank { null }
+    /** The configured relay URL (custom override or the default Cloudflare URL). */
+    fun configuredUrl(): String? =
+        settings.getSetting(SETTING_RELAY_URL)?.trim()?.ifBlank { null } ?: DEFAULT_RELAY_URL
 }
