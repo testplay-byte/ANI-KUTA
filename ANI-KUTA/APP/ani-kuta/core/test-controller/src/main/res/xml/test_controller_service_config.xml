@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AccessibilityService config for the test-controller (D-199).
+
+  - canPerformGestures="true"  → dispatchGesture works (REQUIRED).
+  - canRetrieveWindowContent="true" → getRootInActiveWindow() returns the tree (REQUIRED).
+  - flagRetrieveInteractiveWindows → getWindows() works (for popup dialogs).
+  - flagReportViewIds → getViewIdResourceName() populated (for Compose testTag lookup —
+    requires testTagsAsResourceId=true at the Compose root, applied debug-only in :app).
+  - packageNames="com.confused.anikuta" → filters EVENT DELIVERY only (typeWindowStateChanged
+    etc. from other packages are suppressed). getRootInActiveWindow() can STILL return
+    other-package nodes if a system dialog overlays our app — the controller runtime-checks
+    node.packageName == "com.confused.anikuta" before inspecting/acting (D-199 gotcha).
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewClicked|typeViewScrolled"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:packageNames="com.confused.anikuta"
+    android:notificationTimeout="100"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:description="@string/test_controller_service_desc" />

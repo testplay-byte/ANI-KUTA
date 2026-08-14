@@ -86,6 +86,11 @@ dependencies {
     // debug-bubble code. Wiring in :app/src/debug/DebugInit.kt.
     debugImplementation(project(":feature:debug-bubble"))
 
+    // Test controller — debug builds only (D-197). AccessibilityService + relay client for
+    // autonomous remote testing. Release builds contain zero test-controller code.
+    // Wiring in :app/src/debug/ (AppRouteRegistryImpl, DebugNavBinder, DebugInit extensions).
+    debugImplementation(project(":core:test-controller"))
+
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

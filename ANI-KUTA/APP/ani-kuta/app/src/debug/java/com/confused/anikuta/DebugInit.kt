@@ -2,6 +2,8 @@ package com.confused.anikuta
 
 import app.cash.sqldelight.db.SqlDriver
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.testapi.AppRouteRegistry
+import com.confused.anikuta.core.testapi.DebugWindowRegistry
 import com.confused.anikuta.feature.debugbubble.DebugBuildInfo
 import com.confused.anikuta.feature.debugbubble.data.DebugDbStats
 import com.confused.anikuta.feature.debugbubble.data.DebugLogBuffer
@@ -35,6 +37,8 @@ fun debugKoinModules(): List<Module> = listOf(
                 versionCode = BuildConfig.VERSION_CODE.toString(),
             )
         }
+        // D-197: AppRouteRegistry impl — lets the test-controller resolve route names to NavKeys.
+        single<AppRouteRegistry> { AppRouteRegistryImpl() }
     },
 )
 
@@ -47,6 +51,24 @@ fun debugKoinModules(): List<Module> = listOf(
 fun initDebugIntegrations() {
     val buffer = org.koin.core.context.GlobalContext.get().get<DebugLogBuffer>()
     Logger.setAppender(buffer)
+    // D-200: register ActivityLifecycleCallbacks to bind the foreground Activity's window to
+    // DebugWindowRegistry. The test-controller uses this for PixelCopy screenshots on API 24-29
+    // (AccessibilityService.takeScreenshot is API 30+). The registry is read-only in release
+    // (no test-controller module), so binding here is harmless.
+    val app = org.koin.core.context.GlobalContext.get().get<android.app.Application>()
+    app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+        override fun onActivityResumed(activity: android.app.Activity) {
+            DebugWindowRegistry.bind(activity)
+        }
+        override fun onActivityPaused(activity: android.app.Activity) {
+            DebugWindowRegistry.unbind(activity)
+        }
+        override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+        override fun onActivityStarted(activity: android.app.Activity) {}
+        override fun onActivityStopped(activity: android.app.Activity) {}
+        override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+        override fun onActivityDestroyed(activity: android.app.Activity) {}
+    })
 }
 
 /**

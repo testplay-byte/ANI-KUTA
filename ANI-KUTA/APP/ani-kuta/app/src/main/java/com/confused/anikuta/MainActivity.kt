@@ -41,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
@@ -268,6 +270,11 @@ fun AppRoot() {
         pop()
     }
 
+    // D-197 (test-controller): bind the nav backstack to DebugNavRegistry so the debug-only
+    // TestAccessibilityService can read/control navigation (push_route / pop / clear_to_root).
+    // No-op in release builds (release source set's DebugNavBinder is a no-op).
+    DebugNavBinder(backstack)
+
     // D-163 (DB-1): hoisted debug-context state. Screens write via
     // LocalDebugContextUpdater; the debug bubble reads via LocalDebugContext.
     // The provider wraps BOTH the nav content AND the bubble (DebugBubbleHost)
@@ -283,7 +290,11 @@ fun AppRoot() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
+                .background(MaterialTheme.colorScheme.background)
+                // D-199 (test-controller): expose Compose testTags as accessibility
+                // viewIdResourceNames in debug builds, so the test-controller can find nodes by
+                // stable resource-id via findAccessibilityNodeInfosByViewId. No-op in release.
+                .then(if (BuildConfig.DEBUG) Modifier.semantics { testTagsAsResourceId = true } else Modifier),
         ) {
         when (currentKey) {
             is AnimeBrowseKey -> BrowseScreen(

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Test AccessibilityService (D-197, D-199).
+
+  This manifest is in a library module that :app declares as `debugImplementation`.
+  AGP merges it into :app's manifest ONLY in debug builds — release APKs contain
+  zero test-controller code (including this service declaration). CORE_RULES §30.
+
+  The service is bound by the system after the user enables it in
+  Settings → Accessibility. Cannot be enabled programmatically.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <service
+            android:name="com.confused.anikuta.core.testcontroller.TestAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice.accessibility-service-file"
+                android:resource="@xml/test_controller_service_config" />
+        </service>
+    </application>
+
+</manifest>

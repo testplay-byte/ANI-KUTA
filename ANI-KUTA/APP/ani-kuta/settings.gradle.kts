@@ -48,6 +48,8 @@ include(":core:schedule")
 include(":core:ratings")
 include(":core:notifications")
 include(":core:debug-api")
+include(":core:test-api")        // D-197: autonomous test-controller types (debug-only impl)
+include(":core:test-controller") // D-197: AccessibilityService + executor + relay client (debug-only)
 
 // ── :data ──
 include(":data:extension")

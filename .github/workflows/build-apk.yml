@@ -16,7 +16,9 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, 'feature/**' ]
+    # 'TEST_BETA_FEATURE' added on this branch only (branch-only edit; main's trigger list is unchanged).
+    # Remove before merging to main if the branch is short-lived.
+    branches: [ main, 'feature/**', 'TEST_BETA_FEATURE' ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]

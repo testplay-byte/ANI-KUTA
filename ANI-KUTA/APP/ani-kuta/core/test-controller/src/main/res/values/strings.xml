@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="test_controller_service_desc">ANI-KUTA Test Controller (debug-only). Allows a remote AI agent to inspect the UI, perform taps/swipes, capture screenshots, and read logs/database for autonomous testing. Disabled in release builds.</string>
+</resources>
