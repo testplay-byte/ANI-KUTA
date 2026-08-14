@@ -17,13 +17,13 @@ sealed class TestResult {
     abstract val id: String
     abstract val ok: Boolean
 
-    /** Generic error. [type] is a stable machine code (e.g. "STALE_SNAPSHOT", "NO_WINDOW", "BAD_COMMAND"). */
+    /** Generic error. [errorCode] is a stable machine code (e.g. "STALE_SNAPSHOT", "NO_WINDOW", "BAD_COMMAND"). */
     @Serializable @SerialName("error")
     data class Error(
         override val id: String,
         override val ok: Boolean = false,
         val message: String,
-        val type: String? = null,
+        val errorCode: String? = null,
     ) : TestResult()
 
     @Serializable @SerialName("pong")

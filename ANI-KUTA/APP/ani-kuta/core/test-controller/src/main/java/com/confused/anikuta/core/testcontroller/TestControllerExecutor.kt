@@ -127,12 +127,12 @@ class TestControllerExecutor(
                 }
                 is TestCommand.DbQuery -> withContext(Dispatchers.Default) {
                     val qr = databaseProvider.queryTable(command.table, command.limit, command.offset)
-                    if (qr.error != null) ExecutionOutcome(TestResult.Error(command.id, message = qr.error, type = "DB_ERROR"))
+                    if (qr.error != null) ExecutionOutcome(TestResult.Error(command.id, message = qr.error, errorCode = "DB_ERROR"))
                     else ExecutionOutcome(TestResult.Rows(command.id, table = qr.table, columns = qr.columns, rows = qr.rows, truncated = qr.truncated))
                 }
                 is TestCommand.DbQuerySql -> withContext(Dispatchers.Default) {
                     val qr = databaseProvider.querySql(command.sql, command.limit)
-                    if (qr.error != null) ExecutionOutcome(TestResult.Error(command.id, message = qr.error, type = "DB_ERROR"))
+                    if (qr.error != null) ExecutionOutcome(TestResult.Error(command.id, message = qr.error, errorCode = "DB_ERROR"))
                     else ExecutionOutcome(TestResult.Rows(command.id, table = qr.table, columns = qr.columns, rows = qr.rows, truncated = qr.truncated))
                 }
                 is TestCommand.DbCount -> withContext(Dispatchers.Default) {
@@ -191,7 +191,7 @@ class TestControllerExecutor(
 
     private suspend fun screenshotOnly(id: String): ExecutionOutcome {
         val bytes = screenshotCapture.capture()
-            ?: return ExecutionOutcome(TestResult.Error(id, message = "screenshot capture failed (no window? API ${android.os.Build.VERSION.SDK_INT})", type = "SCREENSHOT_FAILED"))
+            ?: return ExecutionOutcome(TestResult.Error(id, message = "screenshot capture failed (no window? API ${android.os.Build.VERSION.SDK_INT})", errorCode = "SCREENSHOT_FAILED"))
         // Compute dimensions from the JPEG? We don't decode it back. Return width/height=0 — the agent
         // can fetch the binary via /screenshot/:id and inspect its real dimensions. (Avoids a decode round-trip.)
         return ExecutionOutcome(
@@ -243,7 +243,7 @@ class TestControllerExecutor(
         // Apply to the foreground activity's window (via DebugWindowRegistry).
         val activity = com.confused.anikuta.core.testapi.DebugWindowRegistry.activity
         if (activity == null) {
-            return ExecutionOutcome(TestResult.Error(id, message = "no foreground activity (DebugWindowRegistry unbound)", type = "NO_WINDOW"))
+            return ExecutionOutcome(TestResult.Error(id, message = "no foreground activity (DebugWindowRegistry unbound)", errorCode = "NO_WINDOW"))
         }
         activity.runOnUiThread {
             val window = activity.window
@@ -259,7 +259,7 @@ class TestControllerExecutor(
         val pm = ctx.packageManager
         val intent = pm.getLaunchIntentForPackage(ctx.packageName)
         if (intent == null) {
-            return ExecutionOutcome(TestResult.Error(id, message = "no launch intent for ${ctx.packageName}", type = "NO_LAUNCH_INTENT"))
+            return ExecutionOutcome(TestResult.Error(id, message = "no launch intent for ${ctx.packageName}", errorCode = "NO_LAUNCH_INTENT"))
         }
         intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
         Logger.w(TAG) { "restart_app: killing process + relaunching MainActivity" }
@@ -273,11 +273,11 @@ class TestControllerExecutor(
 
     private fun okResult(id: String, ok: Boolean, what: String): TestResult =
         if (ok) TestResult.Ok(id, message = "$what succeeded")
-        else TestResult.Error(id, message = "$what failed (stale nodeId? gesture rejected? no window?)", type = "ACTION_FAILED")
+        else TestResult.Error(id, message = "$what failed (stale nodeId? gesture rejected? no window?)", errorCode = "ACTION_FAILED")
 
     private fun navResultToResult(id: String, r: NavExecutor.NavResult): TestResult = when (r) {
         is NavExecutor.NavResult.Ok -> TestResult.Ok(id, message = "nav ok")
-        is NavExecutor.NavResult.Error -> TestResult.Error(id, message = r.message, type = r.code)
+        is NavExecutor.NavResult.Error -> TestResult.Error(id, message = r.message, errorCode = r.code)
         is NavExecutor.NavResult.Backstack -> TestResult.Backstack(id, keys = r.names)
     }
 
