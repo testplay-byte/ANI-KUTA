@@ -10,19 +10,24 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.MoreListRow
 import com.confused.anikuta.core.designsystem.component.MoreSectionLabel
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import org.koin.compose.koinInject
 
 /**
  * The "More" screen — a list of secondary entries grouped by section.
@@ -45,10 +50,21 @@ fun MoreScreen(
     onOpenHistory: () -> Unit = {},
     onOpenUpdates: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
+
+    // ── App update badge ──
+    // A red dot appears on the "About & Updates" row when an update is available
+    // OR a download is in-flight — gives the user a glance-able signal that there's
+    // something to look at in About without having to open it.
+    val updateManager = koinInject<AppUpdateManager>()
+    val latestUpdate by updateManager.latestUpdate.collectAsStateWithLifecycle()
+    val downloadProgress by updateManager.downloadProgress.collectAsStateWithLifecycle()
+    val showAboutDot = latestUpdate != null ||
+        (downloadProgress != null && !downloadProgress!!.isComplete && downloadProgress!!.error == null)
 
     Box(
         modifier = Modifier
@@ -77,6 +93,15 @@ fun MoreScreen(
                             title = "Settings",
                             subtitle = "Theme, display, data management",
                             onClick = onOpenSettings,
+                        )
+                    }
+                    item {
+                        MoreListRow(
+                            icon = Icons.Filled.Info,
+                            title = "About & Updates",
+                            subtitle = "App version, update checks, downloaded APKs",
+                            onClick = onOpenAbout,
+                            showDot = showAboutDot,
                         )
                     }
 

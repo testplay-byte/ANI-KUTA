@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
@@ -53,6 +54,7 @@ fun SettingsScreen(
     onOpenAutoLink: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
+    onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
     val lazyListState = rememberLazyListState()
@@ -124,6 +126,21 @@ fun SettingsScreen(
                             title = "Player",
                             subtitle = "Auto-select video, playback preferences",
                             onClick = onOpenPlayerSettings,
+                        )
+                    }
+
+                    // ── About & Updates ──
+                    // Hosts the app-update UI: app version, auto-check toggle,
+                    // manual "Check for updates" button, downloaded APK list.
+                    // UpdateBottomSheet itself renders as an overlay from AppRoot
+                    // (driven by AppUpdateManager.shouldShowUpdateSheet).
+                    item {
+                        SettingsSectionLabel("About")
+                        SettingsNavRow(
+                            icon = Icons.Filled.Info,
+                            title = "About & Updates",
+                            subtitle = "App version, update checks, downloaded APKs",
+                            onClick = onOpenAbout,
                         )
                     }
 

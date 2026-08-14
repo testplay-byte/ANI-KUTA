@@ -37,10 +37,14 @@ import java.util.concurrent.TimeUnit
  *
  * # Integration
  *
- * - **App open** → [checkForUpdateOnStartup] (respects auto-check setting +
- *   dismiss cooldown).
- * - **Manual check** → [checkForUpdate] (from Settings → About → Updates).
- * - **Download** → [startDownload] (from the update dialog or settings).
+ * - **App open** → [com.confused.anikuta.AppRoot] calls [cleanupOldDownloads] +
+ *   [clearUpdateState] + (if [shouldCheckForUpdate]) [checkForUpdate]. The
+ *   check sets [shouldShowUpdateSheet] to true when an update is found AND not
+ *   in the dismiss cooldown — AppRoot observes the StateFlow + renders
+ *   `UpdateBottomSheet` (page-gated so it never overlays the player).
+ * - **Manual check** → [checkForUpdate] (from Settings → About → "Check for
+ *   updates"). Same sheet-shows-when-found logic.
+ * - **Download** → [startDownload] (from the update sheet or settings).
  * - **Install** → [installDownloadedApk] (after download completes, or from
  *   the "downloaded versions" list).
  *
@@ -69,6 +73,14 @@ class AppUpdateManager(
 
     private val _lastCheckError = MutableStateFlow<String?>(null)
     val lastCheckError: StateFlow<String?> = _lastCheckError.asStateFlow()
+
+    // ── Update sheet visibility (UI-gated) ──
+    // True when the UpdateBottomSheet should be rendered by [com.confused.anikuta.AppRoot].
+    // Set to true by [checkForUpdate] when an update is found AND not in the
+    // 6-hour dismiss cooldown. Set to false by [dismissUpdateSheet] (which also
+    // records the cooldown so the same version doesn't re-prompt for 6h).
+    private val _shouldShowUpdateSheet = MutableStateFlow(false)
+    val shouldShowUpdateSheet: StateFlow<Boolean> = _shouldShowUpdateSheet.asStateFlow()
 
     /**
      * Gets the installed app's version name from the package manager.
@@ -146,6 +158,18 @@ class AppUpdateManager(
                         _latestUpdate.value = update
                         preferences.setLastCheckTimestamp(System.currentTimeMillis())
                         Logger.i(TAG) { "checkForUpdate: found update ${update.versionName} from ${source.id}" }
+                        // ── Surface the update sheet (unless the user dismissed
+                        // this version < 6h ago). The cooldown prevents re-prompting
+                        // the same version on every app open. Manual checks still
+                        // flip the flow if not in cooldown — if the user explicitly
+                        // wants to re-prompt an in-cooldown version, they can use
+                        // the "downloaded versions" list or wait out the cooldown.
+                        if (!preferences.isDismissedInCooldown(update.versionName)) {
+                            _shouldShowUpdateSheet.value = true
+                            Logger.i(TAG) { "checkForUpdate: surfacing update sheet for ${update.versionName}" }
+                        } else {
+                            Logger.i(TAG) { "checkForUpdate: ${update.versionName} in dismiss cooldown — not surfacing sheet" }
+                        }
                         return update
                     }
                 } catch (e: Exception) {
@@ -155,6 +179,7 @@ class AppUpdateManager(
 
             // No update found from any source.
             _latestUpdate.value = null
+            _shouldShowUpdateSheet.value = false
             preferences.setLastCheckTimestamp(System.currentTimeMillis())
             Logger.i(TAG) { "checkForUpdate: no update available" }
             return null
@@ -177,6 +202,32 @@ class AppUpdateManager(
     fun shouldShowDialog(): Boolean {
         val update = _latestUpdate.value ?: return false
         return !preferences.isDismissedInCooldown(update.versionName)
+    }
+
+    /**
+     * Returns true if the auto-update check is enabled in preferences.
+     *
+     * Called by [com.confused.anikuta.AppRoot] in its startup LaunchedEffect to
+     * gate the [checkForUpdate] call. Respects the user's "Auto-check for
+     * updates" toggle on About → Updates.
+     */
+    fun shouldCheckForUpdate(): Boolean = preferences.isUpdateCheckEnabled()
+
+    /**
+     * Hides the update bottom sheet + records the 6-hour dismiss cooldown.
+     *
+     * Called by [com.confused.anikuta.updates.UpdateBottomSheet]'s onDismiss
+     * (X button or sheet scrim dismiss). The cooldown prevents the same
+     * version from re-prompting on the next app open.
+     *
+     * Side effects:
+     * 1. Records the dismissal via [dismissUpdate] (writes the cooldown prefs).
+     * 2. Sets [shouldShowUpdateSheet] to false (hides the sheet on next frame).
+     */
+    fun dismissUpdateSheet() {
+        Logger.i(TAG) { "dismissUpdateSheet: hiding sheet + recording cooldown" }
+        dismissUpdate()
+        _shouldShowUpdateSheet.value = false
     }
 
     /**
@@ -399,11 +450,14 @@ class AppUpdateManager(
      * Clears the download progress + latest update state.
      *
      * Called after the user successfully installs an update (the app restarts,
-     * so this is called on the next startup to reset the UI state).
+     * so this is called on the next startup to reset the UI state). Also
+     * resets [shouldShowUpdateSheet] so a stale sheet doesn't render before
+     * [checkForUpdate] decides whether to re-surface one.
      */
     fun clearUpdateState() {
         _downloadProgress.value = null
         _latestUpdate.value = null
+        _shouldShowUpdateSheet.value = false
     }
 
     /**

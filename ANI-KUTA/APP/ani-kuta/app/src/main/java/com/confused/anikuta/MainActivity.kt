@@ -43,9 +43,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
@@ -81,6 +83,7 @@ import com.confused.anikuta.feature.watch.WatchKey
 import com.confused.anikuta.feature.watch.WatchScreen
 import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
+import com.confused.anikuta.settings.AboutScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
@@ -91,6 +94,7 @@ import com.confused.anikuta.settings.NotificationsSettingsScreen
 import com.confused.anikuta.settings.NotificationsLibraryScreen
 import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
+import com.confused.anikuta.updates.UpdateBottomSheet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -164,6 +168,12 @@ object EpisodeSettingsKey : NavKey
 @Serializable
 object PlayerSettingsKey : NavKey
 
+// About & Updates screen — hosts the app-update UI (version, auto-check toggle,
+// manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
+// from AppRoot (below) gated on AppUpdateManager.shouldShowUpdateSheet.
+@Serializable
+object AboutKey : NavKey
+
 /**
  * Root tab keys — these are the 4 tabs that show the bottom nav.
  * Any other key (Details, Settings, Appearance, etc.) is a "sub-screen"
@@ -174,6 +184,47 @@ private val rootTabKeys = setOf(
     AnimeLibraryKeyImpl::class,
     AnimeSearchKey::class,
     MoreKey::class,
+)
+
+/**
+ * NavKeys on which the `UpdateBottomSheet` overlay is ALLOWED to appear.
+ *
+ * The sheet is suppressed on screens where it would interrupt critical UX:
+ * - `AnimeSearchKey` — search is transient; the sheet would interrupt typing.
+ * - `AnimeDetailsKey.AniList` / `AnimeDetailsKey.Extension` — the details page
+ *   has its own bottom sheets (resolver, download picker); stacking the update
+ *   sheet causes visual + back-gesture conflicts.
+ * - `WatchKey` — never pop a sheet over the video player.
+ *
+ * Everywhere else (root tabs + all settings sub-screens + history + updates +
+ * profile) is safe — the sheet's scrim dismiss / X button routes through
+ * `AppUpdateManager.dismissUpdateSheet()` which records the 6-hour cooldown.
+ */
+private val allowedUpdateSheetKeys = setOf(
+    AnimeBrowseKey::class,
+    AnimeLibraryKeyImpl::class,
+    MoreKey::class,
+    SettingsKey::class,
+    AboutKey::class,
+    DownloadsKey::class,
+    DownloadedFilesKey::class,
+    DownloadSettingsKey::class,
+    UpdatesSettingsKey::class,
+    UpdateCategoriesKey::class,
+    NotificationsKey::class,
+    NotificationsLibraryKey::class,
+    ExtensionsSettingsKey::class,
+    ExtensionRepoSettingsKey::class,
+    AutoLinkSettingsKey::class,
+    ExtensionDetailKey::class,
+    SourcePreferencesKey::class,
+    AppearanceKey::class,
+    AppearanceGeneralKey::class,
+    EpisodeSettingsKey::class,
+    PlayerSettingsKey::class,
+    ProfileKey::class,
+    com.confused.anikuta.feature.updates.UpdatesKey::class,
+    com.confused.anikuta.feature.animehistory.HistoryKey::class,
 )
 
 /**
@@ -213,6 +264,12 @@ fun AppRoot() {
     // watch screen's episode list only shows downloaded episodes (often just 1).
     val dataCacheRepository = koinInject<com.confused.anikuta.core.datacache.DataCacheRepository>()
 
+    // ── App update manager ──
+    // Injected once at the AppRoot level — shared between the startup check
+    // (LaunchedEffect below), the page-gated UpdateBottomSheet overlay, and
+    // AboutScreen (which koinInject()s its own copy from the same Koin scope).
+    val appUpdateManager = koinInject<AppUpdateManager>()
+
     // D-151-fix: coroutine scope for launching off-main-thread work from synchronous
     // callbacks (e.g. the Downloads→Watch onPlayEpisode lambda — was using runBlocking,
     // an ANR risk). rememberCoroutineScope is tied to the composition — cancelled on dispose.
@@ -226,6 +283,34 @@ fun AppRoot() {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
     }
     val currentKey = backstack.last()
+
+    // ── App update startup check ──
+    // Runs once per composition. Mirrors the old project's AnikutaRoot.kt:140-186
+    // pattern (without the AppController layer):
+    //   1. Cleanup any downloaded APKs whose version <= installed (frees storage
+    //      after a successful install — the just-installed APK is now stale).
+    //   2. Clear the in-memory update state (latestUpdate + downloadProgress +
+    //      shouldShowUpdateSheet) so we start fresh on every app open.
+    //   3. If auto-check is enabled → run checkForUpdate(). On success, the
+    //      manager itself flips shouldShowUpdateSheet to true (unless the user
+    //      dismissed this exact version < 6h ago). AppRoot observes that flow
+    //      (below) and renders UpdateBottomSheet when it's true AND the current
+    //      screen is in `allowedUpdateSheetKeys`.
+    // The post-install success popup flow (old project's
+    // `appController.showPostInstallPopup`) is intentionally NOT ported in this
+    // pass — it requires a separate PostInstallSuccessSheet composable. Tracked
+    // as a follow-up.
+    LaunchedEffect(Unit) {
+        try {
+            appUpdateManager.cleanupOldDownloads()
+            appUpdateManager.clearUpdateState()
+            if (appUpdateManager.shouldCheckForUpdate()) {
+                appUpdateManager.checkForUpdate()
+            }
+        } catch (e: Exception) {
+            Logger.w("Anikuta:AppRoot", e) { "startup update check failed" }
+        }
+    }
 
     // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
     // from a notification, navigate to the details page for the tapped anime.
@@ -386,6 +471,7 @@ fun AppRoot() {
                 onOpenHistory = { backstack.add(com.confused.anikuta.feature.animehistory.HistoryKey) },
                 onOpenUpdates = { backstack.add(com.confused.anikuta.feature.updates.UpdatesKey) },
                 onOpenProfile = { backstack.add(ProfileKey) },
+                onOpenAbout = { backstack.add(AboutKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
@@ -451,6 +537,19 @@ fun AppRoot() {
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
+                onOpenAbout = { backstack.add(AboutKey) },
+                onBack = pop,
+            )
+            // ── About & Updates ──
+            // The update sheet itself renders from AppRoot (below) — gated on
+            // AppUpdateManager.shouldShowUpdateSheet (which checkForUpdate flips).
+            // The manual "Check for updates" row in AboutScreen calls
+            // updateManager.checkForUpdate() directly — no callback needed here.
+            // We pass the hoisted appUpdateManager (already koinInject'd at the
+            // top of AppRoot) rather than koinInject'ing again here, matching
+            // the pattern used for orchestrator/contentRepository/downloadManager.
+            is AboutKey -> AboutScreen(
+                updateManager = appUpdateManager,
                 onBack = pop,
             )
             // D-193 Phase 3: combined Updates & Notifications settings
@@ -614,6 +713,32 @@ fun AppRoot() {
         // DebugBubbleHost is a no-op in release builds (release source set).
         // In debug builds it renders the draggable squircle bubble.
         DebugBubbleHost()
+
+        // ── App update bottom sheet (page-gated) ──
+        // Rendered as an overlay from AppRoot (NOT pushed onto the backstack) so
+        // it floats above every screen in `allowedUpdateSheetKeys`. We collect
+        // `shouldShowUpdateSheet` with lifecycle awareness — the StateFlow is
+        // flipped to true by AppUpdateManager.checkForUpdate() (startup OR
+        // manual check from AboutScreen) when an update is found AND not in the
+        // 6-hour dismiss cooldown.
+        //
+        // Page-gating: the sheet is suppressed on search / details / watch
+        // screens (see `allowedUpdateSheetKeys`) — those screens have their own
+        // bottom sheets (resolver / picker) or are critical UX (player) that
+        // the update sheet would interrupt.
+        //
+        // The onDismiss callback is invoked by the sheet's scrim-dismiss + the
+        // X button — it calls `dismissUpdateSheet()` which records the cooldown
+        // + clears the StateFlow so the sheet doesn't re-render on the next
+        // recomposition.
+        val canShowUpdateSheet = currentKey::class in allowedUpdateSheetKeys
+        val showUpdateSheet by appUpdateManager.shouldShowUpdateSheet.collectAsStateWithLifecycle()
+        if (canShowUpdateSheet && showUpdateSheet) {
+            UpdateBottomSheet(
+                updateManager = appUpdateManager,
+                onDismiss = { appUpdateManager.dismissUpdateSheet() },
+            )
+        }
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }
