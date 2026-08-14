@@ -932,7 +932,7 @@ class DetailsViewModel(
 
             // Check if we also have AniList data cached.
             // D-198: getAniListDetail → getContentDetails; anime_metadata_cache absorbed into data axis.
-            val details = contentRepository.getContentDetails(existingContent.mainId)
+            // Reuse the `details` variable from above (same mainId, same getContentDetails call).
             if (details != null && details.hasDataSourceLink) {
                 val content = contentRepository.getMainEntryByMainId(existingContent.mainId)
                 anilistBase = com.confused.anikuta.core.common.model.UnifiedAnime(
