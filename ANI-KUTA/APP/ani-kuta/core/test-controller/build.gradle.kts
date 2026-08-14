@@ -16,7 +16,7 @@ dependencies {
     implementation(project(":core:common"))
     // AnikutaDatabase (for activity-event queries).
     implementation(project(":core:database"))
-    // SettingsRepository (for get_preference / set_preference + relay config storage).
+    // SettingsRepository (for get_preference / set_preference).
     implementation(project(":core:preferences"))
 
     // Reuse the debug-bubble's data classes (DebugLogBuffer, DebugNetworkStats,
@@ -25,9 +25,12 @@ dependencies {
     // Coupling note: could be refactored into a shared `:core:debug-data` later.
     implementation(project(":feature:debug-bubble"))
 
+    // MQTT client (D-198 v2: replaced ntfy+relay with MQTT for plug-and-play, no user config).
+    // Eclipse Paho v3 — lightweight (~500KB), supports wss:// (WebSocket Secure) natively.
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.okhttp)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)

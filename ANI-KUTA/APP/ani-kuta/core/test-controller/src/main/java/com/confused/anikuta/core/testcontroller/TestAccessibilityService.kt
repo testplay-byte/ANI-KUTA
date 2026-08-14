@@ -15,9 +15,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import okhttp3.OkHttpClient
+import kotlinx.coroutines.launch
 import org.koin.core.context.GlobalContext
-import java.util.concurrent.TimeUnit
 
 /**
  * The AccessibilityService that hosts the autonomous test-controller (D-197, D-199).
@@ -32,13 +31,15 @@ import java.util.concurrent.TimeUnit
  *      the service binds). The deps: DebugLogBuffer, DebugNetworkStats, DebugDatabaseBrowser,
  *      AnikutaDatabase, SettingsRepository, AppRouteRegistry (the last is implemented in
  *      `:app/src/debug` + registered in `debugKoinModules()`).
- *   3. Construct the executor + providers + a dedicated OkHttpClient for the relay (separate
- *      from the app's default client so polling doesn't pollute DebugNetworkStats).
- *   4. Start the [RelayClient] poll loop.
+ *   3. Construct the executor + providers.
+ *   4. Start the [MqttBridge] — connects to the public MQTT broker (hardcoded, no user config).
  *
- * [onAccessibilityEvent] is a no-op (polling-driven, not event-driven). [onUnbind] stops the
- * relay client + cancels the scope. The system auto-restarts the service on process death
- * (state lost — the relay client re-reads config from SettingsRepository + reconnects).
+ * [onAccessibilityEvent] is a no-op. [onUnbind] stops the MQTT bridge + cancels the scope.
+ * The system auto-restarts the service on process death (state lost — the bridge reconnects
+ * automatically via Paho's auto-reconnect).
+ *
+ * **D-198 v2**: replaced ntfy.sh + Bun HTTP relay with MQTT for plug-and-play (no user config,
+ * no URL discovery, no persistent background process in the sandbox).
  *
  * **Release builds**: this class is NOT on the classpath (`:core:test-controller` is
  * `debugImplementation` in `:app`), and the `<service>` declaration is only in the debug
@@ -52,7 +53,7 @@ class TestAccessibilityService : AccessibilityService() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var relayClient: RelayClient? = null
+    private var mqttBridge: MqttBridge? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -100,22 +101,12 @@ class TestAccessibilityService : AccessibilityService() {
             navExecutor = navExecutor,
         )
 
-        val relayHttp = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .callTimeout(120, TimeUnit.SECONDS) // long-poll hold
-            .retryOnConnectionFailure(true)
-            .build()
-
-        relayClient = RelayClient(
-            appContext = applicationContext,
-            executor = executor,
-            settings = settingsRepo,
-            httpClient = relayHttp,
-            scope = scope,
-        )
-        relayClient?.start()
-        Logger.i(TAG) { "test controller connected — relay client started (device=${settingsRepo.getSetting("debug.test.device_id") ?: "pending"})" }
+        // D-198 v2: MQTT bridge — connects to the public broker (hardcoded, no user config).
+        // Auto-reconnect handles broker drops. The agent sends commands via one-shot MQTT
+        // publish (no persistent process on the agent side either).
+        mqttBridge = MqttBridge(executor = executor, scope = scope)
+        scope.launch { mqttBridge?.start() }
+        Logger.i(TAG) { "test controller connected — MQTT bridge starting (broker=hivemq, channel=anikuta/test/v1)" }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -127,8 +118,8 @@ class TestAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        relayClient?.stop()
-        relayClient = null
+        mqttBridge?.stop()
+        mqttBridge = null
         scope.cancel()
         Logger.i(TAG) { "test controller unbound" }
         return super.onUnbind(intent)
