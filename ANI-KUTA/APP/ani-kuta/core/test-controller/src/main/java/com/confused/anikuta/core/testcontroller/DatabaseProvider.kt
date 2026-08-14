@@ -73,7 +73,9 @@ class DatabaseProvider(
         }
         // D-198 v5.3: always enforce our own LIMIT — strip any user-provided LIMIT first,
         // then append our safety limit. Prevents unbounded result sets (OOM risk).
-        val withoutUserLimit = trimmed.replace(Regex("(?i)\\s+LIMIT\\s+\\d+(?:\\s*,\\s*\\d+)?\\s*$", RegexOption.IGNORE_CASE), "")
+        // v5.4: also strip trailing semicolons (breaks the regex → invalid SQL).
+        val cleaned = trimmed.trimEnd(';').trim()
+        val withoutUserLimit = cleaned.replace(Regex("(?i)\\s+LIMIT\\s+\\d+(?:\\s*,\\s*\\d+)?\\s*$", RegexOption.IGNORE_CASE), "")
         val enforced = "$withoutUserLimit LIMIT $limit"
         return withReadDb { db ->
             val rows = mutableListOf<Map<String, String>>()

@@ -94,10 +94,18 @@ class WsRelayClient(
         classDiscriminator = "type"
     }
 
-    private val httpClient = OkHttpClient.Builder()
-        .pingInterval(30, TimeUnit.SECONDS)  // keep-alive pings
-        .readTimeout(0, TimeUnit.SECONDS)    // WS stays open indefinitely
-        .build()
+    // D-198 v5.4: httpClient is recreated on each start() to avoid the terminal shutdown issue
+    // (after executorService.shutdown(), the client can't be reused). stop() shuts down the
+    // current client; start() creates a new one.
+    @Volatile private var httpClient: OkHttpClient? = null
+
+    private fun getHttpClient(): OkHttpClient {
+        return httpClient ?: OkHttpClient.Builder()
+            .pingInterval(30, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS)
+            .build()
+            .also { httpClient = it }
+    }
 
     @Volatile private var webSocket: WebSocket? = null
     @Volatile private var connectedUrl: String? = null
@@ -144,7 +152,7 @@ class WsRelayClient(
                 webSocket = null
 
                 val request = Request.Builder().url(url).build()
-                val ws = httpClient.newWebSocket(request, RelayListener(url))
+                val ws = getHttpClient().newWebSocket(request, RelayListener(url))
                 webSocket = ws
                 connectedUrl = url
                 Logger.i(TAG) { "WebSocket opened — waiting for connection ack" }
@@ -283,9 +291,13 @@ class WsRelayClient(
         webSocket = null
         connectedUrl = null
         isStarting = false
-        // D-198 v5.3: shut down the OkHttpClient's thread/connection pool to prevent leaks.
-        httpClient.dispatcher.executorService.shutdown()
-        httpClient.connectionPool.evictAll()
+        // D-198 v5.4: shut down the OkHttpClient's thread/connection pool to prevent leaks.
+        // The client will be recreated on the next start() call.
+        httpClient?.let {
+            it.dispatcher.executorService.shutdown()
+            it.connectionPool.evictAll()
+        }
+        httpClient = null
         Logger.i(TAG) { "WS relay client stopped" }
     }
 
