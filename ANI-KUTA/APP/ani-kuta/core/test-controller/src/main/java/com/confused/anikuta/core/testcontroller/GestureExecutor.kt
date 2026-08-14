@@ -75,18 +75,21 @@ class GestureExecutor(
         val displayMetrics = service.resources.displayMetrics
         val cx = x ?: displayMetrics.widthPixels / 2f
         val cy = y ?: displayMetrics.heightPixels / 2f
-        val step = (displayMetrics.heightPixels * 0.35f).coerceAtLeast(300f) // ~35% screen height per swipe
+        // D-198 v5.3: use separate step for horizontal vs vertical scroll.
+        // Vertical scroll: 35% of screen HEIGHT. Horizontal scroll: 35% of screen WIDTH.
+        val stepV = (displayMetrics.heightPixels * 0.35f).coerceAtLeast(300f)
+        val stepH = (displayMetrics.widthPixels * 0.35f).coerceAtLeast(300f)
         var lastOk = true
-        repeat(amount.coerceAtLeast(1)) {
+        // D-198 v5.3: use for loop with break (not repeat + return@repeat which is continue).
+        for (i in 0 until amount.coerceAtLeast(1)) {
             val (sx, sy, ex, ey) = when (direction) {
-                ScrollDirection.UP -> floatArrayOf(cx, cy + step / 2, cx, cy - step / 2)
-                ScrollDirection.DOWN -> floatArrayOf(cx, cy - step / 2, cx, cy + step / 2)
-                ScrollDirection.LEFT -> floatArrayOf(cx + step, cy, cx - step, cy)
-                ScrollDirection.RIGHT -> floatArrayOf(cx - step, cy, cx + step, cy)
+                ScrollDirection.UP -> floatArrayOf(cx, cy + stepV / 2, cx, cy - stepV / 2)
+                ScrollDirection.DOWN -> floatArrayOf(cx, cy - stepV / 2, cx, cy + stepV / 2)
+                ScrollDirection.LEFT -> floatArrayOf(cx + stepH, cy, cx - stepH, cy)
+                ScrollDirection.RIGHT -> floatArrayOf(cx - stepH, cy, cx + stepH, cy)
             }
-            // Slightly shorten the swipe to avoid triggering edge gestures (back-nav, etc.).
             lastOk = swipe(sx, sy, ex, ey, durationMs = 350L)
-            if (!lastOk) return@repeat
+            if (!lastOk) break  // D-198 v5.3: break (not continue) on failure.
         }
         return lastOk
     }

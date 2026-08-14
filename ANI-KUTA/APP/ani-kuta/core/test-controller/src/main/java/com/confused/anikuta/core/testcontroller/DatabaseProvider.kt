@@ -71,18 +71,23 @@ class DatabaseProvider(
                 return QueryResult("__sql__", emptyList(), emptyList(), truncated = false, error = "forbidden keyword: $kw")
             }
         }
-        val enforced = if (upper.contains("LIMIT")) trimmed else "$trimmed LIMIT $limit"
+        // D-198 v5.3: always enforce our own LIMIT — strip any user-provided LIMIT first,
+        // then append our safety limit. Prevents unbounded result sets (OOM risk).
+        val withoutUserLimit = trimmed.replace(Regex("(?i)\\s+LIMIT\\s+\\d+(?:\\s*,\\s*\\d+)?\\s*$", RegexOption.IGNORE_CASE), "")
+        val enforced = "$withoutUserLimit LIMIT $limit"
         return withReadDb { db ->
             val rows = mutableListOf<Map<String, String>>()
             var columns = emptyList<String>()
+            var rowCount = 0
             db.rawQuery(enforced, null).use { c ->
                 columns = (0 until c.columnCount).map { c.getColumnName(it) }
-                while (c.moveToNext()) {
+                while (c.moveToNext() && rowCount < limit) {
                     val row = LinkedHashMap<String, String>(c.columnCount)
                     for (i in 0 until c.columnCount) {
                         row[c.getColumnName(i)] = if (c.isNull(i)) "NULL" else c.getString(i) ?: ""
                     }
                     rows.add(row)
+                    rowCount++
                 }
             }
             QueryResult("__sql__", columns, rows, truncated = rows.size >= limit, error = null)

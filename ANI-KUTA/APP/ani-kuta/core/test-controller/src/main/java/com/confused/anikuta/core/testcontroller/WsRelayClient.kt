@@ -233,9 +233,17 @@ class WsRelayClient(
             return
         }
         // Send screenshot first (if any) — base64-encoded in a JSON message.
+        // D-198 v5.3: use kotlinx.serialization instead of string interpolation (fragile if id contains quotes).
         outcome.screenshotBytes?.let { bytes ->
             val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-            val shotMsg = """{"kind":"screenshot","id":"${outcome.result.id}","data":"$b64"}"""
+            val shotMsg = json.encodeToString(
+                kotlinx.serialization.serializer(),
+                buildMap<String, String> {
+                    put("kind", "screenshot")
+                    put("id", outcome.result.id)
+                    put("data", b64)
+                },
+            )
             ws.send(shotMsg)
         }
         // Send the result JSON — WRAPPED in a {"kind":"result",...} envelope so the relay
@@ -275,6 +283,9 @@ class WsRelayClient(
         webSocket = null
         connectedUrl = null
         isStarting = false
+        // D-198 v5.3: shut down the OkHttpClient's thread/connection pool to prevent leaks.
+        httpClient.dispatcher.executorService.shutdown()
+        httpClient.connectionPool.evictAll()
         Logger.i(TAG) { "WS relay client stopped" }
     }
 
