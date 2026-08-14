@@ -55,10 +55,20 @@ fun initDebugIntegrations() {
     // DebugWindowRegistry. The test-controller uses this for PixelCopy screenshots on API 24-29
     // (AccessibilityService.takeScreenshot is API 30+). The registry is read-only in release
     // (no test-controller module), so binding here is harmless.
+    //
+    // D-198 v2.1: also triggers the app-open health-check. When MainActivity resumes, we call
+    // TestControllerStatus.ensureConnected() — which checks if the MQTT bridge is connected +
+    // restarts it if needed + shows a toast with the status. This handles the case where the
+    // AccessibilityService was rebound (e.g., after an APK update) but the MQTT connection
+    // didn't survive.
     val app = org.koin.core.context.GlobalContext.get().get<android.app.Application>()
     app.registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
         override fun onActivityResumed(activity: android.app.Activity) {
             DebugWindowRegistry.bind(activity)
+            // App-open health-check: only for our own MainActivity (not ErrorActivity or other activities).
+            if (activity::class.java.name == "com.confused.anikuta.MainActivity") {
+                com.confused.anikuta.core.testcontroller.TestControllerStatus.ensureConnected()
+            }
         }
         override fun onActivityPaused(activity: android.app.Activity) {
             DebugWindowRegistry.unbind(activity)

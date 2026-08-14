@@ -104,9 +104,12 @@ class TestAccessibilityService : AccessibilityService() {
         // D-198 v2: MQTT bridge — connects to the public broker (hardcoded, no user config).
         // Auto-reconnect handles broker drops. The agent sends commands via one-shot MQTT
         // publish (no persistent process on the agent side either).
+        TestToaster.init(applicationContext)
         mqttBridge = MqttBridge(executor = executor, scope = scope)
+        TestControllerStatus.register(mqttBridge!!)
+        TestToaster.show("🔌 Test controller starting…")
         scope.launch { mqttBridge?.start() }
-        Logger.i(TAG) { "test controller connected — MQTT bridge starting (broker=hivemq, channel=anikuta/test/v1)" }
+        Logger.i(TAG) { "test controller connected — MQTT bridge starting (4-broker fallback)" }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -118,6 +121,7 @@ class TestAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        mqttBridge?.let { TestControllerStatus.unregister(it) }
         mqttBridge?.stop()
         mqttBridge = null
         scope.cancel()

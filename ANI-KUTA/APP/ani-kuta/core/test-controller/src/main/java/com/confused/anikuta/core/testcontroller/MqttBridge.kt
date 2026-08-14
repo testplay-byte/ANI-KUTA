@@ -5,6 +5,8 @@ import com.confused.anikuta.core.testapi.TestCommand
 import com.confused.anikuta.core.testapi.TestResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -22,40 +24,27 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * MQTT-based transport between the test-controller (phone) + the AI agent (sandbox).
+ * MQTT transport between the test-controller (phone) + the AI agent (sandbox). D-198 v2.
  *
- * **D-198 v2** — replaced the ntfy.sh + Bun HTTP relay approach with MQTT for true plug-and-play:
- *  - No user-entered config (broker URL + channel are hardcoded below).
- *  - No background relay process in the sandbox (the agent does one-shot connect→send→disconnect).
- *  - No URL discovery problem (both sides connect to a known public broker).
- *  - No rate limits (unlike ntfy.sh's 250 msg/day cap).
+ * **Broker fallback** (D-198 v2.1): tries multiple public brokers in order — mobile carriers
+ * commonly block port 8884, so we fall back to 8084/8083/8000. The phone picks the FIRST broker
+ * that connects + stays on it (with auto-reconnect). The agent script tries the SAME brokers
+ * in the SAME order, so they converge on the same broker.
  *
- * **Architecture:**
- * ```
- * Agent (Bun, one-shot)         MQTT broker              Phone (this MqttBridge, persistent)
- *   │  wss://broker.hivemq.com:8884/mqtt    │  wss://broker.hivemq.com:8884/mqtt  │
- *   ├─ publish cmd ──────────────────────►  │  ──────────────────────────────► subscribe cmd
- *   │                                        │                                      │ execute
- *   │  subscribe result  ◄──────────────────┤  ◄────────────────────────────────── publish result
- *   │  subscribe shot/<id> ◄──────────────  │  ◄────────────────────────────────── publish shot/<id>
- *   │  (wait for result, then disconnect)    │  (stays connected, auto-reconnect) │
- * ```
+ * **App-open health-check** (user request): [TestControllerStatus.ensureConnected] is called
+ * from `:app/src/debug/DebugInit.kt`'s `onActivityResumed` hook. If the bridge is disconnected,
+ * it retries [start] — which runs the broker fallback again. Toasts show the status.
  *
- * **Topics** (hardcoded — act as the "channel name"; public but unguessable enough for debug use):
+ * **Toast notifications**: every state change (connecting / connected / failed / reconnecting)
+ * shows a throttled toast via [TestToaster] so the user can see what's happening.
+ *
+ * Topics (hardcoded — both phone + agent use the same strings):
  *  - `anikuta/test/v1/cmd` — agent → phone (TestCommand JSON).
  *  - `anikuta/test/v1/result` — phone → agent (TestResult JSON).
  *  - `anikuta/test/v1/shot/<commandId>` — phone → agent (JPEG bytes).
  *
- * **Security:** The broker + topics are public (in the source code). Anyone who subscribes can see
- * commands + results. For a debug-only tool with one user + one phone, this is acceptable. If the
- * user wants auth later, a per-session token can be added (agent generates it, publishes it, phone
- * validates it before executing commands). For now: no auth, truly plug-and-play.
- *
- * **Reconnection:** Paho's `isAutomaticReconnect = true` handles broker drops. The phone stays
- * subscribed across reconnects.
- *
- * **QoS:** QoS 1 (at least once) for commands + results. Ensures delivery; rare duplicates are
- * idempotent for read commands, + action commands (tap/swipe) tolerate a rare double-fire.
+ * **Security:** broker + topics are public (in source code). For debug-only with one user + one
+ * phone, acceptable. The topic name acts as the channel password.
  */
 class MqttBridge(
     private val executor: TestControllerExecutor,
@@ -64,16 +53,31 @@ class MqttBridge(
     companion object {
         private const val TAG = "Anikuta:Test:Mqtt"
 
-        // Free public MQTT broker (no signup, no API key, no rate limit).
-        // HiveMQ public broker — WSS (WebSocket Secure) on port 8884, path /mqtt.
-        // Fallback: broker.emqx.io:8084 (EMQX public broker) — change here if HiveMQ is down.
-        private const val BROKER_URI = "wss://broker.hivemq.com:8884/mqtt"
+        // Broker fallback list — tried in order. The phone picks the first that connects.
+        // Order matters: the agent script (mqtt-agent.py) uses the SAME order so they converge.
+        // Carriers commonly block 8884; 8084/8083/8000 are more commonly allowed.
+        private val BROKERS = listOf(
+            BrokerConfig("HiveMQ WSS", "broker.hivemq.com", 8884, "/mqtt", useTls = true),
+            BrokerConfig("EMQX WSS", "broker.emqx.io", 8084, "/mqtt", useTls = true),
+            BrokerConfig("EMQX WS", "broker.emqx.io", 8083, "/mqtt", useTls = false),
+            BrokerConfig("HiveMQ WS", "broker.hivemq.com", 8000, "/mqtt", useTls = false),
+        )
 
-        // Hardcoded topics (the "channel name"). Both the phone + the agent use these exact strings.
         private const val CMD_TOPIC = "anikuta/test/v1/cmd"
         private const val RESULT_TOPIC = "anikuta/test/v1/result"
         private const val SHOT_TOPIC_PREFIX = "anikuta/test/v1/shot/"
+
+        private const val CONNECT_TIMEOUT_SEC = 8L  // per broker (8s × 4 = 32s max fallback cycle)
+        private const val RETRY_DELAY_MS = 30_000L  // if all brokers fail, retry after 30s
     }
+
+    private data class BrokerConfig(
+        val label: String,
+        val host: String,
+        val port: Int,
+        val path: String,
+        val useTls: Boolean,
+    )
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -84,55 +88,51 @@ class MqttBridge(
     @Volatile
     private var client: MqttAsyncClient? = null
 
-    /** Connect to the broker + subscribe to the command topic. Idempotent (no-op if already connected). */
+    @Volatile
+    private var connectedBroker: BrokerConfig? = null
+
+    @Volatile
+    private var retryJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Connect to the first reachable broker + subscribe to the command topic.
+     * Idempotent: no-op if already connected. If all brokers fail, schedules a retry in 30s.
+     */
     suspend fun start() = withContext(Dispatchers.IO) {
         if (client?.isConnected == true) return@withContext
-        try {
-            val clientId = "anikuta-phone-${UUID.randomUUID()}"
-            val c = MqttAsyncClient(BROKER_URI, clientId, MemoryPersistence())
-            c.setCallback(object : MqttCallbackExtended {
-                override fun connectComplete(reconnect: Boolean, serverURI: String?) {
-                    Logger.i(TAG) { if (reconnect) "reconnected to broker" else "connected to broker ($serverURI)" }
-                    if (reconnect) {
-                        // Re-subscribe after reconnect (Paho drops subs on reconnect).
-                        runCatching {
-                            c.subscribe(CMD_TOPIC, 1)
-                        }.onFailure { Logger.w(TAG) { "re-subscribe failed: ${it.message}" } }
-                    }
-                }
-                override fun connectionLost(cause: Throwable?) {
-                    Logger.w(TAG) { "connection lost: ${cause?.message ?: "unknown"} — auto-reconnect will retry" }
-                }
-                override fun messageArrived(topic: String?, message: MqttMessage?) {
-                    if (topic == CMD_TOPIC && message != null) {
-                        val payload = String(message.payload, Charsets.UTF_8)
-                        handleCommand(payload)
-                    }
-                }
-                override fun deliveryComplete(token: IMqttDeliveryToken?) {
-                    // No-op — fire-and-forget publishing.
-                }
-            })
-            val options = MqttConnectOptions().apply {
-                isAutomaticReconnect = true
-                isCleanSession = true
-                connectionTimeout = 10
-                keepAliveInterval = 30
-                maxInflight = 100
+        retryJob?.cancel()
+
+        for (broker in BROKERS) {
+            TestToaster.show("Connecting to ${broker.label}…", throttleMs = 1000L)
+            Logger.i(TAG) { "trying broker ${broker.label} (${broker.host}:${broker.port})" }
+            try {
+                connectToBroker(broker)
+                connectedBroker = broker
+                TestToaster.show("✅ Test controller connected (${broker.label})")
+                Logger.i(TAG) { "MQTT bridge started on ${broker.label} — listening on $CMD_TOPIC" }
+                return@withContext
+            } catch (e: Exception) {
+                Logger.w(TAG) { "broker ${broker.label} failed: ${e::class.java.simpleName}: ${e.message}" }
+                // Try the next broker.
             }
-            c.connect(options).await(timeoutSec = 15)
-            c.subscribe(CMD_TOPIC, 1).await(timeoutSec = 5)
-            client = c
-            Logger.i(TAG) { "MQTT bridge started — listening on $CMD_TOPIC (broker=$BROKER_URI)" }
-        } catch (e: Exception) {
-            Logger.e(TAG) { "MQTT start failed: ${e::class.java.simpleName}: ${e.message}" }
-            // Don't throw — the service should survive + retry. Paho's auto-reconnect will keep trying.
-            client = null
+        }
+
+        // All brokers failed — schedule a retry.
+        TestToaster.show("❌ Test broker unreachable — will retry in 30s")
+        Logger.e(TAG) { "all ${BROKERS.size} brokers failed — scheduling retry in ${RETRY_DELAY_MS}ms" }
+        retryJob = GlobalScope.launch {
+            delay(RETRY_DELAY_MS)
+            if (client?.isConnected != true) {
+                Logger.i(TAG) { "retry: attempting broker fallback cycle again" }
+                start()
+            }
         }
     }
 
-    /** Disconnect from the broker. Called on service unbind. */
+    /** Disconnect + close. Called on service unbind. Cancels any pending retry. */
     fun stop() {
+        retryJob?.cancel()
+        retryJob = null
         runCatching {
             client?.let { c ->
                 if (c.isConnected) {
@@ -142,7 +142,55 @@ class MqttBridge(
             }
         }.onFailure { Logger.w(TAG) { "MQTT stop failed: ${it.message}" } }
         client = null
+        connectedBroker = null
         Logger.i(TAG) { "MQTT bridge stopped" }
+    }
+
+    /** Whether the bridge is currently connected to a broker. */
+    fun isConnected(): Boolean = client?.isConnected == true
+
+    /** The label of the connected broker (for status display). Null if not connected. */
+    fun connectedBrokerLabel(): String? = connectedBroker?.label
+
+    /** Connect to a specific broker + set up the message callback + subscribe. */
+    private suspend fun connectToBroker(broker: BrokerConfig) {
+        val uri = "${if (broker.useTls) "wss" else "ws"}://${broker.host}:${broker.port}${broker.path}"
+        val clientId = "anikuta-phone-${UUID.randomUUID()}"
+        val c = MqttAsyncClient(uri, clientId, MemoryPersistence())
+        c.setCallback(object : MqttCallbackExtended {
+            override fun connectComplete(reconnect: Boolean, serverURI: String?) {
+                if (reconnect) {
+                    Logger.i(TAG) { "reconnected to ${broker.label}" }
+                    TestToaster.show("🔄 Reconnected (${broker.label})")
+                    // Re-subscribe after reconnect (Paho drops subs on reconnect).
+                    runCatching { c.subscribe(CMD_TOPIC, 1) }
+                        .onFailure { Logger.w(TAG) { "re-subscribe failed: ${it.message}" } }
+                }
+            }
+            override fun connectionLost(cause: Throwable?) {
+                Logger.w(TAG) { "connection lost to ${broker.label}: ${cause?.message ?: "unknown"} — auto-reconnect will retry" }
+                TestToaster.show("⚠️ Connection lost — reconnecting…")
+            }
+            override fun messageArrived(topic: String?, message: MqttMessage?) {
+                if (topic == CMD_TOPIC && message != null) {
+                    val payload = String(message.payload, Charsets.UTF_8)
+                    handleCommand(payload)
+                }
+            }
+            override fun deliveryComplete(token: IMqttDeliveryToken?) {
+                // No-op — fire-and-forget publishing.
+            }
+        })
+        val options = MqttConnectOptions().apply {
+            isAutomaticReconnect = true
+            isCleanSession = true
+            connectionTimeout = CONNECT_TIMEOUT_SEC.toInt()
+            keepAliveInterval = 30
+            maxInflight = 100
+        }
+        c.connect(options).await(timeoutSec = CONNECT_TIMEOUT_SEC + 2)
+        c.subscribe(CMD_TOPIC, 1).await(timeoutSec = 5)
+        client = c
     }
 
     /** Deserialize + execute a command, then publish the result (+ screenshot if any). */
@@ -159,7 +207,7 @@ class MqttBridge(
         }
     }
 
-    /** Publish the TestResult JSON (+ screenshot bytes if any) to the broker. */
+    /** Publish the TestResult JSON (+ screenshot bytes if any) to the connected broker. */
     private suspend fun publishResult(outcome: TestControllerExecutor.ExecutionOutcome) =
         withContext(Dispatchers.IO) {
             val c = client ?: run {
@@ -170,21 +218,16 @@ class MqttBridge(
                 Logger.w(TAG) { "publish: client not connected — result will be lost" }
                 return@withContext
             }
-            // Publish screenshot FIRST (so the agent's /result/:id hasScreenshot:true is backed by a real file).
             outcome.screenshotBytes?.let { bytes ->
                 runCatching {
                     c.publish(SHOT_TOPIC_PREFIX + outcome.result.id, bytes, 1, false)
                 }.onFailure { Logger.w(TAG) { "screenshot publish failed: ${it.message}" } }
             }
-            // Publish the result JSON.
             val resultJson = json.encodeToString(TestResult.serializer(), outcome.result)
             runCatching {
                 c.publish(RESULT_TOPIC, resultJson.toByteArray(Charsets.UTF_8), 1, false)
             }.onFailure { Logger.w(TAG) { "result publish failed: ${it.message}" } }
         }
-
-    /** Whether the bridge is currently connected to the broker. */
-    fun isConnected(): Boolean = client?.isConnected == true
 }
 
 // ── Paho token → coroutine adapter ──
@@ -192,8 +235,8 @@ class MqttBridge(
 private suspend fun IMqttToken.await(timeoutSec: Long) =
     kotlinx.coroutines.suspendCancellableCoroutine<IMqttToken> { cont ->
         val timeout = TimeUnit.SECONDS.toMillis(timeoutSec)
-        val watchdog = kotlinx.coroutines.GlobalScope.launch {
-            kotlinx.coroutines.delay(timeout)
+        val watchdog = GlobalScope.launch {
+            delay(timeout)
             if (cont.isActive) cont.resumeWithException(java.util.concurrent.TimeoutException("MQTT operation timed out after ${timeoutSec}s"))
         }
         setActionCallback(object : IMqttActionListener {
