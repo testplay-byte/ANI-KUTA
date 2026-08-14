@@ -57,7 +57,7 @@ class NotificationManager(
      */
     suspend fun postNotification(
         mainId: String,
-        episodeNumber: Long,
+        episodeNumber: Double,
         audioVariant: String,
         triggerType: String,
     ): Boolean {
@@ -133,7 +133,7 @@ class NotificationManager(
         }
 
         // 5. Get anime title.
-        val content = contentRepository.getContentByMainId(mainId)
+        val content = contentRepository.getMainEntryByMainId(mainId)
         val title = content?.title ?: "Unknown anime"
 
         // 6. Post the notification. Silent → low-importance channel (no sound);

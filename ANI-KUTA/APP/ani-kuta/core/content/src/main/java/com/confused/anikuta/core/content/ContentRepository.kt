@@ -7,12 +7,18 @@ import com.confused.anikuta.core.database.AnikutaDatabase
  * Repository for the content identity system.
  *
  * Handles CRUD on:
- * - `content` (main table)
- * - `anilist_detail`, `extension_detail`, `other_source_detail` (detail tables)
- * - `data_source`, `system`, `extension_repo`, `extension` (lookup tables)
+ * - `main_entry` (renamed from `content` per D-198)
+ * - `content_details` (merged from anilist_detail + extension_detail + other_source_detail + anime_metadata_cache)
+ * - `data_source`, `system` (lookup tables)
  * - `library_category`, `library_item` (library tables)
  *
  * Seeds the lookup tables + Default library category on first launch.
+ *
+ * D-198: renames — getContentBy* → getMainEntryBy*, insertContent → insertMainEntry,
+ * updateContentSources → updateMainEntrySources, updateContentDisplaySource →
+ * updateMainEntryDisplaySource, updateContentContentId → updateMainEntryContentId,
+ * deleteContent → deleteMainEntry. The `description` column was dropped from
+ * main_entry — readers now use [ContentDetails.dataSynopsis] / [ContentDetails.extDescription].
  *
  * CORE_RULES §7: Backend logic — no UI.
  * CORE_RULES §20: Logged with tag "Anikuta:Core:Content:Repo".
@@ -70,17 +76,16 @@ class ContentRepository(
         Logger.i(TAG) { "Seeding complete" }
     }
 
-    // ── Content CRUD ───────────────────────────────────────────────────────
+    // ── main_entry CRUD ────────────────────────────────────────────────────
 
-    fun getContentByMainId(mainId: String): ContentRecord? {
-        return contentQueries.getContentByMainId(mainId).executeAsOneOrNull()?.let {
+    fun getMainEntryByMainId(mainId: String): ContentRecord? {
+        return contentQueries.getMainEntryByMainId(mainId).executeAsOneOrNull()?.let {
             ContentRecord(
                 mainId = it.main_id,
                 contentId = it.content_id,
                 title = it.title,
                 contentType = it.content_type,
                 contentFormat = it.content_format,
-                description = it.description,
                 dataSourceId = it.data_source_id,
                 systemId = it.system_id,
                 extensionRepoId = it.extension_repo_id,
@@ -94,15 +99,14 @@ class ContentRepository(
         }
     }
 
-    fun getContentByAniListId(anilistId: Int): ContentRecord? {
-        return contentQueries.getContentByAniListId(anilistId.toLong()).executeAsOneOrNull()?.let {
+    fun getMainEntryByAniListId(anilistId: Int): ContentRecord? {
+        return contentQueries.getMainEntryByAniListId(anilistId.toLong()).executeAsOneOrNull()?.let {
             ContentRecord(
                 mainId = it.main_id,
                 contentId = it.content_id,
                 title = it.title,
                 contentType = it.content_type,
                 contentFormat = it.content_format,
-                description = it.description,
                 dataSourceId = it.data_source_id,
                 systemId = it.system_id,
                 extensionRepoId = it.extension_repo_id,
@@ -116,15 +120,14 @@ class ContentRepository(
         }
     }
 
-    fun getContentByExtension(extensionId: Long, animeUrl: String): ContentRecord? {
-        return contentQueries.getContentByExtension(extensionId, animeUrl).executeAsOneOrNull()?.let {
+    fun getMainEntryByExtension(extensionId: Long, animeUrl: String): ContentRecord? {
+        return contentQueries.getMainEntryByExtension(extensionId, animeUrl).executeAsOneOrNull()?.let {
             ContentRecord(
                 mainId = it.main_id,
                 contentId = it.content_id,
                 title = it.title,
                 contentType = it.content_type,
                 contentFormat = it.content_format,
-                description = it.description,
                 dataSourceId = it.data_source_id,
                 systemId = it.system_id,
                 extensionRepoId = it.extension_repo_id,
@@ -138,14 +141,34 @@ class ContentRepository(
         }
     }
 
-    fun insertContent(record: ContentRecord) {
-        contentQueries.insertContent(
+    fun getMainEntryByContentId(contentId: String): ContentRecord? {
+        return contentQueries.getMainEntryByContentId(contentId).executeAsOneOrNull()?.let {
+            ContentRecord(
+                mainId = it.main_id,
+                contentId = it.content_id,
+                title = it.title,
+                contentType = it.content_type,
+                contentFormat = it.content_format,
+                dataSourceId = it.data_source_id,
+                systemId = it.system_id,
+                extensionRepoId = it.extension_repo_id,
+                extensionId = it.extension_id,
+                sourceId = it.source_id,
+                animeUrl = it.anime_url,
+                displaySource = it.display_source,
+                createdAt = it.created_at,
+                updatedAt = it.updated_at,
+            )
+        }
+    }
+
+    fun insertMainEntry(record: ContentRecord) {
+        contentQueries.insertMainEntry(
             mainId = record.mainId,
             contentId = record.contentId,
             title = record.title,
             contentType = record.contentType,
             contentFormat = record.contentFormat,
-            description = record.description,
             dataSourceId = record.dataSourceId,
             systemId = record.systemId,
             extensionRepoId = record.extensionRepoId,
@@ -156,10 +179,10 @@ class ContentRepository(
             createdAt = record.createdAt,
             updatedAt = record.updatedAt,
         )
-        Logger.i(TAG) { "Inserted content: mainId=${record.mainId}, title='${record.title}'" }
+        Logger.i(TAG) { "Inserted main_entry: mainId=${record.mainId}, title='${record.title}'" }
     }
 
-    fun updateContentSources(
+    fun updateMainEntrySources(
         mainId: String,
         dataSourceId: Long?,
         systemId: Long?,
@@ -169,7 +192,7 @@ class ContentRepository(
         animeUrl: String?,
         contentId: String,
     ) {
-        contentQueries.updateContentSources(
+        contentQueries.updateMainEntrySources(
             dataSourceId = dataSourceId,
             systemId = systemId,
             extensionRepoId = extensionRepoId,
@@ -180,11 +203,29 @@ class ContentRepository(
             updatedAt = System.currentTimeMillis(),
             mainId = mainId,
         )
-        Logger.i(TAG) { "Updated content sources: mainId=$mainId, new contentId='$contentId'" }
+        Logger.i(TAG) { "Updated main_entry sources: mainId=$mainId, new contentId='$contentId'" }
     }
 
-    fun updateDisplaySource(mainId: String, displaySource: String) {
-        contentQueries.updateContentDisplaySource(
+    fun updateMainEntryContentId(mainId: String, contentId: String) {
+        contentQueries.updateMainEntryContentId(
+            contentId = contentId,
+            updatedAt = System.currentTimeMillis(),
+            mainId = mainId,
+        )
+        Logger.d(TAG) { "Updated main_entry contentId: mainId=$mainId, contentId=$contentId" }
+    }
+
+    fun updateMainEntryTitle(mainId: String, title: String) {
+        contentQueries.updateMainEntryTitle(
+            title = title,
+            updatedAt = System.currentTimeMillis(),
+            mainId = mainId,
+        )
+        Logger.d(TAG) { "Updated main_entry title: mainId=$mainId, title=$title" }
+    }
+
+    fun updateMainEntryDisplaySource(mainId: String, displaySource: String) {
+        contentQueries.updateMainEntryDisplaySource(
             displaySource = displaySource,
             updatedAt = System.currentTimeMillis(),
             mainId = mainId,
@@ -192,88 +233,136 @@ class ContentRepository(
         Logger.d(TAG) { "Updated displaySource: mainId=$mainId, displaySource=$displaySource" }
     }
 
-    // ── AniList detail ─────────────────────────────────────────────────────
+    fun deleteMainEntry(mainId: String) {
+        contentQueries.deleteMainEntry(mainId)
+        Logger.i(TAG) { "Deleted main_entry: mainId=$mainId" }
+    }
 
-    fun getAniListDetail(mainId: String): AniListDetail? {
-        return contentQueries.getAniListDetail(mainId).executeAsOneOrNull()?.let {
-            AniListDetail(
+    // ── content_details ────────────────────────────────────────────────────
+    //
+    // D-198: merged from anilist_detail + extension_detail + other_source_detail +
+    // anime_metadata_cache. One row per content (1:1 with main_entry). Two axes:
+    //   data_* — data-source metadata (AniList now; Kitsu/MAL/TMDB future)
+    //   ext_*  — extension metadata (Aniyomi now; CloudStream/Sora/MangaYomi future)
+    // Each axis is independently switchable + unlinkable.
+
+    fun getContentDetails(mainId: String): ContentDetails? {
+        return contentQueries.getContentDetails(mainId).executeAsOneOrNull()?.let {
+            ContentDetails(
                 mainId = it.main_id,
-                anilistId = it.anilist_id.toInt(),
-                idMal = it.id_mal?.toInt(),
-                score = it.score?.toInt(),
-                episodes = it.episodes?.toInt(),
-                season = it.season,
-                seasonYear = it.season_year?.toInt(),
-                status = it.status,
-                genres = it.genres,
-                synopsis = it.synopsis,
-                coverUrl = it.cover_url,
-                bannerUrl = it.banner_url,
-                updatedAt = it.updated_at,
-            )
-        }
-    }
-
-    fun upsertAniListDetail(detail: AniListDetail) {
-        contentQueries.upsertAniListDetail(
-            mainId = detail.mainId,
-            anilistId = detail.anilistId.toLong(),
-            idMal = detail.idMal?.toLong(),
-            score = detail.score?.toLong(),
-            episodes = detail.episodes?.toLong(),
-            season = detail.season,
-            seasonYear = detail.seasonYear?.toLong(),
-            status = detail.status,
-            genres = detail.genres,
-            synopsis = detail.synopsis,
-            coverUrl = detail.coverUrl,
-            bannerUrl = detail.bannerUrl,
-            updatedAt = detail.updatedAt,
-        )
-    }
-
-    fun deleteAniListDetail(mainId: String) {
-        contentQueries.deleteAniListDetail(mainId)
-    }
-
-    // ── Extension detail ───────────────────────────────────────────────────
-
-    fun getExtensionDetail(mainId: String): ExtensionDetail? {
-        return contentQueries.getExtensionDetail(mainId).executeAsOneOrNull()?.let {
-            ExtensionDetail(
-                mainId = it.main_id,
+                dataSourceType = it.data_source_type,
+                dataSourceRefId = it.data_source_ref_id,
+                dataScore = it.data_score,
+                dataEpisodes = it.data_episodes,
+                dataSeason = it.data_season,
+                dataSeasonYear = it.data_season_year,
+                dataStatus = it.data_status,
+                dataGenres = it.data_genres,
+                dataSynopsis = it.data_synopsis,
+                dataCoverUrl = it.data_cover_url,
+                dataBannerUrl = it.data_banner_url,
+                dataExtraJson = it.data_extra_json,
+                dataUpdatedAt = it.data_updated_at,
+                extensionType = it.extension_type,
                 extensionId = it.extension_id,
                 sourceId = it.source_id,
                 animeUrl = it.anime_url,
-                description = it.description,
-                genres = it.genres,
-                status = it.status,
-                author = it.author,
-                artist = it.artist,
-                thumbnailUrl = it.thumbnail_url,
-                updatedAt = it.updated_at,
+                extDescription = it.ext_description,
+                extGenres = it.ext_genres,
+                extStatus = it.ext_status,
+                extAuthor = it.ext_author,
+                extArtist = it.ext_artist,
+                extThumbnailUrl = it.ext_thumbnail_url,
+                extExtraJson = it.ext_extra_json,
+                extUpdatedAt = it.ext_updated_at,
             )
         }
     }
 
-    fun upsertExtensionDetail(detail: ExtensionDetail) {
-        contentQueries.upsertExtensionDetail(
+    /** Full-row INSERT OR REPLACE — caller must populate all 26 columns. */
+    fun upsertContentDetails(detail: ContentDetails) {
+        contentQueries.upsertContentDetails(
             mainId = detail.mainId,
+            dataSourceType = detail.dataSourceType,
+            dataSourceRefId = detail.dataSourceRefId,
+            dataScore = detail.dataScore,
+            dataEpisodes = detail.dataEpisodes,
+            dataSeason = detail.dataSeason,
+            dataSeasonYear = detail.dataSeasonYear,
+            dataStatus = detail.dataStatus,
+            dataGenres = detail.dataGenres,
+            dataSynopsis = detail.dataSynopsis,
+            dataCoverUrl = detail.dataCoverUrl,
+            dataBannerUrl = detail.dataBannerUrl,
+            dataExtraJson = detail.dataExtraJson,
+            dataUpdatedAt = detail.dataUpdatedAt,
+            extensionType = detail.extensionType,
             extensionId = detail.extensionId,
             sourceId = detail.sourceId,
             animeUrl = detail.animeUrl,
-            description = detail.description,
-            genres = detail.genres,
-            status = detail.status,
-            author = detail.author,
-            artist = detail.artist,
-            thumbnailUrl = detail.thumbnailUrl,
-            updatedAt = detail.updatedAt,
+            extDescription = detail.extDescription,
+            extGenres = detail.extGenres,
+            extStatus = detail.extStatus,
+            extAuthor = detail.extAuthor,
+            extArtist = detail.extArtist,
+            extThumbnailUrl = detail.extThumbnailUrl,
+            extExtraJson = detail.extExtraJson,
+            extUpdatedAt = detail.extUpdatedAt,
         )
     }
 
-    fun deleteExtensionDetail(mainId: String) {
-        contentQueries.deleteExtensionDetail(mainId)
+    /** Partial UPDATE of all data-source fields (extension fields untouched). */
+    fun updateDataSourceAxis(detail: ContentDetails) {
+        contentQueries.updateDataSourceAxis(
+            dataSourceType = detail.dataSourceType,
+            dataSourceRefId = detail.dataSourceRefId,
+            dataScore = detail.dataScore,
+            dataEpisodes = detail.dataEpisodes,
+            dataSeason = detail.dataSeason,
+            dataSeasonYear = detail.dataSeasonYear,
+            dataStatus = detail.dataStatus,
+            dataGenres = detail.dataGenres,
+            dataSynopsis = detail.dataSynopsis,
+            dataCoverUrl = detail.dataCoverUrl,
+            dataBannerUrl = detail.dataBannerUrl,
+            dataExtraJson = detail.dataExtraJson,
+            dataUpdatedAt = detail.dataUpdatedAt,
+            mainId = detail.mainId,
+        )
+    }
+
+    /** Partial UPDATE of all extension fields (data-source fields untouched). */
+    fun updateExtensionAxis(detail: ContentDetails) {
+        contentQueries.updateExtensionAxis(
+            extensionType = detail.extensionType,
+            extensionId = detail.extensionId,
+            sourceId = detail.sourceId,
+            animeUrl = detail.animeUrl,
+            extDescription = detail.extDescription,
+            extGenres = detail.extGenres,
+            extStatus = detail.extStatus,
+            extAuthor = detail.extAuthor,
+            extArtist = detail.extArtist,
+            extThumbnailUrl = detail.extThumbnailUrl,
+            extExtraJson = detail.extExtraJson,
+            extUpdatedAt = detail.extUpdatedAt,
+            mainId = detail.mainId,
+        )
+    }
+
+    /** NULL all data-source fields (for unlink — fixes orphan-row bug). */
+    fun clearDataSourceAxis(mainId: String) {
+        contentQueries.clearDataSourceAxis(mainId)
+    }
+
+    /** NULL all extension fields (for unlink — fixes orphan-row bug). */
+    fun clearExtensionAxis(mainId: String) {
+        contentQueries.clearExtensionAxis(mainId)
+    }
+
+    /** Hard-delete the content_details row (CASCADE on main_entry handles this normally). */
+    fun deleteContentDetails(mainId: String) {
+        contentQueries.deleteContentDetails(mainId)
     }
 
     // ── Lookup: data_source ────────────────────────────────────────────────
@@ -333,10 +422,6 @@ class ContentRepository(
 
     fun getLibraryMainIds(): List<String> {
         return libraryQueries.getLibraryMainIds().executeAsList()
-    }
-
-    fun getDefaultCategoryCount(): Int {
-        return libraryQueries.countDefaultCategoryItems().executeAsOne().toInt()
     }
 
     // ── Category management (D-138) ────────────────────────────────────────

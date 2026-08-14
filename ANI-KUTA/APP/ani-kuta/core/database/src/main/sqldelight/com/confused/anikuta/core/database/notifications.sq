@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS notification_config (
     notify_on_immediate INTEGER NOT NULL DEFAULT 0,         -- notify immediately when schedule says released
     notify_sub INTEGER NOT NULL DEFAULT 1,                  -- notify for sub releases
     notify_dub INTEGER NOT NULL DEFAULT 0,                  -- notify for dub releases
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
 -- Upsert per-content config.
@@ -37,11 +37,12 @@ DELETE FROM notification_config WHERE main_id = ?;
 -- ── Notification sent log (dedup — NOT backup-eligible, ephemeral) ──
 CREATE TABLE IF NOT EXISTS notification_sent (
     main_id TEXT NOT NULL,
-    episode_number INTEGER NOT NULL,
+    episode_number REAL NOT NULL,
     audio_variant TEXT NOT NULL DEFAULT 'unknown',
     trigger_type TEXT NOT NULL,          -- 'schedule' | 'watchable' | 'immediate'
     sent_at INTEGER NOT NULL,
-    PRIMARY KEY (main_id, episode_number, audio_variant, trigger_type)
+    PRIMARY KEY (main_id, episode_number, audio_variant, trigger_type),
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 -- Phase DB-OPT: index for fast retention purge (deleteOldSentNotifications).
 CREATE INDEX IF NOT EXISTS idx_notification_sent_at ON notification_sent(sent_at);

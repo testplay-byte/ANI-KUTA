@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS episode_update (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    main_id TEXT NOT NULL,               -- FK → content(main_id)
+    main_id TEXT NOT NULL,               -- FK → main_entry(main_id)
     episode_key TEXT NOT NULL,           -- the new episode's key
     episode_number REAL NOT NULL,
     episode_title TEXT,
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS episode_update (
     batch_type TEXT NOT NULL DEFAULT 'new',  -- D-192: 'initial' = first-link batch, 'new' = individual new episode
     episode_count INTEGER,               -- D-192: for 'initial' batch, the total episode count (e.g. 7 for "Episodes 1-7")
     new_expires_at INTEGER,              -- D-193 Phase 2: when the "new" status expires (discovered_at + 3 days); null for initial batch
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_episode_update_unique ON episode_update(main_id, episode_key, audio_variant);

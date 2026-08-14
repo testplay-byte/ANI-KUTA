@@ -28,49 +28,11 @@ class DataCacheRepository(
     private val queries get() = database.dataCacheQueries
 
     // ── Anime metadata ─────────────────────────────────────────────────────
-
-    fun getAnimeMetadata(mainId: String): CachedAnimeMetadata? {
-        return queries.getAnimeMetadata(mainId).executeAsOneOrNull()?.let {
-            CachedAnimeMetadata(
-                mainId = it.main_id,
-                title = it.title,
-                description = it.description,
-                coverUrl = it.cover_url,
-                bannerUrl = it.banner_url,
-                score = it.score?.toInt(),
-                episodes = it.episodes?.toInt(),
-                season = it.season,
-                seasonYear = it.season_year?.toInt(),
-                status = it.status,
-                genres = it.genres,
-                sourceType = it.source_type,
-                fetchedAt = it.fetched_at,
-            )
-        }
-    }
-
-    fun upsertAnimeMetadata(meta: CachedAnimeMetadata) {
-        queries.upsertAnimeMetadata(
-            mainId = meta.mainId,
-            title = meta.title,
-            description = meta.description,
-            coverUrl = meta.coverUrl,
-            bannerUrl = meta.bannerUrl,
-            score = meta.score?.toLong(),
-            episodes = meta.episodes?.toLong(),
-            season = meta.season,
-            seasonYear = meta.seasonYear?.toLong(),
-            status = meta.status,
-            genres = meta.genres,
-            sourceType = meta.sourceType,
-            fetchedAt = meta.fetchedAt,
-        )
-        Logger.d(TAG) { "Cached anime metadata: ${meta.title} (mainId=${meta.mainId})" }
-    }
-
-    fun deleteAnimeMetadata(mainId: String) {
-        queries.deleteAnimeMetadata(mainId)
-    }
+    //
+    // D-198: getAnimeMetadata / upsertAnimeMetadata / deleteAnimeMetadata REMOVED.
+    // The anime_metadata_cache table was absorbed into content_details (data-source
+    // axis). Callers now use ContentRepository.getContentDetails(mainId) +
+    // ContentDetails.dataSynopsis / dataCoverUrl / dataScore / etc.
 
     // ── Episode metadata ───────────────────────────────────────────────────
 

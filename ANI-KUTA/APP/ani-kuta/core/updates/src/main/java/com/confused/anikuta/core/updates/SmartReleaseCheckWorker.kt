@@ -60,7 +60,7 @@ class SmartReleaseCheckWorker(
         fun schedule(
             context: Context,
             mainId: String,
-            episodeNumber: Long,
+            episodeNumber: Double,
             airingAt: Long,
             attempt: Int = 1,
         ) {
@@ -79,7 +79,7 @@ class SmartReleaseCheckWorker(
 
             val inputData = Data.Builder()
                 .putString(KEY_MAIN_ID, mainId)
-                .putLong(KEY_EPISODE_NUMBER, episodeNumber)
+                .putDouble(KEY_EPISODE_NUMBER, episodeNumber)
                 .putInt(KEY_ATTEMPT, attempt)
                 .putLong(KEY_AIRING_AT, airingAt)
                 .build()
@@ -101,7 +101,7 @@ class SmartReleaseCheckWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val mainId = inputData.getString(KEY_MAIN_ID) ?: return@withContext Result.success()
-        val episodeNumber = inputData.getLong(KEY_EPISODE_NUMBER, -1L)
+        val episodeNumber = inputData.getDouble(KEY_EPISODE_NUMBER, -1.0)
         val attempt = inputData.getInt(KEY_ATTEMPT, 1)
         val airingAt = inputData.getLong(KEY_AIRING_AT, 0L)
 
@@ -119,7 +119,7 @@ class SmartReleaseCheckWorker(
             val contentRepo = koin.get<com.confused.anikuta.core.content.ContentRepository>()
             val extManager = koin.get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
 
-            val content = contentRepo.getContentByMainId(mainId)
+            val content = contentRepo.getMainEntryByMainId(mainId)
             if (content == null) {
                 Logger.w(TAG) { "Content not found: $mainId" }
                 return@withContext Result.success()
@@ -222,7 +222,8 @@ class SmartReleaseCheckWorker(
                             mainId = mainId,
                             lastCheckedAt = now,
                             nextCheckAt = nextCheckAt,
-                            lastKnownEpisodeCount = episodeNumber,
+                            // D-198: episodeNumber is now Double; lastKnownEpisodeCount is Long.
+                            lastKnownEpisodeCount = episodeNumber.toLong(),
                             consecutiveFailures = 0,
                             backoffStep = 0,
                             lastKnownDubCount = state.lastKnownDubCount,

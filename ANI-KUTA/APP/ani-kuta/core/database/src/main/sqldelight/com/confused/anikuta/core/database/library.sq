@@ -23,11 +23,10 @@ CREATE TABLE IF NOT EXISTS library_item (
     category_id INTEGER NOT NULL,
     display_order INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER NOT NULL,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE,
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES library_category(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_library_item_main ON library_item(main_id);
 CREATE INDEX IF NOT EXISTS idx_library_item_category ON library_item(category_id);
 -- Phase DB-OPT: unique constraint to prevent duplicate (main_id, category_id) rows.
 -- Hardens the INSERT OR IGNORE dedup (currently relies on OR IGNORE alone).

@@ -71,13 +71,13 @@ class NotificationsLibraryViewModel(
                 contentRepository.getMainIdsByCategory(categoryId)
             }
             val items = mainIds.map { mainId ->
-                val content = contentRepository.getContentByMainId(mainId)
-                val anilistDetail = contentRepository.getAniListDetail(mainId)
-                val extDetail = contentRepository.getExtensionDetail(mainId)
+                val content = contentRepository.getMainEntryByMainId(mainId)
+                // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+                val details = contentRepository.getContentDetails(mainId)
                 AnimeNotifItem(
                     mainId = mainId,
                     title = content?.title ?: "Unknown",
-                    coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl,
+                    coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl,
                     config = configStore.getConfig(mainId),
                 )
             }.sortedBy { it.title.lowercase() }

@@ -90,13 +90,14 @@ class GenreRepository(
             val existingGenreMainIds = queries.getAllContentGenres().executeAsList()
                 .map { it.main_id }.toSet()
 
-            // For each library item without genre entries, backfill from anilist_detail.genres
+            // For each library item without genre entries, backfill from content_details.data_genres
+            // (D-198: was anilist_detail.genres — now on the data-source axis of content_details).
             var backfilled = 0
             libraryMainIds.forEach { mainId ->
                 if (mainId !in existingGenreMainIds) {
-                    val anilistDetail = database.contentQueries.getAniListDetail(mainId).executeAsOneOrNull()
-                    if (anilistDetail != null && !anilistDetail.genres.isNullOrBlank()) {
-                        setGenresFromCsv(mainId, anilistDetail.genres, "anilist")
+                    val details = database.contentQueries.getContentDetails(mainId).executeAsOneOrNull()
+                    if (details != null && !details.data_genres.isNullOrBlank()) {
+                        setGenresFromCsv(mainId, details.data_genres, "anilist")
                         backfilled++
                     }
                 }

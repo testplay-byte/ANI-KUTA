@@ -15,5 +15,5 @@ fun interface ActualReleaseUpdater {
      * @param episodeNumber The episode number.
      * @param actualAt The actual release timestamp (epoch millis).
      */
-    fun updateActualAt(mainId: String, episodeNumber: Long, actualAt: Long)
+    fun updateActualAt(mainId: String, episodeNumber: Double, actualAt: Long)
 }

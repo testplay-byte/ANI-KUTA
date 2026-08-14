@@ -2,8 +2,8 @@ package com.confused.anikuta.core.download
 
 import android.content.Context
 import androidx.documentfile.provider.DocumentFile
-import com.confused.anikuta.core.content.AniListDetail
 import com.confused.anikuta.core.content.ContentRecord
+import com.confused.anikuta.core.content.ContentDetails
 import com.confused.anikuta.core.content.ContentRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,10 +21,9 @@ import kotlinx.coroutines.withContext
  * ContentRepository, AnilistDetailRepository)`. The last two come from `:core:content`.
  *
  * DEVIATION (D.1): `AnilistDetailRepository` doesn't exist yet in `:core:content` —
- * the [ContentRepository] already has `upsertAniListDetail(AniListDetail)`. We use
- * the [ContentRepository] for both content + anilist UPSERTs. When D.2 introduces a
- * dedicated `AnilistDetailRepository`, this scanner should be updated to inject it
- * as a separate dep (per REVIEW-5 M65).
+ * the [ContentRepository] already has `upsertContentDetails(ContentDetails)` (D-198:
+ * was `upsertAniListDetail(AniListDetail)`). We use the [ContentRepository] for both
+ * main_entry + content_details UPSERTs.
  *
  * REVIEW-5 M55: every content folder's `listFiles()` is called ONCE + cached in a
  * local `Map<String, DocumentFile>` index for follow-up name lookups.
@@ -214,7 +213,7 @@ class DownloadScanner(
             title = data.title,
             contentType = data.contentType,
             contentFormat = data.contentFormat,
-            description = data.description,
+            // D-198: main_entry.description dropped — readers use content_details.
             dataSourceId = data.dataSourceId,
             systemId = data.systemId,
             extensionRepoId = data.extensionRepoId,
@@ -225,23 +224,30 @@ class DownloadScanner(
             createdAt = data.createdAt,
             updatedAt = now,
         )
-        // ContentRepository.insertContent uses INSERT OR REPLACE — UPSERT semantics.
-        contentRepository.insertContent(record)
+        // ContentRepository.insertMainEntry uses INSERT OR REPLACE — UPSERT semantics.
+        contentRepository.insertMainEntry(record)
     }
 
-    /** UPSERTs an [AniListDetail] built from [data] (only when anilistId is set). */
+    /** UPSERTs the data-source axis of content_details built from [data] (only when anilistId is set). */
     private fun upsertAniListDetail(data: ContentDataJson) {
-        val detail = AniListDetail(
+        val now = System.currentTimeMillis()
+        // D-198: AniListDetail → ContentDetails (data-source axis). The data-source
+        // axis stores anilist_id as TEXT in data_source_ref_id + the metadata fields.
+        val detail = ContentDetails(
             mainId = data.mainId,
-            anilistId = data.anilistId!!,
-            updatedAt = System.currentTimeMillis(),
+            dataSourceType = if (data.anilistId != null) "anilist" else null,
+            dataSourceRefId = data.anilistId?.toString(),
+            dataUpdatedAt = now,
+            // Extension axis + remaining data-axis fields are left null — this is a
+            // minimal upsert of just the link identity. updateDataSourceAxis preserves
+            // any existing extension axis data.
         )
-        contentRepository.upsertAniListDetail(detail)
+        contentRepository.updateDataSourceAxis(detail)
     }
 
     /**
      * D-151-fix: Write-back — updates the on-disk `.data.json` with the latest
-     * ContentRecord + AniListDetail + ExtensionDetail from the DB.
+     * ContentRecord + ContentDetails from the DB.
      *
      * The user's scenario: "when the user has some episodes downloaded and
      * refreshes + downloads a new episode, the old data.json should be updated
@@ -259,12 +265,12 @@ class DownloadScanner(
         index: Map<String, DocumentFile>,
         dataJson: ContentDataJson,
     ) {
-        val record = contentRepository.getContentByMainId(dataJson.mainId) ?: return
-        val anilistDetail = contentRepository.getAniListDetail(dataJson.mainId)
-        val extDetail = contentRepository.getExtensionDetail(dataJson.mainId)
+        val record = contentRepository.getMainEntryByMainId(dataJson.mainId) ?: return
+        // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+        val details = contentRepository.getContentDetails(dataJson.mainId)
 
         // Build the latest DownloadContentInfo from the DB state.
-        val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
         val latest = DownloadContentInfo(
             mainId = record.mainId,
             contentId = record.contentId,
@@ -273,15 +279,16 @@ class DownloadScanner(
             coverColor = null,
             contentFormat = record.contentFormat,
             contentType = record.contentType,
-            description = record.description ?: extDetail?.description,
+            // D-198: main_entry.description dropped — use content_details axes as fallback.
+            description = details?.dataSynopsis ?: details?.extDescription,
             dataSourceId = record.dataSourceId,
             systemId = record.systemId,
             extensionRepoId = record.extensionRepoId,
-            extensionId = record.extensionId ?: extDetail?.extensionId,
-            sourceId = record.sourceId ?: extDetail?.sourceId,
-            animeUrl = record.animeUrl ?: extDetail?.animeUrl,
+            extensionId = record.extensionId ?: details?.extensionIdLong,
+            sourceId = record.sourceId ?: details?.sourceId,
+            animeUrl = record.animeUrl ?: details?.animeUrl,
             displaySource = record.displaySource,
-            anilistId = anilistDetail?.anilistId,
+            anilistId = details?.anilistId,
         )
 
         // Compare key fields — only write if something changed.

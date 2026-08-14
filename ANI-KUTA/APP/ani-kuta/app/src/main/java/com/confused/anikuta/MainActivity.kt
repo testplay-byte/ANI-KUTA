@@ -237,10 +237,12 @@ fun AppRoot() {
     LaunchedEffect(notifMainId) {
         if (!notifMainId.isNullOrBlank() && backstack.size == 1) {
             // Look up the content to determine whether it has an AniList ID or is extension-only.
-            val content = contentRepository.getContentByMainId(notifMainId)
-            val anilistDetail = content?.let { contentRepository.getAniListDetail(it.mainId) }
-            if (anilistDetail != null) {
-                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+            val content = contentRepository.getMainEntryByMainId(notifMainId)
+            // D-198: getAniListDetail → getContentDetails.
+            val details = content?.let { contentRepository.getContentDetails(it.mainId) }
+            val anilistId = details?.anilistId
+            if (anilistId != null) {
+                backstack.add(AnimeDetailsKey.AniList(anilistId))
             } else if (content != null) {
                 val sid = content.sourceId
                 val url = content.animeUrl
@@ -419,20 +421,21 @@ fun AppRoot() {
                 },
                 onNavigateToDetails = { mainId ->
                     // D.FIX: Navigate to the details page for this anime.
-                    val content = contentRepository.getContentByMainId(mainId)
+                    val content = contentRepository.getMainEntryByMainId(mainId)
                     if (content != null) {
-                        val anilistDetail = contentRepository.getAniListDetail(mainId)
-                        if (anilistDetail != null) {
-                            backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                        // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+                        val details = contentRepository.getContentDetails(mainId)
+                        val anilistId = details?.anilistId
+                        if (anilistId != null) {
+                            backstack.add(AnimeDetailsKey.AniList(anilistId))
                         } else {
                             // Extension-only entry.
-                            val extDetail = contentRepository.getExtensionDetail(mainId)
-                            if (extDetail != null) {
+                            if (details != null) {
                                 backstack.add(AnimeDetailsKey.Extension(
-                                    sourceId = extDetail.sourceId,
-                                    animeUrl = extDetail.animeUrl,
+                                    sourceId = details.sourceId ?: 0L,
+                                    animeUrl = details.animeUrl ?: content.animeUrl ?: "",
                                     title = content.title,
-                                    thumbnailUrl = extDetail.thumbnailUrl,
+                                    thumbnailUrl = details.extThumbnailUrl,
                                 ))
                             }
                         }
@@ -513,19 +516,20 @@ fun AppRoot() {
                 com.confused.anikuta.feature.updates.UpdatesScreen(
                     onBack = pop,
                     onNavigateToDetails = { mainId ->
-                        val content = contentRepository.getContentByMainId(mainId)
+                        val content = contentRepository.getMainEntryByMainId(mainId)
                         if (content != null) {
-                            val anilistDetail = contentRepository.getAniListDetail(mainId)
-                            if (anilistDetail != null) {
-                                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                            // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+                            val details = contentRepository.getContentDetails(mainId)
+                            val anilistId = details?.anilistId
+                            if (anilistId != null) {
+                                backstack.add(AnimeDetailsKey.AniList(anilistId))
                             } else {
-                                val extDetail = contentRepository.getExtensionDetail(mainId)
-                                if (extDetail != null) {
+                                if (details != null) {
                                     backstack.add(AnimeDetailsKey.Extension(
-                                        extDetail.sourceId ?: 0L,
-                                        content.animeUrl ?: "",
+                                        details.sourceId ?: 0L,
+                                        details.animeUrl ?: content.animeUrl ?: "",
                                         content.title,
-                                        null,
+                                        details.extThumbnailUrl,
                                     ))
                                 }
                             }
@@ -538,20 +542,21 @@ fun AppRoot() {
                     onBack = pop,
                     onNavigateToDetails = { mainId ->
                         // Navigate to the anime's details page (AniList or Extension based on content).
-                        val content = contentRepository.getContentByMainId(mainId)
+                        val content = contentRepository.getMainEntryByMainId(mainId)
                         if (content != null) {
-                            val anilistDetail = contentRepository.getAniListDetail(mainId)
-                            if (anilistDetail != null) {
-                                backstack.add(AnimeDetailsKey.AniList(anilistDetail.anilistId))
+                            // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+                            val details = contentRepository.getContentDetails(mainId)
+                            val anilistId = details?.anilistId
+                            if (anilistId != null) {
+                                backstack.add(AnimeDetailsKey.AniList(anilistId))
                             } else {
                                 // Extension-only content — use the source ID + URL.
-                                val extDetail = contentRepository.getExtensionDetail(mainId)
-                                if (extDetail != null) {
+                                if (details != null) {
                                     backstack.add(AnimeDetailsKey.Extension(
-                                        extDetail.sourceId ?: 0L,
-                                        content.animeUrl ?: "",
+                                        details.sourceId ?: 0L,
+                                        details.animeUrl ?: content.animeUrl ?: "",
                                         content.title,
-                                        null,
+                                        details.extThumbnailUrl,
                                     ))
                                 }
                             }
@@ -637,9 +642,9 @@ private fun handleDownloadEpisode(
             // 1. Resolve the content identity.
             val mainId: String? = when (detailsKey) {
                 is AnimeDetailsKey.AniList ->
-                    contentRepository.getContentByAniListId(detailsKey.animeId)?.mainId
+                    contentRepository.getMainEntryByAniListId(detailsKey.animeId)?.mainId
                 is AnimeDetailsKey.Extension ->
-                    contentRepository.getContentByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
+                    contentRepository.getMainEntryByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
             }
             if (mainId == null) {
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
@@ -649,17 +654,17 @@ private fun handleDownloadEpisode(
             }
 
             // 2. Build the content + episode identity (cover is best-effort — null is fine).
-            val content = contentRepository.getContentByMainId(mainId)
+            val content = contentRepository.getMainEntryByMainId(mainId)
             if (content == null) {
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleDownloadEpisode — no content for mainId=$mainId"
                 }
                 return@launch
             }
-            val anilistDetail = contentRepository.getAniListDetail(mainId)
-            val extDetail = contentRepository.getExtensionDetail(mainId)
-            val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
-            // D.FIX: Use extDetail to fill in FK fields that are null in ContentRecord.
+            // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+            val details = contentRepository.getContentDetails(mainId)
+            val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+            // D.FIX: Use details to fill in FK fields that are null in ContentRecord.
             val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
                 mainId = content.mainId,
                 contentId = content.contentId,
@@ -668,15 +673,16 @@ private fun handleDownloadEpisode(
                 coverColor = null,
                 contentFormat = content.contentFormat,
                 contentType = content.contentType,
-                description = content.description ?: extDetail?.description,
+                // D-198: main_entry.description dropped — use content_details axes as fallback.
+                description = details?.dataSynopsis ?: details?.extDescription,
                 dataSourceId = content.dataSourceId,
                 systemId = content.systemId,
                 extensionRepoId = content.extensionRepoId,
-                extensionId = content.extensionId ?: extDetail?.extensionId,
-                sourceId = content.sourceId ?: extDetail?.sourceId,
-                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
+                extensionId = content.extensionId ?: details?.extensionIdLong,
+                sourceId = content.sourceId ?: details?.sourceId,
+                animeUrl = content.animeUrl ?: details?.animeUrl,
                 displaySource = content.displaySource,
-                anilistId = anilistDetail?.anilistId,
+                anilistId = details?.anilistId,
             )
             val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
                 episodeKey = episode.url,
@@ -766,9 +772,9 @@ private fun handleDownloadSpecificVideo(
         try {
             val mainId: String? = when (detailsKey) {
                 is AnimeDetailsKey.AniList ->
-                    contentRepository.getContentByAniListId(detailsKey.animeId)?.mainId
+                    contentRepository.getMainEntryByAniListId(detailsKey.animeId)?.mainId
                 is AnimeDetailsKey.Extension ->
-                    contentRepository.getContentByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
+                    contentRepository.getMainEntryByExtension(detailsKey.sourceId, detailsKey.animeUrl)?.mainId
             }
             if (mainId == null) {
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
@@ -777,18 +783,18 @@ private fun handleDownloadSpecificVideo(
                 return@launch
             }
 
-            val content = contentRepository.getContentByMainId(mainId) ?: run {
+            val content = contentRepository.getMainEntryByMainId(mainId) ?: run {
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleDownloadSpecificVideo — no content for mainId=$mainId"
                 }
                 return@launch
             }
-            val anilistDetail = contentRepository.getAniListDetail(mainId)
-            val extDetail = contentRepository.getExtensionDetail(mainId)
-            val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
-            // D.FIX: Use extDetail to fill in FK fields that are null in ContentRecord.
+            // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+            val details = contentRepository.getContentDetails(mainId)
+            val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+            // D.FIX: Use details to fill in FK fields that are null in ContentRecord.
             // For extension-only content, ContentRecord.sourceId/animeUrl/extensionId can
-            // be null — but ExtensionDetail always has them.
+            // be null — content_details always has them on the ext_* axis.
             val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
                 mainId = content.mainId,
                 contentId = content.contentId,
@@ -797,15 +803,16 @@ private fun handleDownloadSpecificVideo(
                 coverColor = null,
                 contentFormat = content.contentFormat,
                 contentType = content.contentType,
-                description = content.description ?: extDetail?.description,
+                // D-198: main_entry.description dropped — use content_details axes as fallback.
+                description = details?.dataSynopsis ?: details?.extDescription,
                 dataSourceId = content.dataSourceId,
                 systemId = content.systemId,
                 extensionRepoId = content.extensionRepoId,
-                extensionId = content.extensionId ?: extDetail?.extensionId,
-                sourceId = content.sourceId ?: extDetail?.sourceId,
-                animeUrl = content.animeUrl ?: extDetail?.animeUrl,
+                extensionId = content.extensionId ?: details?.extensionIdLong,
+                sourceId = content.sourceId ?: details?.sourceId,
+                animeUrl = content.animeUrl ?: details?.animeUrl,
                 displaySource = content.displaySource,
-                anilistId = anilistDetail?.anilistId,
+                anilistId = details?.anilistId,
             )
             val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
                 episodeKey = episode.url,
@@ -1155,7 +1162,7 @@ private suspend fun buildWatchKeyForDownloadedEpisode(
     }
 
     // Look up the sourceId so the watch screen can re-resolve non-downloaded episodes.
-    val sourceId = contentRepository.getExtensionDetail(mainId)?.sourceId ?: 0L
+    val sourceId = contentRepository.getContentDetails(mainId)?.sourceId ?: 0L
     Logger.i("Anikuta:MainActivity") { "Downloads→Watch: sourceId=$sourceId (for episode switching)" }
 
     return WatchKey(

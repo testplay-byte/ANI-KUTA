@@ -4,25 +4,7 @@
 -- Metadata never expires — user manually refreshes.
 -- ============================================================================
 
--- ── anime_metadata_cache ──────────────────────────────────────────────────
--- Stores the full anime metadata for each content (mainId).
--- Never expires — the user manually refreshes via the refresh button.
-CREATE TABLE IF NOT EXISTS anime_metadata_cache (
-    main_id TEXT NOT NULL PRIMARY KEY UNIQUE,
-    title TEXT NOT NULL,
-    description TEXT,
-    cover_url TEXT,
-    banner_url TEXT,
-    score INTEGER,
-    episodes INTEGER,
-    season TEXT,
-    season_year INTEGER,
-    status TEXT,
-    genres TEXT,
-    source_type TEXT NOT NULL DEFAULT 'anilist',
-    fetched_at INTEGER NOT NULL,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
-);
+-- D-198: anime_metadata_cache table DROPPED — absorbed into content_details.data_* axis.
 
 -- ── episode_metadata_cache ────────────────────────────────────────────────
 -- Stores episode-level metadata per content.
@@ -56,7 +38,7 @@ CREATE TABLE IF NOT EXISTS data_cache_episode (
     season_number INTEGER,                -- D-190: AniZip/Kitsu season number
     episode_number_in_season INTEGER,     -- D-190: AniZip episode number within season
     score REAL,                           -- D-190: Jikan community score (0-10)
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_data_cache_episode_pk ON data_cache_episode(main_id, episode_number);
@@ -70,24 +52,6 @@ CREATE TABLE IF NOT EXISTS browse_cache (
     fetched_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL
 );
-
--- ============================================================================
--- Queries: anime_metadata_cache
--- ============================================================================
-getAnimeMetadata:
-SELECT * FROM anime_metadata_cache WHERE main_id = :mainId;
-
-upsertAnimeMetadata:
-INSERT OR REPLACE INTO anime_metadata_cache(
-    main_id, title, description, cover_url, banner_url, score, episodes,
-    season, season_year, status, genres, source_type, fetched_at
-) VALUES (
-    :mainId, :title, :description, :coverUrl, :bannerUrl, :score, :episodes,
-    :season, :seasonYear, :status, :genres, :sourceType, :fetchedAt
-);
-
-deleteAnimeMetadata:
-DELETE FROM anime_metadata_cache WHERE main_id = :mainId;
 
 -- ============================================================================
 -- Queries: data_cache_episode

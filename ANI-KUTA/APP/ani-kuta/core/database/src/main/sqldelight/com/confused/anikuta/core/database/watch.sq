@@ -15,11 +15,12 @@ CREATE TABLE IF NOT EXISTS watch_progress (
     completed_at INTEGER,
     last_watched_at INTEGER NOT NULL,
     -- Phase WP new columns: --
-    main_id TEXT,                                           -- FK → content(main_id), for JOINs + backup (app-level enforced for existing installs; FK in CREATE TABLE for fresh)
+    main_id TEXT,                                           -- FK → main_entry(main_id), for JOINs + backup (app-level enforced for existing installs; FK in CREATE TABLE for fresh)
     watch_count INTEGER NOT NULL DEFAULT 0,                 -- incremented each completed watch
     first_watched_at INTEGER,                               -- the first time the user watched this episode
     auto_mark_suppressed INTEGER NOT NULL DEFAULT 0,        -- CF1: user manually un-marked → suppress auto-mark until next play
-    user_marked_watched INTEGER NOT NULL DEFAULT 0          -- CF1: user explicitly marked watched (sticky)
+    user_marked_watched INTEGER NOT NULL DEFAULT 0,         -- CF1: user explicitly marked watched (sticky)
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_watch_progress_last_watched ON watch_progress(last_watched_at DESC);

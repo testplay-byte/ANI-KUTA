@@ -50,8 +50,9 @@ class ScheduleEngine(
             val libraryMainIds = contentRepository.getLibraryMainIds()
             var created = 0
             for (mainId in libraryMainIds) {
-                val anilistDetail = contentRepository.getAniListDetail(mainId)
-                if (anilistDetail != null) {
+                // D-198: getAniListDetail → getContentDetails; check data source type.
+                val details = contentRepository.getContentDetails(mainId)
+                if (details?.dataSourceType == "anilist") {
                     updateStore.upsertAnimeUpdateState(
                         com.confused.anikuta.core.updates.AnimeUpdateState(
                             mainId = mainId,
@@ -83,9 +84,11 @@ class ScheduleEngine(
         // Build a map of anilistId → mainId.
         val anilistToMainId = mutableMapOf<Int, String>()
         for (state in enabledAnime) {
-            val anilistDetail = contentRepository.getAniListDetail(state.mainId)
-            if (anilistDetail != null) {
-                anilistToMainId[anilistDetail.anilistId] = state.mainId
+            // D-198: getAniListDetail → getContentDetails; anilistId accessor is Int?.
+            val details = contentRepository.getContentDetails(state.mainId)
+            val anilistId = details?.anilistId
+            if (anilistId != null) {
+                anilistToMainId[anilistId] = state.mainId
             }
         }
         if (anilistToMainId.isEmpty()) {
@@ -121,7 +124,7 @@ class ScheduleEngine(
                         scheduleStore.upsertScheduleEntry(
                             mainId = mainId,
                             anilistId = media.id.toLong(),
-                            episodeNumber = node.episode.toLong(),
+                            episodeNumber = node.episode.toDouble(),
                             scheduledAt = airingAtMs,
                             actualAt = null,
                             audioVariant = "unknown",
@@ -145,7 +148,7 @@ class ScheduleEngine(
                         if (airingAtMs <= now && airingAtMs > oneHourAgo && notificationManager != null) {
                             notificationManager.postNotification(
                                 mainId = mainId,
-                                episodeNumber = node.episode.toLong(),
+                                episodeNumber = node.episode.toDouble(),
                                 audioVariant = "unknown",
                                 triggerType = "schedule",
                             )
@@ -160,7 +163,7 @@ class ScheduleEngine(
                                 ScheduleNotificationWorker.schedule(
                                     context = appContext,
                                     mainId = mainId,
-                                    episodeNumber = node.episode.toLong(),
+                                    episodeNumber = node.episode.toDouble(),
                                     airingAt = airingAtMs,
                                 )
                             } catch (e: Exception) {

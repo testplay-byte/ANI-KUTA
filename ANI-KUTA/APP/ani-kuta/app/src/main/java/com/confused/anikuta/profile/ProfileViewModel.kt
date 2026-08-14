@@ -111,14 +111,15 @@ class ProfileViewModel(
                         .take(12)
                         .mapNotNull { progress ->
                             val mid = progress.mainId ?: return@mapNotNull null
-                            val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
-                            val anilistDetail = contentRepository.getAniListDetail(mid)
+                            val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
+                            // D-198: getAniListDetail → getContentDetails.
+                            val details = contentRepository.getContentDetails(mid)
                             val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                             DayWatchItem(
-                                anilistId = anilistDetail?.anilistId,
+                                anilistId = details?.anilistId,
                                 title = content.title,
-                                coverUrl = anilistDetail?.coverUrl,
-                                episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: anilistDetail?.coverUrl,
+                                coverUrl = details?.dataCoverUrl,
+                                episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: details?.dataCoverUrl,
                                 episodeNumber = epNum,
                             )
                         }
@@ -162,14 +163,15 @@ class ProfileViewModel(
                     .take(10)
                     .mapNotNull { progress ->
                         val mid = progress.mainId ?: return@mapNotNull null
-                        val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
-                        val anilistDetail = contentRepository.getAniListDetail(mid)
+                        val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
+                        // D-198: getAniListDetail → getContentDetails.
+                        val details = contentRepository.getContentDetails(mid)
                         val epNum = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                         RecentlyWatchedItem(
-                            anilistId = anilistDetail?.anilistId,
+                            anilistId = details?.anilistId,
                             title = content.title,
-                            coverUrl = anilistDetail?.coverUrl,
-                            episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: anilistDetail?.coverUrl,
+                            coverUrl = details?.dataCoverUrl,
+                            episodeThumbnailUrl = getEpisodeThumbnail(mid, epNum) ?: details?.dataCoverUrl,
                             episodeNumber = epNum,
                             progressFraction = progress.progressFraction,
                             lastWatchedAt = progress.lastWatchedAt,
@@ -266,13 +268,14 @@ class ProfileViewModel(
         // Watch events
         progress.filter { it.lastWatchedAt > 0 }.sortedByDescending { it.lastWatchedAt }.take(50).forEach { p ->
             val mid = p.mainId ?: return@forEach
-            val content = contentRepository.getContentByMainId(mid) ?: return@forEach
-            val anilistDetail = contentRepository.getAniListDetail(mid)
+            val content = contentRepository.getMainEntryByMainId(mid) ?: return@forEach
+            // D-198: getAniListDetail → getContentDetails.
+            val details = contentRepository.getContentDetails(mid)
             val epNum = p.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
             timeline.add(TimelineItem(
-                anilistId = anilistDetail?.anilistId,
+                anilistId = details?.anilistId,
                 title = content.title,
-                coverUrl = anilistDetail?.coverUrl,
+                coverUrl = details?.dataCoverUrl,
                 description = "Watched EP $epNum" + if (p.completed) " (completed)" else "",
                 timestamp = p.lastWatchedAt,
                 type = "watch",
@@ -284,12 +287,13 @@ class ProfileViewModel(
         ratings.forEach { rating ->
             val r = rating as? com.confused.anikuta.core.database.User_rating ?: return@forEach
             val mid = r.main_id ?: return@forEach
-            val content = contentRepository.getContentByMainId(mid) ?: return@forEach
-            val anilistDetail = contentRepository.getAniListDetail(mid)
+            val content = contentRepository.getMainEntryByMainId(mid) ?: return@forEach
+            // D-198: getAniListDetail → getContentDetails.
+            val details = contentRepository.getContentDetails(mid)
             timeline.add(TimelineItem(
-                anilistId = anilistDetail?.anilistId,
+                anilistId = details?.anilistId,
                 title = content.title,
-                coverUrl = anilistDetail?.coverUrl,
+                coverUrl = details?.dataCoverUrl,
                 description = "Rated ${r.rating?.toInt()?.div(10)}/10",
                 timestamp = r.rated_at ?: 0,
                 type = "rating",
@@ -321,14 +325,16 @@ class ProfileViewModel(
             val libraryItems = database.libraryQueries.getAllLibraryItems().executeAsList()
             val libraryMainIds = libraryItems.map { it.main_id }.toSet()
             val genreAnime = libraryMainIds.mapNotNull { mid ->
-                val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
-                val anilistDetail = contentRepository.getAniListDetail(mid) ?: return@mapNotNull null
+                val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
+                // D-198: getAniListDetail → getContentDetails; only include AniList-linked rows.
+                val details = contentRepository.getContentDetails(mid) ?: return@mapNotNull null
+                if (details.anilistId == null) return@mapNotNull null
                 val genres = genreRepository.getGenresForContent(mid)
                 if (genre in genres) {
                     RecentlyWatchedItem(
-                        anilistId = anilistDetail.anilistId,
+                        anilistId = details.anilistId,
                         title = content.title,
-                        coverUrl = anilistDetail.coverUrl,
+                        coverUrl = details.dataCoverUrl,
                         episodeNumber = 0,
                         progressFraction = 0f,
                         lastWatchedAt = 0,

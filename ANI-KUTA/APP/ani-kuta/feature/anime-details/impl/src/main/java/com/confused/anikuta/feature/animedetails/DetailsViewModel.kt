@@ -467,23 +467,24 @@ class DetailsViewModel(
         viewModelScope.launch {
             try {
                 // D.1: Check the local data cache first — if cached, display instantly.
-                val cachedMainId = contentRepository.getContentByAniListId(animeId)?.mainId
-                var cachedMeta: com.confused.anikuta.core.datacache.CachedAnimeMetadata? = null
+                // D-198: anime_metadata_cache absorbed into content_details (data-source axis).
+                val cachedMainId = contentRepository.getMainEntryByAniListId(animeId)?.mainId
+                var cachedMeta: com.confused.anikuta.core.content.ContentDetails? = null
                 if (cachedMainId != null) {
-                    cachedMeta = dataCacheRepository.getAnimeMetadata(cachedMainId)
-                    if (cachedMeta != null) {
-                        Logger.i(TAG) { "Loaded from cache: ${cachedMeta.title}" }
+                    cachedMeta = contentRepository.getContentDetails(cachedMainId)
+                    if (cachedMeta != null && cachedMeta.hasDataSourceLink) {
+                        Logger.i(TAG) { "Loaded from cache (content_details): $animeId" }
                         anilistBase = com.confused.anikuta.core.common.model.UnifiedAnime(
-                            title = cachedMeta.title,
-                            coverUrl = cachedMeta.coverUrl,
-                            bannerUrl = cachedMeta.bannerUrl,
-                            description = cachedMeta.description,
-                            genres = cachedMeta.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
-                            status = cachedMeta.status,
-                            episodes = cachedMeta.episodes,
-                            averageScore = cachedMeta.score,
-                            season = cachedMeta.season,
-                            seasonYear = cachedMeta.seasonYear,
+                            title = contentRepository.getMainEntryByMainId(cachedMainId)?.title ?: "",
+                            coverUrl = cachedMeta.dataCoverUrl,
+                            bannerUrl = cachedMeta.dataBannerUrl,
+                            description = cachedMeta.dataSynopsis,
+                            genres = cachedMeta.dataGenres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                            status = cachedMeta.dataStatus,
+                            episodes = cachedMeta.dataEpisodes?.toInt(),
+                            averageScore = cachedMeta.dataScore?.toInt(),
+                            season = cachedMeta.dataSeason,
+                            seasonYear = cachedMeta.dataSeasonYear?.toInt(),
                             anilistId = animeId,
                             entryMode = com.confused.anikuta.core.common.model.EntryMode.ANILIST,
                         )
@@ -510,27 +511,28 @@ class DetailsViewModel(
                     resolveContentForAniList(animeId, anime.displayName, anime)
 
                     // D.1: Cache the fetched metadata locally.
+                    // D-198: anime_metadata_cache → content_details (data-source axis).
                     val mainIdForCache = currentMainId
                     if (mainIdForCache != null) {
-                        dataCacheRepository.upsertAnimeMetadata(
-                        com.confused.anikuta.core.datacache.CachedAnimeMetadata(
-                            mainId = mainIdForCache,
-                            title = anime.displayName,
-                            description = anime.description,
-                            coverUrl = anime.coverUrl,
-                            bannerUrl = anime.bannerImage,
-                            score = anime.averageScore,
-                            episodes = anime.episodes,
-                            season = anime.season,
-                            seasonYear = anime.seasonYear,
-                            status = anime.status,
-                            genres = anime.genres?.joinToString(", "),
-                            sourceType = "anilist",
-                            fetchedAt = System.currentTimeMillis(),
-                        ),
-                    )
-                    Logger.i(TAG) { "Cached anime metadata for mainId=$mainIdForCache" }
-                }
+                        contentRepository.updateDataSourceAxis(
+                            com.confused.anikuta.core.content.ContentDetails(
+                                mainId = mainIdForCache,
+                                dataSourceType = "anilist",
+                                dataSourceRefId = animeId.toString(),
+                                dataScore = anime.averageScore?.toLong(),
+                                dataEpisodes = anime.episodes?.toLong(),
+                                dataSeason = anime.season,
+                                dataSeasonYear = anime.seasonYear?.toLong(),
+                                dataStatus = anime.status,
+                                dataGenres = anime.genres?.joinToString(", "),
+                                dataSynopsis = anime.description,
+                                dataCoverUrl = anime.coverUrl,
+                                dataBannerUrl = anime.bannerImage,
+                                dataUpdatedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                        Logger.i(TAG) { "Cached anime metadata for mainId=$mainIdForCache" }
+                    }
                     } catch (netErr: Exception) {
                         // D-146: Network failed — if we have cached data, show it.
                         // Don't show an error if the cache already displayed data.
@@ -698,23 +700,24 @@ class DetailsViewModel(
                             ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                     )
                     // D.1: Update the cache.
+                    // D-198: anime_metadata_cache → content_details (data-source axis).
                     val mainId = currentMainId
                     if (mainId != null) {
-                        dataCacheRepository.upsertAnimeMetadata(
-                            com.confused.anikuta.core.datacache.CachedAnimeMetadata(
+                        contentRepository.updateDataSourceAxis(
+                            com.confused.anikuta.core.content.ContentDetails(
                                 mainId = mainId,
-                                title = fresh.displayName,
-                                description = fresh.description,
-                                coverUrl = fresh.coverUrl,
-                                bannerUrl = fresh.bannerImage,
-                                score = fresh.averageScore,
-                                episodes = fresh.episodes,
-                                season = fresh.season,
-                                seasonYear = fresh.seasonYear,
-                                status = fresh.status,
-                                genres = fresh.genres?.joinToString(", "),
-                                sourceType = "anilist",
-                                fetchedAt = System.currentTimeMillis(),
+                                dataSourceType = "anilist",
+                                dataSourceRefId = anilistId.toString(),
+                                dataScore = fresh.averageScore?.toLong(),
+                                dataEpisodes = fresh.episodes?.toLong(),
+                                dataSeason = fresh.season,
+                                dataSeasonYear = fresh.seasonYear?.toLong(),
+                                dataStatus = fresh.status,
+                                dataGenres = fresh.genres?.joinToString(", "),
+                                dataSynopsis = fresh.description,
+                                dataCoverUrl = fresh.coverUrl,
+                                dataBannerUrl = fresh.bannerImage,
+                                dataUpdatedAt = System.currentTimeMillis(),
                             ),
                         )
                     }
@@ -869,25 +872,25 @@ class DetailsViewModel(
         thumbnailUrl: String?,
     ) {
         // Check if we have a content record for this extension entry.
-        val existingContent = contentRepository.getContentByExtension(sourceId, animeUrl)
+        val existingContent = contentRepository.getMainEntryByExtension(sourceId, animeUrl)
         if (existingContent != null) {
             Logger.i(TAG) { "Found cached content for extension: ${existingContent.title}" }
             currentMainId = existingContent.mainId; _mainIdFlow.value = existingContent.mainId
 
-            // Restore extension detail from DB.
-            val extDetail = contentRepository.getExtensionDetail(existingContent.mainId)
-            if (extDetail != null) {
+            // D-198: getExtensionDetail → getContentDetails; build extensionBase from ext_* axis.
+            val details = contentRepository.getContentDetails(existingContent.mainId)
+            if (details != null && details.hasExtensionLink) {
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
                     title = existingContent.title,
-                    description = extDetail.description,
-                    genres = extDetail.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
-                    status = extDetail.status,
-                    author = extDetail.author,
-                    artist = extDetail.artist,
-                    coverUrl = extDetail.thumbnailUrl ?: thumbnailUrl,
-                    sourceId = extDetail.sourceId,
+                    description = details.extDescription,
+                    genres = details.extGenres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                    status = details.extStatus,
+                    author = details.extAuthor,
+                    artist = details.extArtist,
+                    coverUrl = details.extThumbnailUrl ?: thumbnailUrl,
+                    sourceId = details.sourceId,
                     sourceName = null,
-                    animeUrl = extDetail.animeUrl,
+                    animeUrl = details.animeUrl,
                     entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
                 )
             } else {
@@ -928,29 +931,28 @@ class DetailsViewModel(
             }
 
             // Check if we also have AniList data cached.
-            val anilistDetail = contentRepository.getAniListDetail(existingContent.mainId)
-            if (anilistDetail != null) {
-                val cachedMeta = dataCacheRepository.getAnimeMetadata(existingContent.mainId)
-                if (cachedMeta != null) {
-                    anilistBase = com.confused.anikuta.core.common.model.UnifiedAnime(
-                        title = cachedMeta.title,
-                        coverUrl = cachedMeta.coverUrl,
-                        bannerUrl = cachedMeta.bannerUrl,
-                        description = cachedMeta.description,
-                        genres = cachedMeta.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
-                        status = cachedMeta.status,
-                        episodes = cachedMeta.episodes,
-                        averageScore = cachedMeta.score,
-                        season = cachedMeta.season,
-                        seasonYear = cachedMeta.seasonYear,
-                        anilistId = anilistDetail.anilistId,
-                        entryMode = com.confused.anikuta.core.common.model.EntryMode.ANILIST,
-                    )
-                    remergeBases(
-                        (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
-                            ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
-                    )
-                }
+            // D-198: getAniListDetail → getContentDetails; anime_metadata_cache absorbed into data axis.
+            val details = contentRepository.getContentDetails(existingContent.mainId)
+            if (details != null && details.hasDataSourceLink) {
+                val content = contentRepository.getMainEntryByMainId(existingContent.mainId)
+                anilistBase = com.confused.anikuta.core.common.model.UnifiedAnime(
+                    title = content?.title ?: existingContent.title,
+                    coverUrl = details.dataCoverUrl,
+                    bannerUrl = details.dataBannerUrl,
+                    description = details.dataSynopsis,
+                    genres = details.dataGenres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                    status = details.dataStatus,
+                    episodes = details.dataEpisodes?.toInt(),
+                    averageScore = details.dataScore?.toInt(),
+                    season = details.dataSeason,
+                    seasonYear = details.dataSeasonYear?.toInt(),
+                    anilistId = details.anilistId,
+                    entryMode = com.confused.anikuta.core.common.model.EntryMode.ANILIST,
+                )
+                remergeBases(
+                    (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                        ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                )
             }
         } else {
             // No cached data at all — show error.
@@ -973,20 +975,21 @@ class DetailsViewModel(
         anime: com.confused.anikuta.core.anilist.model.AniListAnime,
     ) {
         try {
-            val detail = com.confused.anikuta.core.content.AniListDetail(
+            // D-198: AniListDetail → ContentDetails (data-source axis).
+            val detail = com.confused.anikuta.core.content.ContentDetails(
                 mainId = "", // Will be set by resolver.
-                anilistId = anilistId,
-                idMal = anime.idMal,
-                score = anime.averageScore,
-                episodes = anime.episodes,
-                season = anime.season,
-                seasonYear = anime.seasonYear,
-                status = anime.status,
-                genres = anime.genres?.joinToString(", "),
-                synopsis = anime.description,
-                coverUrl = anime.coverUrl,
-                bannerUrl = anime.bannerImage,
-                updatedAt = System.currentTimeMillis(),
+                dataSourceType = "anilist",
+                dataSourceRefId = anilistId.toString(),
+                dataScore = anime.averageScore?.toLong(),
+                dataEpisodes = anime.episodes?.toLong(),
+                dataSeason = anime.season,
+                dataSeasonYear = anime.seasonYear?.toLong(),
+                dataStatus = anime.status,
+                dataGenres = anime.genres?.joinToString(", "),
+                dataSynopsis = anime.description,
+                dataCoverUrl = anime.coverUrl,
+                dataBannerUrl = anime.bannerImage,
+                dataUpdatedAt = System.currentTimeMillis(),
             )
             val mainId = contentResolver.resolveOrCreateForAniList(anilistId, title, detail)
             currentMainId = mainId; _mainIdFlow.value = mainId
@@ -1016,33 +1019,42 @@ class DetailsViewModel(
             val cachedAniListId = autoLinkPreferences.getCachedAniListId(sourceId, animeUrl)
             if (cachedAniListId > 0) {
                 // Check if a content record already exists for this anilistId.
-                val existingContent = contentRepository.getContentByAniListId(cachedAniListId)
+                val existingContent = contentRepository.getMainEntryByAniListId(cachedAniListId)
                 if (existingContent != null) {
                     Logger.i(TAG) { "Cross-source match: extension ($sourceId, $animeUrl) → existing mainId=${existingContent.mainId} (via cached anilistId=$cachedAniListId)" }
-                    // Link this extension entry to the existing content record.
-                    contentResolver.linkExtensionToExisting(
-                        mainId = existingContent.mainId,
-                        extensionId = sourceId,
-                        sourceId = sourceId,
-                        animeUrl = animeUrl,
-                        title = title,
-                    )
-                    // D-142: Store the extension detail (with coverUrl) for library display.
+                    // D-198: link the extension entry + atomically store the ext_* axis
+                    // (single transaction in the resolver). When unifiedAnime is null, fall
+                    // back to the 5-arg overload (no metadata to persist).
                     if (unifiedAnime != null) {
-                        contentRepository.upsertExtensionDetail(
-                            com.confused.anikuta.core.content.ExtensionDetail(
-                                mainId = existingContent.mainId,
-                                extensionId = sourceId,
-                                sourceId = sourceId,
-                                animeUrl = animeUrl,
-                                description = unifiedAnime.description,
-                                genres = unifiedAnime.genres.joinToString(", "),
-                                status = unifiedAnime.status,
-                                author = unifiedAnime.author,
-                                artist = unifiedAnime.artist,
-                                thumbnailUrl = unifiedAnime.coverUrl,
-                                updatedAt = System.currentTimeMillis(),
-                            ),
+                        val extensionDetail = com.confused.anikuta.core.content.ContentDetails(
+                            mainId = existingContent.mainId,
+                            extensionType = "aniyomi",
+                            extensionId = sourceId.toString(),
+                            sourceId = sourceId,
+                            animeUrl = animeUrl,
+                            extDescription = unifiedAnime.description,
+                            extGenres = unifiedAnime.genres.joinToString(", "),
+                            extStatus = unifiedAnime.status,
+                            extAuthor = unifiedAnime.author,
+                            extArtist = unifiedAnime.artist,
+                            extThumbnailUrl = unifiedAnime.coverUrl,
+                            extUpdatedAt = System.currentTimeMillis(),
+                        )
+                        contentResolver.linkExtensionToExisting(
+                            mainId = existingContent.mainId,
+                            extensionId = sourceId,
+                            sourceId = sourceId,
+                            animeUrl = animeUrl,
+                            title = title,
+                            extensionDetail = extensionDetail,
+                        )
+                    } else {
+                        contentResolver.linkExtensionToExisting(
+                            mainId = existingContent.mainId,
+                            extensionId = sourceId,
+                            sourceId = sourceId,
+                            animeUrl = animeUrl,
+                            title = title,
                         )
                     }
                     currentMainId = existingContent.mainId; _mainIdFlow.value = existingContent.mainId
@@ -1063,22 +1075,23 @@ class DetailsViewModel(
             )
             currentMainId = mainId; _mainIdFlow.value = mainId
 
-            // D-142: Store the extension detail (with coverUrl) for library display.
+            // D-142 + D-198: Store the extension detail (with coverUrl) for library display.
             // Without this, the library can't show cover images for extension-only entries.
             if (unifiedAnime != null) {
-                contentRepository.upsertExtensionDetail(
-                    com.confused.anikuta.core.content.ExtensionDetail(
+                contentRepository.updateExtensionAxis(
+                    com.confused.anikuta.core.content.ContentDetails(
                         mainId = mainId,
-                        extensionId = sourceId,
+                        extensionType = "aniyomi",
+                        extensionId = sourceId.toString(),
                         sourceId = sourceId,
                         animeUrl = animeUrl,
-                        description = unifiedAnime.description,
-                        genres = unifiedAnime.genres.joinToString(", "),
-                        status = unifiedAnime.status,
-                        author = unifiedAnime.author,
-                        artist = unifiedAnime.artist,
-                        thumbnailUrl = unifiedAnime.coverUrl,
-                        updatedAt = System.currentTimeMillis(),
+                        extDescription = unifiedAnime.description,
+                        extGenres = unifiedAnime.genres.joinToString(", "),
+                        extStatus = unifiedAnime.status,
+                        extAuthor = unifiedAnime.author,
+                        extArtist = unifiedAnime.artist,
+                        extThumbnailUrl = unifiedAnime.coverUrl,
+                        extUpdatedAt = System.currentTimeMillis(),
                     ),
                 )
                 Logger.i(TAG) { "Extension detail stored with coverUrl=${unifiedAnime.coverUrl?.take(60)}" }
@@ -1094,7 +1107,7 @@ class DetailsViewModel(
      * Refresh the contentId + library status from the repository.
      */
     private fun refreshContentAndLibraryStatus(mainId: String) {
-        val content = contentRepository.getContentByMainId(mainId)
+        val content = contentRepository.getMainEntryByMainId(mainId)
         if (content != null) {
             _contentId.value = content.contentId
             Logger.i(TAG) { "Content ID: ${content.contentId}" }
@@ -1107,7 +1120,7 @@ class DetailsViewModel(
      * Refresh just the contentId (after a link/unlink operation).
      */
     private fun refreshContentId(mainId: String) {
-        val content = contentRepository.getContentByMainId(mainId)
+        val content = contentRepository.getMainEntryByMainId(mainId)
         if (content != null) {
             _contentId.value = content.contentId
             Logger.i(TAG) { "Content ID refreshed: ${content.contentId}" }
@@ -1302,25 +1315,26 @@ class DetailsViewModel(
             remergeBases(priority)
 
             // D-137: Persist the AniList link in the content database.
-            // This ensures the anilist_detail row is created + the content record's
+            // D-198: anilist_detail → content_details (data-source axis).
+            // This ensures the content_details row is created + the main_entry's
             // dataSourceId is set. When the same anime is opened from another source
             // later, the content resolver can find this mainId via the anilistId.
             val mainId = currentMainId
             if (mainId != null) {
-                val detail = com.confused.anikuta.core.content.AniListDetail(
+                val detail = com.confused.anikuta.core.content.ContentDetails(
                     mainId = mainId,
-                    anilistId = anilistId,
-                    idMal = anilistData.idMal,
-                    score = anilistData.averageScore,
-                    episodes = anilistData.episodes,
-                    season = anilistData.season,
-                    seasonYear = anilistData.seasonYear,
-                    status = anilistData.status,
-                    genres = anilistData.genres?.joinToString(", "),
-                    synopsis = anilistData.description,
-                    coverUrl = anilistData.coverUrl,
-                    bannerUrl = anilistData.bannerUrl,
-                    updatedAt = System.currentTimeMillis(),
+                    dataSourceType = "anilist",
+                    dataSourceRefId = anilistId.toString(),
+                    dataScore = anilistData.averageScore?.toLong(),
+                    dataEpisodes = anilistData.episodes?.toLong(),
+                    dataSeason = anilistData.season,
+                    dataSeasonYear = anilistData.seasonYear?.toLong(),
+                    dataStatus = anilistData.status,
+                    dataGenres = anilistData.genres?.joinToString(", "),
+                    dataSynopsis = anilistData.description,
+                    dataCoverUrl = anilistData.coverUrl,
+                    dataBannerUrl = anilistData.bannerUrl,
+                    dataUpdatedAt = System.currentTimeMillis(),
                 )
                 contentResolver.linkAniList(mainId, anilistId, detail)
                 // Genre System: normalize + store genres in the junction table.
@@ -1534,21 +1548,22 @@ class DetailsViewModel(
 
         // D-140: Restore extensionBase from the content database.
         // This makes the data-source selector available immediately on reopen.
+        // D-198: getExtensionDetail → getContentDetails; ext_* axis.
         val mainId = currentMainId
         if (mainId != null && extensionBase == null) {
-            val extDetail = contentRepository.getExtensionDetail(mainId)
-            if (extDetail != null) {
+            val details = contentRepository.getContentDetails(mainId)
+            if (details != null && details.hasExtensionLink) {
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
-                    title = extDetail.animeUrl.substringAfterLast("/").replace("-", " "),
-                    description = extDetail.description,
-                    genres = extDetail.genres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
-                    status = extDetail.status,
-                    author = extDetail.author,
-                    artist = extDetail.artist,
-                    coverUrl = extDetail.thumbnailUrl,
-                    sourceId = extDetail.sourceId,
+                    title = (details.animeUrl ?: animeUrl).substringAfterLast("/").replace("-", " "),
+                    description = details.extDescription,
+                    genres = details.extGenres?.split(", ")?.filter { it.isNotBlank() } ?: emptyList(),
+                    status = details.extStatus,
+                    author = details.extAuthor,
+                    artist = details.extArtist,
+                    coverUrl = details.extThumbnailUrl,
+                    sourceId = details.sourceId,
                     sourceName = source.name,
-                    animeUrl = extDetail.animeUrl,
+                    animeUrl = details.animeUrl ?: animeUrl,
                     entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
                 )
                 Logger.i(TAG) { "Extension base restored from DB for reopen" }
@@ -1622,31 +1637,35 @@ class DetailsViewModel(
 
         // D-139: Persist the extension link in the content database.
         // This updates the content record with the extension fields + regenerates
-        // the contentId. Also stores the extension_detail row.
+        // the contentId. D-198: also stores the ext_* axis in content_details
+        // via linkExtensionToExisting's overload that takes extensionDetail.
         val mainId = currentMainId
         if (mainId != null) {
+            // D-198: ExtensionDetail → ContentDetails (extension axis). Pass via the
+            // linkExtensionToExisting overload that takes extensionDetail to atomically
+            // update both main_entry + content_details in a single transaction.
+            val extensionDetail = com.confused.anikuta.core.content.ContentDetails(
+                mainId = mainId,
+                extensionType = "aniyomi",
+                extensionId = source.id.toString(),
+                sourceId = source.id,
+                animeUrl = sAnime.url,
+                extDescription = sAnime.description,
+                extGenres = sAnime.genre,
+                extStatus = sAnime.status.toString(),
+                extAuthor = sAnime.author,
+                extArtist = sAnime.artist,
+                extThumbnailUrl = sAnime.thumbnail_url,
+                extUpdatedAt = System.currentTimeMillis(),
+            )
             contentResolver.linkExtensionToExisting(
                 mainId = mainId,
                 extensionId = source.id,
                 sourceId = source.id,
                 animeUrl = sAnime.url,
                 title = sAnime.title,
+                extensionDetail = extensionDetail,
             )
-            // Also store the extension detail.
-            val extDetail = com.confused.anikuta.core.content.ExtensionDetail(
-                mainId = mainId,
-                extensionId = source.id,
-                sourceId = source.id,
-                animeUrl = sAnime.url,
-                description = sAnime.description,
-                genres = sAnime.genre,
-                status = sAnime.status.toString(),
-                author = sAnime.author,
-                artist = sAnime.artist,
-                thumbnailUrl = sAnime.thumbnail_url,
-                updatedAt = System.currentTimeMillis(),
-            )
-            contentRepository.upsertExtensionDetail(extDetail)
             refreshContentId(mainId)
         }
 
@@ -1689,6 +1708,9 @@ class DetailsViewModel(
      * Unlink the current source.
      *
      * D-134: Clears [extensionBase] + re-merge (shows AniList data only, if available).
+     * D-198: also calls [ContentResolver.unlinkExtension] to NULL the ext_* axis on
+     * content_details + regenerate content_id + flip display_source (fixes the
+     * orphan-row bug).
      */
     fun unlinkSource() {
         val animeId = currentAnimeId
@@ -1696,6 +1718,13 @@ class DetailsViewModel(
         preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + animeId, "")
         _linkedSource.value = null
         _episodeState.value = EpisodeState.Idle
+
+        // D-198: persist the unlink in the content database.
+        val mainId = currentMainId
+        if (mainId != null) {
+            contentResolver.unlinkExtension(mainId)
+            refreshContentId(mainId)
+        }
 
         // D-134: Clear the extension base + re-merge.
         extensionBase = null

@@ -69,10 +69,10 @@ class BrowseViewModel(
             .map { progressList ->
                 progressList.mapNotNull { progress ->
                     val mid = progress.mainId ?: return@mapNotNull null
-                    val content = contentRepository.getContentByMainId(mid) ?: return@mapNotNull null
-                    val anilistDetail = contentRepository.getAniListDetail(mid)
-                    val extDetail = contentRepository.getExtensionDetail(mid)
-                    val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+                    val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
+                    // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+                    val details = contentRepository.getContentDetails(mid)
+                    val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
                     val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
                     // Phase 3: look up episode thumbnail (fallback to cover).
                     val epMeta = dataCacheRepository.getEpisodeMetadata(mid)
@@ -81,9 +81,9 @@ class BrowseViewModel(
                     val episodeUrl = epMeta?.episodeUrl ?: ""
                     ContinueWatchingItem(
                         mainId = mid,
-                        anilistId = anilistDetail?.anilistId,
-                        sourceId = extDetail?.sourceId ?: content.sourceId ?: 0L,
-                        animeUrl = content.animeUrl ?: extDetail?.animeUrl ?: "",
+                        anilistId = details?.anilistId,
+                        sourceId = details?.sourceId ?: content.sourceId ?: 0L,
+                        animeUrl = content.animeUrl ?: details?.animeUrl ?: "",
                         title = content.title,
                         coverUrl = coverUrl,
                         thumbnailUrl = thumbnailUrl,

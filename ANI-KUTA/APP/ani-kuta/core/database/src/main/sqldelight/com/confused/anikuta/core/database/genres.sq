@@ -29,11 +29,10 @@ CREATE TABLE IF NOT EXISTS content_genre (
     genre_id INTEGER NOT NULL,
     source TEXT NOT NULL DEFAULT 'anilist',  -- 'anilist' | 'extension'
     PRIMARY KEY (main_id, genre_id),
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE,
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE,
     FOREIGN KEY (genre_id) REFERENCES genre(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_content_genre_main ON content_genre(main_id);
 CREATE INDEX IF NOT EXISTS idx_content_genre_genre ON content_genre(genre_id);
 
 -- ── Queries: genre ────────────────────────────────────────────────────────

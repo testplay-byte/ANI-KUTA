@@ -142,10 +142,10 @@ class UpdatesViewModel(
     }
 
     private fun enrichUpdate(update: com.confused.anikuta.core.updates.EpisodeUpdate): UpdateDisplay? {
-        val content = contentRepository.getContentByMainId(update.mainId) ?: return null
-        val anilistDetail = contentRepository.getAniListDetail(update.mainId)
-        val extDetail = contentRepository.getExtensionDetail(update.mainId)
-        val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+        val content = contentRepository.getMainEntryByMainId(update.mainId) ?: return null
+        // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+        val details = contentRepository.getContentDetails(update.mainId)
+        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
         return UpdateDisplay(
             mainId = update.mainId,
             animeTitle = content.title,

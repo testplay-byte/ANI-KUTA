@@ -5,15 +5,15 @@
 
 CREATE TABLE IF NOT EXISTS episode_schedule (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    main_id TEXT NOT NULL,               -- FK → content(main_id)
+    main_id TEXT NOT NULL,               -- FK → main_entry(main_id)
     anilist_id INTEGER,                  -- for the AniList airing API
-    episode_number INTEGER NOT NULL,
+    episode_number REAL NOT NULL,
     scheduled_at INTEGER NOT NULL,       -- AniList airingAt (epoch millis) — the PLANNED time
     actual_at INTEGER,                   -- the ACTUAL release time (null until detected; IM11: uses source dateUpload)
     audio_variant TEXT NOT NULL DEFAULT 'unknown',  -- CF7: NOT NULL (nullable breaks UNIQUE dedup)
     source TEXT NOT NULL DEFAULT 'anilist',  -- 'anilist' | 'extension' | 'manual' (IM5: dropped confidence)
     fetched_at INTEGER NOT NULL,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_unique ON episode_schedule(main_id, episode_number, audio_variant);

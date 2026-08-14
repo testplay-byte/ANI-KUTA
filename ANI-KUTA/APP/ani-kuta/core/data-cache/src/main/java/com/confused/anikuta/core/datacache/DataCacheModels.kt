@@ -1,26 +1,10 @@
 package com.confused.anikuta.core.datacache
 
 /**
- * Cached anime metadata — stored locally for instant display.
- *
- * Never expires — the user manually refreshes via the refresh button
- * or pull-to-refresh.
+ * D-198: CachedAnimeMetadata data class REMOVED — the anime_metadata_cache table
+ * was absorbed into content_details (data-source axis). Callers now use
+ * ContentDetails directly (dataSynopsis / dataCoverUrl / dataScore / etc.).
  */
-data class CachedAnimeMetadata(
-    val mainId: String,
-    val title: String,
-    val description: String? = null,
-    val coverUrl: String? = null,
-    val bannerUrl: String? = null,
-    val score: Int? = null,
-    val episodes: Int? = null,
-    val season: String? = null,
-    val seasonYear: Int? = null,
-    val status: String? = null,
-    val genres: String? = null,
-    val sourceType: String = "anilist",
-    val fetchedAt: Long,
-)
 
 /**
  * Cached episode metadata.
@@ -71,3 +55,4 @@ data class CachedBrowseSection(
     /** Whether this cached section has expired (6-hour auto-update). */
     val isExpired: Boolean get() = System.currentTimeMillis() > expiresAt
 }
+

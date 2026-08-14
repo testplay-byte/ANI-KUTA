@@ -45,7 +45,7 @@ class ScheduleNotificationWorker(
         fun schedule(
             context: Context,
             mainId: String,
-            episodeNumber: Long,
+            episodeNumber: Double,
             airingAt: Long,
         ) {
             val now = System.currentTimeMillis()
@@ -57,7 +57,7 @@ class ScheduleNotificationWorker(
             val workName = "schedule_notif_${mainId}_$episodeNumber"
             val inputData = Data.Builder()
                 .putString(KEY_MAIN_ID, mainId)
-                .putLong(KEY_EPISODE_NUMBER, episodeNumber)
+                .putDouble(KEY_EPISODE_NUMBER, episodeNumber)
                 .putLong(KEY_AIRING_AT, airingAt)
                 .build()
 
@@ -81,7 +81,7 @@ class ScheduleNotificationWorker(
 
     override suspend fun doWork(): Result {
         val mainId = inputData.getString(KEY_MAIN_ID) ?: return Result.success()
-        val episodeNumber = inputData.getLong(KEY_EPISODE_NUMBER, -1L)
+        val episodeNumber = inputData.getDouble(KEY_EPISODE_NUMBER, -1.0)
         if (episodeNumber < 0) return Result.success()
 
         Logger.i(TAG) { "Firing on_schedule notification: mainId=$mainId ep=$episodeNumber" }

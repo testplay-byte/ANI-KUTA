@@ -118,12 +118,12 @@ class UpdateEngine(
             dueAnime.map { state ->
                 async {
                     // D-193 Phase 4: emit progress before each check.
-                    val content = contentRepository.getContentByMainId(state.mainId)
+                    val content = contentRepository.getMainEntryByMainId(state.mainId)
                     val title = content?.title ?: "Unknown"
                     // D-193 Phase 5: look up cover URL for the live-progress banner.
-                    val anilistDetail = content?.let { contentRepository.getAniListDetail(it.mainId) }
-                    val extDetail = content?.let { contentRepository.getExtensionDetail(it.mainId) }
-                    val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+                    // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+                    val details = content?.let { contentRepository.getContentDetails(it.mainId) }
+                    val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
                     synchronized(this@UpdateEngine) {
                         current++
                         _checkProgress.tryEmit(CheckProgress(current, total, state.mainId, title, coverUrl))
@@ -147,7 +147,7 @@ class UpdateEngine(
      */
     private suspend fun checkSingleAnime(state: AnimeUpdateState, now: Long): Int {
         val mainId = state.mainId
-        val content = contentRepository.getContentByMainId(mainId)
+        val content = contentRepository.getMainEntryByMainId(mainId)
         if (content == null) {
             Logger.w(TAG) { "checkSingleAnime — content not found: mainId=$mainId (skipping)" }
             return 0
@@ -189,6 +189,8 @@ class UpdateEngine(
             val episodes = source.getEpisodeList(sAnime)
 
             val lastKnown = state.lastKnownEpisodeCount ?: 0
+            // D-198: episode_number type changed from INTEGER to REAL (Double). The
+            // maxEpisodeNumber is now a Double — compare against lastKnown as a Double.
             val maxEpisodeNumber = episodes.maxOfOrNull { it.episode_number.toDouble() } ?: 0.0
 
             if (maxEpisodeNumber <= lastKnown) {
@@ -246,10 +248,11 @@ class UpdateEngine(
                         inserted++
                         Logger.i(TAG) { "checkSingleAnime — NEW SUB: mainId=$mainId ep=$epNum watched=$isWatched" }
                         if (!isWatched) {
-                            notificationSender?.postNotification(mainId, epNum.toLong(), "sub", "watchable")
+                            // D-198: episode_number Long→Double migration.
+                            notificationSender?.postNotification(mainId, epNum.toDouble(), "sub", "watchable")
                         }
                         val sourceDateUpload = ep.date_upload
-                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
+                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toDouble(),
                             if (sourceDateUpload > 0) sourceDateUpload else now)
                     }
                 }
@@ -272,10 +275,11 @@ class UpdateEngine(
                         inserted++
                         Logger.i(TAG) { "checkSingleAnime — NEW DUB: mainId=$mainId ep=$epNum watched=$isWatched" }
                         if (!isWatched) {
-                            notificationSender?.postNotification(mainId, epNum.toLong(), "dub", "watchable")
+                            // D-198: episode_number Long→Double migration.
+                            notificationSender?.postNotification(mainId, epNum.toDouble(), "dub", "watchable")
                         }
                         val sourceDateUpload = ep.date_upload
-                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toLong(),
+                        actualReleaseUpdater?.updateActualAt(mainId, epNum.toDouble(),
                             if (sourceDateUpload > 0) sourceDateUpload else now)
                     }
                 }

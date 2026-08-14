@@ -79,10 +79,10 @@ class HistoryViewModel(
      */
     private fun enrichEntry(progress: WatchProgress): HistoryEntry? {
         val mainId = progress.mainId ?: return null
-        val content = contentRepository.getContentByMainId(mainId) ?: return null
-        val anilistDetail = contentRepository.getAniListDetail(mainId)
-        val extDetail = contentRepository.getExtensionDetail(mainId)
-        val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+        val content = contentRepository.getMainEntryByMainId(mainId) ?: return null
+        // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+        val details = contentRepository.getContentDetails(mainId)
+        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
         // Parse the episode number from the standardized episode_key: "${mainId}|${padded_5_digit}"
         val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
         return HistoryEntry(

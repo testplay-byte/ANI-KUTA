@@ -7,7 +7,7 @@
 -- D-193 v2: added learned_offset_ms for real smart-release averaging.
 
 CREATE TABLE IF NOT EXISTS anime_update_state (
-    main_id TEXT NOT NULL PRIMARY KEY,   -- FK → content(main_id)
+    main_id TEXT NOT NULL PRIMARY KEY,   -- FK → main_entry(main_id)
     status TEXT,                         -- 'RELEASING' | 'FINISHED' | 'NOT_YET_RELEASED' | 'CANCELLED' | null (from AniList, M2)
     last_checked_at INTEGER,             -- when we last checked this anime for sub updates
     next_check_at INTEGER,               -- when we should next check (CF4: with backoff)
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS anime_update_state (
     -- Null = no history yet (first find uses the raw offset). Non-null = weighted
     -- average of previous offsets, so the system converges on the show's real rhythm.
     learned_offset_ms INTEGER,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
 -- S2: partial index — only due + enabled + releasing anime (the worker's query)

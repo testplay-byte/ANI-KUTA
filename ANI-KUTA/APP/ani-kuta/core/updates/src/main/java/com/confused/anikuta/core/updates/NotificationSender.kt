@@ -25,7 +25,7 @@ fun interface NotificationSender {
      */
     suspend fun postNotification(
         mainId: String,
-        episodeNumber: Long,
+        episodeNumber: Double,
         audioVariant: String,
         triggerType: String,
     ): Boolean

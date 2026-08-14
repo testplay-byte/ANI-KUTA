@@ -1,11 +1,16 @@
 -- ============================================================================
--- Content Identity System (Phase C)
--- Per PHASE-C-PLAN.md v4 (final)
+-- Content Identity System (Phase C) — restructured per PLAN v2 (D-198)
+-- ============================================================================
+-- Changes from v1:
+--   - content → main_entry (renamed for clarity)
+--   - anilist_detail + extension_detail + other_source_detail → content_details (merged)
+--   - description column dropped from main_entry (was dead — read from content_details)
+--   - display_source values: 'data_source' | 'extension' (axis-level, not source-name-level)
 -- ============================================================================
 
 -- ── Lookup: data_sources ──────────────────────────────────────────────────
 -- Metadata / tracking sources (AniList, TMDB, Kitsu, MAL).
--- Seeded once at first launch.
+-- Seeded once at first launch. User never edits — updated via app updates.
 CREATE TABLE IF NOT EXISTS data_source (
     id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     name TEXT NOT NULL UNIQUE,
@@ -16,6 +21,7 @@ CREATE TABLE IF NOT EXISTS data_source (
 
 -- ── Lookup: systems ───────────────────────────────────────────────────────
 -- Extension systems (Aniyomi, CloudStream, Sora, MangaYomi).
+-- Seeded once at first launch. User never edits — updated via app updates.
 CREATE TABLE IF NOT EXISTS system (
     id INTEGER NOT NULL PRIMARY KEY UNIQUE,
     name TEXT NOT NULL UNIQUE,
@@ -24,30 +30,27 @@ CREATE TABLE IF NOT EXISTS system (
     created_at INTEGER NOT NULL
 );
 
--- ── Main: content ─────────────────────────────────────────────────────────
--- The central content record. One row per piece of content (anime, manga, novel).
--- mainId = stable UUID (never changes). contentId = structured string (changes).
+-- ── Main: main_entry ──────────────────────────────────────────────────────
+-- The central identity record. One row per piece of content (anime, manga, novel).
+-- mainId = stable UUID (never changes). contentId = structured string (changes on switch).
 --
--- D-189: `extension_id` stores the Aniyomi INTERNAL source.id (a plain INTEGER,
--- NOT a FK to content_ext — that table was dropped as dead code).
--- D-192: `content_ext` + `content_ext_repo` tables DROPPED (zero callers, dead code).
--- The `extension_repo_id` column is kept as a plain nullable INTEGER for future
--- use (if repo tracking is wired up later). The FK to content_ext_repo is removed.
+-- D-189: `extension_id` stores the Aniyomi INTERNAL source.id (plain INTEGER, NOT a FK).
+-- D-192: `content_ext` + `content_ext_repo` tables DROPPED (dead code).
+-- D-198: Renamed from `content` → `main_entry` for clarity (avoids android.content.* collision).
+-- D-198: `description` column DROPPED (was dead — readers now use content_details.data_synopsis).
+-- D-198: `extension_repo_id` KEPT per user directive (will be wired up later).
+-- D-198: `display_source` values migrated to axis-level: 'data_source' | 'extension'.
+--        (Was source-name-level: 'anilist' | 'extension'. 'anilist' → 'data_source' on rebuild.)
 --
--- Future-proofing (D-192): this table already supports the multi-source /
--- multi-content-type / multi-system vision:
---   - data_source_id → which metadata source (AniList/TMDB/Kitsu/MAL)
---   - system_id → which extension system (Aniyomi/CloudStream/Sora/Mangayomi)
---   - extension_id → which extension source (Aniyomi source.id)
---   - content_type → anime/manga/novel (future)
---   - content_format → video/image/text/audio (future)
-CREATE TABLE IF NOT EXISTS content (
+-- Denormalized extension fields (extension_id, source_id, anime_url) are KEPT on
+-- main_entry for the hot getMainEntryByExtension lookup (avoids a JOIN on every
+-- extension-source open). The authoritative extension metadata lives in content_details.
+CREATE TABLE IF NOT EXISTS main_entry (
     main_id TEXT NOT NULL PRIMARY KEY,
     content_id TEXT NOT NULL,
     title TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'anime',
     content_format TEXT NOT NULL DEFAULT 'video',
-    description TEXT,
     data_source_id INTEGER,
     system_id INTEGER,
     extension_repo_id INTEGER,
@@ -61,70 +64,74 @@ CREATE TABLE IF NOT EXISTS content (
     FOREIGN KEY (system_id) REFERENCES system(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_content_content_id ON content(content_id);
-CREATE INDEX IF NOT EXISTS idx_content_data_source ON content(data_source_id);
-CREATE INDEX IF NOT EXISTS idx_content_extension ON content(extension_id);
+CREATE INDEX IF NOT EXISTS idx_main_entry_content_id ON main_entry(content_id);
+CREATE INDEX IF NOT EXISTS idx_main_entry_extension_url ON main_entry(extension_id, anime_url);
 
--- ── Detail: anilist_details ───────────────────────────────────────────────
--- AniList-specific metadata. One row per content (if linked to AniList).
-CREATE TABLE IF NOT EXISTS anilist_detail (
-    main_id TEXT NOT NULL PRIMARY KEY,
-    anilist_id INTEGER NOT NULL,
-    id_mal INTEGER,
-    score INTEGER,
-    episodes INTEGER,
-    season TEXT,
-    season_year INTEGER,
-    status TEXT,
-    genres TEXT,
-    synopsis TEXT,
-    cover_url TEXT,
-    banner_url TEXT,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
-);
-
--- ── Detail: extension_details ─────────────────────────────────────────────
--- Extension-specific metadata. One row per content (if linked to an extension).
+-- ── Detail: content_details ───────────────────────────────────────────────
+-- Unified content metadata. One row per content (1:1 with main_entry).
+-- Merges: anilist_detail + extension_detail + other_source_detail + anime_metadata_cache.
 --
--- NOTE (D-189): `extension_id` stores the Aniyomi INTERNAL source.id (NOT a FK
--- to content_ext.id). See the content table note above for full context.
--- FK to content_ext(id) removed — it was semantically wrong + crashed on link
--- after D-166 enabled PRAGMA foreign_keys = ON.
-CREATE TABLE IF NOT EXISTS extension_detail (
+-- Two axes in one row (distinguished by column prefixes):
+--   data_* — data-source metadata (AniList now; Kitsu/MAL/TMDB future)
+--   ext_*  — extension metadata (Aniyomi now; CloudStream/Sora/MangaYomi future)
+--
+-- Each axis is independently switchable via updateDataSourceAxis / updateExtensionAxis.
+-- Each axis is independently unlinkable via clearDataSourceAxis / clearExtensionAxis.
+-- All axis columns are NULLABLE — NULL means "that axis is not linked."
+--
+-- Discriminators:
+--   data_source_type: 'anilist' | 'kitsu' | 'mal' | 'tmdb' | NULL (NULL = no data source linked)
+--   extension_type:   'aniyomi' | 'cloudstream' | 'sora' | 'mangayomi' | NULL (NULL = no extension linked)
+--
+-- extra_json columns hold source-specific extras (id_mal, trailer_url, age_rating, etc.)
+-- parsed via DataSourceExtras / ExtensionExtras typed accessors (ignoreUnknownKeys = true).
+--
+-- D-198: data_episodes is nullable — NULL for manga/novels (AniList doesn't track manga
+-- chapters the same way). Manga chapter/volume counts go in ext_extra_json when manga
+-- support is added. Zero schema change needed.
+CREATE TABLE IF NOT EXISTS content_details (
     main_id TEXT NOT NULL PRIMARY KEY,
-    extension_id INTEGER NOT NULL,
-    source_id INTEGER NOT NULL,
-    anime_url TEXT NOT NULL,
-    description TEXT,
-    genres TEXT,
-    status TEXT,
-    author TEXT,
-    artist TEXT,
-    thumbnail_url TEXT,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
+
+    -- ── Data-source (metadata) axis ──
+    data_source_type   TEXT,
+    data_source_ref_id TEXT,
+    data_score          INTEGER,
+    data_episodes       INTEGER,
+    data_season         TEXT,
+    data_season_year    INTEGER,
+    data_status         TEXT,
+    data_genres         TEXT,
+    data_synopsis       TEXT,
+    data_cover_url      TEXT,
+    data_banner_url     TEXT,
+    data_extra_json     TEXT,
+    data_updated_at     INTEGER,
+
+    -- ── Extension (episode source) axis ──
+    extension_type      TEXT,
+    extension_id        TEXT,
+    source_id           INTEGER,
+    anime_url           TEXT,
+    ext_description     TEXT,
+    ext_genres          TEXT,
+    ext_status          TEXT,
+    ext_author          TEXT,
+    ext_artist          TEXT,
+    ext_thumbnail_url   TEXT,
+    ext_extra_json      TEXT,
+    ext_updated_at      INTEGER,
+
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
--- ── Detail: other_source_details ──────────────────────────────────────────
--- Generic key-value for future sources (TMDB, Kitsu, MAL).
-CREATE TABLE IF NOT EXISTS other_source_detail (
-    id INTEGER NOT NULL PRIMARY KEY UNIQUE,
-    main_id TEXT NOT NULL,
-    source_type TEXT NOT NULL,
-    source_ref_id TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (main_id) REFERENCES content(main_id) ON DELETE CASCADE
-);
+-- Partial index for the AniList hot path (getMainEntryByAniListId).
+CREATE INDEX IF NOT EXISTS idx_content_details_data_ref
+    ON content_details(data_source_ref_id)
+    WHERE data_source_type = 'anilist';
 
-CREATE INDEX IF NOT EXISTS idx_other_source_main ON other_source_detail(main_id);
-CREATE INDEX IF NOT EXISTS idx_other_source_type ON other_source_detail(source_type, source_ref_id);
--- Phase DB-OPT: index for getContentByAniListId (JOIN filter on anilist_id).
-CREATE INDEX IF NOT EXISTS idx_anilist_detail_anilist_id ON anilist_detail(anilist_id);
--- Phase DB-OPT: composite index for getContentByExtension (filter on extension_id + anime_url).
-CREATE INDEX IF NOT EXISTS idx_content_extension_url ON content(extension_id, anime_url);
+-- Generic data-source reverse lookup (for future Kitsu/MAL/TMDB).
+CREATE INDEX IF NOT EXISTS idx_content_details_data_source_ref
+    ON content_details(data_source_type, data_source_ref_id);
 
 -- ============================================================================
 -- Queries: data_source
@@ -153,46 +160,50 @@ INSERT OR IGNORE INTO system(name, display_name, package_prefix, created_at)
 VALUES (:name, :displayName, :packagePrefix, :createdAt);
 
 -- ============================================================================
--- Queries: content
+-- Queries: main_entry
 -- ============================================================================
-getContentByMainId:
-SELECT * FROM content WHERE main_id = :mainId;
+getMainEntryByMainId:
+SELECT * FROM main_entry WHERE main_id = :mainId;
 
-getContentByAniListId:
-SELECT c.* FROM content c
-JOIN anilist_detail a ON c.main_id = a.main_id
-WHERE a.anilist_id = :anilistId
+getMainEntryByAniListId:
+SELECT m.* FROM main_entry m
+JOIN content_details d ON m.main_id = d.main_id
+WHERE d.data_source_type = 'anilist' AND d.data_source_ref_id = :anilistId
 LIMIT 1;
 
-getContentByExtension:
-SELECT c.* FROM content c
-WHERE c.extension_id = :extensionId AND c.anime_url = :animeUrl
+getMainEntryByExtension:
+SELECT * FROM main_entry
+WHERE extension_id = :extensionId AND anime_url = :animeUrl
 LIMIT 1;
 
-getContentByContentId:
-SELECT * FROM content WHERE content_id = :contentId;
+getMainEntryByContentId:
+SELECT * FROM main_entry WHERE content_id = :contentId;
 
-insertContent:
-INSERT OR REPLACE INTO content(
-    main_id, content_id, title, content_type, content_format, description,
+insertMainEntry:
+INSERT OR REPLACE INTO main_entry(
+    main_id, content_id, title, content_type, content_format,
     data_source_id, system_id, extension_repo_id, extension_id, source_id,
     anime_url, display_source, created_at, updated_at
 ) VALUES (
-    :mainId, :contentId, :title, :contentType, :contentFormat, :description,
+    :mainId, :contentId, :title, :contentType, :contentFormat,
     :dataSourceId, :systemId, :extensionRepoId, :extensionId, :sourceId,
     :animeUrl, :displaySource, :createdAt, :updatedAt
 );
 
-updateContentContentId:
-UPDATE content SET content_id = :contentId, updated_at = :updatedAt
+updateMainEntryContentId:
+UPDATE main_entry SET content_id = :contentId, updated_at = :updatedAt
 WHERE main_id = :mainId;
 
-updateContentDisplaySource:
-UPDATE content SET display_source = :displaySource, updated_at = :updatedAt
+updateMainEntryTitle:
+UPDATE main_entry SET title = :title, updated_at = :updatedAt
 WHERE main_id = :mainId;
 
-updateContentSources:
-UPDATE content SET
+updateMainEntryDisplaySource:
+UPDATE main_entry SET display_source = :displaySource, updated_at = :updatedAt
+WHERE main_id = :mainId;
+
+updateMainEntrySources:
+UPDATE main_entry SET
     data_source_id = :dataSourceId,
     system_id = :systemId,
     extension_repo_id = :extensionRepoId,
@@ -203,57 +214,108 @@ UPDATE content SET
     updated_at = :updatedAt
 WHERE main_id = :mainId;
 
-deleteContent:
-DELETE FROM content WHERE main_id = :mainId;
+deleteMainEntry:
+DELETE FROM main_entry WHERE main_id = :mainId;
 
 -- ============================================================================
--- Queries: anilist_detail
+-- Queries: content_details
 -- ============================================================================
-getAniListDetail:
-SELECT * FROM anilist_detail WHERE main_id = :mainId;
+getContentDetails:
+SELECT * FROM content_details WHERE main_id = :mainId;
 
-upsertAniListDetail:
-INSERT OR REPLACE INTO anilist_detail(
-    main_id, anilist_id, id_mal, score, episodes, season, season_year,
-    status, genres, synopsis, cover_url, banner_url, updated_at
+getMainEntryByDataSourceRef:
+SELECT m.* FROM main_entry m
+JOIN content_details d ON m.main_id = d.main_id
+WHERE d.data_source_type = :sourceType AND d.data_source_ref_id = :sourceRefId
+LIMIT 1;
+
+upsertContentDetails:
+INSERT OR REPLACE INTO content_details(
+    main_id,
+    data_source_type, data_source_ref_id, data_score, data_episodes,
+    data_season, data_season_year, data_status, data_genres, data_synopsis,
+    data_cover_url, data_banner_url, data_extra_json, data_updated_at,
+    extension_type, extension_id, source_id, anime_url,
+    ext_description, ext_genres, ext_status, ext_author, ext_artist,
+    ext_thumbnail_url, ext_extra_json, ext_updated_at
 ) VALUES (
-    :mainId, :anilistId, :idMal, :score, :episodes, :season, :seasonYear,
-    :status, :genres, :synopsis, :coverUrl, :bannerUrl, :updatedAt
+    :mainId,
+    :dataSourceType, :dataSourceRefId, :dataScore, :dataEpisodes,
+    :dataSeason, :dataSeasonYear, :dataStatus, :dataGenres, :dataSynopsis,
+    :dataCoverUrl, :dataBannerUrl, :dataExtraJson, :dataUpdatedAt,
+    :extensionType, :extensionId, :sourceId, :animeUrl,
+    :extDescription, :extGenres, :extStatus, :extAuthor, :extArtist,
+    :extThumbnailUrl, :extExtraJson, :extUpdatedAt
 );
 
-deleteAniListDetail:
-DELETE FROM anilist_detail WHERE main_id = :mainId;
+updateDataSourceAxis:
+UPDATE content_details SET
+    data_source_type = :dataSourceType,
+    data_source_ref_id = :dataSourceRefId,
+    data_score = :dataScore,
+    data_episodes = :dataEpisodes,
+    data_season = :dataSeason,
+    data_season_year = :dataSeasonYear,
+    data_status = :dataStatus,
+    data_genres = :dataGenres,
+    data_synopsis = :dataSynopsis,
+    data_cover_url = :dataCoverUrl,
+    data_banner_url = :dataBannerUrl,
+    data_extra_json = :dataExtraJson,
+    data_updated_at = :dataUpdatedAt
+WHERE main_id = :mainId;
 
--- ============================================================================
--- Queries: extension_detail
--- ============================================================================
-getExtensionDetail:
-SELECT * FROM extension_detail WHERE main_id = :mainId;
+updateExtensionAxis:
+UPDATE content_details SET
+    extension_type = :extensionType,
+    extension_id = :extensionId,
+    source_id = :sourceId,
+    anime_url = :animeUrl,
+    ext_description = :extDescription,
+    ext_genres = :extGenres,
+    ext_status = :extStatus,
+    ext_author = :extAuthor,
+    ext_artist = :extArtist,
+    ext_thumbnail_url = :extThumbnailUrl,
+    ext_extra_json = :extExtraJson,
+    ext_updated_at = :extUpdatedAt
+WHERE main_id = :mainId;
 
-upsertExtensionDetail:
-INSERT OR REPLACE INTO extension_detail(
-    main_id, extension_id, source_id, anime_url, description, genres,
-    status, author, artist, thumbnail_url, updated_at
-) VALUES (
-    :mainId, :extensionId, :sourceId, :animeUrl, :description, :genres,
-    :status, :author, :artist, :thumbnailUrl, :updatedAt
-);
+clearDataSourceAxis:
+UPDATE content_details SET
+    data_source_type = NULL,
+    data_source_ref_id = NULL,
+    data_score = NULL,
+    data_episodes = NULL,
+    data_season = NULL,
+    data_season_year = NULL,
+    data_status = NULL,
+    data_genres = NULL,
+    data_synopsis = NULL,
+    data_cover_url = NULL,
+    data_banner_url = NULL,
+    data_extra_json = NULL,
+    data_updated_at = NULL
+WHERE main_id = :mainId;
 
-deleteExtensionDetail:
-DELETE FROM extension_detail WHERE main_id = :mainId;
+clearExtensionAxis:
+UPDATE content_details SET
+    extension_type = NULL,
+    extension_id = NULL,
+    source_id = NULL,
+    anime_url = NULL,
+    ext_description = NULL,
+    ext_genres = NULL,
+    ext_status = NULL,
+    ext_author = NULL,
+    ext_artist = NULL,
+    ext_thumbnail_url = NULL,
+    ext_extra_json = NULL,
+    ext_updated_at = NULL
+WHERE main_id = :mainId;
 
--- ============================================================================
--- Queries: other_source_detail
--- ============================================================================
-getOtherSourceDetails:
-SELECT * FROM other_source_detail WHERE main_id = :mainId AND source_type = :sourceType;
+deleteContentDetails:
+DELETE FROM content_details WHERE main_id = :mainId;
 
-upsertOtherSourceDetail:
-INSERT OR REPLACE INTO other_source_detail(
-    main_id, source_type, source_ref_id, key, value, updated_at
-) VALUES (
-    :mainId, :sourceType, :sourceRefId, :key, :value, :updatedAt
-);
-
-deleteOtherSourceDetails:
-DELETE FROM other_source_detail WHERE main_id = :mainId AND source_type = :sourceType;
+getAllContentDetails:
+SELECT * FROM content_details;

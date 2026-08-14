@@ -72,6 +72,32 @@ class DatabaseDriverFactory(private val context: Context) {
                     // new app_settings table (for backup/restore of all app settings).
                     db.execSQL("DROP TABLE IF EXISTS user_customization")
 
+                    // ── D-198: drop tables absorbed into content_details + main_entry ──
+                    // content → main_entry (renamed). The 4 detail tables (anilist_detail,
+                    // extension_detail, other_source_detail, anime_metadata_cache) are merged
+                    // into the new content_details table (data_* + ext_* axes). app_metadata
+                    // was dead code (0 Kotlin callers, absorbed into app_settings). Debug-only
+                    // builds — drop + recreate via onCreate(db) below.
+                    db.execSQL("DROP TABLE IF EXISTS anilist_detail")
+                    db.execSQL("DROP TABLE IF EXISTS extension_detail")
+                    db.execSQL("DROP TABLE IF EXISTS other_source_detail")
+                    db.execSQL("DROP TABLE IF EXISTS anime_metadata_cache")
+                    db.execSQL("DROP TABLE IF EXISTS app_metadata")
+
+                    // ── D-198: rename content → main_entry (drop + recreate — debug builds) ──
+                    // SQLite ALTER TABLE RENAME would work but the column shape changed (description
+                    // dropped). Drop the old `content` table; onCreate(db) recreates it as
+                    // `main_entry` from the updated .sq file. Also drop legacy idx_content_* indexes.
+                    db.execSQL("DROP INDEX IF EXISTS idx_content_data_source")
+                    db.execSQL("DROP INDEX IF EXISTS idx_content_extension")
+                    db.execSQL("DROP INDEX IF EXISTS idx_content_extension_url")
+                    db.execSQL("DROP INDEX IF EXISTS idx_content_genre_main")
+                    db.execSQL("DROP INDEX IF EXISTS idx_library_item_main")
+                    db.execSQL("DROP INDEX IF EXISTS idx_anilist_detail_anilist_id")
+                    db.execSQL("DROP TABLE IF EXISTS content")
+                    // Recreate main_entry + content_details from the updated .sq file.
+                    onCreate(db)
+
                     // ── download_queue: check for main_id (D.0 migration) ──
                     if (!hasColumn(db, "download_queue", "main_id")) {
                         // Old schema — drop + recreate the download tables.
@@ -162,10 +188,11 @@ class DatabaseDriverFactory(private val context: Context) {
                     // created duplicates on existing installs). Keeps the lowest id per pair.
                     db.execSQL("DELETE FROM library_item WHERE id NOT IN (SELECT MIN(id) FROM library_item GROUP BY main_id, category_id)")
                     db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_library_item_unique ON library_item(main_id, category_id)")
-                    // anilist_detail: JOIN filter
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_anilist_detail_anilist_id ON anilist_detail(anilist_id)")
-                    // content: extension lookup composite
-                    db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_extension_url ON content(extension_id, anime_url)")
+                    // D-198: anilist_detail table dropped (merged into content_details). Skip its
+                    // index — content_details has its own partial idx_content_details_data_ref.
+                    // D-198: content table dropped + recreated as main_entry. Skip the
+                    // idx_content_extension_url index — main_entry has idx_main_entry_extension_url
+                    // (created by the .sq file via onCreate(db) above).
 
                     // ── Phase WP: watch_progress new columns (PLAN §1.1, §1.8) ──
                     // The .sq CREATE TABLE is edited for fresh installs + codegen.

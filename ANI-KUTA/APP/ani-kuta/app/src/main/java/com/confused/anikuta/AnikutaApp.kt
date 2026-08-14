@@ -229,6 +229,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             }
 
             // D-193 Phase 9: bind NotificationManager as NotificationSender (breaks circular dep).
+            // D-198: episode_number Long→Double migration (SQLDelight maps REAL→Double).
             single<com.confused.anikuta.core.updates.NotificationSender> {
                 com.confused.anikuta.core.updates.NotificationSender { mainId, episodeNumber, audioVariant, triggerType ->
                     get<com.confused.anikuta.core.notifications.NotificationManager>().postNotification(

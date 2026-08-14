@@ -24,7 +24,7 @@ class ScheduleStore(
     fun upsertScheduleEntry(
         mainId: String,
         anilistId: Long?,
-        episodeNumber: Long,
+        episodeNumber: Double,
         scheduledAt: Long,
         actualAt: Long?,
         audioVariant: String,
@@ -66,7 +66,7 @@ class ScheduleStore(
             .executeAsList().map { it.toScheduleEntry() }
 
     /** Update actual_at (Phase SC-2 — when UpdateEngine finds the episode). Overrides ActualReleaseUpdater. */
-    override fun updateActualAt(mainId: String, episodeNumber: Long, actualAt: Long) {
+    override fun updateActualAt(mainId: String, episodeNumber: Double, actualAt: Long) {
         database.episodeScheduleQueries.updateActualAt(actualAt, mainId, episodeNumber)
         Logger.d(TAG) { "updateActualAt: mainId=$mainId ep=$episodeNumber actualAt=$actualAt" }
     }
@@ -93,7 +93,7 @@ data class ScheduleEntry(
     val id: Long,
     val mainId: String,
     val anilistId: Long?,
-    val episodeNumber: Long,
+    val episodeNumber: Double,
     val scheduledAt: Long,
     val actualAt: Long?,
     val audioVariant: String,

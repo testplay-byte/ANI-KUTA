@@ -382,7 +382,7 @@ fun DetailsScreen(
             },
             relevantTables = mainId?.let {
                 listOf(
-                    com.confused.anikuta.core.debugapi.DbReference("content", "main_id", it, "View content row"),
+                    com.confused.anikuta.core.debugapi.DbReference("main_entry", "main_id", it, "View main_entry row"),
                     com.confused.anikuta.core.debugapi.DbReference("episode_metadata", "main_id", it, "View episode metadata"),
                     com.confused.anikuta.core.debugapi.DbReference("watch_progress", "main_id", it, "View watch progress"),
                 )

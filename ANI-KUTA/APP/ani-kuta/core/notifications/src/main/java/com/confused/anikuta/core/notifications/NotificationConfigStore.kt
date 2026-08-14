@@ -74,7 +74,7 @@ class NotificationConfigStore(
     /** Check if a notification was already sent (dedup). */
     suspend fun wasNotified(
         mainId: String,
-        episodeNumber: Long,
+        episodeNumber: Double,
         audioVariant: String,
         triggerType: String,
     ): Boolean = withContext(Dispatchers.IO) {
@@ -86,7 +86,7 @@ class NotificationConfigStore(
     /** Record a sent notification (for dedup). */
     suspend fun recordSent(
         mainId: String,
-        episodeNumber: Long,
+        episodeNumber: Double,
         audioVariant: String,
         triggerType: String,
     ) = withContext(Dispatchers.IO) {

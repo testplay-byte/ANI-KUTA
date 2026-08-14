@@ -74,10 +74,10 @@ class ScheduleViewModel(
     }
 
     private fun enrichEntry(entry: ScheduleEntry): ScheduleDisplay? {
-        val content = contentRepository.getContentByMainId(entry.mainId) ?: return null
-        val anilistDetail = contentRepository.getAniListDetail(entry.mainId)
-        val extDetail = contentRepository.getExtensionDetail(entry.mainId)
-        val coverUrl = anilistDetail?.coverUrl ?: extDetail?.thumbnailUrl
+        val content = contentRepository.getMainEntryByMainId(entry.mainId) ?: return null
+        // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
+        val details = contentRepository.getContentDetails(entry.mainId)
+        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
         return ScheduleDisplay(
             mainId = entry.mainId,
             animeTitle = content.title,
