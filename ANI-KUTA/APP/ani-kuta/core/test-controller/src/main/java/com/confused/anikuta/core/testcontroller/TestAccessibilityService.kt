@@ -88,7 +88,7 @@ class TestAccessibilityService : AccessibilityService() {
         val settingsRepo = koin.get<SettingsRepository>()
         val routeRegistry = koin.get<AppRouteRegistry>()
 
-        val treeSerializer = AccessibilityTreeSerializer()
+        val treeSerializer = AccessibilityTreeSerializer(targetPackage = packageName)
         val gestureExecutor = GestureExecutor(this, treeSerializer)
         val screenshotCapture = ScreenshotCapture(this)
         val navExecutor = NavExecutor(routeRegistry)

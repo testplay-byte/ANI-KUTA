@@ -47,7 +47,7 @@ class TestControllerExecutor(
 ) {
     companion object {
         private const val TAG = "Anikuta:Test:Executor"
-        private const val OUR_PACKAGE = "com.confused.anikuta"
+        
     }
 
     /** A command execution result + optional screenshot bytes (posted separately by the relay client). */
@@ -170,7 +170,7 @@ class TestControllerExecutor(
     private suspend fun getState(id: String, includeScreenshot: Boolean): ExecutionOutcome = withContext(Dispatchers.Main) {
         val root = service.getRootInActiveWindow()
         val tree: NodeInfo = treeSerializer.serialize(root)
-        val pkg = root?.packageName?.toString() ?: OUR_PACKAGE
+        val pkg = root?.packageName?.toString() ?: packageName
         val navKey = navExecutor.currentScreenName()
         var shotBytes: ByteArray? = null
         if (includeScreenshot) {
@@ -211,8 +211,8 @@ class TestControllerExecutor(
         val nodeId = cmd.nodeId
         val x = cmd.x
         val y = cmd.y
-        val previewX = x ?: 540f
-        val previewY = y ?: 1200f
+        val previewX = x ?: (service.resources.displayMetrics.widthPixels / 2f)
+        val previewY = y ?: (service.resources.displayMetrics.heightPixels / 2f)
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
             actionPreviewOverlay.showTapPreview(previewX, previewY) {
                 scope.launch {
@@ -232,8 +232,8 @@ class TestControllerExecutor(
         val nodeId = cmd.nodeId
         val x = cmd.x
         val y = cmd.y
-        val previewX = x ?: 540f
-        val previewY = y ?: 1200f
+        val previewX = x ?: (service.resources.displayMetrics.widthPixels / 2f)
+        val previewY = y ?: (service.resources.displayMetrics.heightPixels / 2f)
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
             actionPreviewOverlay.showLabelPreview(previewX, previewY, "👆 LONG-CLICK") {
                 scope.launch {
@@ -262,8 +262,8 @@ class TestControllerExecutor(
     }
 
     private suspend fun doScroll(cmd: TestCommand.Scroll): ExecutionOutcome = withContext(Dispatchers.Main) {
-        val scrollX = cmd.x ?: 540f
-        val scrollY = cmd.y ?: 1200f
+        val scrollX = cmd.x ?: (service.resources.displayMetrics.widthPixels / 2f)
+        val scrollY = cmd.y ?: (service.resources.displayMetrics.heightPixels / 2f)
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
             actionPreviewOverlay.showScrollPreview(scrollX, scrollY, cmd.direction.name) {
                 scope.launch {
@@ -277,7 +277,7 @@ class TestControllerExecutor(
 
     private suspend fun doSetText(cmd: TestCommand.SetText): ExecutionOutcome = withContext(Dispatchers.Main) {
         val result = suspendCancellableCoroutine<ExecutionOutcome> { cont ->
-            actionPreviewOverlay.showLabelPreview(540f, 600f, "⌨️ SET TEXT: ${cmd.text.take(15)}") {
+            actionPreviewOverlay.showLabelPreview(service.resources.displayMetrics.widthPixels / 2f, service.resources.displayMetrics.heightPixels / 4f, "⌨️ SET TEXT: ${cmd.text.take(15)}") {
                 val ok = gestureExecutor.setText(cmd.nodeId, cmd.text)
                 if (cont.isActive) cont.resume(ExecutionOutcome(okResult(cmd.id, ok, "set_text")))
             }
@@ -323,21 +323,26 @@ class TestControllerExecutor(
      * On any other screen, Back works normally (pops the backstack).
      */
     private suspend fun handleBack(id: String): ExecutionOutcome = withContext(Dispatchers.Main) {
-        val screenName = navExecutor.currentScreenName()
-        if (screenName == "AnimeBrowseKey") {
-            // On the home page — move to background instead of exiting.
-            Logger.i(TAG) { "back: on home page — moving to background instead of exiting" }
+        // D-198 v5.6: check if we're at the root of the backstack (home page).
+        // Uses backstack size instead of a hardcoded screen name — portable to any app.
+        val backstackResult = navExecutor.getBackstack()
+        val isAtRoot = when (backstackResult) {
+            is NavExecutor.NavResult.Backstack -> backstackResult.names.size <= 1
+            else -> false
+        }
+        if (isAtRoot) {
+            // At root — move to background instead of exiting the app.
+            Logger.i(TAG) { "back: at root — moving to background instead of exiting" }
             val activity = com.confused.anikuta.core.testapi.DebugWindowRegistry.activity
             if (activity != null) {
                 activity.moveTaskToBack(true)
-                ExecutionOutcome(TestResult.Ok(id, message = "back: moved to background (home page)"))
+                ExecutionOutcome(TestResult.Ok(id, message = "back: moved to background (at root)"))
             } else {
-                // Fallback: if we can't get the activity, just send Home.
                 gestureExecutor.home()
-                ExecutionOutcome(TestResult.Ok(id, message = "back: sent Home (home page, no activity ref)"))
+                ExecutionOutcome(TestResult.Ok(id, message = "back: sent Home (at root, no activity ref)"))
             }
         } else {
-            // Not on home page — normal Back.
+            // Not at root — normal Back.
             val ok = gestureExecutor.back()
             ExecutionOutcome(okResult(id, ok, "back"))
         }

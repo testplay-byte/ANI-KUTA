@@ -112,7 +112,11 @@ class GestureExecutor(
     // ── Internals ──
 
     private suspend fun dispatchSinglePointGesture(x: Float, y: Float, durationMs: Long): Boolean {
-        val path = Path().apply { moveTo(x, y) }
+        // D-198 v5.6: add a tiny lineTo — some OEM ROMs reject single-point paths.
+        val path = Path().apply {
+            moveTo(x, y)
+            lineTo(x + 0.01f, y + 0.01f)
+        }
         val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         return dispatchGesture(gesture)
