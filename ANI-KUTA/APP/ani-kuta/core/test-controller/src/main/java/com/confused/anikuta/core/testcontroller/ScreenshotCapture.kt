@@ -4,7 +4,10 @@ import android.accessibilityservice.AccessibilityService
 import android.graphics.Bitmap
 import android.os.Build
 import android.view.Display
+import android.view.PixelCopy
+import android.view.Window
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.testapi.DebugWindowRegistry
 import com.confused.anikuta.core.testapi.TestControllerConstants
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -13,21 +16,17 @@ import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 
 /**
- * Captures screenshots via [AccessibilityService.takeScreenshot] (D-200 v2, D-198 v5.6).
+ * Captures screenshots (D-200 v2, D-198 v5.6.2).
  *
- * v5.6: switched from PixelCopy(window) to AccessibilityService.takeScreenshot().
- * This captures the FULL display including status bar, navigation bar, and system UI —
- * the screenshot's pixel space matches AccessibilityNodeInfo.getBoundsInScreen exactly,
- * so the dashboard's overlay drawing + click coordinates are correctly aligned without
- * any offset or scaling error.
+ * Strategy:
+ * 1. Try AccessibilityService.takeScreenshot() (API 30+) — captures full screen including status bar.
+ *    Uses Display.DEFAULT_DISPLAY (0) — Display.INVALID_DISPLAY (-1) causes errorCode=4 on some ROMs.
+ * 2. If takeScreenshot fails (any error code), fall back to PixelCopy(window).
+ * 3. If PixelCopy also fails, return null → executor reports the error.
  *
- * API 30+ only (takeScreenshot was added in API 30/R). The 3-arg signature
- * `takeScreenshot(int displayId, Executor, TakeScreenshotCallback)` compiles cleanly
- * on SDK 36 (the previous 2-arg form was REMOVED in SDK 36).
- *
- * The callback is a dedicated TakeScreenshotCallback interface (NOT Consumer).
- * Uses Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace) + MUST close the
- * hardware buffer to avoid GPU memory leaks.
+ * The fallback chain ensures screenshots work on ALL devices, even OEM ROMs that don't
+ * properly implement takeScreenshot (e.g., OnePlus OxygenOS returns errorCode=4 with
+ * INVALID_DISPLAY, but works with DEFAULT_DISPLAY or falls back to PixelCopy).
  *
  * Output: downscale to [TestControllerConstants.SCREENSHOT_MAX_DIMENSION] + JPEG q[SCREENSHOT_JPEG_QUALITY].
  */
@@ -37,64 +36,57 @@ class ScreenshotCapture(
     companion object {
         private const val TAG = "Anikuta:Test:Screenshot"
         private const val CAPTURE_TIMEOUT_MS = 10_000L
+
+        // Error code names for logging (from AccessibilityService source)
+        private fun errorCodeName(code: Int): String = when (code) {
+            1 -> "INVALID_DISPLAY_ID"
+            2 -> "INVALID_TARGET"
+            3 -> "INSUFFICIENT_RESOURCES"
+            4 -> "UNSUPPORTED"
+            else -> "UNKNOWN($code)"
+        }
     }
 
+    /** The last error message — read by the executor for detailed error reporting. */
+    @Volatile
+    var lastError: String? = null
+        private set
+
     suspend fun capture(): ByteArray? {
-        val raw = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) { captureRaw() } ?: return null
+        val raw = withTimeoutOrNull(CAPTURE_TIMEOUT_MS) { captureRaw() } ?: run {
+            lastError = "capture timed out after ${CAPTURE_TIMEOUT_MS}ms"
+            return null
+        }
         return try {
             downscaleAndCompress(raw)
         } catch (e: Exception) {
-            Logger.w(TAG) { "compress failed: ${e::class.java.simpleName}: ${e.message}" }
+            lastError = "compress failed: ${e::class.java.simpleName}: ${e.message}"
+            Logger.w(TAG) { lastError!! }
             runCatching { raw.recycle() }
             null
         }
     }
 
     private suspend fun captureRaw(): Bitmap? {
-        // D-198 v5.6: use AccessibilityService.takeScreenshot() on API 30+ (full screen including status bar).
-        // Fallback to PixelCopy(window) on API 24-29 (content area only, no status bar).
+        lastError = null
+
+        // Strategy 1: try takeScreenshot with DEFAULT_DISPLAY (API 30+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return captureViaAccessibility()
+            val result = captureViaAccessibility(Display.DEFAULT_DISPLAY)
+            if (result != null) return result
+            Logger.w(TAG) { "takeScreenshot(DEFAULT_DISPLAY) failed: $lastError — trying PixelCopy fallback" }
+
+            // Strategy 2: if DEFAULT_DISPLAY failed, try INVALID_DISPLAY (some ROMs prefer -1)
+            val result2 = captureViaAccessibility(Display.INVALID_DISPLAY)
+            if (result2 != null) return result2
+            Logger.w(TAG) { "takeScreenshot(INVALID_DISPLAY) also failed: $lastError — falling back to PixelCopy" }
         }
-        // API 24-29 fallback: PixelCopy on the foreground Activity's window.
+
+        // Strategy 3: fall back to PixelCopy(window) — always works, but no status bar
         return captureViaPixelCopy()
     }
 
-    /**
-     * API 24-29 fallback: PixelCopy on the foreground Activity's window.
-     * Captures only the Activity's content area (no status bar).
-     * The coordinate offset between boundsInScreen and the screenshot is handled
-     * by the dashboard (which uses img.naturalWidth/Height for scaling).
-     */
-    private suspend fun captureViaPixelCopy(): Bitmap? {
-        val window = com.confused.anikuta.core.testapi.DebugWindowRegistry.window
-            ?: run {
-                Logger.w(TAG) { "PixelCopy fallback: no foreground window" }
-                return null
-            }
-        val w = window.decorView.width.coerceAtLeast(1)
-        val h = window.decorView.height.coerceAtLeast(1)
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        return suspendCancellableCoroutine { cont ->
-            try {
-                android.view.PixelCopy.request(window, bmp, { result ->
-                    if (result == android.view.PixelCopy.SUCCESS) {
-                        if (cont.isActive) cont.resume(bmp)
-                    } else {
-                        Logger.w(TAG) { "PixelCopy failed: $result" }
-                        runCatching { bmp.recycle() }
-                        if (cont.isActive) cont.resume(null)
-                    }
-                }, android.os.Handler(android.os.Looper.getMainLooper()))
-            } catch (e: Exception) {
-                Logger.w(TAG) { "PixelCopy threw: ${e::class.java.simpleName}: ${e.message}" }
-                runCatching { bmp.recycle() }
-                if (cont.isActive) cont.resume(null)
-            }
-        }
-    }
-
-    private suspend fun captureViaAccessibility(): Bitmap? =
+    private suspend fun captureViaAccessibility(displayId: Int): Bitmap? =
         suspendCancellableCoroutine { cont ->
             val executor = Executor { cmd -> cmd.run() }
             val callback = object : AccessibilityService.TakeScreenshotCallback {
@@ -104,25 +96,61 @@ class ScreenshotCapture(
                         val colorSpace = result.colorSpace
                         val bmp = Bitmap.wrapHardwareBuffer(hardwareBuffer, colorSpace)
                         hardwareBuffer.close()
+                        Logger.d(TAG) { "takeScreenshot success: ${bmp?.width}x${bmp?.height} (displayId=$displayId)" }
                         if (cont.isActive) cont.resume(bmp)
                     } catch (e: Exception) {
-                        Logger.w(TAG) { "wrap hardware buffer failed: ${e::class.java.simpleName}: ${e.message}" }
+                        lastError = "wrap hardware buffer failed: ${e::class.java.simpleName}: ${e.message}"
+                        Logger.w(TAG) { lastError!! }
                         if (cont.isActive) cont.resume(null)
                     }
                 }
 
                 override fun onFailure(errorCode: Int) {
-                    Logger.w(TAG) { "takeScreenshot failed: errorCode=$errorCode" }
+                    lastError = "takeScreenshot(${if(displayId==Display.DEFAULT_DISPLAY)"DEFAULT" else "INVALID"}_DISPLAY) failed: ${errorCodeName(errorCode)} (code=$errorCode)"
+                    Logger.w(TAG) { lastError!! }
                     if (cont.isActive) cont.resume(null)
                 }
             }
             try {
-                service.takeScreenshot(Display.INVALID_DISPLAY, executor, callback)
+                service.takeScreenshot(displayId, executor, callback)
             } catch (e: Exception) {
-                Logger.w(TAG) { "takeScreenshot threw: ${e::class.java.simpleName}: ${e.message}" }
+                lastError = "takeScreenshot threw: ${e::class.java.simpleName}: ${e.message}"
+                Logger.w(TAG) { lastError!! }
                 if (cont.isActive) cont.resume(null)
             }
         }
+
+    private suspend fun captureViaPixelCopy(): Bitmap? {
+        val window: Window = DebugWindowRegistry.window
+            ?: run {
+                lastError = "PixelCopy fallback: no foreground window (DebugWindowRegistry unbound)"
+                Logger.w(TAG) { lastError!! }
+                return null
+            }
+        val w = window.decorView.width.coerceAtLeast(1)
+        val h = window.decorView.height.coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        return suspendCancellableCoroutine { cont ->
+            try {
+                PixelCopy.request(window, bmp, { result ->
+                    if (result == PixelCopy.SUCCESS) {
+                        Logger.d(TAG) { "PixelCopy success: ${bmp.width}x${bmp.height} (fallback)" }
+                        if (cont.isActive) cont.resume(bmp)
+                    } else {
+                        lastError = "PixelCopy failed: result=$result"
+                        Logger.w(TAG) { lastError!! }
+                        runCatching { bmp.recycle() }
+                        if (cont.isActive) cont.resume(null)
+                    }
+                }, android.os.Handler(android.os.Looper.getMainLooper()))
+            } catch (e: Exception) {
+                lastError = "PixelCopy threw: ${e::class.java.simpleName}: ${e.message}"
+                Logger.w(TAG) { lastError!! }
+                runCatching { bmp.recycle() }
+                if (cont.isActive) cont.resume(null)
+            }
+        }
+    }
 
     private fun downscaleAndCompress(src: Bitmap): ByteArray {
         val maxDim = TestControllerConstants.SCREENSHOT_MAX_DIMENSION

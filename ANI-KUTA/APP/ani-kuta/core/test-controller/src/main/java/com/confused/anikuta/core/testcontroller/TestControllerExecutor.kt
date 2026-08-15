@@ -198,7 +198,7 @@ class TestControllerExecutor(
 
     private suspend fun screenshotOnly(id: String): ExecutionOutcome {
         val bytes = screenshotCapture.capture()
-            ?: return ExecutionOutcome(TestResult.Error(id, message = "screenshot capture failed (no window? API ${android.os.Build.VERSION.SDK_INT})", errorCode = "SCREENSHOT_FAILED"))
+            ?: return ExecutionOutcome(TestResult.Error(id, message = "screenshot capture failed: ${screenshotCapture.lastError ?: "unknown (API ${android.os.Build.VERSION.SDK_INT})"}", errorCode = "SCREENSHOT_FAILED"))
         // Compute dimensions from the JPEG? We don't decode it back. Return width/height=0 — the agent
         // can fetch the binary via /screenshot/:id and inspect its real dimensions. (Avoids a decode round-trip.)
         return ExecutionOutcome(
