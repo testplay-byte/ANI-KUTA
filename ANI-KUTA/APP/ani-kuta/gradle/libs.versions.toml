@@ -93,7 +93,8 @@ okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-i
 # Without BrotliInterceptor, the IgnoreGzipInterceptor strips gzip → OkHttp can't
 # decompress Brotli → garbled binary propagated to the JSON parser → "Unexpected
 # JSON token" errors. AniMiru has both interceptors; we were missing Brotli.
-okhttp-brotli = { group = "com.squareup.okhttp3", name = "brotli", version.ref = "okhttp" }
+# Artifact name is "okhttp-brotli" (NOT "brotli") per the AniMiru reference.
+okhttp-brotli = { group = "com.squareup.okhttp3", name = "okhttp-brotli", version.ref = "okhttp" }
 
 # KotlinX
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
