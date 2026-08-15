@@ -170,7 +170,7 @@ class TestControllerExecutor(
     private suspend fun getState(id: String, includeScreenshot: Boolean): ExecutionOutcome = withContext(Dispatchers.Main) {
         val root = service.getRootInActiveWindow()
         val tree: NodeInfo = treeSerializer.serialize(root)
-        val pkg = root?.packageName?.toString() ?: packageName
+        val pkg = root?.packageName?.toString() ?: service.packageName
         val navKey = navExecutor.currentScreenName()
         var shotBytes: ByteArray? = null
         if (includeScreenshot) {
