@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Security  // D-209: Cloudflare error icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -126,6 +127,8 @@ fun DetailsScreen(
     onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
+    // D-209: Cloudflare manual solver — launched from the episode error card.
+    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -613,6 +616,7 @@ fun DetailsScreen(
                                 episodeMetadata = episodeMetadata,
                                 hasAnilistId = anime.anilistId != null,
                                 onOpenSourcePicker = { showManualSearch = true },
+                                onOpenCloudflareWebView = onOpenCloudflareWebView,
                                 onUnlinkSource = { viewModel.unlinkSource() },
                                 onEpisodeClick = { episode ->
                                     currentEpisode = episode
@@ -1371,6 +1375,8 @@ private fun EpisodesSection(
     episodeMetadata: Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>,
     hasAnilistId: Boolean,
     onOpenSourcePicker: () -> Unit,
+    // D-209: callback to open the Cloudflare WebView solver.
+    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit,
     onUnlinkSource: () -> Unit,
     onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit,
     downloadStates: Map<String, EpisodeDownloadState> = emptyMap(),
@@ -1582,6 +1588,49 @@ private fun EpisodesSection(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onOpenSourcePicker) {
+                        Text("Try another source", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+
+            is EpisodeState.CloudflareBlocked -> {
+                // D-209: Cloudflare blocked the episode fetch + the headless solver failed.
+                // Show "Open in WebView" (solve manually) + "Try another source".
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "Cloudflare protection",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "${episodeState.sourceName} is behind Cloudflare and the " +
+                            "automatic bypass failed. Tap \"Open in WebView\" to solve the " +
+                            "challenge manually, then re-open this anime — cookies are saved.",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.material3.Button(onClick = {
+                        onOpenCloudflareWebView(episodeState.url, episodeState.sourceName)
+                    }) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Icons.Filled.Security,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Open in WebView", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                    }
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = onOpenSourcePicker) {
                         Text("Try another source", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)

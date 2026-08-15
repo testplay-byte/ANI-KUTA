@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -29,11 +30,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ManageSearch
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SentimentDissatisfied
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,6 +87,9 @@ import org.koin.compose.viewmodel.koinViewModel
 fun SearchScreen(
     onNavigateToDetails: (Int) -> Unit,
     onNavigateToExtensionAnime: (Long, String, String, String?) -> Unit = { _, _, _, _ -> },
+    // D-209: callback to open the Cloudflare WebView solver (launched from the
+    // CloudflareBlocked error state). MainActivity launches CloudflareWebViewActivity.
+    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -199,6 +207,40 @@ fun SearchScreen(
                         title = "Source error",
                         description = msg,
                         icon = Icons.Filled.SentimentDissatisfied,
+                        actionLabel = "Retry",
+                        onAction = { viewModel.retryExtensionSearch() },
+                    )
+                }
+
+                is SearchUiState.CloudflareBlocked -> {
+                    // D-209: Cloudflare blocked the request + the headless solver failed.
+                    // Show "Open in WebView" (solve manually) + "Refresh" (retry after solving).
+                    val cf = uiState as SearchUiState.CloudflareBlocked
+                    SearchPromptCard(
+                        title = "Cloudflare protection",
+                        description = "${cf.sourceName} is behind Cloudflare. Tap \"Open in WebView\" " +
+                            "to solve the challenge in a browser, then come back and tap Refresh. " +
+                            "Cookies are saved automatically.",
+                        icon = Icons.Filled.Security,
+                        actionLabel = "Open in WebView",
+                        onAction = { onOpenCloudflareWebView(cf.url, cf.sourceName) },
+                        secondaryActionLabel = "Refresh",
+                        onSecondaryAction = { viewModel.retryExtensionSearch() },
+                    )
+                }
+
+                is SearchUiState.ExtensionEmpty -> {
+                    // D-209: extension returned 0 results — distinguish from AniList's
+                    // generic "No results" so the user knows WHICH source is empty + can
+                    // refresh (the empty result might be due to a stale CF cookie).
+                    val ee = uiState as SearchUiState.ExtensionEmpty
+                    SearchPromptCard(
+                        title = "No results from ${ee.sourceName}",
+                        description = "This source returned 0 results. If you just solved a " +
+                            "Cloudflare challenge, tap Refresh to retry with the new cookies.",
+                        icon = Icons.Filled.SearchOff,
+                        actionLabel = "Refresh",
+                        onAction = { viewModel.retryExtensionSearch() },
                     )
                 }
 
@@ -370,6 +412,12 @@ private fun SearchPromptCard(
     title: String,
     description: String,
     icon: ImageVector,
+    // D-209: optional primary action button (e.g. "Open in WebView" / "Retry").
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    // D-209: optional secondary action button (e.g. "Refresh" alongside "Open in WebView").
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
@@ -408,9 +456,34 @@ private fun SearchPromptCard(
             fontWeight = FontWeight.Normal,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            maxLines = 4,
+            // D-209: allow more lines for the longer Cloudflare description.
+            maxLines = 8,
             overflow = TextOverflow.Ellipsis,
         )
+        // D-209: action buttons row.
+        if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.height(16.dp))
+            Row(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(onClick = onAction) {
+                    Text(actionLabel, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+                if (secondaryActionLabel != null && onSecondaryAction != null) {
+                    OutlinedButton(onClick = onSecondaryAction) {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(secondaryActionLabel, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
     }
 }
 

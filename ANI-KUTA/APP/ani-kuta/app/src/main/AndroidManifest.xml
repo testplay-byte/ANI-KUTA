@@ -56,6 +56,19 @@
             android:theme="@style/Theme.ANIKUTA"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode" />
 
+        <!-- D-209: Cloudflare manual solver WebView Activity.
+             Launched from (a) the Extension Detail screen's "Open in WebView"
+             button, and (b) the Search/Details error cards when the headless
+             CloudflareInterceptor fails (e.g. interactive Turnstile challenges).
+             The WebView shares the system CookieManager singleton with the
+             OkHttp AndroidCookieJar, so cf_clearance captured here is replayed
+             on the next extension HTTP request automatically. -->
+        <activity
+            android:name=".webview.CloudflareWebViewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ANIKUTA"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode" />
+
         <!-- Extension install foreground service (Phase 5a) -->
         <service
             android:name="com.confused.anikuta.data.extension.installer.ExtensionInstallService"

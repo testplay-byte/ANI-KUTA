@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.network.CloudflareException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -2054,9 +2055,17 @@ class DetailsViewModel(
             } catch (e: Throwable) {
                 // Catch Throwable — binary-incompat throws NoClassDefFoundError,
                 // OkHttp version mismatch throws IncompatibleClassChangeError.
-                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
-                Logger.e(TAG, e) { "Episode fetch failed for ${source.name}: $errorMsg" }
-                _episodeState.value = EpisodeState.Error(errorMsg)
+                // D-209: detect CloudflareException → show the "Open in WebView" button.
+                if (e is CloudflareException) {
+                    Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
+                    _episodeState.value = EpisodeState.CloudflareBlocked(
+                        url = e.url, sourceName = source.name,
+                    )
+                } else {
+                    val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                    Logger.e(TAG, e) { "Episode fetch failed for ${source.name}: $errorMsg" }
+                    _episodeState.value = EpisodeState.Error(errorMsg)
+                }
             }
         }
     }
@@ -2278,6 +2287,11 @@ sealed interface EpisodeState {
     data object Empty : EpisodeState
     data class Loaded(val episodes: List<SEpisode>) : EpisodeState
     data class Error(val message: String) : EpisodeState
+    /**
+     * D-209: Cloudflare blocked the episode fetch + the headless solver failed.
+     * The UI shows an "Open in WebView" button + a "Refresh" button.
+     */
+    data class CloudflareBlocked(val url: String, val sourceName: String) : EpisodeState
 }
 
 // ── D.3: Multi-stage refresh types ──

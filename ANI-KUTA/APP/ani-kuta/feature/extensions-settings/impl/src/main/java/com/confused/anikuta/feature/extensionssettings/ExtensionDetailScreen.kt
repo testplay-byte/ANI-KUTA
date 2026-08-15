@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -55,6 +56,7 @@ import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import org.koin.compose.koinInject
 
 /**
@@ -73,6 +75,10 @@ fun ExtensionDetailScreen(
     pkgName: String,
     onBack: () -> Unit,
     onOpenSourcePreferences: (Long) -> Unit,
+    // D-209: callback to open this extension's source URL in a WebView (for
+    // manual Cloudflare solving / browsing). MainActivity launches the
+    // CloudflareWebViewActivity with the source's baseUrl.
+    onOpenInWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
     extensionManager: ExtensionManager = koinInject(),
 ) {
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
@@ -155,7 +161,7 @@ fun ExtensionDetailScreen(
                         }
                     }
 
-                    // ── Actions: Uninstall + App Info ──
+                    // ── Actions: Uninstall + App Info + Open in WebView ──
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -181,6 +187,24 @@ fun ExtensionDetailScreen(
                                     context.startActivity(intent)
                                 },
                             )
+                            // D-209: "Open in WebView" — only show if the extension has
+                            // at least one source with a baseUrl. Opens the source's site
+                            // in a WebView so the user can solve Cloudflare challenges
+                            // manually; cookies are saved automatically + replayed on
+                            // the next extension HTTP request via the shared CookieManager.
+                            val firstHttpSource = ext?.sources?.firstNotNullOfOrNull {
+                                (it as? AnimeHttpSource)?.baseUrl?.let { url -> it to url }
+                            }
+                            if (firstHttpSource != null) {
+                                val (source, baseUrl) = firstHttpSource
+                                ActionButton(
+                                    text = "WebView",
+                                    icon = Icons.Filled.Public,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onOpenInWebView(baseUrl, source.name) },
+                                )
+                            }
                         }
                     }
 

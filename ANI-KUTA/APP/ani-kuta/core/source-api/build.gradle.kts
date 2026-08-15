@@ -39,6 +39,16 @@ dependencies {
     // for self-containment). Not strictly required but matches old reference.
     implementation(libs.okhttp.logging.interceptor)
 
+    // D-208: Brotli — BrotliInterceptor adds Accept-Encoding: br + decompresses
+    // Content-Encoding: br responses. AniList + other Cloudflare-fronted APIs
+    // return Brotli-compressed JSON; without this, responses are garbled binary.
+    api(libs.okhttp.brotli)
+
+    // D-209: AndroidX core-ktx — needed by CloudflareInterceptor for
+    // androidx.core.content.ContextCompat.getMainExecutor(context) (the main
+    // executor the headless WebView solver runs on).
+    implementation(libs.androidx.core.ktx)
+
     // Jsoup — used by ParsedAnimeHttpSource + JsoupExtensions (extensions
     // parsing HTML responses).
     implementation(libs.jsoup)

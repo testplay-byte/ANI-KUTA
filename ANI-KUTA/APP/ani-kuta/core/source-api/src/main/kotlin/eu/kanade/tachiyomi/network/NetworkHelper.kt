@@ -1,11 +1,13 @@
 package eu.kanade.tachiyomi.network
 
 import android.content.Context
+import eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor
 import eu.kanade.tachiyomi.network.interceptor.IgnoreGzipInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UncaughtExceptionInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UserAgentInterceptor
 import okhttp3.Cache
 import okhttp3.OkHttpClient
+import okhttp3.brotli.BrotliInterceptor
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -40,14 +42,38 @@ class NetworkHelper(
 
     private val cacheDir: File? = context?.cacheDir?.let { File(it, "network_cache") }
 
+    /**
+     * D-209: The cookie jar — shared by the OkHttp client + the manual WebView Activity.
+     * Backed by `android.webkit.CookieManager` (persists to disk automatically).
+     * Cookies captured by the headless Cloudflare solver OR by the user manually
+     * solving a challenge in CloudflareWebViewActivity are replayed on every
+     * subsequent OkHttp request to the same host.
+     */
+    val cookieJar: AndroidCookieJar = AndroidCookieJar()
+
     private val clientBuilder: OkHttpClient.Builder = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(2, TimeUnit.MINUTES)
+        .cookieJar(cookieJar)
         .addInterceptor(UncaughtExceptionInterceptor())
         .addInterceptor(UserAgentInterceptor(::defaultUserAgentProvider))
         .addNetworkInterceptor(IgnoreGzipInterceptor())
+        // D-208: BrotliInterceptor MUST come after IgnoreGzipInterceptor.
+        // IgnoreGzip strips "Accept-Encoding: gzip" so OkHttp doesn't auto-add gzip
+        // (which would preempt Brotli). BrotliInterceptor then adds "Accept-Encoding: br"
+        // and decompresses Content-Encoding: br responses. Without this, AniList +
+        // other Cloudflare-fronted APIs return garbled Brotli bytes → JSON parse failure.
+        .addNetworkInterceptor(BrotliInterceptor)
         .apply {
+            // D-209: CloudflareInterceptor needs a Context to create WebViews. Only
+            // add it when one is available — when null, CF-protected sources fail with
+            // a raw 403/503 (the UI can't distinguish from a normal error, but the
+            // app still works for non-CF sources). Added LAST so it runs after the
+            // other interceptors (its retry needs the cookie jar + UA already set).
+            context?.let { ctx ->
+                addInterceptor(CloudflareInterceptor(ctx, cookieJar, ::defaultUserAgentProvider))
+            }
             // Cache (5 MiB) — only if we have a context with a cache dir.
             cacheDir?.let { dir ->
                 dir.mkdirs()

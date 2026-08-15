@@ -241,6 +241,9 @@ private val allowedUpdateSheetKeys = setOf(
 @androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun AppRoot() {
+    // D-209: captured here so the Cloudflare "Open in WebView" callbacks (non-
+    // composable lambdas) can launch CloudflareWebViewActivity.
+    val appContext = androidx.compose.ui.platform.LocalContext.current
     val navItems = remember {
         listOf(
             NavItem("browse", "Browse", NavIcons.Browse),
@@ -405,6 +408,14 @@ fun AppRoot() {
                                 contentRepository = contentRepository,
                             )
                         },
+                        // D-209: Cloudflare manual solver.
+                        onOpenCloudflareWebView = { url, sourceName ->
+                            appContext.startActivity(
+                                com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                                    context = appContext, url = url, sourceName = sourceName,
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        },
                     )
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
@@ -430,6 +441,14 @@ fun AppRoot() {
                                 audioLabel = audioLabel,
                                 orchestrator = orchestrator,
                                 contentRepository = contentRepository,
+                            )
+                        },
+                        // D-209: Cloudflare manual solver.
+                        onOpenCloudflareWebView = { url, sourceName ->
+                            appContext.startActivity(
+                                com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                                    context = appContext, url = url, sourceName = sourceName,
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
                             )
                         },
                     )
@@ -463,6 +482,14 @@ fun AppRoot() {
                 },
                 onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
                     backstack.add(AnimeDetailsKey.Extension(sourceId, animeUrl, title, thumbnailUrl))
+                },
+                // D-209: Cloudflare manual solver — launched from the Search error card.
+                onOpenCloudflareWebView = { url, sourceName ->
+                    appContext.startActivity(
+                        com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                            context = appContext, url = url, sourceName = sourceName,
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
                 },
             )
             is MoreKey -> MoreScreen(
@@ -580,6 +607,17 @@ fun AppRoot() {
                 pkgName = currentKey.pkgName,
                 onBack = pop,
                 onOpenSourcePreferences = { sourceId -> backstack.add(SourcePreferencesKey(sourceId)) },
+                // D-209: "Open in WebView" button on the extension detail page —
+                // opens the source's baseUrl in a WebView so the user can solve
+                // Cloudflare challenges manually. Cookies are saved automatically
+                // via the shared CookieManager.
+                onOpenInWebView = { url, sourceName ->
+                    appContext.startActivity(
+                        com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                            context = appContext, url = url, sourceName = sourceName,
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                },
             )
             is SourcePreferencesKey -> com.confused.anikuta.feature.extensionssettings.SourcePreferencesScreen(
                 sourceId = currentKey.sourceId,

@@ -164,6 +164,30 @@ class ContentResolver(
         )
         repo.insertMainEntry(record)
 
+        // D-206 FIX: ensure the content_details row exists immediately so the
+        // subsequent `updateExtensionAxis` UPDATE (called by DetailsViewModel.
+        // resolveContentForExtension right after this returns) actually matches a
+        // row and persists ext_thumbnail_url / ext_description / etc.
+        //
+        // WITHOUT this, the first open from Search would leave ext_thumbnail_url
+        // un-persisted (UPDATE matches 0 rows → silent no-op). The cover image
+        // would then appear null when the entry is later opened from the Library
+        // (LibraryViewModel reads details.extThumbnailUrl → null → coverUrl=null).
+        //
+        // Mirrors the same guard already used by linkExtensionToExisting (line 312)
+        // + updateDataSourceAxisInTransaction (line 457) — the D-198 comments there
+        // say "ensure the content_details row exists so the UPDATE doesn't no-op".
+        // resolveOrCreateForAniList (line 92-94) also inserts the row via
+        // upsertContentDetailsForAniList. This method was the ONLY resolver that
+        // didn't, leaving extension-only entries with no content_details row.
+        repo.upsertContentDetails(
+            ContentDetails(
+                mainId = mainId,
+                // All fields default to NULL — the ext-axis UPDATE that follows
+                // (from DetailsViewModel.resolveContentForExtension) fills the rest.
+            ),
+        )
+
         Logger.i(TAG) {
             "Created content for extension: mainId=$mainId, contentId='$contentId', title='$title'"
         }
