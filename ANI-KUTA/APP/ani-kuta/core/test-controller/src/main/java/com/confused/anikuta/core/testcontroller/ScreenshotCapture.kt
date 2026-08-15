@@ -51,11 +51,47 @@ class ScreenshotCapture(
     }
 
     private suspend fun captureRaw(): Bitmap? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            Logger.w(TAG) { "takeScreenshot requires API 30+; got ${Build.VERSION.SDK_INT}" }
-            return null
+        // D-198 v5.6: use AccessibilityService.takeScreenshot() on API 30+ (full screen including status bar).
+        // Fallback to PixelCopy(window) on API 24-29 (content area only, no status bar).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return captureViaAccessibility()
         }
-        return captureViaAccessibility()
+        // API 24-29 fallback: PixelCopy on the foreground Activity's window.
+        return captureViaPixelCopy()
+    }
+
+    /**
+     * API 24-29 fallback: PixelCopy on the foreground Activity's window.
+     * Captures only the Activity's content area (no status bar).
+     * The coordinate offset between boundsInScreen and the screenshot is handled
+     * by the dashboard (which uses img.naturalWidth/Height for scaling).
+     */
+    private suspend fun captureViaPixelCopy(): Bitmap? {
+        val window = com.confused.anikuta.core.testapi.DebugWindowRegistry.window
+            ?: run {
+                Logger.w(TAG) { "PixelCopy fallback: no foreground window" }
+                return null
+            }
+        val w = window.decorView.width.coerceAtLeast(1)
+        val h = window.decorView.height.coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        return suspendCancellableCoroutine { cont ->
+            try {
+                android.view.PixelCopy.request(window, bmp, { result ->
+                    if (result == android.view.PixelCopy.SUCCESS) {
+                        if (cont.isActive) cont.resume(bmp)
+                    } else {
+                        Logger.w(TAG) { "PixelCopy failed: $result" }
+                        runCatching { bmp.recycle() }
+                        if (cont.isActive) cont.resume(null)
+                    }
+                }, android.os.Handler(android.os.Looper.getMainLooper()))
+            } catch (e: Exception) {
+                Logger.w(TAG) { "PixelCopy threw: ${e::class.java.simpleName}: ${e.message}" }
+                runCatching { bmp.recycle() }
+                if (cont.isActive) cont.resume(null)
+            }
+        }
     }
 
     private suspend fun captureViaAccessibility(): Bitmap? =
