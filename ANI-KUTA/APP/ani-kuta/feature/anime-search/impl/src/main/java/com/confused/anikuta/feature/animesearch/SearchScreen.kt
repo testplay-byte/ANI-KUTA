@@ -465,7 +465,6 @@ private fun SearchPromptCard(
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(16.dp))
             Row(
-                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
