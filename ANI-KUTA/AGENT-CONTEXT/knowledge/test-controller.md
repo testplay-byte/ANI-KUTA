@@ -717,6 +717,14 @@ This means `getRootInActiveWindow()` returned null. Causes:
 
 The `nodeId` from a previous `get_state` is no longer valid (the UI changed). Re-send `get_state` to get fresh nodeIds, or use `{x, y}` coordinates instead.
 
+### Preview dot (green marker) appears offset from the actual tap
+
+The actual tap (via `dispatchGesture`) lands correctly, but the green preview dot appears shifted (usually DOWN by the status bar height).
+
+**Cause:** `dispatchGesture` uses **raw screen coordinates** (origin = physical screen top-left, including status bar), but `WindowManager.LayoutParams` with `Gravity.TOP | Gravity.START` (default) uses **content-area coordinates** (origin = below the status bar). The screenshot includes the status bar, so the dashboard sends coordinates in raw screen space — the tap consumer matches, but the overlay consumer didn't.
+
+**Fix (v5.9):** The overlay's `LayoutParams` now includes `FLAG_LAYOUT_IN_SCREEN`, which makes its `(x, y)` origin the physical screen's top-left — matching `dispatchGesture`. See `ActionPreviewOverlay.createOverlayParams()`.
+
 ### `NAV_NOT_BOUND` error
 
 `DebugNavRegistry.current` is null — the Compose `AppRoot` hasn't composed yet, or the app is in a release build. Ensure the app is in the foreground + it's a debug build.
@@ -866,6 +874,7 @@ Release builds already contain **zero test-controller code** (it's all `debugImp
 | **D-200** | PixelCopy screenshots (all API levels) | `takeScreenshot` was removed in SDK 36. PixelCopy works on API 24+, captures SurfaceView (MPV video). |
 | **D-201** | Reuse debug-bubble facilities (DebugLogBuffer, DebugNetworkStats, DebugDatabaseBrowser) | No code duplication. Same data as the debug bubble. |
 | **D-202** | Debug-only removability | `debugImplementation` + debug manifest + debug source-set. Delete 2 modules + 3 files to remove. |
+| **D-198 v5.9** | ActionPreviewOverlay `FLAG_LAYOUT_IN_SCREEN` fix | The green tap-dot was offset DOWN by the status bar height because `WindowManager.LayoutParams` (default) uses content-area coordinates (origin below status bar), while `dispatchGesture` uses raw screen coordinates (origin = physical screen top-left, includes status bar). Adding `FLAG_LAYOUT_IN_SCREEN` aligns the overlay's coordinate system with `dispatchGesture`. Also upgraded the dot to a ring + center-dot design (white stroke border for visibility on any background). |
 
 ### D-198 evolution (transport)
 
