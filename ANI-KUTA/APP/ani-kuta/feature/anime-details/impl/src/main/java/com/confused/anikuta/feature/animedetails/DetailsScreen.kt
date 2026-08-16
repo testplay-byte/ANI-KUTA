@@ -36,10 +36,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle  // D-226: reverse auto-link match
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.SearchOff  // D-226: reverse auto-link no-match
 import androidx.compose.material.icons.filled.Security  // D-209: Cloudflare error icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -183,6 +185,8 @@ fun DetailsScreen(
 
     // Phase B: auto-link state
     val autoLinkState by viewModel.autoLinkState.collectAsState()
+    // D-226: Reverse auto-link state — drives the live-preview in the episodes section.
+    val reverseAutoLinkState by viewModel.reverseAutoLinkState.collectAsState()
     val anilistSearchState by viewModel.anilistSearchState.collectAsState()
     val showManualLinkSheet by viewModel.showManualLinkSheet.collectAsState()
 
@@ -635,6 +639,7 @@ fun DetailsScreen(
                                 episodeState = episodeState,
                                 episodeMetadata = episodeMetadata,
                                 hasAnilistId = anime.anilistId != null,
+                                reverseAutoLinkState = reverseAutoLinkState,
                                 onOpenSourcePicker = { showManualSearch = true },
                                 onOpenCloudflareWebView = onOpenCloudflareWebView,
                                 onUnlinkSource = { viewModel.unlinkSource() },
@@ -1404,6 +1409,7 @@ private fun EpisodesSection(
     episodeState: EpisodeState,
     episodeMetadata: Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>,
     hasAnilistId: Boolean,
+    reverseAutoLinkState: ReverseAutoLinkState = ReverseAutoLinkState.Idle,
     onOpenSourcePicker: () -> Unit,
     // D-209: callback to open the Cloudflare WebView solver.
     onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit,
@@ -1535,51 +1541,193 @@ private fun EpisodesSection(
         // ── Episode list / states ──
         when (episodeState) {
             is EpisodeState.Idle -> {
-                // No source linked — show placeholder.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Filled.HourglassEmpty,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(48.dp),
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = "No source linked",
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Tap the source selector above to search\nand link an extension source.",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center,
-                        )
+                // D-226: Live-preview the reverse auto-link search here.
+                // Instead of a static "No source linked" message, show the user
+                // what's happening: searching extensions → match found → loading
+                // episodes. Only falls back to "No source linked" when the
+                // reverse auto-link is Idle (feature off / not applicable) or Error.
+                when (reverseAutoLinkState) {
+                    is ReverseAutoLinkState.Searching -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(36.dp),
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                Text(
+                                    text = "Searching extensions…",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Looking for a matching source\nfor this anime.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                    is ReverseAutoLinkState.Matched -> {
+                        // Match found — brief preview before episodes load.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Filled.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(40.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "Linked to ${reverseAutoLinkState.sourceName}",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Loading episodes…",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                    is ReverseAutoLinkState.NoMatch -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Filled.SearchOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(48.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "No source found",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Auto-link couldn't find a matching extension.\nTap below to search manually.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                TextButton(onClick = onOpenSourcePicker) {
+                                    Text(
+                                        text = "Link source manually",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    is ReverseAutoLinkState.Idle, is ReverseAutoLinkState.Error -> {
+                        // No reverse auto-link active — show the original placeholder.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Filled.HourglassEmpty,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(48.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "No source linked",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Tap the source selector above to search\nand link an extension source.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             is EpisodeState.Loading -> {
+                // D-226: When the reverse auto-link found a match and episodes
+                // are now loading, show the match preview ("Linked to {source}")
+                // alongside the loading spinner — so the user sees the link
+                // confirmation while the episode list downloads.
+                val matchedSource = (reverseAutoLinkState as? ReverseAutoLinkState.Matched)?.sourceName
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(32.dp),
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (matchedSource != null) {
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "Linked to $matchedSource",
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(32.dp),
+                        )
+                    }
                 }
             }
 
