@@ -120,26 +120,68 @@ fun EpisodeDownloadControl(
                 SmallIconButton(Icons.Filled.Close, "Cancel", onClick = onCancel)
             }
 
-            is EpisodeDownloadState.Downloading -> Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                // D-211: compact Downloading state — just % + small pause/cancel buttons.
-                // NO inline progress bar (the full-width bar is drawn as a bottom overlay
-                // on the EpisodeRow itself, so it extends under these buttons).
-                // Buttons are 22dp (down from 28dp) so they don't increase row height.
-                Text(
-                    "${s.progress}%",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Visible,
-                )
-                SmallIconButton(Icons.Filled.Pause, "Pause", onClick = onPause, size = 22)
-                SmallIconButton(Icons.Filled.Close, "Cancel", onClick = onCancel, size = 22)
+            is EpisodeDownloadState.Downloading -> {
+                // D-212: single button with dropdown menu (like the Downloaded state's
+                // checkmark). Tapping shows a menu with "Pause" + "Cancel" options.
+                // The percentage shows to the left of the button.
+                var showMenu by remember { mutableStateOf(false) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        "${s.progress}%",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Visible,
+                    )
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                .clickable { showMenu = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Download,
+                                contentDescription = "Downloading — tap for options",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Pause", fontFamily = RobotoFamily) },
+                                onClick = {
+                                    showMenu = false
+                                    onPause()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Cancel",
+                                        fontFamily = RobotoFamily,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onCancel()
+                                },
+                            )
+                        }
+                    }
+                }
             }
 
             is EpisodeDownloadState.Retrying -> Row(verticalAlignment = Alignment.CenterVertically) {

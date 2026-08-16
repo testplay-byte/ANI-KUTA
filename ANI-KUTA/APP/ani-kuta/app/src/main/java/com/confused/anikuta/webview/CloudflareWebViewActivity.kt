@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -188,6 +189,12 @@ private fun CloudflareWebViewScreen(
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 3.dp,
+                // D-212: add status bar padding so the top bar shows BELOW the
+                // system status bar (not under it). enableEdgeToEdge() makes the
+                // content draw edge-to-edge; this modifier adds the inset padding.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding(),
             ) {
                 Row(
                     modifier = Modifier

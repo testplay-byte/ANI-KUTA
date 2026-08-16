@@ -229,49 +229,41 @@ fun SearchScreen(
                 }
 
                 is SearchUiState.CloudflareBlocked -> {
-                    // D-209: Cloudflare blocked the request + the headless solver failed.
-                    // Show "Open in WebView" (solve manually) + "Refresh" (retry after solving).
+                    // D-209+D-212: Cloudflare blocked the request + the headless solver failed.
+                    // D-212: shorter description + switched button colors (Refresh=primary,
+                    // Open in WebView=tertiary — the user asked to switch them).
                     val cf = uiState as SearchUiState.CloudflareBlocked
                     SearchPromptCard(
                         title = "Cloudflare protection",
-                        description = "${cf.sourceName} is behind Cloudflare. Tap \"Open in WebView\" " +
-                            "to solve the challenge in a browser, then come back — the search " +
-                            "auto-refreshes. Cookies are saved automatically.",
+                        description = "${cf.sourceName} is behind Cloudflare. Solve it in " +
+                            "the WebView, then come back.",
                         icon = Icons.Filled.Security,
-                        actionLabel = "Open in WebView",
-                        onAction = {
+                        actionLabel = "Refresh",
+                        onAction = { viewModel.retryExtensionSearch() },
+                        secondaryActionLabel = "Open in WebView",
+                        onSecondaryAction = {
                             viewModel.onOpenWebView()
                             onOpenCloudflareWebView(cf.url, cf.sourceName)
                         },
-                        secondaryActionLabel = "Refresh",
-                        onSecondaryAction = { viewModel.retryExtensionSearch() },
                     )
                 }
 
                 is SearchUiState.ExtensionEmpty -> {
-                    // D-209+D-210: extension returned 0 results — distinguish from AniList's
-                    // generic "No results". Show "Open in WebView" (the 0 results might be a
-                    // Cloudflare issue manifesting as empty) + "Refresh" (manual retry).
-                    // When the user returns from the WebView, the search auto-refreshes.
+                    // D-209+D-210+D-212: extension returned 0 results — shorter description +
+                    // switched button colors (Refresh=primary, Open in WebView=tertiary).
                     val ee = uiState as SearchUiState.ExtensionEmpty
                     SearchPromptCard(
                         title = "No results from ${ee.sourceName}",
-                        description = "This source returned 0 results. If it's behind " +
-                            "Cloudflare, tap \"Open in WebView\" to solve the challenge, " +
-                            "then come back — the search auto-refreshes.",
+                        description = "0 results. If Cloudflare-protected, solve it in the WebView.",
                         icon = Icons.Filled.SearchOff,
-                        actionLabel = if (ee.sourceUrl != null) "Open in WebView" else "Refresh",
-                        onAction = {
-                            if (ee.sourceUrl != null) {
+                        actionLabel = "Refresh",
+                        onAction = { viewModel.retryExtensionSearch() },
+                        secondaryActionLabel = if (ee.sourceUrl != null) "Open in WebView" else null,
+                        onSecondaryAction = if (ee.sourceUrl != null) {
+                            {
                                 viewModel.onOpenWebView()
                                 onOpenCloudflareWebView(ee.sourceUrl, ee.sourceName)
-                            } else {
-                                viewModel.retryExtensionSearch()
                             }
-                        },
-                        secondaryActionLabel = if (ee.sourceUrl != null) "Refresh" else null,
-                        onSecondaryAction = if (ee.sourceUrl != null) {
-                            { viewModel.retryExtensionSearch() }
                         } else null,
                     )
                 }

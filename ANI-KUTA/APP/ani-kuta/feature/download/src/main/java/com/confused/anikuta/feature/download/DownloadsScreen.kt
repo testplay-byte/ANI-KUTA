@@ -439,96 +439,108 @@ private fun AnimeSectionCard(
 
 @Composable
 private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Column(
-            modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
-        ) {
-            val epName = task.episode.name.ifBlank {
-                "Episode ${task.episode.episodeNumber.toInt()}"
-            }
-            Text(
-                epName,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+    // D-212: wrap in Box so the progress bar can be a full-width bottom overlay
+    // (extends under the 3-dot button too — the user explicitly asked for this).
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Column(
+                modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
             ) {
-                if (task.videoServer.isNotBlank()) InfoPill(task.videoServer)
-                if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
-                if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
-                if (task.status == DownloadStatus.DOWNLOADING ||
-                    task.status == DownloadStatus.PAUSED
-                ) {
-                    val sizeText = if (task.totalBytes > 0)
-                        "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
-                    else formatBytes(task.downloadedBytes)
-                    SizePill(sizeText)
+                val epName = task.episode.name.ifBlank {
+                    "Episode ${task.episode.episodeNumber.toInt()}"
                 }
-                Spacer(Modifier.weight(1f))
-                when (task.status) {
-                    DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
-                        PercentagePill("${task.progress}%")
-                    }
-                    DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
-                        InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
-                    }
-                    DownloadStatus.ERROR -> ErrorPill("Failed")
-                    DownloadStatus.COMPLETED -> InfoPill("Done", highlight = true)
-                    else -> {}
-                }
-            }
-
-            if (task.status == DownloadStatus.DOWNLOADING ||
-                task.status == DownloadStatus.PAUSED
-            ) {
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { (task.progress / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surface,
+                Text(
+                    epName,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (task.videoServer.isNotBlank()) InfoPill(task.videoServer)
+                    if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
+                    if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
+                    if (task.status == DownloadStatus.DOWNLOADING ||
+                        task.status == DownloadStatus.PAUSED
+                    ) {
+                        val sizeText = if (task.totalBytes > 0)
+                            "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
+                        else formatBytes(task.downloadedBytes)
+                        SizePill(sizeText)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    when (task.status) {
+                        DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
+                            PercentagePill("${task.progress}%")
+                        }
+                        DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
+                            InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
+                        }
+                        DownloadStatus.ERROR -> ErrorPill("Failed")
+                        DownloadStatus.COMPLETED -> InfoPill("Done", highlight = true)
+                        else -> {}
+                    }
+                }
+
+                // D-212: removed the inline progress bar — it's now a full-width
+                // bottom overlay on the Box (see below), so it extends under the
+                // 3-dot button too.
+
+                if (task.status == DownloadStatus.ERROR) {
+                    task.lastError?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            it,
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
 
-            if (task.status == DownloadStatus.ERROR) {
-                task.lastError?.let {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        it,
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            Box(modifier = Modifier.padding(top = 6.dp, end = 6.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    onClick = onMenu,
+                ) {
+                    Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "Options",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         }
 
-        Box(modifier = Modifier.padding(top = 6.dp, end = 6.dp)) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                onClick = onMenu,
-            ) {
-                Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
+        // D-212: full-width download progress bar overlay at the bottom of the card.
+        // Spans the ENTIRE row width (including under the 3-dot button). 3dp tall.
+        if (task.status == DownloadStatus.DOWNLOADING ||
+            task.status == DownloadStatus.PAUSED
+        ) {
+            LinearProgressIndicator(
+                progress = { (task.progress / 100f).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(3.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+            )
         }
     }
 }
@@ -556,6 +568,8 @@ private fun PercentagePill(text: String) {
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }

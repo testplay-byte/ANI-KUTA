@@ -193,11 +193,9 @@ fun ExtensionDetailScreen(
                         }
                     }
 
-                    // ── Actions Row 2: WebView (+ Source Settings if single configurable source) ──
-                    // D-209 + D-210: "Open in WebView" button — opens the source's baseUrl
-                    // in a WebView for manual Cloudflare solving. If there's a single
-                    // configurable source, split the row with Source Settings. Otherwise
-                    // WebView takes the full width.
+                    // ── Actions Row 2: Settings (left) + WebView (right) ──
+                    // D-209 + D-210 + D-212: inverted positions (Settings left, WebView right)
+                    // + renamed to just "Settings" and "WebView" (no extra text).
                     val firstHttpSource = ext?.sources?.firstNotNullOfOrNull {
                         (it as? AnimeHttpSource)?.baseUrl?.let { url -> it to url }
                     }
@@ -210,22 +208,24 @@ fun ExtensionDetailScreen(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                ActionButton(
-                                    text = "Open in WebView",
-                                    icon = Icons.Filled.Public,
-                                    color = MaterialTheme.colorScheme.tertiary,
-                                    modifier = if (singleConfigurableSource) Modifier.weight(1f) else Modifier.fillMaxWidth(),
-                                    onClick = { onOpenInWebView(baseUrl, source.name) },
-                                )
+                                // D-212: Settings on the LEFT (was on the right).
                                 if (singleConfigurableSource) {
                                     ActionButton(
-                                        text = "Source Settings",
+                                        text = "Settings",
                                         icon = Icons.Filled.Settings,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.weight(1f),
                                         onClick = { onOpenSourcePreferences(source.id) },
                                     )
                                 }
+                                // D-212: WebView on the RIGHT (was on the left), renamed to "WebView".
+                                ActionButton(
+                                    text = "WebView",
+                                    icon = Icons.Filled.Public,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    modifier = if (singleConfigurableSource) Modifier.weight(1f) else Modifier.fillMaxWidth(),
+                                    onClick = { onOpenInWebView(baseUrl, source.name) },
+                                )
                             }
                         }
                     }
