@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Downloading  // D-214: active download icon
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -163,8 +164,10 @@ fun EpisodeDownloadControl(
                                 .clickable { showMenu = true },
                             contentAlignment = Alignment.Center,
                         ) {
+                            // D-214: changed from Download to Downloading icon (down arrow
+                            // with a progress arc — better represents active downloading).
                             Icon(
-                                Icons.Filled.Download,
+                                Icons.Filled.Downloading,
                                 contentDescription = "Downloading — tap for options",
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(16.dp),

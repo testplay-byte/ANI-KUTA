@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -447,9 +448,15 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
     // The 3-dot is NOT full-height — it's in the top row only. The info row + progress
     // bar use the FULL width below the 3-dot, so the percentage is never cut off.
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
+        // D-214: reduced top padding (was vertical = 10.dp — too much at the top).
+        // Now top = 4dp, bottom = 10dp, horizontal = 10dp. Minimal top padding so
+        // the episode name + 3-dot button sit close to the top edge.
+        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 10.dp),
     ) {
         // ── Row 1: Episode name + 3-dot button ──
+        // D-214: 3-dot button is now wider + shorter (40×24dp) + rotated 90°
+        // (MoreVert icon rotated so the 3 dots are horizontal). Matches the
+        // "kebab" menu orientation the user asked for.
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -469,16 +476,23 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
             )
             Spacer(Modifier.width(4.dp))
             Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
                 onClick = onMenu,
             ) {
-                Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                // D-214: wider + shorter button (was 32×32 square). Now 40×24.
+                Box(
+                    modifier = Modifier.size(width = 40.dp, height = 24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Icon(
                         Icons.Filled.MoreVert,
                         contentDescription = "Options",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
+                        // D-214: rotate the icon 90° so the 3 dots are horizontal.
+                        modifier = Modifier
+                            .size(18.dp)
+                            .graphicsLayer(rotationZ = 90f),
                     )
                 }
             }
@@ -550,27 +564,35 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
 
 @Composable
 private fun SizePill(text: String) {
-    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surface) {
+    // D-214: match DetailsScreen pill style — outlineVariant color + lineHeight=14.sp
+    // (constrains text height — was taking up too much height without it).
+    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.outlineVariant) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
 
 @Composable
 private fun PercentagePill(text: String) {
+    // D-214: match DetailsScreen pill style — added lineHeight=14.sp + padding 8dp.
     Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
+            lineHeight = 14.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             maxLines = 1,
             softWrap = false,
         )
@@ -579,35 +601,43 @@ private fun PercentagePill(text: String) {
 
 @Composable
 private fun ErrorPill(text: String) {
+    // D-214: match DetailsScreen pill style — added lineHeight=14.sp + padding 8dp.
     Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f)) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
+            lineHeight = 14.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
 
 @Composable
 private fun InfoPill(text: String, highlight: Boolean = false) {
+    // D-214: match DetailsScreen pill style — outlineVariant (was surfaceVariant) +
+    // lineHeight=14.sp + padding 8dp. This makes the pill height consistent with
+    // the DetailsScreen's date/audio pills (which the user said look proper).
     Surface(
         shape = RoundedCornerShape(6.dp),
         color = if (highlight) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-        else MaterialTheme.colorScheme.surfaceVariant,
+        else MaterialTheme.colorScheme.outlineVariant,
     ) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
             color = if (highlight) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             softWrap = false,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
 }
