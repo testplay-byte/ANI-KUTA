@@ -503,6 +503,8 @@ class DetailsViewModel(
                         remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
                         currentMainId = cachedMainId; _mainIdFlow.value = cachedMainId
                         refreshContentAndLibraryStatus(cachedMainId)
+                        // D-223: Trigger cover color extraction for the AniList cache-first path.
+                        triggerCoverColorExtraction(cachedMainId, cachedMeta.dataCoverUrl)
                         loadLinkedSource(animeId)
                     }
                 }
@@ -977,6 +979,12 @@ class DetailsViewModel(
             }
             remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
             refreshContentAndLibraryStatus(existingContent.mainId)
+
+            // D-223: Trigger cover color extraction for the cache-first path too.
+            // Without this, anime opened from Library (which takes the cache-first path)
+            // would never get the adaptive accent color.
+            val cacheCoverUrl = details?.extThumbnailUrl ?: details?.dataCoverUrl ?: thumbnailUrl
+            triggerCoverColorExtraction(existingContent.mainId, cacheCoverUrl)
 
             // Try to load cached episodes.
             val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource

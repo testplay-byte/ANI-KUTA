@@ -2257,6 +2257,16 @@ private fun InfoRow(label: String, value: String) {
 
 @Composable
 private fun ErrorState(message: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    // D-223fix: Truncate long error messages (e.g. raw SQLite stack traces).
+    // Show first ~150 chars + "..." if longer. User can copy the full message.
+    val displayMessage = if (message.length > 150) {
+        message.take(150) + "..."
+    } else {
+        message
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2273,12 +2283,26 @@ private fun ErrorState(message: String) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = message,
+            text = displayMessage,
             fontFamily = RobotoFamily,
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
         )
+        if (message.length > 150) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.TextButton(onClick = {
+                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(message))
+                }) {
+                    Text("Copy error", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
     }
 }
 
