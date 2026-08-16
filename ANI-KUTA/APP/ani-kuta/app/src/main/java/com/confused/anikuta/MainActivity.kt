@@ -116,6 +116,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 android.graphics.Color.TRANSPARENT,
             ),
         )
+        // D-220: Handle AniList OAuth redirect (anikuta://anilist-auth#access_token=...).
+        // The token is in the URL fragment (not query). Parse + pass to AniListTracker.
+        handleAniListOAuthRedirect(intent)
         setContent {
             val prefs = koinInject<ThemePreferences>()
             val themeMode = prefs.themeMode.value
@@ -132,10 +135,72 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             }
         }
     }
+
+    // D-220: Handle AniList OAuth redirect when the activity is already running.
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAniListOAuthRedirect(intent)
+    }
+
+    /**
+     * D-220: Parse the AniList OAuth2 implicit grant redirect.
+     *
+     * AniList redirects to `anikuta://anilist-auth#access_token=...&expires_in=...`
+     * The token is in the URL **fragment** (after #), NOT the query.
+     *
+     * This method extracts the token + calls AniListTracker.handleLoginCallback(token)
+     * in a background coroutine.
+     */
+    private fun handleAniListOAuthRedirect(intent: android.content.Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "anikuta" || data.host != "anilist-auth") return
+
+        // The access_token is in the URL fragment (implicit grant).
+        val fragment = data.encodedFragment ?: ""
+        val token = com.confused.anikuta.core.trackeranilist.AniListOAuth
+            .parseAccessToken(fragment)
+
+        if (token.isNullOrBlank()) {
+            com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                "AniList OAuth redirect: no access_token in fragment"
+            }
+            return
+        }
+
+        com.confused.anikuta.core.common.Logger.i("MainActivity") {
+            "AniList OAuth redirect received — exchanging token..."
+        }
+
+        // Launch a coroutine to call the tracker (suspend function).
+        kotlinx.coroutines.MainScope().launch {
+            try {
+                val tracker = org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.core.trackeranilist.AniListTracker>()
+                val success = tracker.handleLoginCallback(token)
+                if (success) {
+                    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                        "AniList login successful!"
+                    }
+                } else {
+                    com.confused.anikuta.core.common.Logger.e("MainActivity") {
+                        "AniList login failed"
+                    }
+                }
+            } catch (e: Exception) {
+                com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
+                    "AniList OAuth redirect handling failed: ${e.message}"
+                }
+            }
+        }
+    }
 }
 
 @Serializable
 object MoreKey : NavKey
+
+@Serializable
+object TrackersKey : NavKey  // D-220: Trackers settings page (AniList link/unlink)
 
 @Serializable
 object ProfileKey : NavKey
@@ -499,6 +564,7 @@ fun AppRoot() {
                 onOpenUpdates = { backstack.add(com.confused.anikuta.feature.updates.UpdatesKey) },
                 onOpenProfile = { backstack.add(ProfileKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
+                onOpenTrackers = { backstack.add(TrackersKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
@@ -565,6 +631,10 @@ fun AppRoot() {
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
+                onBack = pop,
+            )
+            // D-220: Trackers page.
+            is TrackersKey -> com.confused.anikuta.settings.TrackersScreen(
                 onBack = pop,
             )
             // ── About & Updates ──

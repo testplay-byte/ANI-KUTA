@@ -47,6 +47,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- D-220: AniList OAuth2 implicit grant redirect. -->
+            <!-- AniList redirects to anikuta://anilist-auth#access_token=... -->
+            <!-- The token is in the URL fragment (not query). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="anikuta" android:host="anilist-auth" />
+            </intent-filter>
         </activity>
 
         <!-- Crash handler error screen (shown when app crashes) -->

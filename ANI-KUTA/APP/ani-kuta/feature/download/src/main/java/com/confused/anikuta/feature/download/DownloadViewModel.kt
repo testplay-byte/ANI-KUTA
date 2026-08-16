@@ -121,20 +121,26 @@ class DownloadViewModel(
             }
         }
 
-        // ── D-215: Live download speed tracking ──
-        // Samples total downloadedBytes every 2 seconds + calculates the delta.
+        // ── D-215+D-217: Live download speed tracking (rolling average) ──
+        // Samples total downloadedBytes every 2 seconds + calculates a rolling
+        // average over the last 3 samples (6 seconds) for a smoother display.
         // Stops automatically when the ViewModel is cleared (user exits the page).
         viewModelScope.launch {
             var previousTotalBytes = 0L
+            val recentSpeeds = ArrayDeque<Long>(3) // Rolling window of last 3 speed samples.
             while (true) {
                 delay(2_000) // Update every 2 seconds.
                 val currentTotalBytes = manager.getQueue().value
                     .filter { it.status == DownloadStatus.DOWNLOADING }
                     .sumOf { it.downloadedBytes }
                 val delta = currentTotalBytes - previousTotalBytes
-                // Speed = delta / 2 seconds. Clamp to >= 0 (in case a download was
-                // cancelled between samples, the delta could be negative).
-                _downloadSpeed.value = if (delta > 0) delta / 2 else 0L
+                // Speed = delta / 2 seconds. Clamp to >= 0 (cancellations can make delta negative).
+                val instantSpeed = if (delta > 0) delta / 2 else 0L
+                // D-217: rolling average over last 3 samples for smoother display.
+                // Prevents the speed from flickering between 0 and high values.
+                recentSpeeds.addLast(instantSpeed)
+                if (recentSpeeds.size > 3) recentSpeeds.removeFirst()
+                _downloadSpeed.value = recentSpeeds.sum() / recentSpeeds.size
                 previousTotalBytes = currentTotalBytes
             }
         }

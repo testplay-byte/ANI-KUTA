@@ -234,8 +234,10 @@ fun DownloadsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (downloading > 0) StatChip("$downloading", "downloading", MaterialTheme.colorScheme.primary)
-                // D-215: live download speed (shown when actively downloading).
-                if (downloading > 0 && downloadSpeed > 0) {
+                // D-217: always show speed when downloading (even if 0 KB/s — never
+                // disappears during an active download). The old `downloadSpeed > 0`
+                // check caused the chip to vanish between samples.
+                if (downloading > 0) {
                     StatChip(formatSpeed(downloadSpeed), "speed", MaterialTheme.colorScheme.tertiary)
                 }
                 if (queued > 0) StatChip("$queued", "queued", MaterialTheme.colorScheme.onSurfaceVariant)
