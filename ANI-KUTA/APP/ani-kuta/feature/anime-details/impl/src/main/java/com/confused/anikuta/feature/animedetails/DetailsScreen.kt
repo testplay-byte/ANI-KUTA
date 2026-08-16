@@ -199,13 +199,15 @@ fun DetailsScreen(
             autoLinkState.toPopupState()
         }
     }
-    val autoLinkPopupDirection: AutoLinkDirection? = when (activeAutoLinkPopup) {
-        is AutoLinkPopupState.Searching -> activeAutoLinkPopup.direction
-        is AutoLinkPopupState.Matched -> activeAutoLinkPopup.direction
-        is AutoLinkPopupState.NoMatch -> activeAutoLinkPopup.direction
-        is AutoLinkPopupState.Error -> activeAutoLinkPopup.direction
-        else -> null
-    }
+    // D-225c: Extract the direction from whichever popup state is active.
+    // Uses safe-cast chain (avoids a when-expression — Kotlin 2.2.0 parser
+    // quirk when the subject is a remember()-backed local val inside a
+    // @Composable; the when-expression form confused the parser downstream).
+    val autoLinkPopupDirection: AutoLinkDirection? =
+        (activeAutoLinkPopup as? AutoLinkPopupState.Searching)?.direction
+            ?: (activeAutoLinkPopup as? AutoLinkPopupState.Matched)?.direction
+            ?: (activeAutoLinkPopup as? AutoLinkPopupState.NoMatch)?.direction
+            ?: (activeAutoLinkPopup as? AutoLinkPopupState.Error)?.direction
 
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
