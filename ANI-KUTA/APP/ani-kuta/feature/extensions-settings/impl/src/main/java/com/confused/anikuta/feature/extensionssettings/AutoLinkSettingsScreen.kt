@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,6 +43,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -623,31 +629,32 @@ private fun ExtensionReorderCard(
                     else MaterialTheme.colorScheme.surface,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress(
-                            onDragStart = {
-                                draggedIndex = index
-                                dragOffset = 0f
-                                hapticFeedback.performHapticFeedback(
-                                    androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress
-                                )
-                            },
-                            onDragEnd = {
-                                if (draggedIndex >= 0) {
-                                    onReorder(internalList.map { it.pkgName })
-                                }
-                                draggedIndex = -1
-                                dragOffset = 0f
-                            },
-                            onDragCancel = {
-                                internalList.clear()
-                                internalList.addAll(orderedExtensions)
-                                draggedIndex = -1
-                                dragOffset = 0f
-                            },
-                            onDrag = { _, dragAmount ->
-                                dragOffset += dragAmount.y
-                                val itemHeight = 56f
-                                val swapThreshold = itemHeight / 2
+                        .pointerInput(index) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    draggedIndex = index
+                                    dragOffset = 0f
+                                    hapticFeedback.performHapticFeedback(
+                                        HapticFeedbackType.LongPress
+                                    )
+                                },
+                                onDragEnd = {
+                                    if (draggedIndex >= 0) {
+                                        onReorder(internalList.map { it.pkgName })
+                                    }
+                                    draggedIndex = -1
+                                    dragOffset = 0f
+                                },
+                                onDragCancel = {
+                                    internalList.clear()
+                                    internalList.addAll(orderedExtensions)
+                                    draggedIndex = -1
+                                    dragOffset = 0f
+                                },
+                                onDrag = { _, dragAmount ->
+                                    dragOffset += dragAmount.y
+                                    val itemHeight = 56f
+                                    val swapThreshold = itemHeight / 2
                                 if (dragOffset > swapThreshold && index < internalList.size - 1) {
                                     // Swap down.
                                     val temp = internalList[index]
@@ -665,7 +672,7 @@ private fun ExtensionReorderCard(
                                 }
                             },
                         )
-                        .androidx.compose.ui.graphics.graphicsLayer {
+                        .graphicsLayer {
                             if (isDragged) translationY = dragOffset
                         },
                 ) {
@@ -709,7 +716,7 @@ private fun ExtensionReorderCard(
                         }
                         // Drag handle icon.
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Filled.DragHandle,
+                            imageVector = Icons.Filled.DragHandle,
                             contentDescription = "Drag to reorder",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
