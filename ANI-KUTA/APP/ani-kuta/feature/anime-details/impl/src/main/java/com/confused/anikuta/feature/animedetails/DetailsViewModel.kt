@@ -80,6 +80,8 @@ class DetailsViewModel(
     private val updateEngine: com.confused.anikuta.core.updates.UpdateEngine,
     // D-223: Cover color extractor for adaptive theming.
     private val coverColorExtractor: com.confused.anikuta.core.designsystem.color.CoverColorExtractor? = null,
+    // D-225: Reverse auto-link service (AniList → extensions).
+    private val reverseAutoLinkService: com.confused.anikuta.core.smartmatcher.ReverseAutoLinkService? = null,
 ) : ViewModel() {
 
     companion object {
@@ -562,6 +564,48 @@ class DetailsViewModel(
                 // Check for a persisted source link (if not already loaded from cache).
                 if (cachedMainId == null) {
                     loadLinkedSource(animeId)
+                }
+
+                // D-225: Reverse auto-link — if no source is linked, search extensions.
+                val savedLink = preferenceStore.getString(KEY_SOURCE_LINK_PREFIX + animeId, "")
+                if (savedLink.isBlank() && reverseAutoLinkService != null) {
+                    val anime = anilistBase
+                    if (anime != null) {
+                        Logger.i(TAG) { "D-225: Reverse auto-link — no source linked, searching extensions..." }
+                        viewModelScope.launch {
+                            try {
+                                val result = reverseAutoLinkService.attemptReverseAutoLink(
+                                    anilistTitle = anime.displayName,
+                                    anilistYear = anime.seasonYear,
+                                )
+                                when (result) {
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Matched -> {
+                                        Logger.i(TAG) {
+                                            "D-225: Reverse auto-link MATCHED: source=${result.source.name}, " +
+                                                "anime='${result.sAnime.title}', score=${result.score}"
+                                        }
+                                        // Reuse the existing linkSource() — it does everything:
+                                        // persist KEY_SOURCE_LINK_PREFIX, linkExtensionToExisting,
+                                        // set extensionBase, fetch episodes, cache forward link.
+                                        linkSource(result.source, result.sAnime)
+                                    }
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.NoMatch -> {
+                                        Logger.i(TAG) {
+                                            "D-225: Reverse auto-link NO MATCH (bestScore=${result.bestScore})"
+                                        }
+                                    }
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Skipped -> {
+                                        Logger.d(TAG) { "D-225: Reverse auto-link skipped: ${result.reason}" }
+                                    }
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Error -> {
+                                        Logger.e(TAG) { "D-225: Reverse auto-link error: ${result.message}" }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Logger.e(TAG, e) { "D-225: Reverse auto-link failed: ${e.message}" }
+                            }
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Failed: ${e.message}" }

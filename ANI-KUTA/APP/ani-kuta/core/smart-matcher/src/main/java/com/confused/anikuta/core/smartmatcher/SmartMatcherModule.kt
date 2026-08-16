@@ -16,4 +16,6 @@ import org.koin.dsl.module
 val smartMatcherModule = module {
     singleOf(::SmartMatcher)
     singleOf(::AutoLinkService)
+    // D-225: Reverse auto-link service (AniList → extensions).
+    singleOf(::ReverseAutoLinkService)
 }
