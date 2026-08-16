@@ -439,108 +439,111 @@ private fun AnimeSectionCard(
 
 @Composable
 private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
-    // D-212: wrap in Box so the progress bar can be a full-width bottom overlay
-    // (extends under the 3-dot button too — the user explicitly asked for this).
-    Box(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Column(
-                modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
-            ) {
-                val epName = task.episode.name.ifBlank {
-                    "Episode ${task.episode.episodeNumber.toInt()}"
-                }
-                Text(
-                    epName,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (task.videoServer.isNotBlank()) InfoPill(task.videoServer)
-                    if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
-                    if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
-                    if (task.status == DownloadStatus.DOWNLOADING ||
-                        task.status == DownloadStatus.PAUSED
-                    ) {
-                        val sizeText = if (task.totalBytes > 0)
-                            "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
-                        else formatBytes(task.downloadedBytes)
-                        SizePill(sizeText)
-                    }
-                    Spacer(Modifier.weight(1f))
-                    when (task.status) {
-                        DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
-                            PercentagePill("${task.progress}%")
-                        }
-                        DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
-                            InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
-                        }
-                        DownloadStatus.ERROR -> ErrorPill("Failed")
-                        DownloadStatus.COMPLETED -> InfoPill("Done", highlight = true)
-                        else -> {}
-                    }
-                }
-
-                // D-212: removed the inline progress bar — it's now a full-width
-                // bottom overlay on the Box (see below), so it extends under the
-                // 3-dot button too.
-
-                if (task.status == DownloadStatus.ERROR) {
-                    task.lastError?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            it,
-                            fontFamily = RobotoFamily,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.error,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+    // D-213: restructured layout:
+    //   Row 1: [Episode Name (weight 1f)] [3-dot button]   ← 3-dot is ONLY here, next to the name
+    //   Row 2: [server][audio][quality][size] ... [45%]     ← full width, percentage on the right
+    //   Row 3: [progress bar — full width, 6dp]             ← old-style inline bar
+    //   Row 4: [error text] (if error)
+    // The 3-dot is NOT full-height — it's in the top row only. The info row + progress
+    // bar use the FULL width below the 3-dot, so the percentage is never cut off.
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
+    ) {
+        // ── Row 1: Episode name + 3-dot button ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val epName = task.episode.name.ifBlank {
+                "Episode ${task.episode.episodeNumber.toInt()}"
             }
-
-            Box(modifier = Modifier.padding(top = 6.dp, end = 6.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    onClick = onMenu,
-                ) {
-                    Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "Options",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
+            Text(
+                epName,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(4.dp))
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                onClick = onMenu,
+            ) {
+                Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "Options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }
 
-        // D-212: full-width download progress bar overlay at the bottom of the card.
-        // Spans the ENTIRE row width (including under the 3-dot button). 3dp tall.
+        // ── Row 2: Info pills (full width) + percentage on the right ──
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (task.videoServer.isNotBlank()) InfoPill(task.videoServer)
+            if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
+            if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
+            if (task.status == DownloadStatus.DOWNLOADING ||
+                task.status == DownloadStatus.PAUSED
+            ) {
+                val sizeText = if (task.totalBytes > 0)
+                    "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
+                else formatBytes(task.downloadedBytes)
+                SizePill(sizeText)
+            }
+            Spacer(Modifier.weight(1f))
+            when (task.status) {
+                DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
+                    PercentagePill("${task.progress}%")
+                }
+                DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
+                    InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
+                }
+                DownloadStatus.ERROR -> ErrorPill("Failed")
+                DownloadStatus.COMPLETED -> InfoPill("Done", highlight = true)
+                else -> {}
+            }
+        }
+
+        // ── Row 3: Progress bar (old-style inline, full width, 6dp) ──
+        // D-213: restored the old-style progress bar — full width of the Column
+        // (which is now full-width since the 3-dot moved to Row 1). 6dp tall.
         if (task.status == DownloadStatus.DOWNLOADING ||
             task.status == DownloadStatus.PAUSED
         ) {
+            Spacer(Modifier.height(6.dp))
             LinearProgressIndicator(
                 progress = { (task.progress / 100f).coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(3.dp),
+                modifier = Modifier.fillMaxWidth().height(6.dp),
                 color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                trackColor = MaterialTheme.colorScheme.surface,
             )
+        }
+
+        // ── Row 4: Error text (if any) ──
+        if (task.status == DownloadStatus.ERROR) {
+            task.lastError?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    it,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

@@ -1,6 +1,10 @@
 package com.confused.anikuta.feature.animedetails
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -121,10 +125,21 @@ fun EpisodeDownloadControl(
             }
 
             is EpisodeDownloadState.Downloading -> {
-                // D-212: single button with dropdown menu (like the Downloaded state's
-                // checkmark). Tapping shows a menu with "Pause" + "Cancel" options.
-                // The percentage shows to the left of the button.
+                // D-213: animated button — the circle background PULSES (alpha
+                // oscillates 0.15 → 0.40 → 0.15) to clearly indicate active
+                // downloading. Tapping shows a menu with "Pause" + "Cancel".
                 var showMenu by remember { mutableStateOf(false) }
+                // D-213: infinite pulsing animation on the button background.
+                val pulseTransition = rememberInfiniteTransition(label = "downloadPulse")
+                val pulseAlpha by pulseTransition.animateFloat(
+                    initialValue = 0.15f,
+                    targetValue = 0.40f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "pulseAlpha",
+                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -144,7 +159,7 @@ fun EpisodeDownloadControl(
                             modifier = Modifier
                                 .size(24.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha))
                                 .clickable { showMenu = true },
                             contentAlignment = Alignment.Center,
                         ) {
