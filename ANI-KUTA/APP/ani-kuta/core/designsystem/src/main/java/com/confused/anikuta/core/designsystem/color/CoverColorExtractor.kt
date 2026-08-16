@@ -2,7 +2,6 @@ package com.confused.anikuta.core.designsystem.color
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
 import coil3.ImageLoader
@@ -17,15 +16,23 @@ import kotlinx.coroutines.withContext
  * AndroidX Palette API.
  *
  * **How it works:**
- * 1. Loads a 100×100 downscaled bitmap via Coil3 (fast, ~10KB allocation).
- * 2. Converts the bitmap to ARGB_8888 config if it's HARDWARE-config (Palette
- *    can't read pixels from GPU-backed bitmaps — D-223fix2).
- * 3. Generates a [Palette] from the bitmap.
- * 4. Picks the best swatch: vibrantSwatch → darkVibrantSwatch → mutedSwatch → dominantSwatch.
- * 5. Normalizes the HSL values: saturation ≥ 0.40, lightness ∈ [0.40, 0.65].
+ * 1. Loads a 100×100 downscaled bitmap via Coil3 with ARGB_8888 config
+ *    (avoids HARDWARE bitmaps that Palette can't read — D-223fix3).
+ * 2. Generates a [Palette] from the bitmap.
+ * 3. Picks the best swatch: vibrantSwatch → darkVibrantSwatch → mutedSwatch → dominantSwatch.
+ * 4. Normalizes the HSL values: saturation ≥ 0.40, lightness ∈ [0.40, 0.65].
  *    This ensures the color is never too gray, too dark, or too light —
  *    it works in BOTH light and dark mode.
- * 6. Returns the ARGB Int (0xFFRRGGBB, alpha forced to FF).
+ * 5. Returns the ARGB Int (0xFFRRGGBB, alpha forced to FF).
+ *
+ * **D-223fix3:** Previous approaches tried to convert a HARDWARE bitmap to
+ * ARGB_8888 after loading (via Canvas.drawBitmap or Bitmap.copy). Both failed:
+ * - D-223fix2 (Canvas.copy): "Software rendering doesn't support hardware bitmaps"
+ * - The root cause: Canvas can't draw hardware bitmaps in software rendering mode.
+ *
+ * The proper fix: tell Coil3 to decode the image as ARGB_8888 from the start
+ * via `.bitmapConfig(Bitmap.Config.ARGB_8888)` on the ImageRequest. This avoids
+ * HARDWARE config entirely — the bitmap is CPU-readable from the moment it's decoded.
  *
  * **Performance:**
  * - Extraction from a 100×100 bitmap takes 5-20ms on modern devices.
@@ -57,26 +64,39 @@ class CoverColorExtractor(
 
         runCatching {
             Logger.d(TAG) { "Extracting color from: ${coverUrl.take(60)}..." }
+
+            // D-223fix3: Request ARGB_8888 config directly from Coil3.
+            // This prevents Coil from returning a HARDWARE-config bitmap
+            // (which Palette can't read — getPixels() fails on HARDWARE bitmaps).
+            // Previous fixes (Canvas copy, Bitmap.copy) also failed because
+            // you can't draw/copy a HARDWARE bitmap in software rendering mode.
+            // The fix: decode as ARGB_8888 from the start via bitmapConfig().
             val request = ImageRequest.Builder(context)
                 .data(coverUrl)
                 .size(EXTRACTION_SIZE, EXTRACTION_SIZE)
+                .bitmapConfig(Bitmap.Config.ARGB_8888)
                 .build()
             val result = imageLoader.execute(request)
-            val rawBitmap = result.image?.toBitmap() ?: run {
+            val bitmap = result.image?.toBitmap() ?: run {
                 Logger.w(TAG) { "Coil returned null image" }
                 return@withContext null
             }
 
-            // D-223fix2: Coil3 returns HARDWARE-config bitmaps on API 26+.
-            // Palette.from(bitmap).generate() crashes with:
-            //   "unable to getPixels(), pixel access is not supported on Config#HARDWARE bitmaps"
-            // Fix: copy the bitmap to ARGB_8888 config so Palette can read its pixels.
-            // This adds ~1ms for a 100×100 bitmap — negligible.
-            val bitmap = ensureArgb8888(rawBitmap)
-            // Don't recycle the original bitmap if we copied it — Coil manages it.
-            // If we didn't copy (already ARGB_8888), still don't recycle.
+            // Safety check: if despite the config request Coil returned a
+            // HARDWARE bitmap (shouldn't happen, but defensive), copy it via
+            // Bitmap.copy() which works by allocating a new pixel buffer.
+            val safeBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+                Logger.w(TAG) { "Got HARDWARE bitmap despite ARGB_8888 request — copying" }
+                bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                    ?: run {
+                        Logger.w(TAG) { "Bitmap.copy returned null — can't extract" }
+                        return@withContext null
+                    }
+            } else {
+                bitmap
+            }
 
-            val palette = Palette.from(bitmap).generate()
+            val palette = Palette.from(safeBitmap).generate()
             val swatch = pickAccentSwatch(palette) ?: run {
                 Logger.w(TAG) { "No suitable swatch found" }
                 return@withContext null
@@ -87,26 +107,6 @@ class CoverColorExtractor(
         }.getOrElse { e ->
             Logger.w(TAG) { "Color extraction failed: ${e.message}" }
             null
-        }
-    }
-
-    /**
-     * D-223fix2: Ensures the bitmap is in ARGB_8888 config.
-     * Coil3 on API 26+ returns HARDWARE bitmaps which Palette can't read.
-     * This copies the bitmap to a new ARGB_8888 bitmap if needed.
-     */
-    private fun ensureArgb8888(bitmap: Bitmap): Bitmap {
-        return if (bitmap.config == Bitmap.Config.HARDWARE) {
-            val newBitmap = Bitmap.createBitmap(
-                bitmap.width,
-                bitmap.height,
-                Bitmap.Config.ARGB_8888,
-            )
-            val canvas = Canvas(newBitmap)
-            canvas.drawBitmap(bitmap, 0f, 0f, null)
-            newBitmap
-        } else {
-            bitmap
         }
     }
 
