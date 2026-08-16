@@ -188,26 +188,9 @@ fun DetailsScreen(
     val anilistSearchState by viewModel.anilistSearchState.collectAsState()
     val showManualLinkSheet by viewModel.showManualLinkSheet.collectAsState()
 
-    // D-225c: Combine forward + reverse auto-link into a single popup state.
-    // REVERSE takes priority when active (it's the more recent user-visible search);
-    // otherwise fall back to FORWARD; otherwise Hidden.
-    val activeAutoLinkPopup: AutoLinkPopupState = remember(autoLinkState, reverseAutoLinkState) {
-        val reverse = reverseAutoLinkState.toPopupState()
-        if (reverse !is AutoLinkPopupState.Hidden) {
-            reverse
-        } else {
-            autoLinkState.toPopupState()
-        }
-    }
-    // D-225c: Extract the direction from whichever popup state is active.
-    // Uses safe-cast chain (avoids a when-expression — Kotlin 2.2.0 parser
-    // quirk when the subject is a remember()-backed local val inside a
-    // @Composable; the when-expression form confused the parser downstream).
-    val autoLinkPopupDirection: AutoLinkDirection? =
-        (activeAutoLinkPopup as? AutoLinkPopupState.Searching)?.direction
-            ?: (activeAutoLinkPopup as? AutoLinkPopupState.Matched)?.direction
-            ?: (activeAutoLinkPopup as? AutoLinkPopupState.NoMatch)?.direction
-            ?: (activeAutoLinkPopup as? AutoLinkPopupState.Error)?.direction
+    // D-225c: DIAGNOSTIC — simplified to constants to isolate parser error.
+    val activeAutoLinkPopup: AutoLinkPopupState = AutoLinkPopupState.Hidden
+    val autoLinkPopupDirection: AutoLinkDirection? = null
 
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
@@ -832,8 +815,7 @@ fun DetailsScreen(
                 }
             }
 
-            // D-225c: Auto-link popup overlay (forward + reverse combined).
-            // Sits inside the adaptive-colored Box so it inherits the accent theme.
+            // D-225c: Auto-link popup overlay (DIAGNOSTIC — minimal).
             AutoLinkPopup(
                 state = activeAutoLinkPopup,
                 onManualLink = {},
