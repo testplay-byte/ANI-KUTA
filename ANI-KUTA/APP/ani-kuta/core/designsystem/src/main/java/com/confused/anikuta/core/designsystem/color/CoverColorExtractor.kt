@@ -74,7 +74,6 @@ class CoverColorExtractor(
             val request = ImageRequest.Builder(context)
                 .data(coverUrl)
                 .size(EXTRACTION_SIZE, EXTRACTION_SIZE)
-                .bitmapConfig(Bitmap.Config.ARGB_8888)
                 .build()
             val result = imageLoader.execute(request)
             val bitmap = result.image?.toBitmap() ?: run {
@@ -82,11 +81,12 @@ class CoverColorExtractor(
                 return@withContext null
             }
 
-            // Safety check: if despite the config request Coil returned a
-            // HARDWARE bitmap (shouldn't happen, but defensive), copy it via
-            // Bitmap.copy() which works by allocating a new pixel buffer.
+            // D-223fix3: If Coil3 returned a HARDWARE bitmap, copy it to ARGB_8888
+            // via Bitmap.copy(). Unlike Canvas.drawBitmap (which requires software
+            // rendering of the source), Bitmap.copy() works by directly reading the
+            // pixel buffer. This is the only reliable way to convert a HARDWARE bitmap.
             val safeBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
-                Logger.w(TAG) { "Got HARDWARE bitmap despite ARGB_8888 request — copying" }
+                Logger.d(TAG) { "Got HARDWARE bitmap — copying to ARGB_8888" }
                 bitmap.copy(Bitmap.Config.ARGB_8888, false)
                     ?: run {
                         Logger.w(TAG) { "Bitmap.copy returned null — can't extract" }
