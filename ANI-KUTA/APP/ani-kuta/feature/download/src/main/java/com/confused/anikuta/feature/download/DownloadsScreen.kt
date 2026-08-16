@@ -226,12 +226,18 @@ fun DownloadsScreen(
 
         // Summary chips.
         if (queue.isNotEmpty()) {
+            // D-215: collect live download speed for display.
+            val downloadSpeed by viewModel.downloadSpeed.collectAsStateWithLifecycle()
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (downloading > 0) StatChip("$downloading", "downloading", MaterialTheme.colorScheme.primary)
+                // D-215: live download speed (shown when actively downloading).
+                if (downloading > 0 && downloadSpeed > 0) {
+                    StatChip(formatSpeed(downloadSpeed), "speed", MaterialTheme.colorScheme.tertiary)
+                }
                 if (queued > 0) StatChip("$queued", "queued", MaterialTheme.colorScheme.onSurfaceVariant)
                 if (paused > 0) StatChip("$paused", "paused", MaterialTheme.colorScheme.onSurfaceVariant)
                 if (failed > 0) StatChip("$failed", "failed", MaterialTheme.colorScheme.error)
@@ -448,10 +454,9 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
     // The 3-dot is NOT full-height — it's in the top row only. The info row + progress
     // bar use the FULL width below the 3-dot, so the percentage is never cut off.
     Column(
-        // D-214: reduced top padding (was vertical = 10.dp — too much at the top).
-        // Now top = 4dp, bottom = 10dp, horizontal = 10dp. Minimal top padding so
-        // the episode name + 3-dot button sit close to the top edge.
-        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 10.dp),
+        // D-215: reduced all spacing by ~50% (user asked for tighter layout).
+        // top=2dp (was 4), bottom=5dp (was 10), horizontal=10dp (unchanged).
+        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 5.dp),
     ) {
         // ── Row 1: Episode name + 3-dot button ──
         // D-214: 3-dot button is now wider + shorter (40×24dp) + rotated 90°
@@ -499,7 +504,8 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
         }
 
         // ── Row 2: Info pills (full width) + percentage on the right ──
-        Spacer(Modifier.height(4.dp))
+        // D-215: reduced spacer from 4dp → 2dp (~50% reduction as requested).
+        Spacer(Modifier.height(2.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -536,7 +542,8 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
         if (task.status == DownloadStatus.DOWNLOADING ||
             task.status == DownloadStatus.PAUSED
         ) {
-            Spacer(Modifier.height(6.dp))
+            // D-215: reduced spacer from 6dp → 3dp (~50% reduction as requested).
+            Spacer(Modifier.height(3.dp))
             LinearProgressIndicator(
                 progress = { (task.progress / 100f).coerceIn(0f, 1f) },
                 modifier = Modifier.fillMaxWidth().height(6.dp),
@@ -564,16 +571,20 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
 
 @Composable
 private fun SizePill(text: String) {
-    // D-214: match DetailsScreen pill style — outlineVariant color + lineHeight=14.sp
-    // (constrains text height — was taking up too much height without it).
-    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.outlineVariant) {
+    // D-215: changed to secondaryContainer (darker shade than outlineVariant).
+    // The user asked for a "darker kind of shade" — secondaryContainer is a
+    // distinct darker shade that differentiates the size from other pills.
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+    ) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
             lineHeight = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
             maxLines = 1,
             softWrap = false,
@@ -733,4 +744,15 @@ internal fun formatBytes(bytes: Long): String = when {
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     bytes < 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"
     else -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
+}
+
+/**
+ * D-215: Formats a download speed (bytes/sec) into a human-readable string.
+ * e.g. 1500000 → "1.4 MB/s", 500000 → "488 KB/s", 800 → "800 B/s".
+ */
+internal fun formatSpeed(bytesPerSecond: Long): String = when {
+    bytesPerSecond < 1024 -> "$bytesPerSecond B/s"
+    bytesPerSecond < 1024 * 1024 -> "${bytesPerSecond / 1024} KB/s"
+    bytesPerSecond < 1024 * 1024 * 1024 -> "%.1f MB/s".format(bytesPerSecond / (1024.0 * 1024))
+    else -> "%.1f GB/s".format(bytesPerSecond / (1024.0 * 1024 * 1024))
 }

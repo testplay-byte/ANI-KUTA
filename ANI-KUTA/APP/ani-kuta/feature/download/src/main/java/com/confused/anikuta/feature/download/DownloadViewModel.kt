@@ -37,6 +37,14 @@ class DownloadViewModel(
     private val _state = MutableStateFlow(DownloadUiState())
     val state: StateFlow<DownloadUiState> = _state.asStateFlow()
 
+    /**
+     * D-215: Live download speed in bytes/second. Updated every 2 seconds by
+     * sampling the total downloadedBytes of all DOWNLOADING tasks. Stops
+     * automatically when the ViewModel is cleared (user exits the Downloads page).
+     */
+    private val _downloadSpeed = MutableStateFlow(0L)
+    val downloadSpeed: StateFlow<Long> = _downloadSpeed.asStateFlow()
+
     /** Tracks task IDs we've already scheduled for the 10s auto-clear (avoids dupes). */
     private val autoClearScheduled = mutableSetOf<Long>()
 
@@ -101,8 +109,6 @@ class DownloadViewModel(
                     if (autoClearScheduled.add(task.id)) {
                         launch {
                             delay(COMPLETED_AUTO_CLEAR_MS)
-                            // The task may have already been removed by the queue's own
-                            // scheduleAutoClear — cancelDownload is a no-op in that case.
                             try {
                                 manager.cancelDownload(task.id)
                             } catch (e: Exception) {
@@ -112,6 +118,24 @@ class DownloadViewModel(
                         }
                     }
                 }
+            }
+        }
+
+        // ── D-215: Live download speed tracking ──
+        // Samples total downloadedBytes every 2 seconds + calculates the delta.
+        // Stops automatically when the ViewModel is cleared (user exits the page).
+        viewModelScope.launch {
+            var previousTotalBytes = 0L
+            while (true) {
+                delay(2_000) // Update every 2 seconds.
+                val currentTotalBytes = manager.getQueue().value
+                    .filter { it.status == DownloadStatus.DOWNLOADING }
+                    .sumOf { it.downloadedBytes }
+                val delta = currentTotalBytes - previousTotalBytes
+                // Speed = delta / 2 seconds. Clamp to >= 0 (in case a download was
+                // cancelled between samples, the delta could be negative).
+                _downloadSpeed.value = if (delta > 0) delta / 2 else 0L
+                previousTotalBytes = currentTotalBytes
             }
         }
     }
