@@ -161,7 +161,10 @@ fun ExtensionDetailScreen(
                         }
                     }
 
-                    // ── Actions: Uninstall + App Info + Open in WebView ──
+                    // ── Actions Row 1: Uninstall + App Info ──
+                    // D-210 FIX: split the old 3-button Row (which caused text line-breaking)
+                    // into two rows. Row 1 = Uninstall + App Info. Row 2 = WebView (+ Settings
+                    // if the single source is configurable). This prevents text wrapping.
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -187,30 +190,49 @@ fun ExtensionDetailScreen(
                                     context.startActivity(intent)
                                 },
                             )
-                            // D-209: "Open in WebView" — only show if the extension has
-                            // at least one source with a baseUrl. Opens the source's site
-                            // in a WebView so the user can solve Cloudflare challenges
-                            // manually; cookies are saved automatically + replayed on
-                            // the next extension HTTP request via the shared CookieManager.
-                            val firstHttpSource = ext?.sources?.firstNotNullOfOrNull {
-                                (it as? AnimeHttpSource)?.baseUrl?.let { url -> it to url }
-                            }
-                            if (firstHttpSource != null) {
-                                val (source, baseUrl) = firstHttpSource
+                        }
+                    }
+
+                    // ── Actions Row 2: WebView (+ Source Settings if single configurable source) ──
+                    // D-209 + D-210: "Open in WebView" button — opens the source's baseUrl
+                    // in a WebView for manual Cloudflare solving. If there's a single
+                    // configurable source, split the row with Source Settings. Otherwise
+                    // WebView takes the full width.
+                    val firstHttpSource = ext?.sources?.firstNotNullOfOrNull {
+                        (it as? AnimeHttpSource)?.baseUrl?.let { url -> it to url }
+                    }
+                    if (firstHttpSource != null) {
+                        item {
+                            val (source, baseUrl) = firstHttpSource
+                            val singleConfigurableSource = ext.sources.size == 1 &&
+                                ext.sources.first() is ConfigurableAnimeSource
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
                                 ActionButton(
-                                    text = "WebView",
+                                    text = "Open in WebView",
                                     icon = Icons.Filled.Public,
                                     color = MaterialTheme.colorScheme.tertiary,
-                                    modifier = Modifier.weight(1f),
+                                    modifier = if (singleConfigurableSource) Modifier.weight(1f) else Modifier.fillMaxWidth(),
                                     onClick = { onOpenInWebView(baseUrl, source.name) },
                                 )
+                                if (singleConfigurableSource) {
+                                    ActionButton(
+                                        text = "Source Settings",
+                                        icon = Icons.Filled.Settings,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { onOpenSourcePreferences(source.id) },
+                                    )
+                                }
                             }
                         }
                     }
 
                     // ── Sources list (only if multiple sources) ──
-                    // Phase 2b: if the extension has only 1 source, hide the sources section
-                    // and show a single Settings button at the bottom instead.
+                    // Phase 2b: if the extension has only 1 source, the Settings button
+                    // is already shown in Row 2 above (alongside the WebView button).
                     if (ext.sources.size > 1) {
                         item {
                             Text(
@@ -240,28 +262,6 @@ fun ExtensionDetailScreen(
                                 },
                                 onOpenSettings = { onOpenSourcePreferences(source.id) },
                             )
-                        }
-                    }
-
-                    // ── Settings button (for single-source extensions) ──
-                    // Phase 2b: if only 1 source, show a single Settings button at the bottom.
-                    if (ext.sources.size == 1) {
-                        val source = ext.sources.first()
-                        if (source is ConfigurableAnimeSource) {
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    ActionButton(
-                                        text = "Source Settings",
-                                        icon = Icons.Filled.Settings,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { onOpenSourcePreferences(source.id) },
-                                    )
-                                }
-                            }
                         }
                     }
                     }

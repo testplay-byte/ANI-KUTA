@@ -833,6 +833,56 @@ class DetailsViewModel(
         anilistBase = null
         viewModelScope.launch {
             try {
+                // D-210 FIX: Cache-first for instant open (mirrors loadFromAniList's
+                // pattern at lines 472-503). If we already have ext_* data in
+                // content_details, load from DB instantly via tryCachedExtensionData
+                // (which also calls fetchEpisodes — itself cache-first + bg-refresh).
+                // Then fire-and-forget a SILENT background refresh — only updates the
+                // UI if the data actually changed. This eliminates the ~1s loading
+                // delay the user saw when opening extension-saved entries from Library.
+                val existingContent = contentRepository.getMainEntryByExtension(sourceId, animeUrl)
+                val cachedDetails = existingContent?.let {
+                    contentRepository.getContentDetails(it.mainId)
+                }
+                val hasCachedExtData = cachedDetails != null &&
+                    cachedDetails.hasExtensionLink &&
+                    cachedDetails.extUpdatedAt != null
+
+                if (hasCachedExtData && existingContent != null) {
+                    // Instant DB load — no network call, no loading spinner.
+                    Logger.i(TAG) { "Opening from cache (ext_* data exists): $title" }
+                    tryCachedExtensionData(sourceId, animeUrl, title, thumbnailUrl)
+
+                    // Silent background refresh — updates UI only if data changed.
+                    // Doesn't block the user — they see the cached data immediately.
+                    viewModelScope.launch {
+                        try {
+                            val refreshed = extensionProvider.fetchFromExtension(
+                                sourceId, animeUrl, title,
+                                cachedDetails.extThumbnailUrl ?: thumbnailUrl,
+                            )
+                            if (refreshed != null) {
+                                extensionBase = refreshed
+                                remergeBases(
+                                    com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                                )
+                                // Persist the refreshed ext_* axis (silent).
+                                resolveContentForExtension(sourceId, animeUrl, title, refreshed)
+                            }
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "Background extension refresh failed: ${e.message}" }
+                        }
+                    }
+                    // Skip the network-first path below — we already loaded from DB.
+                    // performAutoLink needs a non-null UnifiedAnime — capture in a local
+                    // val so Kotlin can smart-cast (extensionBase is a mutable var).
+                    val extBase = extensionBase
+                    if (extBase != null) {
+                        performAutoLink(sourceId, animeUrl, extBase)
+                    }
+                    return@launch
+                }
+
                 // D-200: When opening from Library, thumbnailUrl may be null (the
                 // LibraryEntry.coverUrl comes from ext_thumbnail_url in DB which may
                 // not have been stored yet). Fall back to the DB-stored ext_thumbnail_url
@@ -2165,6 +2215,24 @@ class DetailsViewModel(
     fun clearResolver() {
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
+    }
+
+    /**
+     * D-210: Returns the source's episode page URL for the WebView.
+     * Constructs baseUrl + animeUrl from the currently linked source.
+     * Used by the ResolverSheet's "Open in WebView" button when video
+     * resolution fails (e.g. Cloudflare blocked the episode page).
+     *
+     * @return the full URL (e.g. "https://miruro.tv/watch/sakamoto-days"),
+     *   or null if no source is linked or the source doesn't expose a baseUrl.
+     */
+    fun getSourceEpisodeUrl(): String? {
+        val linked = _linkedSource.value ?: return null
+        val source = extensionManager.getSource(linked.sourceId) as? AnimeHttpSource ?: return null
+        val baseUrl = source.baseUrl
+        val animeUrl = linked.animeUrl
+        return if (animeUrl.startsWith("http")) animeUrl
+               else baseUrl.trimEnd('/') + "/" + animeUrl.trimStart('/')
     }
 
     // ── D.6: Episode download management ────────────────────────────────────

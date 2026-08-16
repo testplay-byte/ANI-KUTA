@@ -121,6 +121,21 @@ fun SearchScreen(
         }
     }
 
+    // D-210: Auto-refresh when the user returns from the Cloudflare WebView.
+    // The ViewModel sets pendingWebViewRefresh=true when the user taps "Open in
+    // WebView". On resume (ON_RESUME lifecycle event), the ViewModel checks the
+    // flag + auto-refreshes the search if true.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.onScreenResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -220,28 +235,44 @@ fun SearchScreen(
                     SearchPromptCard(
                         title = "Cloudflare protection",
                         description = "${cf.sourceName} is behind Cloudflare. Tap \"Open in WebView\" " +
-                            "to solve the challenge in a browser, then come back and tap Refresh. " +
-                            "Cookies are saved automatically.",
+                            "to solve the challenge in a browser, then come back — the search " +
+                            "auto-refreshes. Cookies are saved automatically.",
                         icon = Icons.Filled.Security,
                         actionLabel = "Open in WebView",
-                        onAction = { onOpenCloudflareWebView(cf.url, cf.sourceName) },
+                        onAction = {
+                            viewModel.onOpenWebView()
+                            onOpenCloudflareWebView(cf.url, cf.sourceName)
+                        },
                         secondaryActionLabel = "Refresh",
                         onSecondaryAction = { viewModel.retryExtensionSearch() },
                     )
                 }
 
                 is SearchUiState.ExtensionEmpty -> {
-                    // D-209: extension returned 0 results — distinguish from AniList's
-                    // generic "No results" so the user knows WHICH source is empty + can
-                    // refresh (the empty result might be due to a stale CF cookie).
+                    // D-209+D-210: extension returned 0 results — distinguish from AniList's
+                    // generic "No results". Show "Open in WebView" (the 0 results might be a
+                    // Cloudflare issue manifesting as empty) + "Refresh" (manual retry).
+                    // When the user returns from the WebView, the search auto-refreshes.
                     val ee = uiState as SearchUiState.ExtensionEmpty
                     SearchPromptCard(
                         title = "No results from ${ee.sourceName}",
-                        description = "This source returned 0 results. If you just solved a " +
-                            "Cloudflare challenge, tap Refresh to retry with the new cookies.",
+                        description = "This source returned 0 results. If it's behind " +
+                            "Cloudflare, tap \"Open in WebView\" to solve the challenge, " +
+                            "then come back — the search auto-refreshes.",
                         icon = Icons.Filled.SearchOff,
-                        actionLabel = "Refresh",
-                        onAction = { viewModel.retryExtensionSearch() },
+                        actionLabel = if (ee.sourceUrl != null) "Open in WebView" else "Refresh",
+                        onAction = {
+                            if (ee.sourceUrl != null) {
+                                viewModel.onOpenWebView()
+                                onOpenCloudflareWebView(ee.sourceUrl, ee.sourceName)
+                            } else {
+                                viewModel.retryExtensionSearch()
+                            }
+                        },
+                        secondaryActionLabel = if (ee.sourceUrl != null) "Refresh" else null,
+                        onSecondaryAction = if (ee.sourceUrl != null) {
+                            { viewModel.retryExtensionSearch() }
+                        } else null,
                     )
                 }
 

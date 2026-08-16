@@ -176,55 +176,65 @@ private fun CloudflareWebViewScreen(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var loadingProgress by remember { mutableStateOf(0) }
     var showCloudflareHelp by remember { mutableStateOf(false) }
+    // D-210: track the current URL — updates as the user navigates pages.
+    var currentUrl by remember { mutableStateOf(url) }
+    // D-210: track scroll position for the collapse-on-scroll top bar.
+    var topBarVisible by remember { mutableStateOf(true) }
+    var lastScrollY by remember { mutableStateOf(0) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = title,
-                            fontFamily = RobotoFamily,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            text = url,
-                            fontFamily = RobotoFamily,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onDone) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { webView?.reload() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
-                    }
-                    IconButton(onClick = {
-                        onClearCookies()
-                        webView?.reload()
-                    }) {
-                        Icon(Icons.Filled.Clear, contentDescription = "Clear cookies")
-                    }
-                },
+            // D-210: collapse-on-scroll — the top bar animates out when the user
+            // scrolls down + back in when they scroll up. Uses animateDpAsState
+            // for a smooth 200ms transition.
+            val topBarHeight by androidx.compose.animation.core.animateDpAsState(
+                targetValue = if (topBarVisible) 64.dp else 0.dp,
+                animationSpec = androidx.compose.animation.core.tween(200),
+                label = "topBarHeight",
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onDone, containerColor = MaterialTheme.colorScheme.primary) {
-                Icon(Icons.Filled.Check, contentDescription = "Done", tint = MaterialTheme.colorScheme.onPrimary)
+            if (topBarHeight > 0.dp) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = title,
+                                fontFamily = RobotoFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            // D-210: show the CURRENT URL (updates on navigation).
+                            Text(
+                                text = currentUrl,
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDone) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                            )
+                        }
+                    },
+                    actions = {
+                        // D-210: removed the Clear cookies (X) button per user request.
+                        // Kept Refresh — the user needs it to re-check for Cloudflare.
+                        IconButton(onClick = { webView?.reload() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                        }
+                    },
+                    modifier = Modifier.height(topBarHeight),
+                )
             }
         },
+        // D-210: removed the FAB (checkmark Done button) per user request.
+        // The back arrow in the top bar is enough to exit.
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (loadingProgress in 1..99) {
@@ -249,10 +259,14 @@ private fun CloudflareWebViewScreen(
                             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                 loadingProgress = 1
                                 showCloudflareHelp = false
+                                // D-210: update the URL immediately on page start.
+                                url?.let { currentUrl = it }
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 loadingProgress = 100
+                                // D-210: update the URL to the final (possibly redirected) URL.
+                                url?.let { currentUrl = it }
                                 // D-209: inspect the rendered page for Cloudflare challenge
                                 // markers (the headless interceptor only sees the raw HTTP
                                 // response — here we can see the post-JS-rendered DOM).
@@ -280,9 +294,6 @@ private fun CloudflareWebViewScreen(
                                 request: WebResourceRequest?,
                                 errorResponse: WebResourceResponse?,
                             ) {
-                                // D-209 FIX: explicit null guard — errorResponse?.statusCode
-                                // is Int? (safe-call on platform type), but `in List<Int>`
-                                // requires non-null Int.
                                 val code = errorResponse?.statusCode
                                 if (request?.isForMainFrame == true && code != null && code in listOf(403, 503)) {
                                     showCloudflareHelp = true
@@ -292,6 +303,21 @@ private fun CloudflareWebViewScreen(
 
                         loadUrl(url)
                         webView = this
+
+                        // D-210: scroll listener for collapse-on-scroll top bar.
+                        // When the user scrolls down → hide the top bar; scroll up → show.
+                        viewTreeObserver.addOnScrollChangedListener {
+                            val scrollY = this.scrollY
+                            val delta = scrollY - lastScrollY
+                            if (delta > 10) {
+                                // Scrolling down — hide top bar.
+                                topBarVisible = false
+                            } else if (delta < -10) {
+                                // Scrolling up — show top bar.
+                                topBarVisible = true
+                            }
+                            lastScrollY = scrollY
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxSize(),

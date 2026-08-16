@@ -9,6 +9,7 @@ import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.CloudflareException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -211,6 +212,27 @@ class SearchViewModel(
         }
     }
 
+    /**
+     * D-210: Set when the user opens the Cloudflare WebView from the Search screen.
+     * When the Search screen resumes (user returns from the WebView), it checks
+     * this flag + auto-refreshes if true. Cleared after the refresh is triggered.
+     */
+    var pendingWebViewRefresh: Boolean = false
+        private set
+
+    /** D-210: Called by the SearchScreen when the user taps "Open in WebView". */
+    fun onOpenWebView() {
+        pendingWebViewRefresh = true
+    }
+
+    /** D-210: Called by the SearchScreen on resume — auto-refreshes if the flag is set. */
+    fun onScreenResume() {
+        if (pendingWebViewRefresh) {
+            pendingWebViewRefresh = false
+            retryExtensionSearch()
+        }
+    }
+
     fun onSubmit() {
         val q = _query.value.trim()
         if (q.isBlank()) return
@@ -353,7 +375,7 @@ class SearchViewModel(
                     // D-209: distinguish extension-empty from AniList-empty so the
                     // UI can show the source name + a Refresh button (the empty result
                     // might be due to a stale Cloudflare cookie the user just solved).
-                    SearchUiState.ExtensionEmpty(source.name)
+                    SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
                 } else {
                     SearchUiState.ExtensionSuccess(results = results)
                 }
@@ -407,7 +429,7 @@ class SearchViewModel(
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 _uiState.value = if (results.isEmpty()) {
                     // D-209: distinguish extension-empty from AniList-empty.
-                    SearchUiState.ExtensionEmpty(source.name)
+                    SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
                 } else {
                     SearchUiState.ExtensionSuccess(results = results)
                 }
@@ -478,11 +500,14 @@ sealed interface SearchUiState {
     data class CloudflareBlocked(val url: String, val sourceName: String) : SearchUiState
     /**
      * D-209: The extension returned 0 results (distinct from AniList's [Empty]
-     * — [ExtensionEmpty] lets the UI show the source name + a "Refresh" button,
-     * since the empty result might be due to a stale Cloudflare cookie that
-     * the user just solved in the WebView).
+     * — [ExtensionEmpty] lets the UI show the source name + a "Refresh" button +
+     * an "Open in WebView" button, since the empty result might be due to a
+     * stale Cloudflare cookie that the user needs to solve in the WebView).
+     *
+     * D-210: added [sourceUrl] so the UI can launch the WebView directly.
+     * Null if the source doesn't expose a baseUrl (rare — most do).
      */
-    data class ExtensionEmpty(val sourceName: String) : SearchUiState
+    data class ExtensionEmpty(val sourceName: String, val sourceUrl: String? = null) : SearchUiState
 }
 
 enum class SearchSource(val displayName: String) {

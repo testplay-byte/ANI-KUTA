@@ -958,6 +958,13 @@ private fun handleDownloadSpecificVideo(
             // D.FIX: Use details to fill in FK fields that are null in ContentRecord.
             // For extension-only content, ContentRecord.sourceId/animeUrl/extensionId can
             // be null — content_details always has them on the ext_* axis.
+            // D-210 FIX: sourceIdStr (from the resolver sheet's LinkedSource) is
+            // AUTHORITATIVE — for AniList-saved entries, content.sourceId and
+            // details.sourceId are both null (the AniList path never writes
+            // main_entry.source_id, and loadLinkedSource only sets the in-memory
+            // _linkedSource — doesn't persist ext_* axis via linkExtensionToExisting).
+            // Without this, downloads from AniList-linked content fail silently
+            // with "no source for sourceId=null".
             val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
                 mainId = content.mainId,
                 contentId = content.contentId,
@@ -972,7 +979,7 @@ private fun handleDownloadSpecificVideo(
                 systemId = content.systemId,
                 extensionRepoId = content.extensionRepoId,
                 extensionId = content.extensionId ?: details?.extensionIdLong,
-                sourceId = content.sourceId ?: details?.sourceId,
+                sourceId = sourceIdStr.toLongOrNull() ?: content.sourceId ?: details?.sourceId,
                 animeUrl = content.animeUrl ?: details?.animeUrl,
                 displaySource = content.displaySource,
                 anilistId = details?.anilistId,
@@ -994,6 +1001,8 @@ private fun handleDownloadSpecificVideo(
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleDownloadSpecificVideo — no source for sourceId=$sourceId"
                 }
+                // D-210 FIX: surface the failure to the user instead of silently returning.
+                showDownloadToast("Download failed: no extension source linked (sourceId=$sourceId). Try re-linking the source on the details page.")
                 return@launch
             }
 

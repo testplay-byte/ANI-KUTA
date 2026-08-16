@@ -816,6 +816,15 @@ fun DetailsScreen(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
             downloadMode = resolverDownloadMode,
+            // D-210: "Open in WebView" on the resolver Error state — opens the
+            // source's episode page in a WebView so the user can solve Cloudflare
+            // or browse the source manually. Null if no source is linked.
+            onOpenInWebView = {
+                viewModel.getSourceEpisodeUrl()?.let { url ->
+                    val sourceName = effectiveLinkedSource?.sourceName ?: "Source"
+                    onOpenCloudflareWebView(url, sourceName)
+                }
+            },
             onPickVideo = { video, serverName, audioLabel ->
                 val anime = (state as? DetailsState.Success)?.anime
                 val linked = effectiveLinkedSource

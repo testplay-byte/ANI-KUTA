@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -121,10 +122,13 @@ fun EpisodeDownloadControl(
             is EpisodeDownloadState.Downloading -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                // D-210 FIX: widened the bar from 60dp → 100dp (the user said it was
+                // too narrow). Added maxLines=1 + softWrap=false on the percentage
+                // Text to prevent line-breaking that was hiding the "%".
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     LinearProgressIndicator(
                         progress = { (s.progress / 100f).coerceIn(0f, 1f) },
-                        modifier = Modifier.width(60.dp).height(4.dp),
+                        modifier = Modifier.width(100.dp).height(4.dp),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceVariant,
                     )
@@ -135,6 +139,9 @@ fun EpisodeDownloadControl(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Visible,
                     )
                     Spacer(Modifier.width(4.dp))
                     SmallIconButton(Icons.Filled.Pause, "Pause", onClick = onPause)
