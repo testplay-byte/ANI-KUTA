@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -119,34 +120,26 @@ fun EpisodeDownloadControl(
                 SmallIconButton(Icons.Filled.Close, "Cancel", onClick = onCancel)
             }
 
-            is EpisodeDownloadState.Downloading -> Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
+            is EpisodeDownloadState.Downloading -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                // D-210 FIX: widened the bar from 60dp → 100dp (the user said it was
-                // too narrow). Added maxLines=1 + softWrap=false on the percentage
-                // Text to prevent line-breaking that was hiding the "%".
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(
-                        progress = { (s.progress / 100f).coerceIn(0f, 1f) },
-                        modifier = Modifier.width(100.dp).height(4.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "${s.progress}%",
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Visible,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    SmallIconButton(Icons.Filled.Pause, "Pause", onClick = onPause)
-                    SmallIconButton(Icons.Filled.Close, "Cancel", onClick = onCancel)
-                }
+                // D-211: compact Downloading state — just % + small pause/cancel buttons.
+                // NO inline progress bar (the full-width bar is drawn as a bottom overlay
+                // on the EpisodeRow itself, so it extends under these buttons).
+                // Buttons are 22dp (down from 28dp) so they don't increase row height.
+                Text(
+                    "${s.progress}%",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Visible,
+                )
+                SmallIconButton(Icons.Filled.Pause, "Pause", onClick = onPause, size = 22)
+                SmallIconButton(Icons.Filled.Close, "Cancel", onClick = onCancel, size = 22)
             }
 
             is EpisodeDownloadState.Retrying -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -261,11 +254,13 @@ private fun SmallIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    // D-211: configurable size (default 28dp, Downloading uses 22dp to not add height).
+    size: Int = 28,
 ) {
     Surface(
         color = Color.Transparent,
         modifier = Modifier
-            .size(28.dp)
+            .size(size.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
     ) {

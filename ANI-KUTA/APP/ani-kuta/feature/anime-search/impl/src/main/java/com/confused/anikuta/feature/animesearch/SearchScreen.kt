@@ -492,18 +492,30 @@ private fun SearchPromptCard(
             maxLines = 8,
             overflow = TextOverflow.Ellipsis,
         )
-        // D-209: action buttons row.
+        // D-209+D-211: action buttons row — both buttons are filled (not outlined),
+        // less rounded corners (4dp), proper coloring. Primary action = primary color,
+        // secondary action = tertiary color (filled, not outlined).
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(16.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(onClick = onAction) {
+                Button(
+                    onClick = onAction,
+                    shape = RoundedCornerShape(4.dp),
+                ) {
                     Text(actionLabel, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                 }
                 if (secondaryActionLabel != null && onSecondaryAction != null) {
-                    OutlinedButton(onClick = onSecondaryAction) {
+                    Button(
+                        onClick = onSecondaryAction,
+                        shape = RoundedCornerShape(4.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary,
+                        ),
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = null,

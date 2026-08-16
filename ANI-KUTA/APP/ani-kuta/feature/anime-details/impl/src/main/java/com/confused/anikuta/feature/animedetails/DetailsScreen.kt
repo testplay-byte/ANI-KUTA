@@ -1807,9 +1807,9 @@ private fun EpisodeRow(
         }
 
         // The actual card — opaque (NOT transparent), translates with the swipe.
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(12.dp),
+        // D-211: changed from Surface to Box so we can overlay a full-width download
+        // progress bar at the bottom (under the buttons, spanning the entire card width).
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(swipeOffset.value.toInt(), 0) }
@@ -1850,6 +1850,8 @@ private fun EpisodeRow(
                         }
                     }
                 }
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(onClick = onClick),
         ) {
         Column(
@@ -2081,6 +2083,20 @@ private fun EpisodeRow(
                 // Show it at the end of the top section's right column.
                 // (Already rendered inline in the date/audio pills Row above if no synopsis.)
             }
+        }
+        // D-211: full-width download progress bar overlay at the bottom of the card.
+        // Spans the ENTIRE card width (under the buttons too). Doesn't add height —
+        // it's an overlay on the Box, aligned BottomCenter. Only shows when downloading.
+        if (downloadState is EpisodeDownloadState.Downloading) {
+            LinearProgressIndicator(
+                progress = { (downloadState.progress / 100f).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(3.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+            )
         }
     }
     } // close the swipe wrapper Box (Phase WP)
