@@ -61,8 +61,9 @@ class ReverseAutoLinkService(
             return@withContext ReverseAutoLinkResult.Skipped("Reverse auto-link disabled")
         }
 
-        val strategy = preferences.strategy
-        val threshold = preferences.threshold
+        // D-226: Use the REVERSE-specific strategy + threshold (independent from forward).
+        val strategy = preferences.reverseStrategy
+        val threshold = preferences.reverseThreshold
         val config = SmartMatcherConfig(
             strategy = MatchStrategy.valueOf(strategy.uppercase()),
             threshold = threshold,
@@ -87,12 +88,13 @@ class ReverseAutoLinkService(
             installed.firstOrNull { it.pkgName == pkg }
         } + installed.filter { it.pkgName !in orderedPkgNames }
 
-        // Get sources from ordered extensions, filtered by per-source override.
+        // D-226: Get sources from ordered extensions, filtered by the REVERSE
+        // per-source override (independent from the forward direction).
         val searchSources = orderedExtensions
             .filter { it.isEnabled }
             .flatMap { it.sources }
             .filterIsInstance<AnimeCatalogueSource>()
-            .filter { source -> preferences.isAutoLinkEnabledForSource(source.id) }
+            .filter { source -> preferences.isReverseAutoLinkEnabledForSource(source.id) }
             .take(MAX_SOURCES_TO_SEARCH)
 
         if (searchSources.isEmpty()) {
