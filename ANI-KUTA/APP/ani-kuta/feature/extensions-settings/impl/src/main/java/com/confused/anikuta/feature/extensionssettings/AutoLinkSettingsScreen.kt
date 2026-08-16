@@ -85,6 +85,10 @@ fun AutoLinkSettingsScreen(
     var strategy by remember { mutableStateOf(prefs.strategy) }
     var threshold by remember { mutableFloatStateOf(prefs.threshold) }
 
+    // D-225b: Reverse auto-link toggle — hoisted to screen level so the
+    // ExtensionReorderCard reacts live when the user flips this switch.
+    var reverseAutoLinkEnabled by remember { mutableStateOf(prefs.reverseAutoLinkEnabled) }
+
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
     val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
@@ -159,21 +163,19 @@ fun AutoLinkSettingsScreen(
                         )
                     }
                     item {
-                        var reverseEnabled by remember {
-                            mutableStateOf(prefs.reverseAutoLinkEnabled)
-                        }
                         SwitchCard(
                             title = "Auto-link AniList to sources",
                             subtitle = "Search extensions when opening AniList anime.",
-                            checked = reverseEnabled,
+                            checked = reverseAutoLinkEnabled,
                             onCheckedChange = {
-                                reverseEnabled = it
+                                reverseAutoLinkEnabled = it
                                 prefs.reverseAutoLinkEnabled = it
                             },
                         )
                     }
                     // Extension reorder list (shown only when reverse auto-link is enabled).
-                    if (prefs.reverseAutoLinkEnabled && installedExtensions.isNotEmpty()) {
+                    // D-225b: uses the hoisted reactive state so it appears/disappears live.
+                    if (reverseAutoLinkEnabled && installedExtensions.isNotEmpty()) {
                         item {
                             ExtensionReorderCard(
                                 extensions = installedExtensions,
@@ -655,23 +657,24 @@ private fun ExtensionReorderCard(
                                     dragOffset += dragAmount.y
                                     val itemHeight = 56f
                                     val swapThreshold = itemHeight / 2
-                                if (dragOffset > swapThreshold && index < internalList.size - 1) {
-                                    // Swap down.
-                                    val temp = internalList[index]
-                                    internalList[index] = internalList[index + 1]
-                                    internalList[index + 1] = temp
-                                    draggedIndex = index + 1
-                                    dragOffset = 0f
-                                } else if (dragOffset < -swapThreshold && index > 0) {
-                                    // Swap up.
-                                    val temp = internalList[index]
-                                    internalList[index] = internalList[index - 1]
-                                    internalList[index - 1] = temp
-                                    draggedIndex = index - 1
-                                    dragOffset = 0f
-                                }
-                            },
-                        )
+                                    if (dragOffset > swapThreshold && index < internalList.size - 1) {
+                                        // Swap down.
+                                        val temp = internalList[index]
+                                        internalList[index] = internalList[index + 1]
+                                        internalList[index + 1] = temp
+                                        draggedIndex = index + 1
+                                        dragOffset = 0f
+                                    } else if (dragOffset < -swapThreshold && index > 0) {
+                                        // Swap up.
+                                        val temp = internalList[index]
+                                        internalList[index] = internalList[index - 1]
+                                        internalList[index - 1] = temp
+                                        draggedIndex = index - 1
+                                        dragOffset = 0f
+                                    }
+                                },
+                            )
+                        }
                         .graphicsLayer {
                             if (isDragged) translationY = dragOffset
                         },

@@ -143,6 +143,14 @@ class DetailsViewModel(
     private val _autoLinkState = MutableStateFlow<AutoLinkState>(AutoLinkState.Idle)
     val autoLinkState: StateFlow<AutoLinkState> = _autoLinkState.asStateFlow()
 
+    /**
+     * D-225c: Reverse auto-link state — tracks the AniList → extensions search
+     * lifecycle. Drives the [AutoLinkPopup] so the user sees live feedback
+     * ("Searching extensions…" → "Linked to {source}" / "No source found").
+     */
+    private val _reverseAutoLinkState = MutableStateFlow<ReverseAutoLinkState>(ReverseAutoLinkState.Idle)
+    val reverseAutoLinkState: StateFlow<ReverseAutoLinkState> = _reverseAutoLinkState.asStateFlow()
+
     /** AniList search state for the manual link sheet. */
     private val _anilistSearchState = MutableStateFlow<AniListSearchState>(AniListSearchState.Idle)
     val anilistSearchState: StateFlow<AniListSearchState> = _anilistSearchState.asStateFlow()
@@ -448,6 +456,7 @@ class DetailsViewModel(
         // CRITICAL: Reset ALL state when loading a new anime (D-131).
         _state.value = DetailsState.Loading
         _autoLinkState.value = AutoLinkState.Idle
+        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
         _showManualLinkSheet.value = false
         _anilistSearchState.value = AniListSearchState.Idle
         _linkedSource.value = null
@@ -572,6 +581,8 @@ class DetailsViewModel(
                     val anime = anilistBase
                     if (anime != null) {
                         Logger.i(TAG) { "D-225: Reverse auto-link — no source linked, searching extensions..." }
+                        // D-225c: Show the popup immediately so the user sees "Searching…".
+                        _reverseAutoLinkState.value = ReverseAutoLinkState.Searching
                         viewModelScope.launch {
                             try {
                                 val result = reverseAutoLinkService.attemptReverseAutoLink(
@@ -588,21 +599,38 @@ class DetailsViewModel(
                                         // persist KEY_SOURCE_LINK_PREFIX, linkExtensionToExisting,
                                         // set extensionBase, fetch episodes, cache forward link.
                                         linkSource(result.source, result.sAnime)
+                                        // D-225c: popup confirms the match.
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.Matched(
+                                            sourceName = result.source.name,
+                                            animeTitle = result.sAnime.title,
+                                            score = result.score,
+                                        )
                                     }
                                     is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.NoMatch -> {
                                         Logger.i(TAG) {
                                             "D-225: Reverse auto-link NO MATCH (bestScore=${result.bestScore})"
                                         }
+                                        // D-225c: popup offers a "Link manually" action.
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.NoMatch(
+                                            bestScore = result.bestScore,
+                                            searchedTitle = result.searchedTitle,
+                                        )
                                     }
                                     is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Skipped -> {
                                         Logger.d(TAG) { "D-225: Reverse auto-link skipped: ${result.reason}" }
+                                        // Silent — don't bother the user when the feature is off.
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
                                     }
                                     is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Error -> {
                                         Logger.e(TAG) { "D-225: Reverse auto-link error: ${result.message}" }
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.Error(result.message)
                                     }
                                 }
                             } catch (e: Exception) {
                                 Logger.e(TAG, e) { "D-225: Reverse auto-link failed: ${e.message}" }
+                                _reverseAutoLinkState.value = ReverseAutoLinkState.Error(
+                                    e.message ?: "Unknown error"
+                                )
                             }
                         }
                     }
@@ -874,6 +902,7 @@ class DetailsViewModel(
         // CRITICAL: Reset ALL state when loading a new anime (D-131).
         _state.value = DetailsState.Loading
         _autoLinkState.value = AutoLinkState.Idle
+        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
         _showManualLinkSheet.value = false
         _anilistSearchState.value = AniListSearchState.Idle
         _linkedSource.value = null
@@ -1673,6 +1702,25 @@ class DetailsViewModel(
         _showManualLinkSheet.value = false
     }
 
+    // ── D-225c: Auto-link popup dismiss handlers ──
+    // Called by the [AutoLinkPopup] when its auto-dismiss timer fires OR the
+    // user swipes/taps it away. Resets the corresponding state to Idle so the
+    // popup hides cleanly without flickering on the next recomposition.
+
+    /** Dismiss the FORWARD auto-link popup (extension → AniList). */
+    fun dismissAutoLinkPopup() {
+        if (_autoLinkState.value !is AutoLinkState.Searching) {
+            _autoLinkState.value = AutoLinkState.Idle
+        }
+    }
+
+    /** Dismiss the REVERSE auto-link popup (AniList → extensions). */
+    fun dismissReverseAutoLinkPopup() {
+        if (_reverseAutoLinkState.value !is ReverseAutoLinkState.Searching) {
+            _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
+        }
+    }
+
     // ── Fetch episodes from a specific source (used by extension flow) ──
 
     private fun fetchEpisodesFromSource(sourceId: Long, animeUrl: String, animeTitle: String) {
@@ -2438,6 +2486,31 @@ sealed interface AutoLinkState {
     data class NoMatch(val bestScore: Float, val searchedTitle: String) : AutoLinkState
     data class Skipped(val reason: String) : AutoLinkState
     data class Error(val message: String) : AutoLinkState
+}
+
+/**
+ * D-225c: Reverse auto-link state — drives the [AutoLinkPopup] for the
+ * AniList → extensions search direction.
+ *
+ * - [Idle]: nothing happening (initial / dismissed / skipped).
+ * - [Searching]: extensions are being queried (popup shows spinner + "Searching…").
+ * - [Matched]: a source was linked (popup confirms + auto-dismisses).
+ * - [NoMatch]: no confident match (popup offers a "Link manually" action).
+ * - [Error]: search failed (popup shows the error + auto-dismisses).
+ */
+sealed interface ReverseAutoLinkState {
+    data object Idle : ReverseAutoLinkState
+    data object Searching : ReverseAutoLinkState
+    data class Matched(
+        val sourceName: String,
+        val animeTitle: String,
+        val score: Float,
+    ) : ReverseAutoLinkState
+    data class NoMatch(
+        val bestScore: Float,
+        val searchedTitle: String,
+    ) : ReverseAutoLinkState
+    data class Error(val message: String) : ReverseAutoLinkState
 }
 
 /** AniList search state for the manual link sheet. */

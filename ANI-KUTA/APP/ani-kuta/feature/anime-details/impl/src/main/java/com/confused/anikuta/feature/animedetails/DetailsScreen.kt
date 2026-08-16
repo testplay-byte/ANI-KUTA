@@ -183,8 +183,29 @@ fun DetailsScreen(
 
     // Phase B: auto-link state
     val autoLinkState by viewModel.autoLinkState.collectAsState()
+    // D-225c: Reverse auto-link state — drives the popup alongside forward state.
+    val reverseAutoLinkState by viewModel.reverseAutoLinkState.collectAsState()
     val anilistSearchState by viewModel.anilistSearchState.collectAsState()
     val showManualLinkSheet by viewModel.showManualLinkSheet.collectAsState()
+
+    // D-225c: Combine forward + reverse auto-link into a single popup state.
+    // REVERSE takes priority when active (it's the more recent user-visible search);
+    // otherwise fall back to FORWARD; otherwise Hidden.
+    val activeAutoLinkPopup: AutoLinkPopupState = remember(autoLinkState, reverseAutoLinkState) {
+        val reverse = reverseAutoLinkState.toPopupState()
+        if (reverse !is AutoLinkPopupState.Hidden) {
+            reverse
+        } else {
+            autoLinkState.toPopupState()
+        }
+    }
+    val autoLinkPopupDirection: AutoLinkDirection? = when (activeAutoLinkPopup) {
+        is AutoLinkPopupState.Searching -> activeAutoLinkPopup.direction
+        is AutoLinkPopupState.Matched -> activeAutoLinkPopup.direction
+        is AutoLinkPopupState.NoMatch -> activeAutoLinkPopup.direction
+        is AutoLinkPopupState.Error -> activeAutoLinkPopup.direction
+        AutoLinkPopupState.Hidden -> null
+    }
 
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
@@ -808,6 +829,35 @@ fun DetailsScreen(
                     }
                 }
             }
+
+            // D-225c: Auto-link popup overlay (forward + reverse combined).
+            // Sits inside the adaptive-colored Box so it inherits the accent theme.
+            AutoLinkPopup(
+                state = activeAutoLinkPopup,
+                onManualLink = {
+                    when (autoLinkPopupDirection) {
+                        AutoLinkDirection.REVERSE -> {
+                            viewModel.dismissReverseAutoLinkPopup()
+                            showManualSearch = true
+                        }
+                        AutoLinkDirection.FORWARD -> {
+                            viewModel.dismissAutoLinkPopup()
+                            viewModel.openManualLinkSheet()
+                        }
+                        null -> {}
+                    }
+                },
+                onDismiss = {
+                    when (autoLinkPopupDirection) {
+                        AutoLinkDirection.REVERSE -> viewModel.dismissReverseAutoLinkPopup()
+                        AutoLinkDirection.FORWARD -> viewModel.dismissAutoLinkPopup()
+                        null -> {}
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 100.dp),
+            )
         }
     }
     } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
