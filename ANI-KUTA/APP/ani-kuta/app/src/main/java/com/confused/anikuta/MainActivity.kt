@@ -103,6 +103,14 @@ import org.koin.compose.koinInject
 
 class MainActivity : androidx.fragment.app.FragmentActivity() {
 
+    // D-222: OAuth redirect flags — observed by AppRoot to auto-navigate to Trackers
+    // after a successful AniList login + show a snackbar.
+    // D-222-R2: `internal set` (not private) so AppRoot (same module) can clear them.
+    @Volatile var anilistLoginSuccess: Boolean = false
+        internal set
+    @Volatile var anilistLoginError: String? = null
+        internal set
+
     @androidx.compose.material3.ExperimentalMaterial3Api
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -182,10 +190,15 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     com.confused.anikuta.core.common.Logger.i("MainActivity") {
                         "AniList login successful!"
                     }
+                    // D-222: auto-navigate to the Trackers page so the user sees
+                    // the confirmation. The redirect opens the app fresh (Browse page),
+                    // so we need to push the Trackers page onto the backstack.
+                    anilistLoginSuccess = true
                 } else {
                     com.confused.anikuta.core.common.Logger.e("MainActivity") {
                         "AniList login failed"
                     }
+                    anilistLoginError = "Login failed — please try again."
                 }
             } catch (e: Exception) {
                 com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
@@ -351,6 +364,30 @@ fun AppRoot() {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
     }
     val currentKey = backstack.last()
+
+    // D-222: AniList OAuth redirect — auto-navigate to the Trackers page
+    // after a successful login (the redirect opens the app fresh on Browse).
+    // Also show a snackbar confirmation.
+    val mainActivity = appContext as? MainActivity
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        // Poll the flags set by handleAniListOAuthRedirect.
+        while (true) {
+            kotlinx.coroutines.delay(200)
+            if (mainActivity?.anilistLoginSuccess == true) {
+                mainActivity.anilistLoginSuccess = false
+                // Navigate to More → Trackers.
+                if (currentKey !is TrackersKey) {
+                    if (currentKey !is MoreKey) backstack.add(MoreKey)
+                    backstack.add(TrackersKey)
+                }
+            }
+            mainActivity?.anilistLoginError?.let { error ->
+                mainActivity.anilistLoginError = null
+                // TODO: show a snackbar with the error.
+                com.confused.anikuta.core.common.Logger.w("AppRoot") { "AniList login error: $error" }
+            }
+        }
+    }
 
     // ── App update startup check ──
     // Runs once per composition. Mirrors the old project's AnikutaRoot.kt:140-186

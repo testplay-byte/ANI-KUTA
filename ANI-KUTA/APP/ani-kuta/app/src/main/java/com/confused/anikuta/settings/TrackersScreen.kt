@@ -100,6 +100,8 @@ fun TrackersScreen(
     // D-221: populate library state.
     var populateState by remember { mutableStateOf<PopulateState>(PopulateState.Idle) }
     var showUnlinkConfirm by remember { mutableStateOf(false) }
+    // D-222: populate confirmation dialog.
+    var showPopulateConfirm by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -145,20 +147,7 @@ fun TrackersScreen(
                         }
                     },
                     onUnlink = { showUnlinkConfirm = true },
-                    onPopulate = {
-                        scope.launch {
-                            populateState = PopulateState.Fetching
-                            try {
-                                val result = populateLibraryFromAniList(
-                                    anilistTracker, contentRepository, contentResolver,
-                                )
-                                populateState = PopulateState.Done(result)
-                            } catch (e: Exception) {
-                                Logger.e(TAG, e) { "Populate library failed: ${e.message}" }
-                                populateState = PopulateState.Error(e.message ?: "Unknown error")
-                            }
-                        }
-                    },
+                    onPopulate = { showPopulateConfirm = true },
                     onDismissResult = { populateState = PopulateState.Idle },
                 )
             }
@@ -196,6 +185,48 @@ fun TrackersScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showUnlinkConfirm = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
+    }
+
+    // ── D-222: Populate library confirmation dialog ──
+    if (showPopulateConfirm) {
+        AlertDialog(
+            onDismissRequest = { showPopulateConfirm = false },
+            title = { Text("Populate Library?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Text(
+                    "This will fetch your complete AniList anime library and create " +
+                        "local categories (Watching, Planning, Completed, Dropped, Paused). " +
+                        "Each anime will be saved to the matching category. This may take " +
+                        "a moment depending on the size of your library.",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPopulateConfirm = false
+                    scope.launch {
+                        populateState = PopulateState.Fetching
+                        try {
+                            val result = populateLibraryFromAniList(
+                                anilistTracker, contentRepository, contentResolver,
+                            )
+                            populateState = PopulateState.Done(result)
+                        } catch (e: Exception) {
+                            Logger.e(TAG, e) { "Populate library failed: ${e.message}" }
+                            populateState = PopulateState.Error(e.message ?: "Unknown error")
+                        }
+                    }
+                }) {
+                    Text("Populate", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPopulateConfirm = false }) {
                     Text("Cancel", fontFamily = RobotoFamily)
                 }
             },
@@ -429,22 +460,15 @@ private suspend fun populateLibraryFromAniList(
 
         for (entry in entries) {
             try {
-                // Resolve or create the main_entry for this AniList anime.
-                val mainId = contentResolver.resolveOrCreateForAniList(
-                    anilistId = entry.mediaId,
-                    title = entry.title,
-                )
-
-                // Add to the matching category (if not already in the library).
-                if (!contentRepository.isInLibrary(mainId)) {
-                    contentRepository.addToCategory(mainId, categoryId)
-                    totalImported++
-                    statusCounts[anilistStatus] = (statusCounts[anilistStatus] ?: 0) + 1
-                }
-
-                // Cache the AniList metadata (cover, description, etc.) in content_details.
+                // D-222 FIX: Build the ContentDetails BEFORE calling the resolver,
+                // then pass it via `anilistDetail` so resolveOrCreateForAniList
+                // inserts the content_details row immediately (via upsertContentDetailsForAniList).
+                // The old code called resolveOrCreateForAniList WITHOUT anilistDetail → no
+                // content_details row was created → updateDataSourceAxis was a silent no-op
+                // → the Library page showed entries as empty when switching categories.
+                // (Same bug pattern as D-206 for resolveOrCreateForExtension.)
                 val details = com.confused.anikuta.core.content.ContentDetails(
-                    mainId = mainId,
+                    mainId = "", // resolver overwrites with the real mainId
                     dataSourceType = "anilist",
                     dataSourceRefId = entry.mediaId.toString(),
                     dataCoverUrl = entry.coverUrl,
@@ -458,7 +482,20 @@ private suspend fun populateLibraryFromAniList(
                     dataScore = entry.averageScore?.toLong(),
                     dataUpdatedAt = System.currentTimeMillis(),
                 )
-                contentRepository.updateDataSourceAxis(details)
+
+                // Resolve or create the main_entry + content_details for this AniList anime.
+                val mainId = contentResolver.resolveOrCreateForAniList(
+                    anilistId = entry.mediaId,
+                    title = entry.title,
+                    anilistDetail = details, // D-222: pass the detail so the row is created
+                )
+
+                // Add to the matching category (if not already in the library).
+                if (!contentRepository.isInLibrary(mainId)) {
+                    contentRepository.addToCategory(mainId, categoryId)
+                    totalImported++
+                    statusCounts[anilistStatus] = (statusCounts[anilistStatus] ?: 0) + 1
+                }
             } catch (e: Exception) {
                 Logger.w(TAG) { "Failed to import anime ${entry.mediaId} (${entry.title}): ${e.message}" }
             }

@@ -370,6 +370,22 @@ class LibraryViewModel(
                                 animeUrl = content.animeUrl ?: details.animeUrl,
                             ),
                         )
+                    } else {
+                        // D-222 FIX: content_details row is missing (e.g. populate
+                        // didn't create it, or it was deleted). Fall back to the
+                        // main_entry's title so the entry is at least visible.
+                        // This mirrors the fallback in loadLibraryImpl (lines 292-303)
+                        // and prevents the Library grid from appearing empty when
+                        // switching category tabs.
+                        entries.add(
+                            LibraryEntry.fromExtension(
+                                mainId = mainId,
+                                title = content.title,
+                                coverUrl = null,
+                                sourceId = content.extensionId,
+                                animeUrl = content.animeUrl,
+                            ),
+                        )
                     }
                 }
 
