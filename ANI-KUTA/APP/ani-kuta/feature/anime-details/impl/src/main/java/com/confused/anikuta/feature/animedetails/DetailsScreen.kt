@@ -183,14 +183,8 @@ fun DetailsScreen(
 
     // Phase B: auto-link state
     val autoLinkState by viewModel.autoLinkState.collectAsState()
-    // D-225c: Reverse auto-link state — drives the popup alongside forward state.
-    val reverseAutoLinkState by viewModel.reverseAutoLinkState.collectAsState()
     val anilistSearchState by viewModel.anilistSearchState.collectAsState()
     val showManualLinkSheet by viewModel.showManualLinkSheet.collectAsState()
-
-    // D-225c: DIAGNOSTIC — simplified to constants to isolate parser error.
-    val activeAutoLinkPopup: AutoLinkPopupState = AutoLinkPopupState.Hidden
-    val autoLinkPopupDirection: AutoLinkDirection? = null
 
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
@@ -814,9 +808,6 @@ fun DetailsScreen(
                     }
                 }
             }
-
-            // D-225c: DIAGNOSTIC — testing if a plain Text compiles here.
-            Text(text = "diag")
         }
     }
     } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
