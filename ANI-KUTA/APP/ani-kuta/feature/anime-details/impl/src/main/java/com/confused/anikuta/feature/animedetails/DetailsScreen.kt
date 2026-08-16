@@ -162,6 +162,9 @@ fun DetailsScreen(
     // Phase WP: watch progress for the episode list (watched state + swipe-to-toggle).
     val watchProgress by viewModel.watchProgress.collectAsState()
 
+    // D-223: Per-anime accent color (extracted from cover image).
+    val coverAccent by viewModel.coverAccent.collectAsState()
+
     // Phase 4: per-anime user rating (0-100, null = unrated).
     val animeRating by viewModel.animeRating.collectAsState()
 
@@ -397,16 +400,33 @@ fun DetailsScreen(
         onDispose { updateDebugContext(null) }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        when (val s = state) {
-            is DetailsState.Loading -> Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
+    // D-223: When a cover accent is available, compute a derived ColorScheme
+    // with the primary family overridden for this anime.
+    val adaptiveAccent = coverAccent?.let { androidx.compose.ui.graphics.Color(it) }
+    val adaptiveColorScheme = adaptiveAccent?.let { accent ->
+        val accentColors = com.confused.anikuta.core.designsystem.theme.AccentColors.from(accent)
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        MaterialTheme.colorScheme.copy(
+            primary = if (isDark) accentColors.darkPrimary else accentColors.lightPrimary,
+            onPrimary = if (isDark) accentColors.darkOnPrimary else accentColors.lightOnPrimary,
+            primaryContainer = if (isDark) accentColors.darkPrimaryContainer else accentColors.lightPrimaryContainer,
+            onPrimaryContainer = if (isDark) accentColors.darkOnPrimaryContainer else accentColors.lightOnPrimaryContainer,
+        )
+    }
+
+    // D-223: Wrap the Box in the adaptive color scheme (or use the default if null).
+    val effectiveColorScheme = adaptiveColorScheme ?: MaterialTheme.colorScheme
+    MaterialTheme(colorScheme = effectiveColorScheme) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            when (val s = state) {
+                is DetailsState.Loading -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
             }
 
@@ -790,6 +810,7 @@ fun DetailsScreen(
             }
         }
     }
+    } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
 
     // ── Manual search sheet (source selection) ──
     if (showManualSearch) {

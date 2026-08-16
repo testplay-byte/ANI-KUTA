@@ -7,11 +7,12 @@ import org.koin.dsl.module
 
 val detailsModule = module {
     single { VideoResolver() }
-    // DetailsViewModel's 17 constructor params are resolved by Koin:
+    // DetailsViewModel's constructor params are resolved by Koin:
     //   AniListApi, ExtensionManager, PreferenceStore, VideoResolver,
     //   EpisodeMetadataEngine, ExtensionDetailsProvider, AniListDetailsProvider,
     //   AutoLinkService, AutoLinkPreferences, ContentResolver, ContentRepository,
     //   DataCacheRepository, DownloadManager, WatchProgressStore (Phase WP),
-    //   RatingStore (Phase 4), PlayerPreferences (Phase 2), GenreRepository (Genre System).
+    //   RatingStore (Phase 4), PlayerPreferences (Phase 2), GenreRepository (Genre System),
+    //   CoverColorExtractor (D-223 — nullable, optional adaptive theming).
     viewModelOf(::DetailsViewModel)
 }

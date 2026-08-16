@@ -121,6 +121,11 @@ CREATE TABLE IF NOT EXISTS content_details (
     ext_extra_json      TEXT,
     ext_updated_at      INTEGER,
 
+    -- ── D-223: Adaptive color ──
+    -- ARGB int (0xFFRRGGBB) extracted from the cover image via Palette API.
+    -- NULL = not yet extracted (use default app accent). Stored once, reused.
+    cover_accent_argb   INTEGER,
+
     FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
 );
 
@@ -237,7 +242,8 @@ INSERT OR REPLACE INTO content_details(
     data_cover_url, data_banner_url, data_extra_json, data_updated_at,
     extension_type, extension_id, source_id, anime_url,
     ext_description, ext_genres, ext_status, ext_author, ext_artist,
-    ext_thumbnail_url, ext_extra_json, ext_updated_at
+    ext_thumbnail_url, ext_extra_json, ext_updated_at,
+    cover_accent_argb
 ) VALUES (
     :mainId,
     :dataSourceType, :dataSourceRefId, :dataScore, :dataEpisodes,
@@ -245,7 +251,8 @@ INSERT OR REPLACE INTO content_details(
     :dataCoverUrl, :dataBannerUrl, :dataExtraJson, :dataUpdatedAt,
     :extensionType, :extensionId, :sourceId, :animeUrl,
     :extDescription, :extGenres, :extStatus, :extAuthor, :extArtist,
-    :extThumbnailUrl, :extExtraJson, :extUpdatedAt
+    :extThumbnailUrl, :extExtraJson, :extUpdatedAt,
+    :coverAccentArgb
 );
 
 updateDataSourceAxis:
@@ -319,3 +326,7 @@ DELETE FROM content_details WHERE main_id = :mainId;
 
 getAllContentDetails:
 SELECT * FROM content_details;
+
+-- D-223: Update the adaptive cover accent color (extracted from cover image).
+updateCoverAccentArgb:
+UPDATE content_details SET cover_accent_argb = :argb WHERE main_id = :mainId;

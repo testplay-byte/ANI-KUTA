@@ -78,6 +78,8 @@ class DetailsViewModel(
     private val genreRepository: com.confused.anikuta.core.content.genre.GenreRepository,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
     private val updateEngine: com.confused.anikuta.core.updates.UpdateEngine,
+    // D-223: Cover color extractor for adaptive theming.
+    private val coverColorExtractor: com.confused.anikuta.core.designsystem.color.CoverColorExtractor? = null,
 ) : ViewModel() {
 
     companion object {
@@ -93,6 +95,15 @@ class DetailsViewModel(
 
     private val _state = MutableStateFlow<DetailsState>(DetailsState.Loading)
     val state: StateFlow<DetailsState> = _state.asStateFlow()
+
+    /**
+     * D-223: The per-anime accent color (ARGB Int) extracted from the cover image.
+     * Null = not yet extracted or extraction failed → use the default app accent.
+     * The UI observes this + wraps the screen in AnikutaTheme(accentSeed = Color(argb))
+     * when adaptive colors are enabled.
+     */
+    private val _coverAccent = MutableStateFlow<Int?>(null)
+    val coverAccent: StateFlow<Int?> = _coverAccent.asStateFlow()
 
     /** The available trusted sources (for the manual search sheet). */
     val availableSources: StateFlow<List<AnimeCatalogueSource>> =
@@ -1056,6 +1067,8 @@ class DetailsViewModel(
             val mainId = contentResolver.resolveOrCreateForAniList(anilistId, title, detail)
             currentMainId = mainId; _mainIdFlow.value = mainId
             refreshContentAndLibraryStatus(mainId)
+            // D-223: Trigger cover color extraction for adaptive theming.
+            triggerCoverColorExtraction(mainId, detail.dataCoverUrl)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "resolveContentForAniList failed: ${e.message}" }
         }
@@ -1137,6 +1150,9 @@ class DetailsViewModel(
             )
             currentMainId = mainId; _mainIdFlow.value = mainId
 
+            // D-223: Trigger cover color extraction for adaptive theming.
+            triggerCoverColorExtraction(mainId, unifiedAnime?.coverUrl)
+
             // D-142 + D-198: Store the extension detail (with coverUrl) for library display.
             // Without this, the library can't show cover images for extension-only entries.
             if (unifiedAnime != null) {
@@ -1176,6 +1192,39 @@ class DetailsViewModel(
         }
         _isInLibrary.value = contentRepository.isInLibrary(mainId)
         Logger.i(TAG) { "Library status: ${if (_isInLibrary.value) "in library" else "not in library"}" }
+    }
+
+    /**
+     * D-223: Trigger cover color extraction for adaptive theming.
+     *
+     * Checks if the cover accent color is already stored in the DB. If yes,
+     * sets the [_coverAccent] StateFlow immediately (instant — no network).
+     * If no, kicks off background extraction via [CoverColorExtractor] +
+     * stores the result in the DB for next time.
+     *
+     * Safe to call multiple times — no-ops if the color is already extracted.
+     */
+    private fun triggerCoverColorExtraction(mainId: String, coverUrl: String?) {
+        // First, check if the DB already has a stored color.
+        val details = contentRepository.getContentDetails(mainId)
+        val storedArgb = details?.coverAccentArgb
+        if (storedArgb != null) {
+            _coverAccent.value = storedArgb.toInt()
+            Logger.d(TAG) { "Cover accent already stored: 0x${"%08X".format(storedArgb.toInt())}" }
+            return
+        }
+        // No stored color — clear the state + trigger extraction if we have a cover URL.
+        _coverAccent.value = null
+        if (coverUrl.isNullOrBlank() || coverColorExtractor == null) return
+
+        viewModelScope.launch {
+            val argb = coverColorExtractor.extract(coverUrl)
+            if (argb != null) {
+                contentRepository.updateCoverAccent(mainId, argb.toLong())
+                _coverAccent.value = argb
+                Logger.i(TAG) { "Cover accent extracted + stored: 0x${"%08X".format(argb)}" }
+            }
+        }
     }
 
     /**
