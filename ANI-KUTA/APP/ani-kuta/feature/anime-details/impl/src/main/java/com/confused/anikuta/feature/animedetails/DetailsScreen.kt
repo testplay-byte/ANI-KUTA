@@ -204,7 +204,7 @@ fun DetailsScreen(
         is AutoLinkPopupState.Matched -> activeAutoLinkPopup.direction
         is AutoLinkPopupState.NoMatch -> activeAutoLinkPopup.direction
         is AutoLinkPopupState.Error -> activeAutoLinkPopup.direction
-        AutoLinkPopupState.Hidden -> null
+        else -> null
     }
 
     // Phase C: library state
@@ -844,14 +844,14 @@ fun DetailsScreen(
                             viewModel.dismissAutoLinkPopup()
                             viewModel.openManualLinkSheet()
                         }
-                        null -> {}
+                        else -> {}
                     }
                 },
                 onDismiss = {
                     when (autoLinkPopupDirection) {
                         AutoLinkDirection.REVERSE -> viewModel.dismissReverseAutoLinkPopup()
                         AutoLinkDirection.FORWARD -> viewModel.dismissAutoLinkPopup()
-                        null -> {}
+                        else -> {}
                     }
                 },
                 modifier = Modifier
