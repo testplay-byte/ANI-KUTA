@@ -815,12 +815,8 @@ fun DetailsScreen(
                 }
             }
 
-            // D-225c: Auto-link popup overlay (DIAGNOSTIC — minimal).
-            AutoLinkPopup(
-                state = activeAutoLinkPopup,
-                onManualLink = {},
-                onDismiss = {},
-            )
+            // D-225c: DIAGNOSTIC — testing if a plain Text compiles here.
+            Text(text = "diag")
         }
     }
     } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
