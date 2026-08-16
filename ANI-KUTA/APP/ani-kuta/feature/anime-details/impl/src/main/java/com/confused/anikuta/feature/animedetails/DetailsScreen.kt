@@ -835,23 +835,21 @@ fun DetailsScreen(
             AutoLinkPopup(
                 state = activeAutoLinkPopup,
                 onManualLink = {
-                    when (autoLinkPopupDirection) {
-                        AutoLinkDirection.REVERSE -> {
-                            viewModel.dismissReverseAutoLinkPopup()
-                            showManualSearch = true
-                        }
-                        AutoLinkDirection.FORWARD -> {
-                            viewModel.dismissAutoLinkPopup()
-                            viewModel.openManualLinkSheet()
-                        }
-                        else -> {}
+                    val dir = autoLinkPopupDirection
+                    if (dir == AutoLinkDirection.REVERSE) {
+                        viewModel.dismissReverseAutoLinkPopup()
+                        showManualSearch = true
+                    } else if (dir == AutoLinkDirection.FORWARD) {
+                        viewModel.dismissAutoLinkPopup()
+                        viewModel.openManualLinkSheet()
                     }
                 },
                 onDismiss = {
-                    when (autoLinkPopupDirection) {
-                        AutoLinkDirection.REVERSE -> viewModel.dismissReverseAutoLinkPopup()
-                        AutoLinkDirection.FORWARD -> viewModel.dismissAutoLinkPopup()
-                        else -> {}
+                    val dir = autoLinkPopupDirection
+                    if (dir == AutoLinkDirection.REVERSE) {
+                        viewModel.dismissReverseAutoLinkPopup()
+                    } else if (dir == AutoLinkDirection.FORWARD) {
+                        viewModel.dismissAutoLinkPopup()
                     }
                 },
                 modifier = Modifier
