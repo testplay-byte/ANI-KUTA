@@ -136,5 +136,24 @@ rules solidify.)
 
 ---
 
+## 8. Deep-Dive Documentation
+
+The rules above are the **quick reference**. For implementation details, code
+snippets, and screen-by-screen breakdowns, see the **Design System** folder:
+
+```
+APP/ani-kuta/DOCUMENTATION/DESIGN-SYSTEM/
+├── README.md                           — Index + how to use
+├── 01-navigation-and-sheets.md         — Bottom nav, collapsing header, scroll blur, bottom sheets, filter sheet, hide-on-scroll
+├── 02-lists-cards-pills.md             — Pill/tag system, episode rows, download rows, library cards, downloads page
+├── 03-settings-extensions-profile.md   — More page, profile, appearance, extensions, extension details, download settings, update sheet, bottom-up menu pattern
+└── 04-player-details-search-library.md — Player (portrait+fullscreen), subtitle settings, details top, search, library
+```
+
+**22+ design patterns** documented across **18+ screens** with verbatim code
+snippets, file paths, and design decision tables. Created in D-216.
+
+---
+
 *This document is the source of truth for the app's UI. If code disagrees with
 this doc, fix the code (or update the doc if the change is intentional).*
