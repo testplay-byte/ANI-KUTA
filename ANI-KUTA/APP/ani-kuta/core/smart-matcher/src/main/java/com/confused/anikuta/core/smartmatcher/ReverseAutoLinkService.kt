@@ -55,13 +55,13 @@ class ReverseAutoLinkService(
         anilistTitle: String,
         anilistYear: Int?,
     ): ReverseAutoLinkResult = withContext(Dispatchers.IO) {
-        if (!preferences.autoLinkEnabled.value) {
+        if (!preferences.autoLinkEnabled) {
             Logger.d(TAG) { "Reverse auto-link disabled (global toggle)" }
             return@withContext ReverseAutoLinkResult.Skipped("Auto-link disabled")
         }
 
-        val strategy = preferences.strategy.value
-        val threshold = preferences.threshold.value
+        val strategy = preferences.strategy
+        val threshold = preferences.threshold
         val config = SmartMatcherConfig(
             strategy = MatchStrategy.valueOf(strategy.uppercase()),
             threshold = threshold,
