@@ -55,9 +55,10 @@ class ReverseAutoLinkService(
         anilistTitle: String,
         anilistYear: Int?,
     ): ReverseAutoLinkResult = withContext(Dispatchers.IO) {
-        if (!preferences.autoLinkEnabled) {
-            Logger.d(TAG) { "Reverse auto-link disabled (global toggle)" }
-            return@withContext ReverseAutoLinkResult.Skipped("Auto-link disabled")
+        // D-225b: Check the REVERSE auto-link toggle (separate from forward auto-link).
+        if (!preferences.reverseAutoLinkEnabled) {
+            Logger.d(TAG) { "Reverse auto-link disabled (reverse toggle)" }
+            return@withContext ReverseAutoLinkResult.Skipped("Reverse auto-link disabled")
         }
 
         val strategy = preferences.strategy
@@ -77,21 +78,29 @@ class ReverseAutoLinkService(
                 "strategy=$strategy, threshold=$threshold"
         }
 
-        // Get all enabled catalogue sources.
-        val allSources = extensionManager.sources.value.values
-            .filterIsInstance<AnimeCatalogueSource>()
+        // D-225b: Get ordered extension list — user-defined order first, then any newly installed.
+        val orderedPkgNames = preferences.reverseAutoLinkExtensionOrder
+        val installed = extensionManager.installedExtensions.value
 
-        // Filter to sources where auto-link is enabled (per-source override or global).
-        val searchSources = allSources.filter { source ->
-            preferences.isAutoLinkEnabledForSource(source.id)
-        }.take(MAX_SOURCES_TO_SEARCH)
+        // Merge: saved order first, then any installed extensions NOT in the saved list.
+        val orderedExtensions = orderedPkgNames.mapNotNull { pkg ->
+            installed.firstOrNull { it.pkgName == pkg }
+        } + installed.filter { it.pkgName !in orderedPkgNames }
+
+        // Get sources from ordered extensions, filtered by per-source override.
+        val searchSources = orderedExtensions
+            .filter { it.isEnabled }
+            .flatMap { it.sources }
+            .filterIsInstance<AnimeCatalogueSource>()
+            .filter { source -> preferences.isAutoLinkEnabledForSource(source.id) }
+            .take(MAX_SOURCES_TO_SEARCH)
 
         if (searchSources.isEmpty()) {
             Logger.w(TAG) { "No enabled sources to search" }
             return@withContext ReverseAutoLinkResult.Skipped("No enabled sources")
         }
 
-        Logger.i(TAG) { "Searching ${searchSources.size} sources (max $MAX_SOURCES_TO_SEARCH)" }
+        Logger.i(TAG) { "Searching ${searchSources.size} sources (max $MAX_SOURCES_TO_SEARCH, ordered)" }
 
         var bestScore = 0f
         var bestSource: AnimeCatalogueSource? = null

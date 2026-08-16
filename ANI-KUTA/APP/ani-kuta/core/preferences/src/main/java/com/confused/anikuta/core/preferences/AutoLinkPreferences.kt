@@ -87,12 +87,33 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
         store.putInt(keyLinkCache(sourceId, animeUrl), 0)
     }
 
+    // ── D-225b: Reverse auto-link (AniList → extensions) ──
+
+    /** Master toggle for reverse auto-link (searching extensions when opening AniList anime). */
+    var reverseAutoLinkEnabled: Boolean
+        get() = store.getBoolean(KEY_REVERSE_ENABLED, true)
+        set(value) = store.putBoolean(KEY_REVERSE_ENABLED, value)
+
+    /**
+     * Ordered list of extension package names for reverse auto-link search priority.
+     * The first extension in this list is searched first; if no match, the next is tried.
+     * Extensions not in this list are appended at the end (newly installed).
+     * Empty list = use the default installation order.
+     */
+    var reverseAutoLinkExtensionOrder: List<String>
+        get() = store.getStringList(KEY_REVERSE_EXT_ORDER, emptyList())
+        set(value) = store.putStringList(KEY_REVERSE_EXT_ORDER, value)
+
     companion object {
         private const val KEY_AUTO_LINK_ENABLED = "auto_link_enabled"
         private const val KEY_STRATEGY = "auto_link_strategy"
         private const val KEY_THRESHOLD = "auto_link_threshold"
         private const val KEY_PER_SOURCE_PREFIX = "auto_link_source:"
         private const val KEY_LINK_CACHE_PREFIX = "auto_link_cache:"
+
+        // D-225b: Reverse auto-link (AniList → extensions) — separate toggle + extension order.
+        private const val KEY_REVERSE_ENABLED = "auto_link_reverse_enabled"
+        private const val KEY_REVERSE_EXT_ORDER = "auto_link_reverse_ext_order"
 
         private fun keyPerSourceOverride(sourceId: Long): String =
             "$KEY_PER_SOURCE_PREFIX$sourceId"

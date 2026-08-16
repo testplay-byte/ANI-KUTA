@@ -140,7 +140,44 @@ fun AutoLinkSettingsScreen(
                         )
                     }
 
-                    // ── Per-extension section ──
+                    // ── D-225b: Reverse auto-link section (AniList → extensions) ──
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        SettingsSectionLabel("Auto-link AniList to sources")
+                        Text(
+                            text = "Search extensions when opening AniList anime. Drag to set search priority.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    item {
+                        var reverseEnabled by remember {
+                            mutableStateOf(prefs.reverseAutoLinkEnabled)
+                        }
+                        SwitchCard(
+                            title = "Auto-link AniList to sources",
+                            subtitle = "Search extensions when opening AniList anime.",
+                            checked = reverseEnabled,
+                            onCheckedChange = {
+                                reverseEnabled = it
+                                prefs.reverseAutoLinkEnabled = it
+                            },
+                        )
+                    }
+                    // Extension reorder list (shown only when reverse auto-link is enabled).
+                    if (prefs.reverseAutoLinkEnabled && installedExtensions.isNotEmpty()) {
+                        item {
+                            ExtensionReorderCard(
+                                extensions = installedExtensions,
+                                savedOrder = prefs.reverseAutoLinkExtensionOrder,
+                                onReorder = { newOrder ->
+                                    prefs.reverseAutoLinkExtensionOrder = newOrder
+                                },
+                            )
+                        }
+                    }
                     item {
                         Spacer(modifier = Modifier.height(8.dp))
                         SettingsSectionLabel("Per-extension overrides")
@@ -530,5 +567,156 @@ private fun BackAction(onBack: () -> Unit) {
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
+    }
+}
+
+// ── D-225b: Extension reorder card ──
+
+@Composable
+private fun ExtensionReorderCard(
+    extensions: List<com.confused.anikuta.data.extension.model.AnimeExtension.Installed>,
+    savedOrder: List<String>,
+    onReorder: (List<String>) -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val hapticFeedback = androidx.compose.ui.platform.LocalHapticFeedback.current
+
+    // Merge: saved order first, then newly installed extensions.
+    val orderedExtensions = remember(extensions, savedOrder) {
+        savedOrder.mapNotNull { pkg ->
+            extensions.firstOrNull { it.pkgName == pkg }
+        } + extensions.filter { it.pkgName !in savedOrder }
+    }
+
+    // Internal mutable copy for drag tracking.
+    val internalList = remember(orderedExtensions) {
+        androidx.compose.runtime.mutableStateListOf(*orderedExtensions.toTypedArray())
+    }
+
+    // Track drag state.
+    var draggedIndex by remember { androidx.compose.runtime.mutableStateOf(-1) }
+    var dragOffset by remember { androidx.compose.runtime.mutableStateOf(0f) }
+
+    Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Search priority (drag to reorder)",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+
+            internalList.forEachIndexed { index, ext ->
+                val isDragged = index == draggedIndex
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    color = if (isDragged) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else MaterialTheme.colorScheme.surface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                draggedIndex = index
+                                dragOffset = 0f
+                                hapticFeedback.performHapticFeedback(
+                                    androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress
+                                )
+                            },
+                            onDragEnd = {
+                                if (draggedIndex >= 0) {
+                                    onReorder(internalList.map { it.pkgName })
+                                }
+                                draggedIndex = -1
+                                dragOffset = 0f
+                            },
+                            onDragCancel = {
+                                internalList.clear()
+                                internalList.addAll(orderedExtensions)
+                                draggedIndex = -1
+                                dragOffset = 0f
+                            },
+                            onDrag = { _, dragAmount ->
+                                dragOffset += dragAmount.y
+                                val itemHeight = 56f
+                                val swapThreshold = itemHeight / 2
+                                if (dragOffset > swapThreshold && index < internalList.size - 1) {
+                                    // Swap down.
+                                    val temp = internalList[index]
+                                    internalList[index] = internalList[index + 1]
+                                    internalList[index + 1] = temp
+                                    draggedIndex = index + 1
+                                    dragOffset = 0f
+                                } else if (dragOffset < -swapThreshold && index > 0) {
+                                    // Swap up.
+                                    val temp = internalList[index]
+                                    internalList[index] = internalList[index - 1]
+                                    internalList[index - 1] = temp
+                                    draggedIndex = index - 1
+                                    dragOffset = 0f
+                                }
+                            },
+                        )
+                        .androidx.compose.ui.graphics.graphicsLayer {
+                            if (isDragged) translationY = dragOffset
+                        },
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "${index + 1}.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.width(24.dp),
+                        )
+                        // Extension icon.
+                        ext.icon?.let { drawable ->
+                            androidx.compose.foundation.Image(
+                                painter = androidx.compose.ui.res.painterResource(id = android.R.drawable.ic_menu_gallery),
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp).clip(androidx.compose.foundation.shape.CircleShape),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = ext.name,
+                                fontFamily = RobotoFamily,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = "${ext.sources.size} source${if (ext.sources.size != 1) "s" else ""}",
+                                fontFamily = RobotoFamily,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        // Drag handle icon.
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Filled.DragHandle,
+                            contentDescription = "Drag to reorder",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
