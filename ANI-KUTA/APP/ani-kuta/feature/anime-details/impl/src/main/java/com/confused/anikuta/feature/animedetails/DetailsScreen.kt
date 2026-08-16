@@ -836,27 +836,8 @@ fun DetailsScreen(
             // Sits inside the adaptive-colored Box so it inherits the accent theme.
             AutoLinkPopup(
                 state = activeAutoLinkPopup,
-                onManualLink = {
-                    val dir = autoLinkPopupDirection
-                    if (dir == AutoLinkDirection.REVERSE) {
-                        viewModel.dismissReverseAutoLinkPopup()
-                        showManualSearch = true
-                    } else if (dir == AutoLinkDirection.FORWARD) {
-                        viewModel.dismissAutoLinkPopup()
-                        viewModel.openManualLinkSheet()
-                    }
-                },
-                onDismiss = {
-                    val dir = autoLinkPopupDirection
-                    if (dir == AutoLinkDirection.REVERSE) {
-                        viewModel.dismissReverseAutoLinkPopup()
-                    } else if (dir == AutoLinkDirection.FORWARD) {
-                        viewModel.dismissAutoLinkPopup()
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 100.dp),
+                onManualLink = {},
+                onDismiss = {},
             )
         }
     }
