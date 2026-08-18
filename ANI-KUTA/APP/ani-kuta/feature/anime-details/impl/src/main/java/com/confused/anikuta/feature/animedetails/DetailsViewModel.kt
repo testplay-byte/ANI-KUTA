@@ -29,8 +29,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -179,48 +182,50 @@ class DetailsViewModel(
      * Key: `"$mainId|$episodeKey"`.
      */
     val downloadStates: StateFlow<Map<String, EpisodeDownloadState>> =
-        downloadManager.episodeDownloadStates
-            .map { coreMap ->
-                // D.FIX: Also check the downloaded_episode DB table for episodes that
-                // were completed + auto-cleared (no longer in the active queue).
-                // The queue auto-clears COMPLETED tasks after 10s — without this check,
-                // those episodes would show as NotDownloaded instead of Downloaded.
-                val result = mutableMapOf<String, EpisodeDownloadState>()
-                // 1. Map all active queue tasks.
-                coreMap.forEach { (key, coreState) ->
-                    val (status, progress) = coreState
-                    result[key] = when (status) {
-                        com.confused.anikuta.core.download.DownloadStatus.QUEUED ->
-                            EpisodeDownloadState.Queued
-                        com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
-                            EpisodeDownloadState.Downloading(progress)
-                        com.confused.anikuta.core.download.DownloadStatus.RETRYING ->
-                            EpisodeDownloadState.Retrying
-                        com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
-                            EpisodeDownloadState.Paused
-                        com.confused.anikuta.core.download.DownloadStatus.ERROR ->
-                            EpisodeDownloadState.Error(null)
-                        com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
-                            EpisodeDownloadState.Downloaded
-                        com.confused.anikuta.core.download.DownloadStatus.CANCELLED ->
-                            EpisodeDownloadState.NotDownloaded
-                    }
-                }
-                // 2. For episodes NOT in the queue, check if they're downloaded.
-                //    This covers completed+auto-cleared episodes.
-                val mainId = currentMainId ?: return@map result
-                val episodeState = _episodeState.value
-                if (episodeState is EpisodeState.Loaded) {
-                    for (episode in episodeState.episodes) {
-                        val key = "$mainId|${episode.url}"
-                        if (key !in result) {
-                            if (downloadManager.isEpisodeDownloaded(mainId, episode.url)) {
-                                result[key] = EpisodeDownloadState.Downloaded
+        _mainIdFlow
+            .flatMapLatest { mainId ->
+                downloadManager.episodeDownloadStates
+                    .map { coreMap ->
+                        // D-228: The coreMap from downloadManager ALREADY contains
+                        // downloaded episodes (DefaultDownloadManager adds COMPLETED
+                        // entries from the downloaded_episode DB table — see L83-88 +
+                        // L111-119). The old code re-queried the DB per-episode here
+                        // (O(n) sync queries per emission — up to 1000 per tick during
+                        // active downloads). That loop is now DELETED — pure waste.
+                        //
+                        // We just filter the global coreMap by the current anime's
+                        // mainId prefix + map the statuses. O(total global episodes)
+                        // but NO DB queries — just in-memory map iteration.
+                        val prefix = if (mainId != null) "$mainId|" else null
+                        val result = mutableMapOf<String, EpisodeDownloadState>()
+                        coreMap.forEach { (key, coreState) ->
+                            // Skip entries for OTHER animes (the coreMap is global).
+                            if (prefix != null && !key.startsWith(prefix)) return@forEach
+                            val (status, progress) = coreState
+                            result[key] = when (status) {
+                                com.confused.anikuta.core.download.DownloadStatus.QUEUED ->
+                                    EpisodeDownloadState.Queued
+                                com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
+                                    EpisodeDownloadState.Downloading(progress)
+                                com.confused.anikuta.core.download.DownloadStatus.RETRYING ->
+                                    EpisodeDownloadState.Retrying
+                                com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
+                                    EpisodeDownloadState.Paused
+                                com.confused.anikuta.core.download.DownloadStatus.ERROR ->
+                                    EpisodeDownloadState.Error(null)
+                                com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
+                                    EpisodeDownloadState.Downloaded
+                                com.confused.anikuta.core.download.DownloadStatus.CANCELLED ->
+                                    EpisodeDownloadState.NotDownloaded
                             }
                         }
+                        result
                     }
-                }
-                result
+                    // D-228: Coalesce progress-byte bursts (50ms) + skip no-op
+                    // emissions + run on IO to avoid blocking the main thread.
+                    .debounce(50)
+                    .distinctUntilChanged()
+                    .flowOn(Dispatchers.IO)
             }
             .stateIn(
                 viewModelScope,

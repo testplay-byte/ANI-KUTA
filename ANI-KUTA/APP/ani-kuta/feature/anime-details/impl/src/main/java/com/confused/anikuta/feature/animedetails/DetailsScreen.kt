@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -601,6 +602,68 @@ fun DetailsScreen(
                     }
                 }
 
+                // D-228: Hoist onEpisodeClick so it can be reused by both EpisodesSection
+                // (header + non-Loaded states) and the lazy items() in the outer
+                // LazyColumn (Loaded state — proper virtualization).
+                val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = onEpisodeClick@{ episode ->
+                    currentEpisode = episode
+                    resolverDownloadMode = false
+                    // D.FIX: Check if this episode is already downloaded.
+                    // If so, play it offline (skip the resolver).
+                    val stateKey = viewModel.episodeDownloadStateKey(episode)
+                    val downloadState = stateKey?.let { downloadStates[it] }
+                    if (downloadState is EpisodeDownloadState.Downloaded) {
+                        // Play offline — use the downloaded video URI.
+                        val mainId = viewModel.currentMainId
+                        if (mainId != null) {
+                            val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
+                            if (localUri != null) {
+                                Logger.i("Anikuta:Feature:Details") {
+                                    "onEpisodeClick — episode is downloaded, playing offline: $localUri"
+                                }
+                                val anime = (state as? DetailsState.Success)?.anime
+                                val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                                val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                                    "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+                                } ?: ""
+                                val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
+                                    val title = meta.title ?: ""
+                                    val thumb = meta.thumbnailUrl ?: ""
+                                    val date = meta.airDate?.toString() ?: "0"
+                                    val desc = meta.description ?: ""
+                                    val scanlator = episode.scanlator ?: ""
+                                    "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+                                }
+                                onNavigateToWatch(
+                                    mainId ?: "",
+                                    localUri,
+                                    anime?.displayName ?: "Downloaded",
+                                    "Downloaded",
+                                    episode.url,
+                                    episode.episode_number,
+                                    episode.name,
+                                    epListStr,
+                                    "", // no headers for local file
+                                    "", // no resolvedVideosKey
+                                    effectiveLinkedSource?.sourceId ?: 0L,
+                                    "", // no subtitle tracks (they're on disk)
+                                    "", // no audio tracks
+                                    epMetaStr,
+                                )
+                                return@onEpisodeClick
+                            }
+                        }
+                    }
+                    // Not downloaded — resolve + try auto-play (Phase 2).
+                    viewModel.clearResolver()
+                    viewModel.resolveEpisode(episode)
+                    if (viewModel.isAutoSelectEnabled()) {
+                        pendingAutoPlay = true
+                    } else {
+                        showResolverSheet = true
+                    }
+                }
+
                 Box(modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(nestedScrollConnection)
@@ -657,10 +720,11 @@ fun DetailsScreen(
                             item { SynopsisSection(desc, animeRating, viewModel::setAnimeRating) }
                         }
 
-                        // ── Episodes section ──
+                        // ── Episodes section (D-228: flattened for virtualization) ──
+                        // Header + non-Loaded states (Idle/Loading/Empty/Error/CloudflareBlocked)
+                        // are rendered inside EpisodesSection. When Loaded, the episode rows
+                        // are emitted as lazy items() BELOW — proper Compose virtualization.
                         item {
-                            // D.FIX: effectiveLinkedSource is now computed at the top
-                            // of the Success branch — no duplicate here.
                             EpisodesSection(
                                 linkedSource = effectiveLinkedSource,
                                 episodeState = episodeState,
@@ -671,73 +735,9 @@ fun DetailsScreen(
                                 onOpenSourcePicker = { showManualSearch = true },
                                 onOpenCloudflareWebView = onOpenCloudflareWebView,
                                 onUnlinkSource = { viewModel.unlinkSource() },
-                                onEpisodeClick = { episode ->
-                                    currentEpisode = episode
-                                    resolverDownloadMode = false
-                                    // D.FIX: Check if this episode is already downloaded.
-                                    // If so, play it offline (skip the resolver).
-                                    val stateKey = viewModel.episodeDownloadStateKey(episode)
-                                    val downloadState = stateKey?.let { downloadStates[it] }
-                                    if (downloadState is EpisodeDownloadState.Downloaded) {
-                                        // Play offline — use the downloaded video URI.
-                                        val mainId = viewModel.currentMainId
-                                        if (mainId != null) {
-                                            val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
-                                            if (localUri != null) {
-                                                Logger.i("Anikuta:Feature:Details") {
-                                                    "onEpisodeClick — episode is downloaded, playing offline: $localUri"
-                                                }
-                                                val anime = (state as? DetailsState.Success)?.anime
-                                                val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                                                val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                                                    "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                                                } ?: ""
-                                                val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                                                    val title = meta.title ?: ""
-                                                    val thumb = meta.thumbnailUrl ?: ""
-                                                    val date = meta.airDate?.toString() ?: "0"
-                                                    val desc = meta.description ?: ""
-                                                    val scanlator = episode.scanlator ?: ""
-                                                    "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                                                }
-                                                onNavigateToWatch(
-                                                    mainId ?: "",
-                                                    localUri,
-                                                    anime?.displayName ?: "Downloaded",
-                                                    "Downloaded",
-                                                    episode.url,
-                                                    episode.episode_number,
-                                                    episode.name,
-                                                    epListStr,
-                                                    "", // no headers for local file
-                                                    "", // no resolvedVideosKey
-                                                    effectiveLinkedSource?.sourceId ?: 0L,
-                                                    "", // no subtitle tracks (they're on disk)
-                                                    "", // no audio tracks
-                                                    epMetaStr,
-                                                )
-                                                return@EpisodesSection
-                                            }
-                                        }
-                                    }
-                                    // Not downloaded — resolve + try auto-play (Phase 2).
-                                    // If autoSelectVideo is ON: clear resolver (avoid stale state),
-                                    // set pendingAutoPlay → LaunchedEffect handles auto-select.
-                                    // If OFF: just show the ResolverSheet directly (original behavior).
-                                    viewModel.clearResolver()
-                                    viewModel.resolveEpisode(episode)
-                                    if (viewModel.isAutoSelectEnabled()) {
-                                        pendingAutoPlay = true
-                                    } else {
-                                        showResolverSheet = true
-                                    }
-                                },
+                                onEpisodeClick = onEpisodeClick,
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->
-                                    // D.FIX: Show the resolver sheet in download mode —
-                                    // the user picks which video to download (same UI as
-                                    // play, but the heading says "Download EP" and picking
-                                    // a video enqueues a download instead of navigating to watch).
                                     currentEpisode = episode
                                     resolverDownloadMode = true
                                     viewModel.resolveEpisode(episode)
@@ -761,11 +761,61 @@ fun DetailsScreen(
                                 episodeDownloadStateKey = { episode ->
                                     viewModel.episodeDownloadStateKey(episode)
                                 },
-                                // Phase WP: watched state.
                                 mainId = viewModel.currentMainId,
                                 watchProgress = watchProgress,
                                 onToggleWatched = { epKey -> viewModel.toggleWatched(epKey) },
                             )
+                        }
+
+                        // D-228: Lazy episode rows — virtualized! Only ~15 rows are
+                        // composed at a time (the visible window), not all 1000.
+                        // key = { it.url } gives each row a stable identity.
+                        val loadedEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                        if (loadedEpisodes != null) {
+                            items(loadedEpisodes, key = { it.url }) { episode ->
+                                val epNum = episode.episode_number.toInt()
+                                val metadata = episodeMetadata[epNum]
+                                val stateKey = viewModel.episodeDownloadStateKey(episode)
+                                val downloadState = stateKey?.let { downloadStates[it] }
+                                    ?: EpisodeDownloadState.NotDownloaded
+                                val mainId = viewModel.currentMainId
+                                val epKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
+                                val progress = epKey?.let { watchProgress[it] }
+                                val isWatched = progress?.isWatched ?: false
+                                Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+                                    EpisodeRow(
+                                        episode = episode,
+                                        metadata = metadata,
+                                        onClick = { onEpisodeClick(episode) },
+                                        downloadState = downloadState,
+                                        onDownload = { currentEpisode = episode; resolverDownloadMode = true; viewModel.resolveEpisode(episode); showResolverSheet = true },
+                                        onPause = { viewModel.pauseEpisodeDownload(episode) },
+                                        onResume = { viewModel.resumeEpisodeDownload(episode) },
+                                        onCancel = { viewModel.cancelEpisodeDownload(episode) },
+                                        onRetry = { viewModel.retryEpisodeDownload(episode) },
+                                        onDelete = { viewModel.deleteDownloadedEpisode(episode) },
+                                        onPlayDownloaded = { onEpisodeClick(episode) },
+                                        isWatched = isWatched,
+                                        progressFraction = progress?.progressFraction ?: 0f,
+                                        onToggleWatched = { epKey?.let { viewModel.toggleWatched(it) } },
+                                    )
+                                }
+                            }
+                            // Unlink button at the bottom.
+                            item {
+                                TextButton(
+                                    onClick = { viewModel.unlinkSource() },
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                ) {
+                                    Text(
+                                        "Unlink source",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = FontWeight.ExtraBold,
+                                    )
+                                }
+                            }
                         }
 
                         // ── Info ──
@@ -1810,9 +1860,11 @@ private fun EpisodesSection(
             }
 
             is EpisodeState.Loaded -> {
-                // D-228: If the match preview is still visible (within the min
-                // display window), show it ABOVE the episode list so the user
-                // has time to verify the link before it disappears.
+                // D-228: The episode list is now rendered as lazy `items(...)` in
+                // the OUTER LazyColumn (not here). This file only renders the match
+                // preview card (if visible) above the episode list. The episode rows
+                // + unlink button are emitted directly by the outer LazyColumn for
+                // proper Compose virtualization (~60x node reduction for 1000 eps).
                 val matched = reverseAutoLinkState as? ReverseAutoLinkState.Matched
                 if (matchPreviewVisible && matched != null) {
                     MatchPreviewCard(
@@ -1821,50 +1873,6 @@ private fun EpisodesSection(
                         thumbnailUrl = matched.thumbnailUrl,
                         showLoadingHint = false,
                     )
-                }
-                // Episode list — each episode is a row with metadata.
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    episodeState.episodes.forEach { episode ->
-                        val epNum = episode.episode_number.toInt()
-                        val metadata = episodeMetadata[epNum]
-                        val stateKey = episodeDownloadStateKey(episode)
-                        val downloadState = stateKey?.let { downloadStates[it] }
-                            ?: EpisodeDownloadState.NotDownloaded
-                        // Phase WP: build the standardized episode key + look up watched state.
-                        val epKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
-                        val progress = epKey?.let { watchProgress[it] }
-                        val isWatched = progress?.isWatched ?: false
-                        EpisodeRow(
-                            episode = episode,
-                            metadata = metadata,
-                            onClick = { onEpisodeClick(episode) },
-                            downloadState = downloadState,
-                            onDownload = { onDownloadEpisode(episode) },
-                            onPause = { onPauseEpisodeDownload(episode) },
-                            onResume = { onResumeEpisodeDownload(episode) },
-                            onCancel = { onCancelEpisodeDownload(episode) },
-                            onRetry = { onRetryEpisodeDownload(episode) },
-                            onDelete = { onDeleteDownloadedEpisode(episode) },
-                            onPlayDownloaded = { onEpisodeClick(episode) },
-                            isWatched = isWatched,
-                            progressFraction = progress?.progressFraction ?: 0f,
-                            onToggleWatched = { epKey?.let { onToggleWatched(it) } },
-                        )
-                    }
-                    // Unlink button at the bottom.
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onUnlinkSource) {
-                        Text(
-                            "Unlink source",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
-                    }
                 }
             }
         }
