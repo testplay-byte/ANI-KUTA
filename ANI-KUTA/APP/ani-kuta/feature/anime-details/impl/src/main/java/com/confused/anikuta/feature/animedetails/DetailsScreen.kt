@@ -770,8 +770,13 @@ fun DetailsScreen(
                         // D-228: Lazy episode rows — virtualized! Only ~15 rows are
                         // composed at a time (the visible window), not all 1000.
                         // key = { it.url } gives each row a stable identity.
+                        //
+                        // D-229: The episode list is HIDDEN while the match-preview card
+                        // is visible (matchPreviewVisible == true). The user should only
+                        // see the preview card during that window — the episodes load in
+                        // the background but don't appear until the preview dismisses.
                         val loadedEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
-                        if (loadedEpisodes != null) {
+                        if (loadedEpisodes != null && !matchPreviewVisible) {
                             items(loadedEpisodes, key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
@@ -788,6 +793,7 @@ fun DetailsScreen(
                                         metadata = metadata,
                                         onClick = { onEpisodeClick(episode) },
                                         downloadState = downloadState,
+                                        fallbackCoverUrl = anime.coverUrl,
                                         onDownload = { currentEpisode = episode; resolverDownloadMode = true; viewModel.resolveEpisode(episode); showResolverSheet = true },
                                         onPause = { viewModel.pauseEpisodeDownload(episode) },
                                         onResume = { viewModel.resumeEpisodeDownload(episode) },
@@ -2000,6 +2006,9 @@ private fun EpisodeRow(
     metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,
     downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
+    // D-229: Fallback cover URL (the anime's cover image) — used when the
+    // episode has no per-episode thumbnail. Prevents bare circle placeholders.
+    fallbackCoverUrl: String? = null,
     onDownload: () -> Unit = {},
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
@@ -2021,7 +2030,10 @@ private fun EpisodeRow(
             ?: episode.name.ifBlank { "Episode ${formatEpisodeNumber(episode.episode_number)}" }
     }
     val description = metadata?.description ?: episode.summary
-    val thumbnailUrl = metadata?.thumbnailUrl
+    // D-229: Fall back to the anime's cover image when the episode has no
+    // per-episode thumbnail. AniZip/Kitsu only have thumbnails for some anime;
+    // without this fallback, episodes show a bare circle placeholder.
+    val thumbnailUrl = metadata?.thumbnailUrl ?: fallbackCoverUrl
     val epNumText = formatEpisodeNumber(episode.episode_number)
     val dateText = remember(episode, metadata) {
         val airDate = metadata?.airDate
