@@ -174,6 +174,13 @@ class DetailsViewModel(
     private val _contentId = MutableStateFlow("")
     val contentId: StateFlow<String> = _contentId.asStateFlow()
 
+    // D-228: Moved BEFORE downloadStates + watchProgress so they can reference it.
+    private var currentAnimeId: Int = 0
+    // D.FIX: Made internal (was private) so DetailsScreen can read it for offline playback.
+    internal var currentMainId: String? = null
+    // D-228: Reactive mainId — drives downloadStates + watchProgress.
+    private val _mainIdFlow = MutableStateFlow<String?>(null)
+
     /**
      * D.6: Per-episode download states — collected from [DownloadManager.episodeDownloadStates]
      * + mapped to the sealed [EpisodeDownloadState] (NOT the core typealias — that one
@@ -233,14 +240,10 @@ class DetailsViewModel(
                 emptyMap(),
             )
 
-    private var currentAnimeId: Int = 0
-    // D.FIX: Made internal (was private) so DetailsScreen can read it for offline playback.
-    internal var currentMainId: String? = null
-
     // ── Phase WP: Watch progress for the current anime's episodes ──
     // Observe watch_progress by mainId. Emits a map keyed by episode_key for O(1) lookup
     // in the episode list. Reactive — updates live when the player saves progress.
-    private val _mainIdFlow = MutableStateFlow<String?>(null)
+    // D-228: _mainIdFlow is now declared above (before downloadStates).
     val watchProgress: StateFlow<Map<String, com.confused.anikuta.core.watchprogress.WatchProgress>> =
         _mainIdFlow
             .flatMapLatest { mainId ->
