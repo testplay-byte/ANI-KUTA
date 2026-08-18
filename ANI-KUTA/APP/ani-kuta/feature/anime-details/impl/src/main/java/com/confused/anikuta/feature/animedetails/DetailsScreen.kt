@@ -53,6 +53,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -138,6 +139,18 @@ fun DetailsScreen(
     // D.FIX: Inject DownloadManager for offline playback (checking isEpisodeDownloaded
     // + getting the local content:// URI).
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+
+    // D-227: Reset ALL per-anime state when LEAVING the Details screen.
+    // Because the ViewModel is Activity-scoped (same instance reused across
+    // navigations), without this reset the old anime's Success state would
+    // flash briefly when opening a new anime (the "shadow" issue). This
+    // DisposableEffect fires onDispose when the detailsKey changes or the
+    // screen is popped — clearing _state to Loading so the next open starts clean.
+    DisposableEffect(detailsKey) {
+        onDispose {
+            viewModel.resetState()
+        }
+    }
 
     // Dispatch to the correct load method based on the key type.
     LaunchedEffect(detailsKey) {
@@ -1580,36 +1593,103 @@ private fun EpisodesSection(
                         }
                     }
                     is ReverseAutoLinkState.Matched -> {
-                        // Match found — brief preview before episodes load.
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 32.dp),
-                            contentAlignment = Alignment.Center,
+                        // D-227: Match-preview card — shows the cover image + matched
+                        // title + source badge, so the user can verify the link at a
+                        // glance before episodes load. Mirrors the SearchResultRow
+                        // visual from ManualSearchSheet (image-left + text-right).
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            // "Linked to" badge.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
                                 Icon(
                                     imageVector = Icons.Filled.CheckCircle,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(40.dp),
+                                    modifier = Modifier.size(18.dp),
                                 )
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
                                     text = "Linked to ${reverseAutoLinkState.sourceName}",
                                     fontFamily = RobotoFamily,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    textAlign = TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = "Loading episodes…",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            // Preview card: cover image (left) + matched title (right).
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    // Cover image (or placeholder if no thumbnail).
+                                    if (!reverseAutoLinkState.thumbnailUrl.isNullOrBlank()) {
+                                        coil3.compose.AsyncImage(
+                                            model = reverseAutoLinkState.thumbnailUrl,
+                                            contentDescription = reverseAutoLinkState.animeTitle,
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(width = 48.dp, height = 64.dp)
+                                                .clip(RoundedCornerShape(6.dp)),
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                    } else {
+                                        // Placeholder when no thumbnail — colored letter circle.
+                                        Box(
+                                            modifier = Modifier
+                                                .size(width = 48.dp, height = 64.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                text = reverseAutoLinkState.animeTitle.firstOrNull()?.uppercase() ?: "?",
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            )
+                                        }
+                                        Spacer(Modifier.width(10.dp))
+                                    }
+                                    // Matched title + loading hint.
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = reverseAutoLinkState.animeTitle,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                strokeWidth = 2.dp,
+                                                modifier = Modifier.size(12.dp),
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                            Text(
+                                                text = "Loading episodes…",
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1695,33 +1775,110 @@ private fun EpisodesSection(
             }
 
             is EpisodeState.Loading -> {
-                // D-226: When the reverse auto-link found a match and episodes
-                // are now loading, show the match preview ("Linked to {source}")
-                // alongside the loading spinner — so the user sees the link
-                // confirmation while the episode list downloads.
-                val matchedSource = (reverseAutoLinkState as? ReverseAutoLinkState.Matched)?.sourceName
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (matchedSource != null) {
+                // D-227: When the reverse auto-link found a match and episodes
+                // are now loading, show the full match-preview card (cover image +
+                // title + source badge + spinner) so the user sees what was linked
+                // while the episode list downloads.
+                val matched = reverseAutoLinkState as? ReverseAutoLinkState.Matched
+                if (matched != null) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        // "Linked to" badge.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
                             Icon(
                                 imageVector = Icons.Filled.CheckCircle,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp),
+                                modifier = Modifier.size(18.dp),
                             )
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
-                                text = "Linked to $matchedSource",
+                                text = "Linked to ${matched.sourceName}",
                                 fontFamily = RobotoFamily,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = MaterialTheme.colorScheme.primary,
                             )
-                            Spacer(Modifier.height(8.dp))
                         }
+                        Spacer(Modifier.height(10.dp))
+                        // Preview card: cover image (left) + matched title (right).
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (!matched.thumbnailUrl.isNullOrBlank()) {
+                                    coil3.compose.AsyncImage(
+                                        model = matched.thumbnailUrl,
+                                        contentDescription = matched.animeTitle,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(width = 48.dp, height = 64.dp)
+                                            .clip(RoundedCornerShape(6.dp)),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 48.dp, height = 64.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = matched.animeTitle.firstOrNull()?.uppercase() ?: "?",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 20.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = matched.animeTitle,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(12.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = "Loading episodes…",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // No reverse match — standard loading spinner.
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         CircularProgressIndicator(
                             color = MaterialTheme.colorScheme.primary,
                             strokeWidth = 2.dp,

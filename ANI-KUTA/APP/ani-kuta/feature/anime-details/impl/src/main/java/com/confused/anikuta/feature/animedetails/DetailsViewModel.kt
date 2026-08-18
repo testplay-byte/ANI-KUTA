@@ -446,6 +446,52 @@ class DetailsViewModel(
         Logger.d(TAG) { "remergeBases: priority=$priority, merged ${merged.displayName}" }
     }
 
+    // ── D-227: Reset ALL state (called when leaving the Details screen) ──
+
+    /**
+     * D-227: Resets ALL per-anime state to their initial values.
+     *
+     * Called from a `DisposableEffect(detailsKey) { onDispose { ... } }` in
+     * DetailsScreen — when the user navigates AWAY from the details page, this
+     * fires + clears the entire state. The next time the user opens a details
+     * page (same or different anime), the screen starts from a clean `Loading`
+     * state — no "shadow" of the previous anime's data is visible.
+     *
+     * This is the ROBUST fix for the stale-state issue: because the ViewModel
+     * is Activity-scoped (not NavBackStackEntry-scoped), the same instance is
+     * reused across navigations. Without this reset, `_state` still holds the
+     * old `Success` when the new anime's `loadFrom*` fires, causing a one-frame
+     * flash of the old data before the load resets it to `Loading`.
+     *
+     * Also increments [loadGeneration] so any in-flight async coroutines from
+     * the previous anime are discarded (their results won't write to state).
+     */
+    fun resetState() {
+        loadGeneration++
+        _state.value = DetailsState.Loading
+        _autoLinkState.value = AutoLinkState.Idle
+        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
+        _showManualLinkSheet.value = false
+        _anilistSearchState.value = AniListSearchState.Idle
+        _linkedSource.value = null
+        _episodeState.value = EpisodeState.Idle
+        _episodeMetadata.value = emptyMap()
+        _resolverState.value = ResolverState.Idle
+        _resolvedVideosKey.value = ""
+        _manualSearchState.value = ManualSearchState.Idle
+        _isInLibrary.value = false
+        _contentId.value = ""
+        _coverAccent.value = null
+        _showCategorySheet.value = false
+        _isRefreshing.value = false
+        _refreshState.value = RefreshState.Idle
+        currentMainId = null; _mainIdFlow.value = null
+        currentAnimeId = 0
+        extensionBase = null
+        anilistBase = null
+        Logger.d(TAG) { "resetState: all per-anime state cleared (loadGeneration=$loadGeneration)" }
+    }
+
     // ── Load from AniList (existing flow) ──
 
     fun loadFromAniList(animeId: Int) {
@@ -471,8 +517,12 @@ class DetailsViewModel(
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
-
-        // D-192 Phase 5: Synchronous source-link pre-read (fixes "no source linked" race — #21).
+        // D-227: Reset per-anime UI state that was NOT reset before (caused "shadow"
+        // of the previous anime's data — adaptive accent, category sheet, refresh).
+        _coverAccent.value = null
+        _showCategorySheet.value = false
+        _isRefreshing.value = false
+        _refreshState.value = RefreshState.Idle
         // Read the saved source link from PreferenceStore SYNCHRONOUSLY (SharedPreferences
         // is in-memory cached) so the UI shows the correct linked source immediately —
         // no async gap where "No Source" is shown despite being linked.
@@ -583,12 +633,20 @@ class DetailsViewModel(
                         Logger.i(TAG) { "D-225: Reverse auto-link — no source linked, searching extensions..." }
                         // D-225c: Show the popup immediately so the user sees "Searching…".
                         _reverseAutoLinkState.value = ReverseAutoLinkState.Searching
+                        // D-227: Capture gen so the reverse-auto-link result can be
+                        // discarded if the user navigated away during the search.
+                        val reverseGen = loadGeneration
                         viewModelScope.launch {
                             try {
                                 val result = reverseAutoLinkService.attemptReverseAutoLink(
                                     anilistTitle = anime.displayName,
                                     anilistYear = anime.seasonYear,
                                 )
+                                // D-227: Discard if the user navigated away.
+                                if (reverseGen != loadGeneration) {
+                                    Logger.d(TAG) { "D-225: Reverse auto-link result discarded (stale)" }
+                                    return@launch
+                                }
                                 when (result) {
                                     is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Matched -> {
                                         Logger.i(TAG) {
@@ -600,9 +658,11 @@ class DetailsViewModel(
                                         // set extensionBase, fetch episodes, cache forward link.
                                         linkSource(result.source, result.sAnime)
                                         // D-225c: popup confirms the match.
+                                        // D-227: include thumbnailUrl for the preview card.
                                         _reverseAutoLinkState.value = ReverseAutoLinkState.Matched(
                                             sourceName = result.source.name,
                                             animeTitle = result.sAnime.title,
+                                            thumbnailUrl = result.sAnime.thumbnail_url,
                                             score = result.score,
                                         )
                                     }
@@ -917,6 +977,12 @@ class DetailsViewModel(
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
+        // D-227: Reset per-anime UI state that was NOT reset before (caused "shadow"
+        // of the previous anime's data — adaptive accent, category sheet, refresh).
+        _coverAccent.value = null
+        _showCategorySheet.value = false
+        _isRefreshing.value = false
+        _refreshState.value = RefreshState.Idle
         viewModelScope.launch {
             try {
                 // D-210 FIX: Cache-first for instant open (mirrors loadFromAniList's
@@ -1299,7 +1365,15 @@ class DetailsViewModel(
         if (coverUrl.isNullOrBlank() || coverColorExtractor == null) return
 
         viewModelScope.launch {
+            // D-227: Capture the generation so we can discard the result if the
+            // user navigated to a different anime while extraction was running.
+            val gen = loadGeneration
             val argb = coverColorExtractor.extract(coverUrl)
+            // D-227: If the user navigated away (loadGeneration changed), discard.
+            if (gen != loadGeneration) {
+                Logger.d(TAG) { "Cover accent extraction discarded (stale — gen changed)" }
+                return@launch
+            }
             if (argb != null) {
                 contentRepository.updateCoverAccent(mainId, argb.toLong())
                 _coverAccent.value = argb
@@ -2504,6 +2578,7 @@ sealed interface ReverseAutoLinkState {
     data class Matched(
         val sourceName: String,
         val animeTitle: String,
+        val thumbnailUrl: String?,
         val score: Float,
     ) : ReverseAutoLinkState
     data class NoMatch(
