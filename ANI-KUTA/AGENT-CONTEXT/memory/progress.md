@@ -3,9 +3,26 @@
 > Live status of the ANI-KUTA project. **Update after every work session.**
 
 ## Current Phase
-**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v6 + D-193 v2 UPDATES + NOTIFICATIONS — ALL MERGED TO `main` (only `main` branch remains).**
+**ALL MAJOR PHASES COMPLETE + DB OPTIMIZATION + RATINGS UI + CONTINUE WATCHING UI + PROFILE UI v6 + D-193 v2 UPDATES + NOTIFICATIONS + AUTO-LINK/MATCH-PREVIEW/WATCH-PAGE/SCHEDULE OVERHAULS (D-225 → D-238) — ALL MERGED TO `main` (only `main` branch remains).**
 
-Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor), and D-193 v2 (Updates + Notifications overhaul) are ALL DONE and on `main`.
+Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress + watched status), Phase HI (history page), Phase UP (updates + WorkManager smart engine), Phase SC (schedule list + calendar view), Phase TR (ratings store), Phase NOTIF (notification system), Phase CW (continue watching logic), the Debug Bubble, the Profile page (genre radar + watch flow + time DNA + heatmap + timeline + crop editor), D-193 v2 (Updates + Notifications overhaul), and D-225 → D-238 (reverse auto-link + reverse-auto-link settings UI + match-preview card + LazyColumn virtualization crash fix + episode-list filter/sort/grouping + next-episode countdown + schedule INNER JOIN + calendar color-coded dots + unlink blacklist + cache clear on source change + details-page background) are ALL DONE and on `main`.
+
+**This session — Auto-link & Match-preview & Watch-page & Schedule overhauls (D-225 → D-238, all on `main`, through commit `94a7c0a`):**
+- **D-225**: Reverse auto-link (AniList → extensions) + D-225b settings UI + extension reorder.
+- **D-226**: Auto-link settings page redesign (reverse on top + collapsibles + drag-priority).
+- **D-227**: Match-preview card with cover image + stale-state fix (`DisposableEffect` + `resetState`).
+- **D-228**: Match preview duration + `LazyColumn` flatten (≈60× node reduction) + `downloadStates` O(n) → O(1) fix.
+- **D-229**: Hide episodes during match preview + cover-image fallback for thumbnails.
+- **D-230**: Watch-page crash fix (`LazyColumn` virtualization) + episode-list preferences + settings sheet + search.
+- **D-231**: Wire up filters/sort/grouping + auto-scroll + dynamic theming.
+- **D-232**: Fix grouping display (range-based), filter reactivity, switcher placement, scroll.
+- **D-233**: Fix grouping (1-100 ranges), tabbed settings sheet (Sort/Filter/Display), empty-state.
+- **D-234**: Sort tab redesign (list + direction toggle) + next-episode card with countdown.
+- **D-235**: Fix next-episode not showing (added `nextAiringEpisode` to `fetchAnimeDetails` query).
+- **D-236**: Fix schedule (`INNER JOIN library_item` + `episode_schedule` upsert) + details-page background (tint, source, animation).
+- **D-237**: Crash fix (duplicate key), next-episode on all paths, dedicated settings page, "coming soon" empty-state.
+- **D-238**: Unlink blacklist (per-anime — unlinked sources never auto-relink), episode-cache clear on source change, calendar dots color-coded with each anime's accent color (gradient bar for >5), UI improvements (removed "Linked to AniList" badge, title aligned to bottom, tap-to-copy name).
+- All D-225 → D-238 commits merged to `main`; CI green on `94a7c0a`.
 
 **This session — Project Review Dashboard REBUILD (fresh review, replaces prior /project-review/) (commits 6d79c075 → 2a812470, on `main`):**
 - User instructed: read CORE_RULES + all AGENT-CONTEXT + codebase FIRST (before anything else), then DELETE the existing `/project-review/` dashboard page completely + build a FRESH dedicated section showing all key findings in a simplified, easy-to-scan format. Deploy via GitHub Actions. Nothing else in the dashboard should change. Max 5 sub-agents at a time. Do NOT read REFERENCES/.

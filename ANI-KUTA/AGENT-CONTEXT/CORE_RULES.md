@@ -497,3 +497,60 @@ Previous sessions deferred schema improvements (CHECK constraints, UPSERT migrat
 
 ### User clarification (this session)
 The user reaffirmed: **we are currently working on the project in debug mode. We are NOT going to worry about database migration.** When the schema needs to change, we create new schema files and use them; the old database is completely deleted and recreated. The `DatabaseDriverFactory.onOpen` idempotent-migration pattern (hasColumn + DROP/CREATE INDEX IF [NOT] EXISTS) is acceptable as a lightweight runtime guard, but it is NOT a migration system — it's a "make sure indexes exist" convenience. Do not invest time in `.sqm` migration files or `user_version` tracking until the user explicitly signals production approach. The testing workflow is: delete the app → reinstall → fresh DB → test. If a dev install has stale data, the user clears app data. That's the debug workflow.
+
+---
+
+## 31. Post-Completion Response Format
+
+> The end of a task is part of the task. A vague "done" summary forces the user to discover regressions on their own device and leaves merge/dashboard hygiene to chance. This section locks in the **three closing obligations**: a structured test checklist, a build-verify gate before branch deletion, and a dashboard stale-section sweep.
+
+### Rules
+
+1. **Always end a task with a test checklist (reinforces §3).** After completing a task — implementation OR fix — append a **test checklist** the user can follow on their device. Do not skip it because "the build is green" or "it's a small change." Small changes break things; the checklist is how we catch them before the user does.
+
+2. **Format the checklist as a real checklist, grouped by category.** Use Markdown checkboxes (`- [ ]`) grouped under `**Category**` sub-headings. Every item states (a) **what to test** and (b) **what the expected result is**. The user replies with ✅/❌/⚠️ per item; ❌/⚠️ items become the next fix loop.
+
+   Example shape:
+   ```markdown
+   ### Test Checklist — D-NNN
+
+   **Auto-link**
+   - [ ] Open an anime with no linked source → reverse auto-link fires → a source is linked automatically.
+   - [ ] Manually unlink a source → reopen the anime → it is NOT re-linked (blacklist holds).
+
+   **Episode list**
+   - [ ] Open Details for a 12-episode anime → episodes render in order → EP 1..12 visible.
+   - [ ] Switch sort to descending → list reorders to 12..1 with no duplicates.
+
+   **Schedule / calendar**
+   - [ ] Open Updates → calendar tab → each airing day shows colored dots matching the anime's cover accent.
+   - [ ] Tap a day with >5 episodes → gradient bar renders (not dots+plus).
+   ```
+
+3. **Categories must map to what changed, not generic boilerplate.** If the task touched the player, the checklist has a **Playback** group. If it touched downloads, a **Downloads** group. Don't paste a generic "test everything" list — only include items the user can actually verify against this task's diff. When in doubt, scope UP (add a smoke test for adjacent flows that share the touched code).
+
+4. **State expected results concretely.** "Works" is not an expected result. "EP 1 plays from 0:00, EP 2 resumes at 3:42 from prior watch progress" is. The user should be able to mark ✅ or ❌ without asking "what should I see?"
+
+5. **Build-verify gate before branch deletion (merge hygiene).** When merging a feature branch into `main` (or any target branch):
+   - **First** merge the branch.
+   - **Then** verify the build passes ON THE TARGET BRANCH after merge (CI run on the merge commit, or a local `./gradlew :app:assembleDebug` + `cd DASHBOARD/webpage && bun run build` if CI isn't available yet).
+   - **Only then** delete the source branch (local + remote).
+   - If the target-branch build fails, **do NOT delete the source branch** — fix forward on a new branch off `main` (or reopen the source branch) and re-verify. Deleting a branch whose merge broke `main` leaves no easy rollback path.
+
+6. **Dashboard stale-section sweep (reinforces §25 + §26).** When updating the dashboard after a task:
+   - Remove **planning sections** that have been **implemented**. A `PLAN.md` whose contents now live in `main` should not still be advertised on the dashboard as "planned" or "in progress."
+   - Remove or rename nav items (`NAV_ITEMS` in `lib/data.ts`) that reference completed/old phases. A "Phase X — In Progress" sidebar entry after Phase X is merged is doc-drift (see §26 rule 5).
+   - Update `decisions.ts` + `lib/data.ts` to reflect the new state in the **same commit** as the dashboard content change.
+   - **Build the dashboard** (`cd DASHBOARD/webpage && bun run build`) and confirm it passes before pushing.
+   - If a planning section is partially implemented, narrow its scope on the dashboard (don't leave it claiming the whole plan is pending).
+
+7. **Closing summary order (the canonical end-of-task shape).** Every task response ends with, in order:
+   1. One-line outcome (what's now true).
+   2. What changed (file paths, not contents — per §3).
+   3. The test checklist (rules 1–4 above).
+   4. Merge/build status (rule 5) if a branch was involved.
+   5. Dashboard delta (rule 6) if the dashboard was touched.
+   6. Next step (one line — what the user should do or what's queued next).
+
+### Why this rule exists
+Prior sessions shipped "done" summaries with no checklist, deleted branches before verifying the merge build on `main` (leaving breakages stranded with no easy rollback), and left planning-section dashboard pages advertising phases that were already merged — all caught by the user, all avoidable. This rule makes the closing obligations explicit so they're not skipped under time pressure.
