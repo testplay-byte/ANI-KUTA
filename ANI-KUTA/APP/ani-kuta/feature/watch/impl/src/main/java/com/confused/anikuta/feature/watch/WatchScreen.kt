@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1496,58 +1497,59 @@ private fun MinimizedMode(
             }
 
             if (episodeList.isNotEmpty()) {
+                // D-230: Episodes header — separate item so the episode rows
+                // below can be lazy (virtualized). Was a single item{} with
+                // forEach{EpisodeListRow} — eager rendering of ALL episodes
+                // caused the crash on 1000+ episode series.
                 item {
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
+                            Text(
+                                text = "Episodes",
+                                fontFamily = RobotoFamily,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onBackground,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = RoundedCornerShape(50),
                             ) {
                                 Text(
-                                    text = "Episodes",
+                                    text = "${episodeList.size}",
                                     fontFamily = RobotoFamily,
-                                    fontSize = 18.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(50),
-                                ) {
-                                    Text(
-                                        text = "${episodeList.size}",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            episodeList.forEach { ep ->
-                                val isCurrent = ep.url == currentEpisodeUrl
-                                val epNum = ep.episodeNumber.toInt()
-                                val meta = episodeMetadata[epNum]
-                                EpisodeListRow(
-                                    episode = ep,
-                                    metadata = meta,
-                                    isCurrent = isCurrent,
-                                    onClick = {
-                                        if (!isCurrent) {
-                                            onEpisodeSwitch(ep)
-                                        }
-                                    },
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                 )
                             }
                         }
                     }
+                }
+                // D-230: Lazy episode rows — virtualized! Only ~10-15 rows
+                // composed at a time (the visible window), not all 1000.
+                items(episodeList, key = { it.url }) { ep ->
+                    val isCurrent = ep.url == currentEpisodeUrl
+                    val epNum = ep.episodeNumber.toInt()
+                    val meta = episodeMetadata[epNum]
+                    EpisodeListRow(
+                        episode = ep,
+                        metadata = meta,
+                        isCurrent = isCurrent,
+                        onClick = {
+                            if (!isCurrent) {
+                                onEpisodeSwitch(ep)
+                            }
+                        },
+                    )
                 }
             }
             } // end LazyColumn
