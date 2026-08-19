@@ -67,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -140,6 +141,8 @@ fun DetailsScreen(
     // D.FIX: Inject DownloadManager for offline playback (checking isEpisodeDownloaded
     // + getting the local content:// URI).
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+    // D-231: Episode list preferences (filters, sort, grouping).
+    val episodeListPrefs = koinInject<com.confused.anikuta.core.preferences.EpisodeListPreferences>()
 
     // D-227: Reset ALL per-anime state when LEAVING the Details screen.
     // Because the ViewModel is Activity-scoped (same instance reused across
@@ -221,6 +224,27 @@ fun DetailsScreen(
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
 
+    // D-231: Collect episode list preferences reactively so the episode list
+    // re-filters/re-sorts live when the user changes settings in the bottom sheet.
+    val downloadedFilter by episodeListPrefs.downloadedFilter.changes.collectAsState(
+        initial = episodeListPrefs.downloadedFilter.get(),
+    )
+    val watchedFilter by episodeListPrefs.watchedFilter.changes.collectAsState(
+        initial = episodeListPrefs.watchedFilter.get(),
+    )
+    val sortMode by episodeListPrefs.sortMode.changes.collectAsState(
+        initial = episodeListPrefs.sortMode.get(),
+    )
+    val sortDescending by episodeListPrefs.sortDescending.changes.collectAsState(
+        initial = episodeListPrefs.sortDescending.get(),
+    )
+    val audioFilter by episodeListPrefs.audioFilter.changes.collectAsState(
+        initial = episodeListPrefs.audioFilter.get(),
+    )
+    val groupingSize by episodeListPrefs.groupingSize.changes.collectAsState(
+        initial = episodeListPrefs.groupingSize.get(),
+    )
+
     // D-146: Refresh visual feedback
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
@@ -239,6 +263,31 @@ fun DetailsScreen(
     var showEpisodeSettingsSheet by remember { mutableStateOf(false) }
     var showEpisodeSearch by remember { mutableStateOf(false) }
     var episodeSearchQuery by remember { mutableStateOf("") }
+    // D-231: Current group index (for the episode group switcher).
+    var currentGroupIndex by remember { mutableIntStateOf(0) }
+
+    // D-231: Hoisted lazyListState so we can auto-scroll to the episodes section
+    // when the settings sheet opens (so the user sees live changes).
+    val detailsLazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // D-231: Track the scroll position before the sheet opens so we can restore it on dismiss.
+    var savedScrollPosition by remember { mutableIntStateOf(0) }
+    var savedScrollOffset by remember { mutableIntStateOf(0) }
+
+    // D-231: Auto-scroll to the episodes section when the settings sheet opens,
+    // so the user sees live changes. Restore the original position on dismiss.
+    LaunchedEffect(showEpisodeSettingsSheet) {
+        if (showEpisodeSettingsSheet) {
+            // Save current position.
+            savedScrollPosition = detailsLazyListState.firstVisibleItemIndex
+            savedScrollOffset = detailsLazyListState.firstVisibleItemScrollOffset
+            // Scroll to the episodes section (item index 3: banner, genres, synopsis, episodes).
+            // The episodes item is at index 3 in the outer LazyColumn.
+            detailsLazyListState.animateScrollToItem(3, scrollOffset = 0)
+        } else if (savedScrollPosition > 0 || savedScrollOffset > 0) {
+            // Restore the original position.
+            detailsLazyListState.scrollToItem(savedScrollPosition, savedScrollOffset)
+        }
+    }
 
     // Phase 2: Auto-select video — when the user clicks an episode, set pendingAutoPlay
     // instead of showResolverSheet. The LaunchedEffect below observes resolverState +
@@ -530,7 +579,7 @@ fun DetailsScreen(
 
             is DetailsState.Success -> {
                 val anime = s.anime
-                val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                val lazyListState = detailsLazyListState // D-231: use hoisted state.
 
                 // ── 3-stage pull-to-refresh state ──
                 // A custom NestedScrollConnection cooperates with the LazyColumn's
@@ -783,9 +832,46 @@ fun DetailsScreen(
                         // is visible (matchPreviewVisible == true). The user should only
                         // see the preview card during that window — the episodes load in
                         // the background but don't appear until the preview dismisses.
-                        val loadedEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
-                        if (loadedEpisodes != null && !matchPreviewVisible) {
-                            items(loadedEpisodes, key = { it.url }) { episode ->
+                        //
+                        // D-231: Apply the user's filter + sort preferences to the episode
+                        // list. The preferences are collected reactively (above) so the list
+                        // re-filters/re-sorts live when the user changes settings.
+                        val rawEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                        val processedEpisodes = if (rawEpisodes != null) {
+                            applyEpisodeListPreferences(
+                                episodes = rawEpisodes,
+                                metadata = episodeMetadata,
+                                downloadStates = downloadStates,
+                                watchProgress = watchProgress,
+                                mainId = viewModel.currentMainId,
+                                prefs = episodeListPrefs,
+                            )
+                        } else null
+
+                        // D-231: Grouping — split into chunks if groupingSize > 0 + the
+                        // episode count exceeds the group size.
+                        val episodeGroups = if (processedEpisodes != null) {
+                            groupEpisodes(processedEpisodes, groupingSize)
+                        } else null
+                        val currentGroup = if (episodeGroups != null && episodeGroups.size > 1) {
+                            episodeGroups.getOrElse(currentGroupIndex) { episodeGroups.first() }
+                        } else null
+                        val episodesToShow = currentGroup?.episodes ?: processedEpisodes
+
+                        if (episodesToShow != null && !matchPreviewVisible) {
+                            // D-231: Group switcher — shows between "Episodes" text and source pill
+                            // when grouping is active (more than 1 group).
+                            if (episodeGroups != null && episodeGroups.size > 1 && currentGroup != null) {
+                                item {
+                                    EpisodeGroupSwitcher(
+                                        currentGroup = currentGroup,
+                                        totalGroups = episodeGroups.size,
+                                        onPrev = { if (currentGroupIndex > 0) currentGroupIndex-- },
+                                        onNext = { if (currentGroupIndex < episodeGroups.size - 1) currentGroupIndex++ },
+                                    )
+                                }
+                            }
+                            items(episodesToShow, key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
                                 val stateKey = viewModel.episodeDownloadStateKey(episode)
@@ -1051,8 +1137,23 @@ fun DetailsScreen(
     }
 
     // D-230: Episode list settings bottom sheet (tap "Episodes" text).
+    // D-231: Wrapped in the adaptive accent color scheme so the sheet inherits
+    // the per-anime dynamic theming (matches the rest of the details page).
     if (showEpisodeSettingsSheet) {
-        EpisodeListSettingsSheet(onDismiss = { showEpisodeSettingsSheet = false })
+        val accentColorScheme = coverAccent?.let { argb ->
+            val accent = androidx.compose.ui.graphics.Color(argb)
+            val accentColors = com.confused.anikuta.core.designsystem.theme.AccentColors.from(accent)
+            val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+            MaterialTheme.colorScheme.copy(
+                primary = if (isDark) accentColors.darkPrimary else accentColors.lightPrimary,
+                onPrimary = if (isDark) accentColors.darkOnPrimary else accentColors.lightOnPrimary,
+                primaryContainer = if (isDark) accentColors.darkPrimaryContainer else accentColors.lightPrimaryContainer,
+                onPrimaryContainer = if (isDark) accentColors.darkOnPrimaryContainer else accentColors.lightOnPrimaryContainer,
+            )
+        } ?: MaterialTheme.colorScheme
+        MaterialTheme(colorScheme = accentColorScheme) {
+            EpisodeListSettingsSheet(onDismiss = { showEpisodeSettingsSheet = false })
+        }
     }
 
     // D-230: Episode search field (swipe-right on "Episodes" text).
@@ -1597,13 +1698,26 @@ private fun EpisodesSection(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    // D-230: swipe-right → open episode search.
+                    // D-231: swipe-right → open episode search (with visual feedback + haptic).
                     .pointerInput(Unit) {
+                        var totalDrag = 0f
+                        var searchTriggered = false
                         detectHorizontalDragGestures(
-                            onDragEnd = { },
+                            onDragStart = {
+                                totalDrag = 0f
+                                searchTriggered = false
+                            },
+                            onDragEnd = {
+                                totalDrag = 0f
+                            },
                             onHorizontalDrag = { change, dragAmount ->
                                 change.consume()
-                                if (dragAmount > 40f) onOpenEpisodeSearch()
+                                totalDrag += dragAmount
+                                // Trigger search when the user swipes right past 80px.
+                                if (totalDrag > 80f && !searchTriggered) {
+                                    searchTriggered = true
+                                    onOpenEpisodeSearch()
+                                }
                             },
                         )
                     }
@@ -2051,6 +2165,75 @@ private fun MatchPreviewCard(
 
 /** D-228: Minimum time the match-preview card stays visible (ms). */
 private const val MATCH_PREVIEW_MIN_MS = 4000L
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-231: EpisodeGroupSwitcher — shows between "Episodes" text and source pill
+//  when grouping is active. Lets the user switch between groups of episodes.
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun EpisodeGroupSwitcher(
+    currentGroup: EpisodeGroup,
+    totalGroups: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(50),
+        modifier = modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+        ) {
+            // Previous button.
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = currentGroup.index > 0, onClick = onPrev),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Previous group",
+                    tint = if (currentGroup.index > 0)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f),
+                    modifier = Modifier.size(20.dp).rotate(90f),
+                )
+            }
+            // Group label.
+            Text(
+                text = "EP ${currentGroup.startEpisode}-${currentGroup.endEpisode}",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            // Next button.
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = currentGroup.index < totalGroups - 1, onClick = onNext),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Next group",
+                    tint = if (currentGroup.index < totalGroups - 1)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f),
+                    modifier = Modifier.size(20.dp).rotate(-90f),
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun EpisodeRow(

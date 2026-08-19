@@ -64,7 +64,7 @@ fun EpisodeListSettingsSheet(
     val prefs = koinInject<EpisodeListPreferences>()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
-    val maxSheetHeight = screenHeight * 0.70f
+    val maxSheetHeight = screenHeight * 0.50f
 
     // Collect all preferences reactively.
     val thumbnailFallback by prefs.thumbnailFallback.changes.collectAsState(
