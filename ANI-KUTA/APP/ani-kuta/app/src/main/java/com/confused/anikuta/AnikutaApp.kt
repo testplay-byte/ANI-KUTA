@@ -210,6 +210,9 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             // D.4: Coil ImageLoader with 500MB disk cache (persistent)
             single { ImageLoaderFactory.create(get(), get()) }
 
+            // D-223: Cover color extractor (Palette API) for adaptive theming.
+            single { com.confused.anikuta.core.designsystem.color.CoverColorExtractor(get(), get()) }
+
             // Database
             // DB-9: wrapDebugSqlDriver wraps the driver with DebugSqlDriverWrapper
             // in debug builds (tracks DB writes for the DB Activity view); no-op
@@ -248,6 +251,8 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { AppPreferences(get()) }
             single { AutoLinkPreferences(get()) }
             single { PlayerPreferences(get()) }
+            // D-230: Episode list customization (filters, sort, grouping, thumbnail fallback).
+            single { com.confused.anikuta.core.preferences.EpisodeListPreferences(get()) }
             single { ThemePreferences(get()) }
             single { com.confused.anikuta.core.preferences.NotificationPreferences(get()) }
             // D-192: SettingsRepository for backup/restore (mirrors PreferenceStore to app_settings table)

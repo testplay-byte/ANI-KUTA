@@ -30,22 +30,29 @@ INSERT OR REPLACE INTO episode_schedule(
 );
 
 -- Get upcoming schedule entries (scheduled_at >= now), ordered ascending.
+-- D-236: INNER JOIN library_item so only library anime appear in the schedule
+-- (prevents non-library anime that were merely opened from leaking in).
 getUpcomingSchedule:
-SELECT * FROM episode_schedule
-WHERE scheduled_at >= :from AND scheduled_at <= :to
-ORDER BY scheduled_at ASC;
+SELECT es.* FROM episode_schedule es
+INNER JOIN library_item li ON es.main_id = li.main_id
+WHERE es.scheduled_at >= :from AND es.scheduled_at <= :to
+ORDER BY es.scheduled_at ASC;
 
 -- D-193 Phase 6: Get today's already-aired entries (for grayed-out display at top).
+-- D-236: INNER JOIN library_item (same fix as getUpcomingSchedule).
 getTodayAiredSchedule:
-SELECT * FROM episode_schedule
-WHERE scheduled_at >= :dayStart AND scheduled_at < :now
-ORDER BY scheduled_at DESC;
+SELECT es.* FROM episode_schedule es
+INNER JOIN library_item li ON es.main_id = li.main_id
+WHERE es.scheduled_at >= :dayStart AND es.scheduled_at < :now
+ORDER BY es.scheduled_at DESC;
 
 -- Get schedule entries for a specific day (for the calendar day-detail sheet).
+-- D-236: INNER JOIN library_item (same fix as getUpcomingSchedule).
 getScheduleForDay:
-SELECT * FROM episode_schedule
-WHERE scheduled_at >= :dayStart AND scheduled_at < :dayEnd
-ORDER BY scheduled_at ASC;
+SELECT es.* FROM episode_schedule es
+INNER JOIN library_item li ON es.main_id = li.main_id
+WHERE es.scheduled_at >= :dayStart AND es.scheduled_at < :dayEnd
+ORDER BY es.scheduled_at ASC;
 
 -- Get schedule entries for a specific anime.
 getScheduleByMainId:

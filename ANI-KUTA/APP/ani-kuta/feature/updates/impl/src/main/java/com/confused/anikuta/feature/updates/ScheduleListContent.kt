@@ -262,7 +262,10 @@ fun ScheduleListContent(
                                             modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 4.dp),
                                         )
                                     }
-                                    items(group.entries, key = { "${it.mainId}_${it.episodeNumber}" }) { entry ->
+                                    // D-237: Use a composite key with the scheduledAt timestamp
+                                    // to prevent duplicate-key crashes when two schedule entries
+                                    // have the same mainId + episodeNumber.
+                                    items(group.entries, key = { "${it.mainId}_${it.episodeNumber}_${it.scheduledAt}" }) { entry ->
                                         ScheduleRow(entry = entry, now = now, isAired = group.isAired, onClick = { onNavigateToDetails(entry.mainId) })
                                     }
                                 }

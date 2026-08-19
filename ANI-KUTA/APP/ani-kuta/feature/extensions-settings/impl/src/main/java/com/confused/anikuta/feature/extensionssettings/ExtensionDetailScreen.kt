@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -55,6 +56,7 @@ import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import org.koin.compose.koinInject
 
 /**
@@ -73,6 +75,10 @@ fun ExtensionDetailScreen(
     pkgName: String,
     onBack: () -> Unit,
     onOpenSourcePreferences: (Long) -> Unit,
+    // D-209: callback to open this extension's source URL in a WebView (for
+    // manual Cloudflare solving / browsing). MainActivity launches the
+    // CloudflareWebViewActivity with the source's baseUrl.
+    onOpenInWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
     extensionManager: ExtensionManager = koinInject(),
 ) {
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
@@ -155,7 +161,10 @@ fun ExtensionDetailScreen(
                         }
                     }
 
-                    // ── Actions: Uninstall + App Info ──
+                    // ── Actions Row 1: Uninstall + App Info ──
+                    // D-210 FIX: split the old 3-button Row (which caused text line-breaking)
+                    // into two rows. Row 1 = Uninstall + App Info. Row 2 = WebView (+ Settings
+                    // if the single source is configurable). This prevents text wrapping.
                     item {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -184,9 +193,46 @@ fun ExtensionDetailScreen(
                         }
                     }
 
+                    // ── Actions Row 2: Settings (left) + WebView (right) ──
+                    // D-209 + D-210 + D-212: inverted positions (Settings left, WebView right)
+                    // + renamed to just "Settings" and "WebView" (no extra text).
+                    val firstHttpSource = ext?.sources?.firstNotNullOfOrNull {
+                        (it as? AnimeHttpSource)?.baseUrl?.let { url -> it to url }
+                    }
+                    if (firstHttpSource != null) {
+                        item {
+                            val (source, baseUrl) = firstHttpSource
+                            val singleConfigurableSource = ext.sources.size == 1 &&
+                                ext.sources.first() is ConfigurableAnimeSource
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                // D-212: Settings on the LEFT (was on the right).
+                                if (singleConfigurableSource) {
+                                    ActionButton(
+                                        text = "Settings",
+                                        icon = Icons.Filled.Settings,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { onOpenSourcePreferences(source.id) },
+                                    )
+                                }
+                                // D-212: WebView on the RIGHT (was on the left), renamed to "WebView".
+                                ActionButton(
+                                    text = "WebView",
+                                    icon = Icons.Filled.Public,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    modifier = if (singleConfigurableSource) Modifier.weight(1f) else Modifier.fillMaxWidth(),
+                                    onClick = { onOpenInWebView(baseUrl, source.name) },
+                                )
+                            }
+                        }
+                    }
+
                     // ── Sources list (only if multiple sources) ──
-                    // Phase 2b: if the extension has only 1 source, hide the sources section
-                    // and show a single Settings button at the bottom instead.
+                    // Phase 2b: if the extension has only 1 source, the Settings button
+                    // is already shown in Row 2 above (alongside the WebView button).
                     if (ext.sources.size > 1) {
                         item {
                             Text(
@@ -216,28 +262,6 @@ fun ExtensionDetailScreen(
                                 },
                                 onOpenSettings = { onOpenSourcePreferences(source.id) },
                             )
-                        }
-                    }
-
-                    // ── Settings button (for single-source extensions) ──
-                    // Phase 2b: if only 1 source, show a single Settings button at the bottom.
-                    if (ext.sources.size == 1) {
-                        val source = ext.sources.first()
-                        if (source is ConfigurableAnimeSource) {
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    ActionButton(
-                                        text = "Source Settings",
-                                        icon = Icons.Filled.Settings,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { onOpenSourcePreferences(source.id) },
-                                    )
-                                }
-                            }
                         }
                     }
                     }

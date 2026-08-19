@@ -247,6 +247,13 @@ class DatabaseDriverFactory(private val context: Context) {
                     if (!hasColumn(db, "genre", "id")) {
                         onCreate(db)
                     }
+
+                    // ── D-223: cover_accent_argb column on content_details ──
+                    // Added for adaptive color extraction (Palette API). Existing DBs
+                    // from v0.2.16 and earlier don't have this column — add it here.
+                    if (!hasColumn(db, "content_details", "cover_accent_argb")) {
+                        db.execSQL("ALTER TABLE content_details ADD COLUMN cover_accent_argb INTEGER")
+                    }
                 }
 
                 /**

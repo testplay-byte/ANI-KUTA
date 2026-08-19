@@ -45,11 +45,42 @@ class AppPreferences(private val store: PreferenceStore) {
         enabledExtensions = enabledExtensions - pkgName
     }
 
+    // ── D-236: Details page background customization ──
+
+    /**
+     * D-236: Whether to tint the details page background image with the
+     * accent color (30% alpha overlay). Default: true.
+     */
+    var detailsBannerTint: Boolean
+        get() = store.getBoolean(KEY_DETAILS_BANNER_TINT, true)
+        set(value) = store.putBoolean(KEY_DETAILS_BANNER_TINT, value)
+
+    /**
+     * D-236: Background image source for the details page.
+     * - `"COVER"` → use the cover image (default).
+     * - `"BANNER"` → use the banner image (falls back to cover if null).
+     */
+    var detailsBackgroundSource: String
+        get() = store.getString(KEY_DETAILS_BG_SOURCE, "COVER")
+        set(value) = store.putString(KEY_DETAILS_BG_SOURCE, value)
+
+    /**
+     * D-236: Whether to animate the details page background (slow pan).
+     * Default: false (can be motion-intensive on older devices).
+     */
+    var detailsBannerAnimation: Boolean
+        get() = store.getBoolean(KEY_DETAILS_BANNER_ANIMATION, false)
+        set(value) = store.putBoolean(KEY_DETAILS_BANNER_ANIMATION, value)
+
     companion object {
         private const val KEY_CONTENT_MODE = "content_mode"
         private const val KEY_TRACKING_RETENTION = "tracking_retention_days"
         private const val KEY_ANIMATIONS_ENABLED = "animations_enabled"
         private const val KEY_LOGGING_ENABLED = "logging_enabled"
         private const val KEY_ENABLED_EXTENSIONS = "enabled_extensions"
+        // D-236: Details page background customization.
+        private const val KEY_DETAILS_BANNER_TINT = "details_banner_tint"
+        private const val KEY_DETAILS_BG_SOURCE = "details_bg_source"
+        private const val KEY_DETAILS_BANNER_ANIMATION = "details_banner_animation"
     }
 }

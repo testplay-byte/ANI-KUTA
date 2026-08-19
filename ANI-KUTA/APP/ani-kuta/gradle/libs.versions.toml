@@ -9,6 +9,7 @@ coreKtx = "1.15.0"
 activityCompose = "1.10.1"
 lifecycle = "2.8.7"
 composeBom = "2025.03.00"
+palette = "1.0.0"  # D-223: adaptive color extraction from cover images
 
 # Navigation — hand-rolled (D-150): Nav3 (androidx.navigation3) REMOVED. No nav dependency.
 
@@ -57,6 +58,7 @@ trueTypeParser = "2.1.4"
 # AndroidX
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }  # D-223
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version = "1.0.1" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
@@ -89,6 +91,12 @@ sqldelight-coroutines-extensions = { group = "app.cash.sqldelight", name = "coro
 # Networking
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+# D-208: Brotli decompression — AniList (behind Cloudflare) returns Content-Encoding: br.
+# Without BrotliInterceptor, the IgnoreGzipInterceptor strips gzip → OkHttp can't
+# decompress Brotli → garbled binary propagated to the JSON parser → "Unexpected
+# JSON token" errors. AniMiru has both interceptors; we were missing Brotli.
+# Artifact name is "okhttp-brotli" (NOT "brotli") per the AniMiru reference.
+okhttp-brotli = { group = "com.squareup.okhttp3", name = "okhttp-brotli", version.ref = "okhttp" }
 
 # KotlinX
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }

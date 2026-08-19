@@ -51,6 +51,8 @@ fun MoreScreen(
     onOpenUpdates: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onOpenAbout: () -> Unit = {},
+    // D-220: Trackers page (AniList link/unlink + library populate).
+    onOpenTrackers: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -147,7 +149,7 @@ fun MoreScreen(
                             icon = Icons.Filled.Sync,
                             title = "Trackers",
                             subtitle = "AniList, MAL",
-                            onClick = { /* Phase 4c: navigate to Trackers */ },
+                            onClick = onOpenTrackers,
                         )
                     }
 

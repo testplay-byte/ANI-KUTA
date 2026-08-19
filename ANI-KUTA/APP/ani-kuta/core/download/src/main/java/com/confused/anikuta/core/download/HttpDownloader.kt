@@ -267,6 +267,36 @@ class HttpDownloader(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: HttpException) {
+            // D-207 FIX: on HTTP errors (esp. 403) for localhost proxy URLs, attempt
+            // re-resolve BEFORE re-throwing. The extension's proxy URL contains a
+            // token (e.g. `aga9ccf3c37f8e0e599c935e3ad122239c4h`) that may be:
+            //  - IP-bound (if the device's IP changed between resolve + download)
+            //  - session-bound (if the proxy churned the session)
+            //  - expired (if the user took time to pick a quality/server)
+            // Re-resolving gets a fresh token from the extension → retry.
+            val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
+            if (isLocalhost && resolveContextJson != null && reResolver != null
+                && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
+            ) {
+                DownloadLogger.w {
+                    "HttpException ${e.code} on localhost URL — attempting re-resolve " +
+                        "(attempt ${reResolveAttempts + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${e.message}"
+                }
+                val fresh = reResolver.reResolve(resolveContextJson)
+                if (fresh != null) {
+                    store.updateDownloadVideoUrl(taskId, fresh.url)
+                    FileOutputStream(tempFile).use { /* truncate to 0 */ }
+                    return downloadNormal(
+                        url = fresh.url,
+                        headers = fresh.headers,
+                        tempFile = tempFile,
+                        taskId = taskId,
+                        resolveContextJson = resolveContextJson,
+                        onProgress = onProgress,
+                        reResolveAttempts = reResolveAttempts + 1,
+                    )
+                }
+            }
             // HttpException IS a DownloadException — re-throw as-is so RetryPolicy
             // can match on its type + read e.code.
             throw e
@@ -321,13 +351,24 @@ class HttpDownloader(
     private fun buildRequest(url: String, headers: String?, resumeFrom: Long): Request {
         return Request.Builder().url(url).apply {
             if (resumeFrom > 0) header("Range", "bytes=$resumeFrom-")
-            if (!headers.isNullOrBlank()) {
-                headers.split('\n').forEach { line ->
-                    val sep = line.indexOf(':')
-                    if (sep > 0) {
-                        addHeader(line.substring(0, sep).trim(), line.substring(sep + 1).trim())
-                    }
-                }
+            // D-207 FIX: re-add Accept-Encoding: identity for localhost proxy URLs ONLY.
+            // The proxy (NanoHTTPD in the extension) forwards inbound headers upstream.
+            // Some CDNs reject "accept-encoding: gzip" on m3u8 playlist/segment requests
+            // → 403. Sending "identity" tells the CDN "don't compress" → plain-text m3u8.
+            // For DIRECT CDN URLs (non-localhost), we do NOT send identity (D-200 reasoning:
+            // real browsers never send it, and CDNs might flag it as a bot signal).
+            if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) {
+                header("Accept-Encoding", "identity")
+            }
+            // D-207 FIX: use the smart parser (DownloadHeaderParser) instead of
+            // split('\n'). The videoHeaders string is comma-separated (MPV format:
+            // "Key1: Value1,Key2: Value2") — split('\n') produced ONE element with
+            // ALL headers concatenated into the first header's value → only User-Agent
+            // was added (with Referer/Origin swallowed into its value) → CDN 403.
+            // The smart parser also handles commas INSIDE values (e.g. User-Agent's
+            // "(KHTML, like Gecko)" comma).
+            DownloadHeaderParser.parse(headers).forEach { (name, value) ->
+                addHeader(name, value)
             }
         }.build()
     }

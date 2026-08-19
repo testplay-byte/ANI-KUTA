@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public  // D-210: resolver Error "Open in WebView" icon
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -84,6 +85,10 @@ fun ResolverSheet(
     // download path stores the actual resolver server (not the extension
     // name) + the audio version the user picked.
     onPickVideo: (ResolvedVideo, String, String) -> Unit,
+    // D-210: called when the user taps "Open in WebView" on the Error state.
+    // Null = don't show the button. Opens the source's episode page in a WebView
+    // so the user can solve Cloudflare / browse the source manually.
+    onOpenInWebView: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -199,6 +204,25 @@ fun ResolverSheet(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
+                        // D-210: "Open in WebView" — if the resolve failure is due to
+                        // Cloudflare or a page-load issue, the user can open the source's
+                        // episode page in a WebView to solve it manually.
+                        if (onOpenInWebView != null) {
+                            Spacer(Modifier.height(12.dp))
+                            androidx.compose.material3.Button(onClick = onOpenInWebView) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = Icons.Filled.Public,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Open in WebView",
+                                    fontFamily = RobotoFamily,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                            }
+                        }
                     }
                 }
 

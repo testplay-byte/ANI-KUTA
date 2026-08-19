@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -29,11 +31,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ManageSearch
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SentimentDissatisfied
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,6 +88,9 @@ import org.koin.compose.viewmodel.koinViewModel
 fun SearchScreen(
     onNavigateToDetails: (Int) -> Unit,
     onNavigateToExtensionAnime: (Long, String, String, String?) -> Unit = { _, _, _, _ -> },
+    // D-209: callback to open the Cloudflare WebView solver (launched from the
+    // CloudflareBlocked error state). MainActivity launches CloudflareWebViewActivity.
+    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -110,6 +119,21 @@ fun SearchScreen(
         if (source == SearchSource.ANILIST && query.isBlank() && uiState is SearchUiState.Idle) {
             viewModel.onSourceChange(SearchSource.ANILIST)
         }
+    }
+
+    // D-210: Auto-refresh when the user returns from the Cloudflare WebView.
+    // The ViewModel sets pendingWebViewRefresh=true when the user taps "Open in
+    // WebView". On resume (ON_RESUME lifecycle event), the ViewModel checks the
+    // flag + auto-refreshes the search if true.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.onScreenResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Column(
@@ -199,6 +223,48 @@ fun SearchScreen(
                         title = "Source error",
                         description = msg,
                         icon = Icons.Filled.SentimentDissatisfied,
+                        actionLabel = "Retry",
+                        onAction = { viewModel.retryExtensionSearch() },
+                    )
+                }
+
+                is SearchUiState.CloudflareBlocked -> {
+                    // D-209+D-212: Cloudflare blocked the request + the headless solver failed.
+                    // D-212: shorter description + switched button colors (Refresh=primary,
+                    // Open in WebView=tertiary — the user asked to switch them).
+                    val cf = uiState as SearchUiState.CloudflareBlocked
+                    SearchPromptCard(
+                        title = "Cloudflare protection",
+                        description = "${cf.sourceName} is behind Cloudflare. Solve it in " +
+                            "the WebView, then come back.",
+                        icon = Icons.Filled.Security,
+                        actionLabel = "Refresh",
+                        onAction = { viewModel.retryExtensionSearch() },
+                        secondaryActionLabel = "Open in WebView",
+                        onSecondaryAction = {
+                            viewModel.onOpenWebView()
+                            onOpenCloudflareWebView(cf.url, cf.sourceName)
+                        },
+                    )
+                }
+
+                is SearchUiState.ExtensionEmpty -> {
+                    // D-209+D-210+D-212: extension returned 0 results — shorter description +
+                    // switched button colors (Refresh=primary, Open in WebView=tertiary).
+                    val ee = uiState as SearchUiState.ExtensionEmpty
+                    SearchPromptCard(
+                        title = "No results from ${ee.sourceName}",
+                        description = "0 results. If Cloudflare-protected, solve it in the WebView.",
+                        icon = Icons.Filled.SearchOff,
+                        actionLabel = "Refresh",
+                        onAction = { viewModel.retryExtensionSearch() },
+                        secondaryActionLabel = if (ee.sourceUrl != null) "Open in WebView" else null,
+                        onSecondaryAction = if (ee.sourceUrl != null) {
+                            {
+                                viewModel.onOpenWebView()
+                                onOpenCloudflareWebView(ee.sourceUrl, ee.sourceName)
+                            }
+                        } else null,
                     )
                 }
 
@@ -370,6 +436,12 @@ private fun SearchPromptCard(
     title: String,
     description: String,
     icon: ImageVector,
+    // D-209: optional primary action button (e.g. "Open in WebView" / "Retry").
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    // D-209: optional secondary action button (e.g. "Refresh" alongside "Open in WebView").
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
@@ -408,9 +480,45 @@ private fun SearchPromptCard(
             fontWeight = FontWeight.Normal,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            maxLines = 4,
+            // D-209: allow more lines for the longer Cloudflare description.
+            maxLines = 8,
             overflow = TextOverflow.Ellipsis,
         )
+        // D-209+D-211: action buttons row — both buttons are filled (not outlined),
+        // less rounded corners (4dp), proper coloring. Primary action = primary color,
+        // secondary action = tertiary color (filled, not outlined).
+        if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.height(16.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onAction,
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(actionLabel, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+                if (secondaryActionLabel != null && onSecondaryAction != null) {
+                    Button(
+                        onClick = onSecondaryAction,
+                        shape = RoundedCornerShape(4.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary,
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(secondaryActionLabel, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
     }
 }
 

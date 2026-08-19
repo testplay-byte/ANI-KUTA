@@ -345,13 +345,17 @@ class HlsDownloader(
     private fun buildRequest(url: String, headers: String?, range: String? = null): Request {
         return Request.Builder().url(url).apply {
             if (range != null) header("Range", range)
-            if (!headers.isNullOrBlank()) {
-                headers.split('\n').forEach { line ->
-                    val sep = line.indexOf(':')
-                    if (sep > 0) {
-                        addHeader(line.substring(0, sep).trim(), line.substring(sep + 1).trim())
-                    }
-                }
+            // D-207 FIX: re-add Accept-Encoding: identity for localhost proxy URLs ONLY.
+            // See HttpDownloader.buildRequest for the full rationale.
+            if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) {
+                header("Accept-Encoding", "identity")
+            }
+            // D-207 FIX: use the smart parser (DownloadHeaderParser) instead of
+            // split('\n'). See HttpDownloader.buildRequest for the full rationale —
+            // the split('\n') bug caused Referer/Origin to be swallowed into the
+            // User-Agent value → CDN 403 on HLS playlist fetches.
+            DownloadHeaderParser.parse(headers).forEach { (name, value) ->
+                addHeader(name, value)
             }
         }.build()
     }

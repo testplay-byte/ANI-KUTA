@@ -16,6 +16,9 @@ data class AniListAnime(
     val seasonYear: Int? = null,
     val status: String? = null,
     val idMal: Int? = null,
+    // D-235: Next airing episode — fetched on-demand when the user opens an anime.
+    // AniList returns airingAt as Unix SECONDS. Convert to millis (* 1000) when storing.
+    val nextAiringEpisode: AniListAiringEpisode? = null,
 ) {
     val displayName: String get() = title.english ?: title.romaji ?: "Unknown"
     val coverUrl: String? get() = coverImage.extraLarge ?: coverImage.large
@@ -31,6 +34,17 @@ data class AnimeTitle(
 data class CoverImage(
     val large: String? = null,
     val extraLarge: String? = null,
+)
+
+/**
+ * D-235: Next airing episode data from AniList.
+ * @param airingAt Unix SECONDS — convert to millis (* 1000) when storing.
+ * @param episode The episode number that will air next.
+ */
+@Serializable
+data class AniListAiringEpisode(
+    val airingAt: Long,
+    val episode: Int,
 )
 
 // Response wrappers (match AniList JSON structure)

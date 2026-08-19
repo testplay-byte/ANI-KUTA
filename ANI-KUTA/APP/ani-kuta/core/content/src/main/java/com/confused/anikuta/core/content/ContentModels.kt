@@ -78,6 +78,9 @@ data class ContentDetails(
     val extThumbnailUrl: String? = null,
     val extExtraJson: String? = null,
     val extUpdatedAt: Long? = null,
+    // ── D-223: Adaptive color ──
+    /** ARGB int (0xFFRRGGBB) extracted from the cover image via Palette API. Null = not yet extracted. */
+    val coverAccentArgb: Long? = null,
 ) {
     // ── Typed accessors for external IDs (per PLAN §4.8) ──
 

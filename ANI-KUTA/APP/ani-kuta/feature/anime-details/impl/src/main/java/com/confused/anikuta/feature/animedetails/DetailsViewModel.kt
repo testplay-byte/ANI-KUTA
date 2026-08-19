@@ -23,13 +23,17 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.network.CloudflareException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -77,6 +81,14 @@ class DetailsViewModel(
     private val genreRepository: com.confused.anikuta.core.content.genre.GenreRepository,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
     private val updateEngine: com.confused.anikuta.core.updates.UpdateEngine,
+    // D-234: UpdateStore for next-episode release schedule data.
+    private val updateStore: com.confused.anikuta.core.updates.UpdateStore,
+    // D-236: ScheduleStore for writing episode_schedule rows on-demand.
+    private val scheduleStore: com.confused.anikuta.core.schedule.ScheduleStore,
+    // D-223: Cover color extractor for adaptive theming.
+    private val coverColorExtractor: com.confused.anikuta.core.designsystem.color.CoverColorExtractor? = null,
+    // D-225: Reverse auto-link service (AniList → extensions).
+    private val reverseAutoLinkService: com.confused.anikuta.core.smartmatcher.ReverseAutoLinkService? = null,
 ) : ViewModel() {
 
     companion object {
@@ -92,6 +104,27 @@ class DetailsViewModel(
 
     private val _state = MutableStateFlow<DetailsState>(DetailsState.Loading)
     val state: StateFlow<DetailsState> = _state.asStateFlow()
+
+    /**
+     * D-223: The per-anime accent color (ARGB Int) extracted from the cover image.
+     * Null = not yet extracted or extraction failed → use the default app accent.
+     * The UI observes this + wraps the screen in AnikutaTheme(accentSeed = Color(argb))
+     * when adaptive colors are enabled.
+     */
+    private val _coverAccent = MutableStateFlow<Int?>(null)
+    val coverAccent: StateFlow<Int?> = _coverAccent.asStateFlow()
+
+    /**
+     * D-234: Next-episode release info — shows the upcoming episode with a
+     * countdown at the top/bottom of the episode list. Derived from
+     * UpdateStore's `anime_update_state` table (populated by ScheduleEngine
+     * from AniList's `nextAiringEpisode` data).
+     *
+     * Null when: no mainId, no update state row, episode already aired, or
+     * series is FINISHED/CANCELLED.
+     */
+    private val _nextEpisodeInfo = MutableStateFlow<NextEpisodeInfo?>(null)
+    val nextEpisodeInfo: StateFlow<NextEpisodeInfo?> = _nextEpisodeInfo.asStateFlow()
 
     /** The available trusted sources (for the manual search sheet). */
     val availableSources: StateFlow<List<AnimeCatalogueSource>> =
@@ -129,6 +162,14 @@ class DetailsViewModel(
     private val _autoLinkState = MutableStateFlow<AutoLinkState>(AutoLinkState.Idle)
     val autoLinkState: StateFlow<AutoLinkState> = _autoLinkState.asStateFlow()
 
+    /**
+     * D-225c: Reverse auto-link state — tracks the AniList → extensions search
+     * lifecycle. Drives the [AutoLinkPopup] so the user sees live feedback
+     * ("Searching extensions…" → "Linked to {source}" / "No source found").
+     */
+    private val _reverseAutoLinkState = MutableStateFlow<ReverseAutoLinkState>(ReverseAutoLinkState.Idle)
+    val reverseAutoLinkState: StateFlow<ReverseAutoLinkState> = _reverseAutoLinkState.asStateFlow()
+
     /** AniList search state for the manual link sheet. */
     private val _anilistSearchState = MutableStateFlow<AniListSearchState>(AniListSearchState.Idle)
     val anilistSearchState: StateFlow<AniListSearchState> = _anilistSearchState.asStateFlow()
@@ -149,6 +190,13 @@ class DetailsViewModel(
     private val _contentId = MutableStateFlow("")
     val contentId: StateFlow<String> = _contentId.asStateFlow()
 
+    // D-228: Moved BEFORE downloadStates + watchProgress so they can reference it.
+    private var currentAnimeId: Int = 0
+    // D.FIX: Made internal (was private) so DetailsScreen can read it for offline playback.
+    internal var currentMainId: String? = null
+    // D-228: Reactive mainId — drives downloadStates + watchProgress.
+    private val _mainIdFlow = MutableStateFlow<String?>(null)
+
     /**
      * D.6: Per-episode download states — collected from [DownloadManager.episodeDownloadStates]
      * + mapped to the sealed [EpisodeDownloadState] (NOT the core typealias — that one
@@ -157,48 +205,50 @@ class DetailsViewModel(
      * Key: `"$mainId|$episodeKey"`.
      */
     val downloadStates: StateFlow<Map<String, EpisodeDownloadState>> =
-        downloadManager.episodeDownloadStates
-            .map { coreMap ->
-                // D.FIX: Also check the downloaded_episode DB table for episodes that
-                // were completed + auto-cleared (no longer in the active queue).
-                // The queue auto-clears COMPLETED tasks after 10s — without this check,
-                // those episodes would show as NotDownloaded instead of Downloaded.
-                val result = mutableMapOf<String, EpisodeDownloadState>()
-                // 1. Map all active queue tasks.
-                coreMap.forEach { (key, coreState) ->
-                    val (status, progress) = coreState
-                    result[key] = when (status) {
-                        com.confused.anikuta.core.download.DownloadStatus.QUEUED ->
-                            EpisodeDownloadState.Queued
-                        com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
-                            EpisodeDownloadState.Downloading(progress)
-                        com.confused.anikuta.core.download.DownloadStatus.RETRYING ->
-                            EpisodeDownloadState.Retrying
-                        com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
-                            EpisodeDownloadState.Paused
-                        com.confused.anikuta.core.download.DownloadStatus.ERROR ->
-                            EpisodeDownloadState.Error(null)
-                        com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
-                            EpisodeDownloadState.Downloaded
-                        com.confused.anikuta.core.download.DownloadStatus.CANCELLED ->
-                            EpisodeDownloadState.NotDownloaded
-                    }
-                }
-                // 2. For episodes NOT in the queue, check if they're downloaded.
-                //    This covers completed+auto-cleared episodes.
-                val mainId = currentMainId ?: return@map result
-                val episodeState = _episodeState.value
-                if (episodeState is EpisodeState.Loaded) {
-                    for (episode in episodeState.episodes) {
-                        val key = "$mainId|${episode.url}"
-                        if (key !in result) {
-                            if (downloadManager.isEpisodeDownloaded(mainId, episode.url)) {
-                                result[key] = EpisodeDownloadState.Downloaded
+        _mainIdFlow
+            .flatMapLatest { mainId ->
+                downloadManager.episodeDownloadStates
+                    .map { coreMap ->
+                        // D-228: The coreMap from downloadManager ALREADY contains
+                        // downloaded episodes (DefaultDownloadManager adds COMPLETED
+                        // entries from the downloaded_episode DB table — see L83-88 +
+                        // L111-119). The old code re-queried the DB per-episode here
+                        // (O(n) sync queries per emission — up to 1000 per tick during
+                        // active downloads). That loop is now DELETED — pure waste.
+                        //
+                        // We just filter the global coreMap by the current anime's
+                        // mainId prefix + map the statuses. O(total global episodes)
+                        // but NO DB queries — just in-memory map iteration.
+                        val prefix = if (mainId != null) "$mainId|" else null
+                        val result = mutableMapOf<String, EpisodeDownloadState>()
+                        coreMap.forEach { (key, coreState) ->
+                            // Skip entries for OTHER animes (the coreMap is global).
+                            if (prefix != null && !key.startsWith(prefix)) return@forEach
+                            val (status, progress) = coreState
+                            result[key] = when (status) {
+                                com.confused.anikuta.core.download.DownloadStatus.QUEUED ->
+                                    EpisodeDownloadState.Queued
+                                com.confused.anikuta.core.download.DownloadStatus.DOWNLOADING ->
+                                    EpisodeDownloadState.Downloading(progress)
+                                com.confused.anikuta.core.download.DownloadStatus.RETRYING ->
+                                    EpisodeDownloadState.Retrying
+                                com.confused.anikuta.core.download.DownloadStatus.PAUSED ->
+                                    EpisodeDownloadState.Paused
+                                com.confused.anikuta.core.download.DownloadStatus.ERROR ->
+                                    EpisodeDownloadState.Error(null)
+                                com.confused.anikuta.core.download.DownloadStatus.COMPLETED ->
+                                    EpisodeDownloadState.Downloaded
+                                com.confused.anikuta.core.download.DownloadStatus.CANCELLED ->
+                                    EpisodeDownloadState.NotDownloaded
                             }
                         }
+                        result
                     }
-                }
-                result
+                    // D-228: Coalesce progress-byte bursts (50ms) + skip no-op
+                    // emissions + run on IO to avoid blocking the main thread.
+                    .debounce(50)
+                    .distinctUntilChanged()
+                    .flowOn(Dispatchers.IO)
             }
             .stateIn(
                 viewModelScope,
@@ -206,14 +256,10 @@ class DetailsViewModel(
                 emptyMap(),
             )
 
-    private var currentAnimeId: Int = 0
-    // D.FIX: Made internal (was private) so DetailsScreen can read it for offline playback.
-    internal var currentMainId: String? = null
-
     // ── Phase WP: Watch progress for the current anime's episodes ──
     // Observe watch_progress by mainId. Emits a map keyed by episode_key for O(1) lookup
     // in the episode list. Reactive — updates live when the player saves progress.
-    private val _mainIdFlow = MutableStateFlow<String?>(null)
+    // D-228: _mainIdFlow is now declared above (before downloadStates).
     val watchProgress: StateFlow<Map<String, com.confused.anikuta.core.watchprogress.WatchProgress>> =
         _mainIdFlow
             .flatMapLatest { mainId ->
@@ -424,6 +470,53 @@ class DetailsViewModel(
         Logger.d(TAG) { "remergeBases: priority=$priority, merged ${merged.displayName}" }
     }
 
+    // ── D-227: Reset ALL state (called when leaving the Details screen) ──
+
+    /**
+     * D-227: Resets ALL per-anime state to their initial values.
+     *
+     * Called from a `DisposableEffect(detailsKey) { onDispose { ... } }` in
+     * DetailsScreen — when the user navigates AWAY from the details page, this
+     * fires + clears the entire state. The next time the user opens a details
+     * page (same or different anime), the screen starts from a clean `Loading`
+     * state — no "shadow" of the previous anime's data is visible.
+     *
+     * This is the ROBUST fix for the stale-state issue: because the ViewModel
+     * is Activity-scoped (not NavBackStackEntry-scoped), the same instance is
+     * reused across navigations. Without this reset, `_state` still holds the
+     * old `Success` when the new anime's `loadFrom*` fires, causing a one-frame
+     * flash of the old data before the load resets it to `Loading`.
+     *
+     * Also increments [loadGeneration] so any in-flight async coroutines from
+     * the previous anime are discarded (their results won't write to state).
+     */
+    fun resetState() {
+        loadGeneration++
+        _state.value = DetailsState.Loading
+        _autoLinkState.value = AutoLinkState.Idle
+        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
+        _showManualLinkSheet.value = false
+        _anilistSearchState.value = AniListSearchState.Idle
+        _linkedSource.value = null
+        _episodeState.value = EpisodeState.Idle
+        _episodeMetadata.value = emptyMap()
+        _resolverState.value = ResolverState.Idle
+        _resolvedVideosKey.value = ""
+        _manualSearchState.value = ManualSearchState.Idle
+        _isInLibrary.value = false
+        _contentId.value = ""
+        _coverAccent.value = null
+        _nextEpisodeInfo.value = null
+        _showCategorySheet.value = false
+        _isRefreshing.value = false
+        _refreshState.value = RefreshState.Idle
+        currentMainId = null; _mainIdFlow.value = null
+        currentAnimeId = 0
+        extensionBase = null
+        anilistBase = null
+        Logger.d(TAG) { "resetState: all per-anime state cleared (loadGeneration=$loadGeneration)" }
+    }
+
     // ── Load from AniList (existing flow) ──
 
     fun loadFromAniList(animeId: Int) {
@@ -434,6 +527,7 @@ class DetailsViewModel(
         // CRITICAL: Reset ALL state when loading a new anime (D-131).
         _state.value = DetailsState.Loading
         _autoLinkState.value = AutoLinkState.Idle
+        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
         _showManualLinkSheet.value = false
         _anilistSearchState.value = AniListSearchState.Idle
         _linkedSource.value = null
@@ -448,8 +542,13 @@ class DetailsViewModel(
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
-
-        // D-192 Phase 5: Synchronous source-link pre-read (fixes "no source linked" race — #21).
+        // D-227: Reset per-anime UI state that was NOT reset before (caused "shadow"
+        // of the previous anime's data — adaptive accent, category sheet, refresh).
+        _coverAccent.value = null
+        _nextEpisodeInfo.value = null
+        _showCategorySheet.value = false
+        _isRefreshing.value = false
+        _refreshState.value = RefreshState.Idle
         // Read the saved source link from PreferenceStore SYNCHRONOUSLY (SharedPreferences
         // is in-memory cached) so the UI shows the correct linked source immediately —
         // no async gap where "No Source" is shown despite being linked.
@@ -491,6 +590,9 @@ class DetailsViewModel(
                         remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
                         currentMainId = cachedMainId; _mainIdFlow.value = cachedMainId
                         refreshContentAndLibraryStatus(cachedMainId)
+                        // D-223: Trigger cover color extraction for the AniList cache-first path.
+                        triggerCoverColorExtraction(cachedMainId, cachedMeta.dataCoverUrl)
+                        triggerNextEpisodeInfo(cachedMainId)
                         loadLinkedSource(animeId)
                     }
                 }
@@ -548,6 +650,92 @@ class DetailsViewModel(
                 // Check for a persisted source link (if not already loaded from cache).
                 if (cachedMainId == null) {
                     loadLinkedSource(animeId)
+                }
+
+                // D-225: Reverse auto-link — if no source is linked, search extensions.
+                // D-238: Skip if the user has manually unlinked — don't re-link what
+                // the user explicitly removed.
+                val savedLink = preferenceStore.getString(KEY_SOURCE_LINK_PREFIX + animeId, "")
+                val isUserUnlinked = autoLinkPreferences.isUserUnlinked(animeId)
+                if (isUserUnlinked) {
+                    Logger.d(TAG) { "D-238: Reverse auto-link skipped — user manually unlinked this anime" }
+                }
+                if (savedLink.isBlank() && reverseAutoLinkService != null && !isUserUnlinked) {
+                    val anime = anilistBase
+                    if (anime != null) {
+                        Logger.i(TAG) { "D-225: Reverse auto-link — no source linked, searching extensions..." }
+                        // D-225c: Show the popup immediately so the user sees "Searching…".
+                        _reverseAutoLinkState.value = ReverseAutoLinkState.Searching
+                        // D-227: Capture gen so the reverse-auto-link result can be
+                        // discarded if the user navigated away during the search.
+                        val reverseGen = loadGeneration
+                        viewModelScope.launch {
+                            try {
+                                val result = reverseAutoLinkService.attemptReverseAutoLink(
+                                    anilistTitle = anime.displayName,
+                                    anilistYear = anime.seasonYear,
+                                )
+                                // D-227: Discard if the user navigated away.
+                                if (reverseGen != loadGeneration) {
+                                    Logger.d(TAG) { "D-225: Reverse auto-link result discarded (stale)" }
+                                    return@launch
+                                }
+                                when (result) {
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Matched -> {
+                                        Logger.i(TAG) {
+                                            "D-225: Reverse auto-link MATCHED: source=${result.source.name}, " +
+                                                "anime='${result.sAnime.title}', score=${result.score}"
+                                        }
+                                        // Reuse the existing linkSource() — it does everything:
+                                        // persist KEY_SOURCE_LINK_PREFIX, linkExtensionToExisting,
+                                        // set extensionBase, fetch episodes, cache forward link.
+                                        linkSource(result.source, result.sAnime)
+                                        // D-237: Refresh airing data after reverse auto-link.
+                                        // The reverse auto-link fires AFTER loadFromAniList's
+                                        // cache-first path (which doesn't have airing data).
+                                        // Without this, the next-episode card doesn't show
+                                        // when opening from Library for the first time.
+                                        val mid = currentMainId
+                                        if (mid != null && currentAnimeId > 0) {
+                                            refreshAiringData(mid, currentAnimeId)
+                                        }
+                                        // D-225c: popup confirms the match.
+                                        // D-227: include thumbnailUrl for the preview card.
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.Matched(
+                                            sourceName = result.source.name,
+                                            animeTitle = result.sAnime.title,
+                                            thumbnailUrl = result.sAnime.thumbnail_url,
+                                            score = result.score,
+                                        )
+                                    }
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.NoMatch -> {
+                                        Logger.i(TAG) {
+                                            "D-225: Reverse auto-link NO MATCH (bestScore=${result.bestScore})"
+                                        }
+                                        // D-225c: popup offers a "Link manually" action.
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.NoMatch(
+                                            bestScore = result.bestScore,
+                                            searchedTitle = result.searchedTitle,
+                                        )
+                                    }
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Skipped -> {
+                                        Logger.d(TAG) { "D-225: Reverse auto-link skipped: ${result.reason}" }
+                                        // Silent — don't bother the user when the feature is off.
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
+                                    }
+                                    is com.confused.anikuta.core.smartmatcher.ReverseAutoLinkResult.Error -> {
+                                        Logger.e(TAG) { "D-225: Reverse auto-link error: ${result.message}" }
+                                        _reverseAutoLinkState.value = ReverseAutoLinkState.Error(result.message)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Logger.e(TAG, e) { "D-225: Reverse auto-link failed: ${e.message}" }
+                                _reverseAutoLinkState.value = ReverseAutoLinkState.Error(
+                                    e.message ?: "Unknown error"
+                                )
+                            }
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Failed: ${e.message}" }
@@ -722,6 +910,10 @@ class DetailsViewModel(
                         )
                     }
                     Logger.i(TAG) { "D.3 Stage 2: Refreshed AniList metadata" }
+                    // D-235: Also refresh the airing schedule data.
+                    if (mainId != null) {
+                        triggerNextEpisodeInfo(mainId, fresh.nextAiringEpisode, fresh.status)
+                    }
                 } catch (e: Exception) {
                     Logger.e(TAG, e) { "D.3 Stage 2: Metadata refresh failed: ${e.message}" }
                 }
@@ -816,6 +1008,7 @@ class DetailsViewModel(
         // CRITICAL: Reset ALL state when loading a new anime (D-131).
         _state.value = DetailsState.Loading
         _autoLinkState.value = AutoLinkState.Idle
+        _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
         _showManualLinkSheet.value = false
         _anilistSearchState.value = AniListSearchState.Idle
         _linkedSource.value = null
@@ -830,10 +1023,78 @@ class DetailsViewModel(
         // D-134: Reset the data bases.
         extensionBase = null
         anilistBase = null
+        // D-227: Reset per-anime UI state that was NOT reset before (caused "shadow"
+        // of the previous anime's data — adaptive accent, category sheet, refresh).
+        _coverAccent.value = null
+        _nextEpisodeInfo.value = null
+        _showCategorySheet.value = false
+        _isRefreshing.value = false
+        _refreshState.value = RefreshState.Idle
         viewModelScope.launch {
             try {
+                // D-210 FIX: Cache-first for instant open (mirrors loadFromAniList's
+                // pattern at lines 472-503). If we already have ext_* data in
+                // content_details, load from DB instantly via tryCachedExtensionData
+                // (which also calls fetchEpisodes — itself cache-first + bg-refresh).
+                // Then fire-and-forget a SILENT background refresh — only updates the
+                // UI if the data actually changed. This eliminates the ~1s loading
+                // delay the user saw when opening extension-saved entries from Library.
+                val existingContent = contentRepository.getMainEntryByExtension(sourceId, animeUrl)
+                val cachedDetails = existingContent?.let {
+                    contentRepository.getContentDetails(it.mainId)
+                }
+                val hasCachedExtData = cachedDetails != null &&
+                    cachedDetails.hasExtensionLink &&
+                    cachedDetails.extUpdatedAt != null
+
+                if (hasCachedExtData && existingContent != null) {
+                    // Instant DB load — no network call, no loading spinner.
+                    Logger.i(TAG) { "Opening from cache (ext_* data exists): $title" }
+                    tryCachedExtensionData(sourceId, animeUrl, title, thumbnailUrl)
+
+                    // Silent background refresh — updates UI only if data changed.
+                    // Doesn't block the user — they see the cached data immediately.
+                    viewModelScope.launch {
+                        try {
+                            val refreshed = extensionProvider.fetchFromExtension(
+                                sourceId, animeUrl, title,
+                                cachedDetails.extThumbnailUrl ?: thumbnailUrl,
+                            )
+                            if (refreshed != null) {
+                                extensionBase = refreshed
+                                remergeBases(
+                                    com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                                )
+                                // Persist the refreshed ext_* axis (silent).
+                                resolveContentForExtension(sourceId, animeUrl, title, refreshed)
+                            }
+                        } catch (e: Exception) {
+                            Logger.w(TAG) { "Background extension refresh failed: ${e.message}" }
+                        }
+                    }
+                    // Skip the network-first path below — we already loaded from DB.
+                    // performAutoLink needs a non-null UnifiedAnime — capture in a local
+                    // val so Kotlin can smart-cast (extensionBase is a mutable var).
+                    val extBase = extensionBase
+                    if (extBase != null) {
+                        performAutoLink(sourceId, animeUrl, extBase)
+                    }
+                    return@launch
+                }
+
+                // D-200: When opening from Library, thumbnailUrl may be null (the
+                // LibraryEntry.coverUrl comes from ext_thumbnail_url in DB which may
+                // not have been stored yet). Fall back to the DB-stored ext_thumbnail_url
+                // before calling fetchFromExtension — so the stub SAnime.thumbnail_url
+                // is non-null and the D-199 fallback in ExtensionDetailsProvider works.
+                val effectiveThumbnailUrl = thumbnailUrl ?: run {
+                    val existingContent = contentRepository.getMainEntryByExtension(sourceId, animeUrl)
+                    existingContent?.let {
+                        contentRepository.getContentDetails(it.mainId)?.extThumbnailUrl
+                    }
+                }
                 // Use the ExtensionDetailsProvider to fetch full details.
-                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, thumbnailUrl)
+                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, effectiveThumbnailUrl)
 
                 if (unifiedAnime != null) {
                     Logger.i(TAG) { "Loaded extension details: $title from source $sourceId" }
@@ -904,6 +1165,13 @@ class DetailsViewModel(
             }
             remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION)
             refreshContentAndLibraryStatus(existingContent.mainId)
+
+            // D-223: Trigger cover color extraction for the cache-first path too.
+            // Without this, anime opened from Library (which takes the cache-first path)
+            // would never get the adaptive accent color.
+            val cacheCoverUrl = details?.extThumbnailUrl ?: details?.dataCoverUrl ?: thumbnailUrl
+            triggerCoverColorExtraction(existingContent.mainId, cacheCoverUrl)
+            triggerNextEpisodeInfo(existingContent.mainId)
 
             // Try to load cached episodes.
             val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
@@ -994,6 +1262,10 @@ class DetailsViewModel(
             val mainId = contentResolver.resolveOrCreateForAniList(anilistId, title, detail)
             currentMainId = mainId; _mainIdFlow.value = mainId
             refreshContentAndLibraryStatus(mainId)
+            // D-223: Trigger cover color extraction for adaptive theming.
+            triggerCoverColorExtraction(mainId, detail.dataCoverUrl)
+            // D-235: Pass the fresh airing data from the AniList fetch.
+            triggerNextEpisodeInfo(mainId, anime.nextAiringEpisode, anime.status)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "resolveContentForAniList failed: ${e.message}" }
         }
@@ -1075,6 +1347,10 @@ class DetailsViewModel(
             )
             currentMainId = mainId; _mainIdFlow.value = mainId
 
+            // D-223: Trigger cover color extraction for adaptive theming.
+            triggerCoverColorExtraction(mainId, unifiedAnime?.coverUrl)
+            triggerNextEpisodeInfo(mainId)
+
             // D-142 + D-198: Store the extension detail (with coverUrl) for library display.
             // Without this, the library can't show cover images for extension-only entries.
             if (unifiedAnime != null) {
@@ -1114,6 +1390,166 @@ class DetailsViewModel(
         }
         _isInLibrary.value = contentRepository.isInLibrary(mainId)
         Logger.i(TAG) { "Library status: ${if (_isInLibrary.value) "in library" else "not in library"}" }
+    }
+
+    /**
+     * D-223: Trigger cover color extraction for adaptive theming.
+     *
+     * Checks if the cover accent color is already stored in the DB. If yes,
+     * sets the [_coverAccent] StateFlow immediately (instant — no network).
+     * If no, kicks off background extraction via [CoverColorExtractor] +
+     * stores the result in the DB for next time.
+     *
+     * Safe to call multiple times — no-ops if the color is already extracted.
+     */
+    private fun triggerCoverColorExtraction(mainId: String, coverUrl: String?) {
+        // First, check if the DB already has a stored color.
+        val details = contentRepository.getContentDetails(mainId)
+        val storedArgb = details?.coverAccentArgb
+        if (storedArgb != null) {
+            _coverAccent.value = storedArgb.toInt()
+            Logger.d(TAG) { "Cover accent already stored: 0x${"%08X".format(storedArgb.toInt())}" }
+            return
+        }
+        // No stored color — clear the state + trigger extraction if we have a cover URL.
+        _coverAccent.value = null
+        if (coverUrl.isNullOrBlank() || coverColorExtractor == null) return
+
+        viewModelScope.launch {
+            // D-227: Capture the generation so we can discard the result if the
+            // user navigated to a different anime while extraction was running.
+            val gen = loadGeneration
+            val argb = coverColorExtractor.extract(coverUrl)
+            // D-227: If the user navigated away (loadGeneration changed), discard.
+            if (gen != loadGeneration) {
+                Logger.d(TAG) { "Cover accent extraction discarded (stale — gen changed)" }
+                return@launch
+            }
+            if (argb != null) {
+                contentRepository.updateCoverAccent(mainId, argb.toLong())
+                _coverAccent.value = argb
+                Logger.i(TAG) { "Cover accent extracted + stored: 0x${"%08X".format(argb)}" }
+            }
+        }
+    }
+
+    /**
+     * D-234: Load the next-episode release info from UpdateStore.
+     *
+     * Called when a new anime is loaded (same places as triggerCoverColorExtraction).
+     * Reads `anime_update_state` for the current mainId — if the series is
+     * RELEASING + has a future `nextAiringAt`, sets [_nextEpisodeInfo].
+     *
+     * For completed series (status == FINISHED/CANCELLED), sets null (no card).
+     */
+
+    /**
+     * D-237: Fetches fresh airing data from AniList + stores it + updates the
+     * next-episode card. Called from paths that DON'T go through
+     * resolveContentForAniList (which already passes airing data):
+     * - mergeAniListIntoUnified (forward auto-link: ext → AniList)
+     * - Reverse auto-link Matched (library first-open with no source)
+     * - Cache-first path (belt-and-suspenders: refresh stale airing data)
+     */
+    private fun refreshAiringData(mainId: String, anilistId: Int) {
+        viewModelScope.launch {
+            try {
+                val anime = anilistApi.fetchAnimeDetails(anilistId)
+                // D-227: Capture gen so stale results are discarded.
+                val gen = loadGeneration
+                if (gen != loadGeneration) return@launch
+                triggerNextEpisodeInfo(mainId, anime.nextAiringEpisode, anime.status)
+                Logger.d(TAG) { "D-237: refreshAiringData — fetched + stored airing data for anilistId=$anilistId" }
+            } catch (e: Exception) {
+                Logger.w(TAG) { "D-237: refreshAiringData failed: ${e.message}" }
+            }
+        }
+    }
+    private fun triggerNextEpisodeInfo(
+        mainId: String,
+        airingEpisode: com.confused.anikuta.core.anilist.model.AniListAiringEpisode? = null,
+        status: String? = null,
+    ) {
+        // D-235: If we have fresh airing data from the AniList fetch, store it
+        // in the DB first so it's available for future reads (cache path, etc.).
+        if (airingEpisode != null || status != null) {
+            // D-235: Ensure the row exists first (updateAiringData is an UPDATE,
+            // not an upsert — it will silently fail if the row doesn't exist).
+            updateEngine.ensureUpdateState(mainId, status)
+            val airingAtMillis = airingEpisode?.airingAt?.let {
+                // AniList returns SECONDS — convert to millis.
+                if (it < 1_000_000_000_000L) it * 1000 else it
+            }
+            val epNum = airingEpisode?.episode?.toLong()
+            updateStore.updateAiringData(mainId, epNum, airingAtMillis, status)
+            Logger.d(TAG) { "D-235: Stored airing data: ep=$epNum, airingAt=$airingAtMillis, status=$status" }
+
+            // D-236: Also upsert an episode_schedule row so the anime appears in
+            // the schedule list. Without this, only anime processed by the periodic
+            // ScheduleEngine worker (which writes episode_schedule) would show up.
+            if (epNum != null && airingAtMillis != null && airingAtMillis > System.currentTimeMillis()) {
+                val anilistId = currentAnimeId.toLong()
+                scheduleStore.upsertScheduleEntry(
+                    mainId = mainId,
+                    anilistId = anilistId,
+                    episodeNumber = epNum.toDouble(),
+                    scheduledAt = airingAtMillis,
+                    actualAt = null,
+                    audioVariant = "unknown",
+                    source = "anilist",
+                    fetchedAt = System.currentTimeMillis(),
+                )
+                Logger.d(TAG) { "D-236: Upserted episode_schedule: mainId=$mainId ep=$epNum airingAt=$airingAtMillis" }
+            }
+        }
+
+        // Now read from the DB (which may have just been updated).
+        val state = updateStore.getAnimeUpdateState(mainId)
+        if (state == null) {
+            _nextEpisodeInfo.value = null
+            return
+        }
+        // D-234: Only show for RELEASING series with a future air date.
+        val isFinished = state.status == "FINISHED" || state.status == "CANCELLED"
+        val airingAt = state.nextAiringAt
+        val epNum = state.nextAiringEpisode
+        if (isFinished || airingAt == null || airingAt <= 0 || epNum == null || epNum <= 0) {
+            _nextEpisodeInfo.value = null
+            return
+        }
+        // Convert to millis if needed (AniList returns seconds — but UpdateStore
+        // should already store millis. Check just in case).
+        val airingAtMillis = if (airingAt < 1_000_000_000_000L) airingAt * 1000 else airingAt
+        val now = System.currentTimeMillis()
+        // D-237: If the air time has passed, check if the episode is already
+        // available in the episode list. If it IS available, hide the card (the
+        // episode is in the list — no need for a "coming soon" card). If it's
+        // NOT available yet (the source hasn't added it), show "Coming soon".
+        val isComingSoon = airingAtMillis <= now
+        if (isComingSoon) {
+            // Check if the episode number exists in the current episode list.
+            val loadedEpisodes = (_episodeState.value as? EpisodeState.Loaded)?.episodes
+            val episodeExists = loadedEpisodes?.any { it.episode_number.toInt() == epNum.toInt() } ?: false
+            if (episodeExists) {
+                // Episode is available — hide the card.
+                _nextEpisodeInfo.value = null
+                return
+            }
+            // Episode isn't available yet — show "Coming soon".
+            _nextEpisodeInfo.value = NextEpisodeInfo(
+                episodeNumber = epNum.toInt(),
+                airingAtMillis = airingAtMillis,
+                isComingSoon = true,
+            )
+            Logger.d(TAG) { "Next episode: EP $epNum — Coming soon (aired but not yet available)" }
+            return
+        }
+        _nextEpisodeInfo.value = NextEpisodeInfo(
+            episodeNumber = epNum.toInt(),
+            airingAtMillis = airingAtMillis,
+            isComingSoon = false,
+        )
+        Logger.d(TAG) { "Next episode: EP $epNum at ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(airingAtMillis))}" }
     }
 
     /**
@@ -1337,6 +1773,10 @@ class DetailsViewModel(
                     dataUpdatedAt = System.currentTimeMillis(),
                 )
                 contentResolver.linkAniList(mainId, anilistId, detail)
+                // D-237: Fetch + store fresh airing data now that we have an anilistId.
+                // Without this, the next-episode card doesn't show when an extension
+                // entry is auto-linked to AniList (forward auto-link path).
+                refreshAiringData(mainId, anilistId)
                 // Genre System: normalize + store genres in the junction table.
                 anilistData.genres?.let { genres ->
                     genreRepository.setGenresForContent(mainId, genres, "anilist")
@@ -1441,6 +1881,11 @@ class DetailsViewModel(
 
         Logger.i(TAG) { "Manually linking extension entry to anilistId=$anilistId" }
         autoLinkService.cacheManualLink(sourceId, animeUrl, anilistId)
+        // D-199: Save the source link so loadLinkedSource() can find the extension
+        // source when reopening from Library. Without this, the Library open path
+        // reads KEY_SOURCE_LINK_PREFIX + anilistId → empty → source not found →
+        // episodes not fetched → UI shows "source removed" + empty episode list.
+        preferenceStore.putString(KEY_SOURCE_LINK_PREFIX + anilistId, "$sourceId:$animeUrl")
 
         viewModelScope.launch {
             mergeAniListIntoUnified(anilistId)
@@ -1503,6 +1948,25 @@ class DetailsViewModel(
 
     fun dismissManualLinkSheet() {
         _showManualLinkSheet.value = false
+    }
+
+    // ── D-225c: Auto-link popup dismiss handlers ──
+    // Called by the [AutoLinkPopup] when its auto-dismiss timer fires OR the
+    // user swipes/taps it away. Resets the corresponding state to Idle so the
+    // popup hides cleanly without flickering on the next recomposition.
+
+    /** Dismiss the FORWARD auto-link popup (extension → AniList). */
+    fun dismissAutoLinkPopup() {
+        if (_autoLinkState.value !is AutoLinkState.Searching) {
+            _autoLinkState.value = AutoLinkState.Idle
+        }
+    }
+
+    /** Dismiss the REVERSE auto-link popup (AniList → extensions). */
+    fun dismissReverseAutoLinkPopup() {
+        if (_reverseAutoLinkState.value !is ReverseAutoLinkState.Searching) {
+            _reverseAutoLinkState.value = ReverseAutoLinkState.Idle
+        }
     }
 
     // ── Fetch episodes from a specific source (used by extension flow) ──
@@ -1626,6 +2090,20 @@ class DetailsViewModel(
         )
         _linkedSource.value = LinkedSource(source.id, source.name, sAnime.url)
 
+        // D-238: Clear the "user unlinked" flag — the user is manually linking
+        // a source, so future auto-links should be allowed again.
+        if (animeId > 0) {
+            autoLinkPreferences.clearUserUnlinked(animeId)
+        }
+
+        // D-238: Clear the episode cache so episodes from the OLD source don't
+        // mix with the NEW source's episodes. The fresh fetch will repopulate.
+        val mainIdForCacheClear = currentMainId
+        if (mainIdForCacheClear != null) {
+            dataCacheRepository.deleteEpisodeMetadata(mainIdForCacheClear)
+            Logger.d(TAG) { "D-238: Cleared episode cache for mainId=$mainIdForCacheClear (new source linked)" }
+        }
+
         // D-139: Cache the reverse mapping (sourceId, animeUrl) → anilistId.
         // This ensures that when the user opens the SAME anime from the extension
         // later, resolveContentForExtension finds the cached anilistId → finds
@@ -1719,11 +2197,22 @@ class DetailsViewModel(
         _linkedSource.value = null
         _episodeState.value = EpisodeState.Idle
 
-        // D-198: persist the unlink in the content database.
+        // D-238: Mark this anime as "user unlinked" so reverse auto-link
+        // doesn't re-link the same (or a different) source on next open.
+        if (animeId > 0) {
+            autoLinkPreferences.markUserUnlinked(animeId)
+            Logger.d(TAG) { "D-238: Marked anilistId=$animeId as user-unlinked (reverse auto-link will skip)" }
+        }
+
+        // D-238: Clear the episode cache so stale episodes from the old source
+        // don't load on next open (before the new source's episodes are fetched).
         val mainId = currentMainId
         if (mainId != null) {
             contentResolver.unlinkExtension(mainId)
             refreshContentId(mainId)
+            // D-238: Clear the episode cache for this mainId.
+            dataCacheRepository.deleteEpisodeMetadata(mainId)
+            Logger.d(TAG) { "D-238: Cleared episode cache for mainId=$mainId (source unlinked)" }
         }
 
         // D-134: Clear the extension base + re-merge.
@@ -2038,9 +2527,17 @@ class DetailsViewModel(
             } catch (e: Throwable) {
                 // Catch Throwable — binary-incompat throws NoClassDefFoundError,
                 // OkHttp version mismatch throws IncompatibleClassChangeError.
-                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
-                Logger.e(TAG, e) { "Episode fetch failed for ${source.name}: $errorMsg" }
-                _episodeState.value = EpisodeState.Error(errorMsg)
+                // D-209: detect CloudflareException → show the "Open in WebView" button.
+                if (e is CloudflareException) {
+                    Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
+                    _episodeState.value = EpisodeState.CloudflareBlocked(
+                        url = e.url, sourceName = source.name,
+                    )
+                } else {
+                    val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                    Logger.e(TAG, e) { "Episode fetch failed for ${source.name}: $errorMsg" }
+                    _episodeState.value = EpisodeState.Error(errorMsg)
+                }
             }
         }
     }
@@ -2142,6 +2639,24 @@ class DetailsViewModel(
         _resolvedVideosKey.value = ""
     }
 
+    /**
+     * D-210: Returns the source's episode page URL for the WebView.
+     * Constructs baseUrl + animeUrl from the currently linked source.
+     * Used by the ResolverSheet's "Open in WebView" button when video
+     * resolution fails (e.g. Cloudflare blocked the episode page).
+     *
+     * @return the full URL (e.g. "https://miruro.tv/watch/sakamoto-days"),
+     *   or null if no source is linked or the source doesn't expose a baseUrl.
+     */
+    fun getSourceEpisodeUrl(): String? {
+        val linked = _linkedSource.value ?: return null
+        val source = extensionManager.getSource(linked.sourceId) as? AnimeHttpSource ?: return null
+        val baseUrl = source.baseUrl
+        val animeUrl = linked.animeUrl
+        return if (animeUrl.startsWith("http")) animeUrl
+               else baseUrl.trimEnd('/') + "/" + animeUrl.trimStart('/')
+    }
+
     // ── D.6: Episode download management ────────────────────────────────────
     //
     // The enqueue path is handled by the host (MainActivity → DownloadOrchestrator)
@@ -2217,6 +2732,20 @@ data class LinkedSource(
     val animeUrl: String,
 )
 
+/**
+ * D-234: Next-episode release info — shows the upcoming episode with a countdown.
+ *
+ * @param episodeNumber The episode number that will air next.
+ * @param airingAtMillis The Unix timestamp (millis) when the episode airs.
+ * @param isComingSoon D-237: true when the air time has passed but the episode
+ *   isn't available on the source yet. Shows "Coming soon" instead of a countdown.
+ */
+data class NextEpisodeInfo(
+    val episodeNumber: Int,
+    val airingAtMillis: Long,
+    val isComingSoon: Boolean = false,
+)
+
 /** Manual search state (source linking — AniList entries). */
 sealed interface ManualSearchState {
     data object Idle : ManualSearchState
@@ -2246,6 +2775,32 @@ sealed interface AutoLinkState {
     data class Error(val message: String) : AutoLinkState
 }
 
+/**
+ * D-225c: Reverse auto-link state — drives the [AutoLinkPopup] for the
+ * AniList → extensions search direction.
+ *
+ * - [Idle]: nothing happening (initial / dismissed / skipped).
+ * - [Searching]: extensions are being queried (popup shows spinner + "Searching…").
+ * - [Matched]: a source was linked (popup confirms + auto-dismisses).
+ * - [NoMatch]: no confident match (popup offers a "Link manually" action).
+ * - [Error]: search failed (popup shows the error + auto-dismisses).
+ */
+sealed interface ReverseAutoLinkState {
+    data object Idle : ReverseAutoLinkState
+    data object Searching : ReverseAutoLinkState
+    data class Matched(
+        val sourceName: String,
+        val animeTitle: String,
+        val thumbnailUrl: String?,
+        val score: Float,
+    ) : ReverseAutoLinkState
+    data class NoMatch(
+        val bestScore: Float,
+        val searchedTitle: String,
+    ) : ReverseAutoLinkState
+    data class Error(val message: String) : ReverseAutoLinkState
+}
+
 /** AniList search state for the manual link sheet. */
 sealed interface AniListSearchState {
     data object Idle : AniListSearchState
@@ -2262,6 +2817,11 @@ sealed interface EpisodeState {
     data object Empty : EpisodeState
     data class Loaded(val episodes: List<SEpisode>) : EpisodeState
     data class Error(val message: String) : EpisodeState
+    /**
+     * D-209: Cloudflare blocked the episode fetch + the headless solver failed.
+     * The UI shows an "Open in WebView" button + a "Refresh" button.
+     */
+    data class CloudflareBlocked(val url: String, val sourceName: String) : EpisodeState
 }
 
 // ── D.3: Multi-stage refresh types ──

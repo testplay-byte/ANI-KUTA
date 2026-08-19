@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -225,12 +226,20 @@ fun DownloadsScreen(
 
         // Summary chips.
         if (queue.isNotEmpty()) {
+            // D-215: collect live download speed for display.
+            val downloadSpeed by viewModel.downloadSpeed.collectAsStateWithLifecycle()
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (downloading > 0) StatChip("$downloading", "downloading", MaterialTheme.colorScheme.primary)
+                // D-217: always show speed when downloading (even if 0 KB/s — never
+                // disappears during an active download). The old `downloadSpeed > 0`
+                // check caused the chip to vanish between samples.
+                if (downloading > 0) {
+                    StatChip(formatSpeed(downloadSpeed), "speed", MaterialTheme.colorScheme.tertiary)
+                }
                 if (queued > 0) StatChip("$queued", "queued", MaterialTheme.colorScheme.onSurfaceVariant)
                 if (paused > 0) StatChip("$paused", "paused", MaterialTheme.colorScheme.onSurfaceVariant)
                 if (failed > 0) StatChip("$failed", "failed", MaterialTheme.colorScheme.error)
@@ -439,9 +448,25 @@ private fun AnimeSectionCard(
 
 @Composable
 private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Column(
-            modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 10.dp),
+    // D-213: restructured layout:
+    //   Row 1: [Episode Name (weight 1f)] [3-dot button]   ← 3-dot is ONLY here, next to the name
+    //   Row 2: [server][audio][quality][size] ... [45%]     ← full width, percentage on the right
+    //   Row 3: [progress bar — full width, 6dp]             ← old-style inline bar
+    //   Row 4: [error text] (if error)
+    // The 3-dot is NOT full-height — it's in the top row only. The info row + progress
+    // bar use the FULL width below the 3-dot, so the percentage is never cut off.
+    Column(
+        // D-215: reduced all spacing by ~50% (user asked for tighter layout).
+        // top=2dp (was 4), bottom=5dp (was 10), horizontal=10dp (unchanged).
+        modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 5.dp),
+    ) {
+        // ── Row 1: Episode name + 3-dot button ──
+        // D-214: 3-dot button is now wider + shorter (40×24dp) + rotated 90°
+        // (MoreVert icon rotated so the 3 dots are horizontal). Matches the
+        // "kebab" menu orientation the user asked for.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             val epName = task.episode.name.ifBlank {
                 "Episode ${task.episode.episodeNumber.toInt()}"
@@ -454,80 +479,93 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Spacer(Modifier.width(4.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+                onClick = onMenu,
             ) {
-                if (task.videoServer.isNotBlank()) InfoPill(task.videoServer)
-                if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
-                if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
-                if (task.status == DownloadStatus.DOWNLOADING ||
-                    task.status == DownloadStatus.PAUSED
+                // D-214: wider + shorter button (was 32×32 square). Now 40×24.
+                Box(
+                    modifier = Modifier.size(width = 40.dp, height = 24.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    val sizeText = if (task.totalBytes > 0)
-                        "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
-                    else formatBytes(task.downloadedBytes)
-                    SizePill(sizeText)
-                }
-                Spacer(Modifier.weight(1f))
-                when (task.status) {
-                    DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
-                        PercentagePill("${task.progress}%")
-                    }
-                    DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
-                        InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
-                    }
-                    DownloadStatus.ERROR -> ErrorPill("Failed")
-                    DownloadStatus.COMPLETED -> InfoPill("Done", highlight = true)
-                    else -> {}
-                }
-            }
-
-            if (task.status == DownloadStatus.DOWNLOADING ||
-                task.status == DownloadStatus.PAUSED
-            ) {
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { (task.progress / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surface,
-                )
-            }
-
-            if (task.status == DownloadStatus.ERROR) {
-                task.lastError?.let {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        it,
-                        fontFamily = RobotoFamily,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "Options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // D-214: rotate the icon 90° so the 3 dots are horizontal.
+                        modifier = Modifier
+                            .size(18.dp)
+                            .graphicsLayer(rotationZ = 90f),
                     )
                 }
             }
         }
 
-        Box(modifier = Modifier.padding(top = 6.dp, end = 6.dp)) {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                onClick = onMenu,
+        // ── Row 2: Info pills (full width) + percentage on the right ──
+        // D-215: reduced spacer from 4dp → 2dp (~50% reduction as requested).
+        Spacer(Modifier.height(2.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (task.videoServer.isNotBlank()) InfoPill(task.videoServer)
+            if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
+            if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
+            if (task.status == DownloadStatus.DOWNLOADING ||
+                task.status == DownloadStatus.PAUSED
             ) {
-                Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
+                val sizeText = if (task.totalBytes > 0)
+                    "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
+                else formatBytes(task.downloadedBytes)
+                SizePill(sizeText)
+            }
+            Spacer(Modifier.weight(1f))
+            when (task.status) {
+                DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
+                    PercentagePill("${task.progress}%")
                 }
+                DownloadStatus.QUEUED, DownloadStatus.RETRYING -> {
+                    InfoPill(if (task.status == DownloadStatus.RETRYING) "Retrying" else "Queued")
+                }
+                DownloadStatus.ERROR -> ErrorPill("Failed")
+                DownloadStatus.COMPLETED -> InfoPill("Done", highlight = true)
+                else -> {}
+            }
+        }
+
+        // ── Row 3: Progress bar (old-style inline, full width, 6dp) ──
+        // D-213: restored the old-style progress bar — full width of the Column
+        // (which is now full-width since the 3-dot moved to Row 1). 6dp tall.
+        if (task.status == DownloadStatus.DOWNLOADING ||
+            task.status == DownloadStatus.PAUSED
+        ) {
+            // D-215: reduced spacer from 6dp → 3dp (~50% reduction as requested).
+            Spacer(Modifier.height(3.dp))
+            LinearProgressIndicator(
+                progress = { (task.progress / 100f).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(6.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surface,
+            )
+        }
+
+        // ── Row 4: Error text (if any) ──
+        if (task.status == DownloadStatus.ERROR) {
+            task.lastError?.let {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    it,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -535,62 +573,84 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
 
 @Composable
 private fun SizePill(text: String) {
-    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surface) {
+    // D-215: changed to secondaryContainer (darker shade than outlineVariant).
+    // The user asked for a "darker kind of shade" — secondaryContainer is a
+    // distinct darker shade that differentiates the size from other pills.
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+    ) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
 
 @Composable
 private fun PercentagePill(text: String) {
+    // D-214: match DetailsScreen pill style — added lineHeight=14.sp + padding 8dp.
     Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
+            lineHeight = 14.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
 
 @Composable
 private fun ErrorPill(text: String) {
+    // D-214: match DetailsScreen pill style — added lineHeight=14.sp + padding 8dp.
     Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.error.copy(alpha = 0.15f)) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
+            lineHeight = 14.sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
 
 @Composable
 private fun InfoPill(text: String, highlight: Boolean = false) {
+    // D-214: match DetailsScreen pill style — outlineVariant (was surfaceVariant) +
+    // lineHeight=14.sp + padding 8dp. This makes the pill height consistent with
+    // the DetailsScreen's date/audio pills (which the user said look proper).
     Surface(
         shape = RoundedCornerShape(6.dp),
         color = if (highlight) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-        else MaterialTheme.colorScheme.surfaceVariant,
+        else MaterialTheme.colorScheme.outlineVariant,
     ) {
         Text(
             text,
             fontFamily = RobotoFamily,
             fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
             color = if (highlight) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             softWrap = false,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }
 }
@@ -686,4 +746,15 @@ internal fun formatBytes(bytes: Long): String = when {
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     bytes < 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"
     else -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
+}
+
+/**
+ * D-215: Formats a download speed (bytes/sec) into a human-readable string.
+ * e.g. 1500000 → "1.4 MB/s", 500000 → "488 KB/s", 800 → "800 B/s".
+ */
+internal fun formatSpeed(bytesPerSecond: Long): String = when {
+    bytesPerSecond < 1024 -> "$bytesPerSecond B/s"
+    bytesPerSecond < 1024 * 1024 -> "${bytesPerSecond / 1024} KB/s"
+    bytesPerSecond < 1024 * 1024 * 1024 -> "%.1f MB/s".format(bytesPerSecond / (1024.0 * 1024))
+    else -> "%.1f GB/s".format(bytesPerSecond / (1024.0 * 1024 * 1024))
 }

@@ -278,17 +278,25 @@ private fun DownloadedAnimeCard(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    // Server name — themed primary, ExtraBold (matches ResolverSheet).
+                                    // Server name — D-215: now has a proper background (primary.copy(0.15f))
+                                    // matching the Downloads page InfoPill(highlight=true) style.
                                     if (hasServer) {
-                                        Text(
-                                            task.videoServer,
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                        ) {
+                                            Text(
+                                                task.videoServer,
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 10.sp,
+                                                lineHeight = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                            )
+                                        }
                                     }
                                     // Audio version — secondaryContainer chip (matches ResolverSheet).
                                     if (hasAudio) {
@@ -300,35 +308,54 @@ private fun DownloadedAnimeCard(
                                                 task.videoAudio.uppercase(),
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 9.sp,
+                                                lineHeight = 13.sp,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                                                maxLines = 1,
+                                                softWrap = false,
                                             )
                                         }
                                     }
-                                    // Quality chip — surfaceVariant (existing style).
+                                    // Quality chip — D-215: changed to outlineVariant (was surfaceVariant)
+                                    // for consistency with the Downloads page InfoPill style.
                                     if (hasQuality) {
                                         Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = MaterialTheme.colorScheme.surfaceVariant,
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.outlineVariant,
                                         ) {
                                             Text(
                                                 task.videoQuality,
                                                 fontFamily = RobotoFamily,
                                                 fontSize = 9.sp,
+                                                lineHeight = 13.sp,
+                                                fontWeight = FontWeight.Medium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                                maxLines = 1,
+                                                softWrap = false,
                                             )
                                         }
                                     }
-                                    // File size — shows actual downloaded size.
+                                    // File size — D-215: now has a proper background (secondaryContainer)
+                                    // matching the Downloads page SizePill style.
                                     if (hasSize) {
-                                        Text(
-                                            formatBytes(task.totalBytes),
-                                            fontFamily = RobotoFamily,
-                                            fontSize = 9.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                                        ) {
+                                            Text(
+                                                formatBytes(task.totalBytes),
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 9.sp,
+                                                lineHeight = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                            )
+                                        }
                                     }
                                 }
                             }

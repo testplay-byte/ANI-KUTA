@@ -78,10 +78,13 @@ class ScheduleViewModel(
         // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
         val details = contentRepository.getContentDetails(entry.mainId)
         val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+        // D-238: Extract the cover accent color for calendar dot color-coding.
+        val coverAccentArgb = details?.coverAccentArgb
         return ScheduleDisplay(
             mainId = entry.mainId,
             animeTitle = content.title,
             coverUrl = coverUrl,
+            coverAccentArgb = coverAccentArgb,
             episodeNumber = entry.episodeNumber.toInt(),
             scheduledAt = entry.scheduledAt,
             actualAt = entry.actualAt,
@@ -121,6 +124,7 @@ data class ScheduleDisplay(
     val mainId: String,
     val animeTitle: String,
     val coverUrl: String?,
+    val coverAccentArgb: Long? = null,
     val episodeNumber: Int,
     val scheduledAt: Long,
     val actualAt: Long?,

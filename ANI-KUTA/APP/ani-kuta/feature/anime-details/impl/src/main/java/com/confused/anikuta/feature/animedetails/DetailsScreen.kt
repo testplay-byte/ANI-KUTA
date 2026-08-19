@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,10 +37,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle  // D-226: reverse auto-link match
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.SearchOff  // D-226: reverse auto-link no-match
+import androidx.compose.material.icons.filled.Security  // D-209: Cloudflare error icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -50,6 +54,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,6 +67,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -77,6 +84,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
@@ -126,6 +134,8 @@ fun DetailsScreen(
     onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
+    // D-209: Cloudflare manual solver — launched from the episode error card.
+    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
     viewModel: DetailsViewModel = koinViewModel(),
 ) {
     BackHandler(enabled = true) { onBack() }
@@ -133,6 +143,20 @@ fun DetailsScreen(
     // D.FIX: Inject DownloadManager for offline playback (checking isEpisodeDownloaded
     // + getting the local content:// URI).
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+    // D-231: Episode list preferences (filters, sort, grouping).
+    val episodeListPrefs = koinInject<com.confused.anikuta.core.preferences.EpisodeListPreferences>()
+
+    // D-227: Reset ALL per-anime state when LEAVING the Details screen.
+    // Because the ViewModel is Activity-scoped (same instance reused across
+    // navigations), without this reset the old anime's Success state would
+    // flash briefly when opening a new anime (the "shadow" issue). This
+    // DisposableEffect fires onDispose when the detailsKey changes or the
+    // screen is popped — clearing _state to Loading so the next open starts clean.
+    DisposableEffect(detailsKey) {
+        onDispose {
+            viewModel.resetState()
+        }
+    }
 
     // Dispatch to the correct load method based on the key type.
     LaunchedEffect(detailsKey) {
@@ -159,6 +183,11 @@ fun DetailsScreen(
     // Phase WP: watch progress for the episode list (watched state + swipe-to-toggle).
     val watchProgress by viewModel.watchProgress.collectAsState()
 
+    // D-223: Per-anime accent color (extracted from cover image).
+    val coverAccent by viewModel.coverAccent.collectAsState()
+    // D-234: Next-episode release info (for the countdown card).
+    val nextEpisodeInfo by viewModel.nextEpisodeInfo.collectAsState()
+
     // Phase 4: per-anime user rating (0-100, null = unrated).
     val animeRating by viewModel.animeRating.collectAsState()
 
@@ -177,11 +206,52 @@ fun DetailsScreen(
 
     // Phase B: auto-link state
     val autoLinkState by viewModel.autoLinkState.collectAsState()
+    // D-226: Reverse auto-link state — drives the live-preview in the episodes section.
+    val reverseAutoLinkState by viewModel.reverseAutoLinkState.collectAsState()
     val anilistSearchState by viewModel.anilistSearchState.collectAsState()
     val showManualLinkSheet by viewModel.showManualLinkSheet.collectAsState()
 
+    // D-228: Match-preview visibility — keeps the preview card visible for a
+    // minimum duration (MATCH_PREVIEW_MIN_MS) after a reverse auto-link match,
+    // even after episodes finish loading. The user complained the preview
+    // disappeared too quickly to verify the link. This state is set true when
+    // the match arrives, and auto-dismissed after the delay via LaunchedEffect.
+    var matchPreviewVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(reverseAutoLinkState) {
+        if (reverseAutoLinkState is ReverseAutoLinkState.Matched) {
+            matchPreviewVisible = true
+            kotlinx.coroutines.delay(MATCH_PREVIEW_MIN_MS)
+            matchPreviewVisible = false
+        }
+    }
+
     // Phase C: library state
     val isInLibrary by viewModel.isInLibrary.collectAsState()
+
+    // D-231: Collect episode list preferences reactively so the episode list
+    // re-filters/re-sorts live when the user changes settings in the bottom sheet.
+    val downloadedFilter by episodeListPrefs.downloadedFilter.changes.collectAsState(
+        initial = episodeListPrefs.downloadedFilter.get(),
+    )
+    val watchedFilter by episodeListPrefs.watchedFilter.changes.collectAsState(
+        initial = episodeListPrefs.watchedFilter.get(),
+    )
+    val sortMode by episodeListPrefs.sortMode.changes.collectAsState(
+        initial = episodeListPrefs.sortMode.get(),
+    )
+    val sortDescending by episodeListPrefs.sortDescending.changes.collectAsState(
+        initial = episodeListPrefs.sortDescending.get(),
+    )
+    val audioFilter by episodeListPrefs.audioFilter.changes.collectAsState(
+        initial = episodeListPrefs.audioFilter.get(),
+    )
+    val groupingSize by episodeListPrefs.groupingSize.changes.collectAsState(
+        initial = episodeListPrefs.groupingSize.get(),
+    )
+    // D-234: Show next episode release card.
+    val showNextEpisode by episodeListPrefs.showNextEpisode.changes.collectAsState(
+        initial = episodeListPrefs.showNextEpisode.get(),
+    )
 
     // D-146: Refresh visual feedback
     val isRefreshing by viewModel.isRefreshing.collectAsState()
@@ -196,6 +266,41 @@ fun DetailsScreen(
     var showResolverSheet by remember { mutableStateOf(false) }
     var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
+
+    // D-230: Episode list settings sheet + search state.
+    var showEpisodeSettingsSheet by remember { mutableStateOf(false) }
+    var showEpisodeSearch by remember { mutableStateOf(false) }
+    var episodeSearchQuery by remember { mutableStateOf("") }
+    // D-231: Current group index (for the episode group switcher).
+    var currentGroupIndex by remember { mutableIntStateOf(0) }
+
+    // D-231: Hoisted lazyListState so we can auto-scroll to the episodes section
+    // when the settings sheet opens (so the user sees live changes).
+    val detailsLazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    // D-231: Track the scroll position before the sheet opens so we can restore it on dismiss.
+    var savedScrollPosition by remember { mutableIntStateOf(0) }
+    var savedScrollOffset by remember { mutableIntStateOf(0) }
+
+    // D-231: Auto-scroll to the episodes section when the settings sheet opens,
+    // so the user sees live changes. Restore the original position on dismiss.
+    // D-232: Fixed — use animateScrollToItem for BOTH open + restore (smooth both
+    // ways). Removed the false guard (savedScrollPosition > 0) that prevented
+    // restore when the user was at the very top.
+    LaunchedEffect(showEpisodeSettingsSheet) {
+        if (showEpisodeSettingsSheet) {
+            // Save current position.
+            savedScrollPosition = detailsLazyListState.firstVisibleItemIndex
+            savedScrollOffset = detailsLazyListState.firstVisibleItemScrollOffset
+            // Smooth scroll to the episodes section (item index 3).
+            detailsLazyListState.animateScrollToItem(3, scrollOffset = 0)
+        } else {
+            // Smooth restore to the original position.
+            detailsLazyListState.animateScrollToItem(
+                savedScrollPosition,
+                scrollOffset = savedScrollOffset,
+            )
+        }
+    }
 
     // Phase 2: Auto-select video — when the user clicks an episode, set pendingAutoPlay
     // instead of showResolverSheet. The LaunchedEffect below observes resolverState +
@@ -394,16 +499,92 @@ fun DetailsScreen(
         onDispose { updateDebugContext(null) }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        when (val s = state) {
-            is DetailsState.Loading -> Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
+    // D-223: When a cover accent is available, compute a derived ColorScheme
+    // with the primary family overridden for this anime.
+    val adaptiveAccent = coverAccent?.let { androidx.compose.ui.graphics.Color(it) }
+    val adaptiveColorScheme = adaptiveAccent?.let { accent ->
+        val accentColors = com.confused.anikuta.core.designsystem.theme.AccentColors.from(accent)
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        MaterialTheme.colorScheme.copy(
+            primary = if (isDark) accentColors.darkPrimary else accentColors.lightPrimary,
+            onPrimary = if (isDark) accentColors.darkOnPrimary else accentColors.lightOnPrimary,
+            primaryContainer = if (isDark) accentColors.darkPrimaryContainer else accentColors.lightPrimaryContainer,
+            onPrimaryContainer = if (isDark) accentColors.darkOnPrimaryContainer else accentColors.lightOnPrimaryContainer,
+        )
+    }
+
+    // D-223: Wrap the Box in the adaptive color scheme (or use the default if null).
+    val effectiveColorScheme = adaptiveColorScheme ?: MaterialTheme.colorScheme
+
+    // D-230: Hoist onEpisodeClick to screen level so both the Success branch's
+    // items() AND the EpisodeSearchSheet (outside MaterialTheme) can use it.
+    val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = onEpisodeClick@{ episode ->
+        currentEpisode = episode
+        resolverDownloadMode = false
+        val stateKey = viewModel.episodeDownloadStateKey(episode)
+        val downloadState = stateKey?.let { downloadStates[it] }
+        if (downloadState is EpisodeDownloadState.Downloaded) {
+            val mainId = viewModel.currentMainId
+            if (mainId != null) {
+                val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
+                if (localUri != null) {
+                    Logger.i("Anikuta:Feature:Details") {
+                        "onEpisodeClick — episode is downloaded, playing offline: $localUri"
+                    }
+                    val anime = (state as? DetailsState.Success)?.anime
+                    val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                    val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                        "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+                    } ?: ""
+                    val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
+                        val title = meta.title ?: ""
+                        val thumb = meta.thumbnailUrl ?: ""
+                        val date = meta.airDate?.toString() ?: "0"
+                        val desc = meta.description ?: ""
+                        val scanlator = episode.scanlator ?: ""
+                        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+                    }
+                    onNavigateToWatch(
+                        mainId ?: "",
+                        localUri,
+                        anime?.displayName ?: "Downloaded",
+                        "Downloaded",
+                        episode.url,
+                        episode.episode_number,
+                        episode.name,
+                        epListStr,
+                        "", // no headers for local file
+                        "", // no resolvedVideosKey
+                        effectiveLinkedSource?.sourceId ?: 0L,
+                        "", // no subtitle tracks (they're on disk)
+                        "", // no audio tracks
+                        epMetaStr,
+                    )
+                    return@onEpisodeClick
+                }
+            }
+        }
+        // Not downloaded — resolve + try auto-play (Phase 2).
+        viewModel.clearResolver()
+        viewModel.resolveEpisode(episode)
+        if (viewModel.isAutoSelectEnabled()) {
+            pendingAutoPlay = true
+        } else {
+            showResolverSheet = true
+        }
+    }
+
+    MaterialTheme(colorScheme = effectiveColorScheme) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            when (val s = state) {
+                is DetailsState.Loading -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
             }
 
@@ -411,7 +592,7 @@ fun DetailsScreen(
 
             is DetailsState.Success -> {
                 val anime = s.anime
-                val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                val lazyListState = detailsLazyListState // D-231: use hoisted state.
 
                 // ── 3-stage pull-to-refresh state ──
                 // A custom NestedScrollConnection cooperates with the LazyColumn's
@@ -547,6 +728,10 @@ fun DetailsScreen(
                     }
                 }
 
+                // D-228: onEpisodeClick is now hoisted to screen level (before
+                // MaterialTheme) so both the Success branch + EpisodeSearchSheet
+                // (outside MaterialTheme) can use it.
+
                 Box(modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(nestedScrollConnection)
@@ -603,84 +788,51 @@ fun DetailsScreen(
                             item { SynopsisSection(desc, animeRating, viewModel::setAnimeRating) }
                         }
 
-                        // ── Episodes section ──
+                        // ── Episodes section (D-228: flattened for virtualization) ──
+                        // Header + non-Loaded states (Idle/Loading/Empty/Error/CloudflareBlocked)
+                        // are rendered inside EpisodesSection. When Loaded, the episode rows
+                        // are emitted as lazy items() BELOW — proper Compose virtualization.
+                        //
+                        // D-232: Compute the processed/grouped episodes BEFORE the
+                        // EpisodesSection call so the group switcher data is available
+                        // for the header (the switcher is inline in the header now).
+                        val rawEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                        val processedEpisodes = if (rawEpisodes != null) {
+                            applyEpisodeListPreferences(
+                                episodes = rawEpisodes,
+                                metadata = episodeMetadata,
+                                downloadStates = downloadStates,
+                                watchProgress = watchProgress,
+                                mainId = viewModel.currentMainId,
+                                downloadedFilter = downloadedFilter,
+                                watchedFilter = watchedFilter,
+                                audioFilter = audioFilter,
+                                sortMode = sortMode,
+                                sortDescending = sortDescending,
+                            )
+                        } else null
+                        val episodeGroups = if (processedEpisodes != null) {
+                            groupEpisodes(processedEpisodes, groupingSize)
+                        } else null
+                        val currentGroup = if (episodeGroups != null && episodeGroups.size > 1) {
+                            episodeGroups.getOrElse(currentGroupIndex) { episodeGroups.first() }
+                        } else null
+                        val episodesToShow = currentGroup?.episodes ?: processedEpisodes
+
                         item {
-                            // D.FIX: effectiveLinkedSource is now computed at the top
-                            // of the Success branch — no duplicate here.
                             EpisodesSection(
                                 linkedSource = effectiveLinkedSource,
                                 episodeState = episodeState,
                                 episodeMetadata = episodeMetadata,
                                 hasAnilistId = anime.anilistId != null,
+                                reverseAutoLinkState = reverseAutoLinkState,
+                                matchPreviewVisible = matchPreviewVisible,
                                 onOpenSourcePicker = { showManualSearch = true },
+                                onOpenCloudflareWebView = onOpenCloudflareWebView,
                                 onUnlinkSource = { viewModel.unlinkSource() },
-                                onEpisodeClick = { episode ->
-                                    currentEpisode = episode
-                                    resolverDownloadMode = false
-                                    // D.FIX: Check if this episode is already downloaded.
-                                    // If so, play it offline (skip the resolver).
-                                    val stateKey = viewModel.episodeDownloadStateKey(episode)
-                                    val downloadState = stateKey?.let { downloadStates[it] }
-                                    if (downloadState is EpisodeDownloadState.Downloaded) {
-                                        // Play offline — use the downloaded video URI.
-                                        val mainId = viewModel.currentMainId
-                                        if (mainId != null) {
-                                            val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
-                                            if (localUri != null) {
-                                                Logger.i("Anikuta:Feature:Details") {
-                                                    "onEpisodeClick — episode is downloaded, playing offline: $localUri"
-                                                }
-                                                val anime = (state as? DetailsState.Success)?.anime
-                                                val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                                                val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                                                    "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                                                } ?: ""
-                                                val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                                                    val title = meta.title ?: ""
-                                                    val thumb = meta.thumbnailUrl ?: ""
-                                                    val date = meta.airDate?.toString() ?: "0"
-                                                    val desc = meta.description ?: ""
-                                                    val scanlator = episode.scanlator ?: ""
-                                                    "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                                                }
-                                                onNavigateToWatch(
-                                                    mainId ?: "",
-                                                    localUri,
-                                                    anime?.displayName ?: "Downloaded",
-                                                    "Downloaded",
-                                                    episode.url,
-                                                    episode.episode_number,
-                                                    episode.name,
-                                                    epListStr,
-                                                    "", // no headers for local file
-                                                    "", // no resolvedVideosKey
-                                                    effectiveLinkedSource?.sourceId ?: 0L,
-                                                    "", // no subtitle tracks (they're on disk)
-                                                    "", // no audio tracks
-                                                    epMetaStr,
-                                                )
-                                                return@EpisodesSection
-                                            }
-                                        }
-                                    }
-                                    // Not downloaded — resolve + try auto-play (Phase 2).
-                                    // If autoSelectVideo is ON: clear resolver (avoid stale state),
-                                    // set pendingAutoPlay → LaunchedEffect handles auto-select.
-                                    // If OFF: just show the ResolverSheet directly (original behavior).
-                                    viewModel.clearResolver()
-                                    viewModel.resolveEpisode(episode)
-                                    if (viewModel.isAutoSelectEnabled()) {
-                                        pendingAutoPlay = true
-                                    } else {
-                                        showResolverSheet = true
-                                    }
-                                },
+                                onEpisodeClick = onEpisodeClick,
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->
-                                    // D.FIX: Show the resolver sheet in download mode —
-                                    // the user picks which video to download (same UI as
-                                    // play, but the heading says "Download EP" and picking
-                                    // a video enqueues a download instead of navigating to watch).
                                     currentEpisode = episode
                                     resolverDownloadMode = true
                                     viewModel.resolveEpisode(episode)
@@ -704,11 +856,121 @@ fun DetailsScreen(
                                 episodeDownloadStateKey = { episode ->
                                     viewModel.episodeDownloadStateKey(episode)
                                 },
-                                // Phase WP: watched state.
                                 mainId = viewModel.currentMainId,
                                 watchProgress = watchProgress,
                                 onToggleWatched = { epKey -> viewModel.toggleWatched(epKey) },
+                                onOpenEpisodeSettings = { showEpisodeSettingsSheet = true },
+                                onOpenEpisodeSearch = { showEpisodeSearch = true },
+                                // D-232: Group switcher data (inline in header).
+                                currentGroup = currentGroup,
+                                totalGroups = episodeGroups?.size ?: 0,
+                                onPrevGroup = { if (currentGroupIndex > 0) currentGroupIndex-- },
+                                onNextGroup = {
+                                    val max = (episodeGroups?.size ?: 1) - 1
+                                    if (currentGroupIndex < max) currentGroupIndex++
+                                },
                             )
+                        }
+
+                        // D-228: Lazy episode rows — virtualized! Only ~15 rows are
+                        // composed at a time (the visible window), not all 1000.
+                        // key = { it.url } gives each row a stable identity.
+                        //
+                        // D-229: The episode list is HIDDEN while the match-preview card
+                        // is visible (matchPreviewVisible == true). The user should only
+                        // see the preview card during that window — the episodes load in
+                        // the background but don't appear until the preview dismisses.
+                        //
+                        // D-232: rawEpisodes/processedEpisodes/episodeGroups/currentGroup/
+                        // episodesToShow are now computed ABOVE (before EpisodesSection).
+
+                        if (episodesToShow != null && !matchPreviewVisible) {
+                            // D-233: Empty-state when filters produce no results.
+                            if (episodesToShow.isEmpty() && rawEpisodes?.isNotEmpty() == true) {
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Text(
+                                            text = "No episodes match your filters",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                        Spacer(Modifier.height(8.dp))
+                                        TextButton(onClick = { episodeListPrefs.resetFilters() }) {
+                                            Text(
+                                                "Reset filters",
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                            // D-234: Next-episode card — shows at the top of the list
+                            // when showNextEpisode is enabled + there's a future episode.
+                            // D-237: Use a unique key to prevent LazyColumn key collisions
+                            // with episode rows (which are keyed by it.url).
+                            if (showNextEpisode && nextEpisodeInfo != null) {
+                                item(key = "next_episode_card") {
+                                    NextEpisodeCard(nextEpisodeInfo!!)
+                                }
+                            }
+                            // D-232: Group switcher is now INLINE in the EpisodesSection
+                            // header (between "Episodes" text and source pill), not here.
+                            items(episodesToShow, key = { it.url }) { episode ->
+                                val epNum = episode.episode_number.toInt()
+                                val metadata = episodeMetadata[epNum]
+                                val stateKey = viewModel.episodeDownloadStateKey(episode)
+                                val downloadState = stateKey?.let { downloadStates[it] }
+                                    ?: EpisodeDownloadState.NotDownloaded
+                                val mainId = viewModel.currentMainId
+                                val epKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
+                                val progress = epKey?.let { watchProgress[it] }
+                                val isWatched = progress?.isWatched ?: false
+                                Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+                                    EpisodeRow(
+                                        episode = episode,
+                                        metadata = metadata,
+                                        onClick = { onEpisodeClick(episode) },
+                                        downloadState = downloadState,
+                                        fallbackCoverUrl = anime.coverUrl,
+                                        onDownload = { currentEpisode = episode; resolverDownloadMode = true; viewModel.resolveEpisode(episode); showResolverSheet = true },
+                                        onPause = { viewModel.pauseEpisodeDownload(episode) },
+                                        onResume = { viewModel.resumeEpisodeDownload(episode) },
+                                        onCancel = { viewModel.cancelEpisodeDownload(episode) },
+                                        onRetry = { viewModel.retryEpisodeDownload(episode) },
+                                        onDelete = { viewModel.deleteDownloadedEpisode(episode) },
+                                        onPlayDownloaded = { onEpisodeClick(episode) },
+                                        isWatched = isWatched,
+                                        progressFraction = progress?.progressFraction ?: 0f,
+                                        onToggleWatched = { epKey?.let { viewModel.toggleWatched(it) } },
+                                    )
+                                }
+                            }
+                            // Unlink button at the bottom.
+                            item {
+                                TextButton(
+                                    onClick = { viewModel.unlinkSource() },
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                ) {
+                                    Text(
+                                        "Unlink source",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = FontWeight.ExtraBold,
+                                    )
+                                }
+                            }
+                            } // end else (non-empty episodesToShow)
                         }
 
                         // ── Info ──
@@ -786,6 +1048,7 @@ fun DetailsScreen(
             }
         }
     }
+    } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
 
     // ── Manual search sheet (source selection) ──
     if (showManualSearch) {
@@ -812,6 +1075,15 @@ fun DetailsScreen(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
             downloadMode = resolverDownloadMode,
+            // D-210: "Open in WebView" on the resolver Error state — opens the
+            // source's episode page in a WebView so the user can solve Cloudflare
+            // or browse the source manually. Null if no source is linked.
+            onOpenInWebView = {
+                viewModel.getSourceEpisodeUrl()?.let { url ->
+                    val sourceName = effectiveLinkedSource?.sourceName ?: "Source"
+                    onOpenCloudflareWebView(url, sourceName)
+                }
+            },
             onPickVideo = { video, serverName, audioLabel ->
                 val anime = (state as? DetailsState.Success)?.anime
                 val linked = effectiveLinkedSource
@@ -918,6 +1190,46 @@ fun DetailsScreen(
             onDismiss = { viewModel.dismissCategorySheet() },
         )
     }
+
+    // D-230: Episode list settings bottom sheet (tap "Episodes" text).
+    // D-231: Wrapped in the adaptive accent color scheme so the sheet inherits
+    // the per-anime dynamic theming (matches the rest of the details page).
+    if (showEpisodeSettingsSheet) {
+        val accentColorScheme = coverAccent?.let { argb ->
+            val accent = androidx.compose.ui.graphics.Color(argb)
+            val accentColors = com.confused.anikuta.core.designsystem.theme.AccentColors.from(accent)
+            val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+            MaterialTheme.colorScheme.copy(
+                primary = if (isDark) accentColors.darkPrimary else accentColors.lightPrimary,
+                onPrimary = if (isDark) accentColors.darkOnPrimary else accentColors.lightOnPrimary,
+                primaryContainer = if (isDark) accentColors.darkPrimaryContainer else accentColors.lightPrimaryContainer,
+                onPrimaryContainer = if (isDark) accentColors.darkOnPrimaryContainer else accentColors.lightOnPrimaryContainer,
+            )
+        } ?: MaterialTheme.colorScheme
+        MaterialTheme(colorScheme = accentColorScheme) {
+            EpisodeListSettingsSheet(onDismiss = { showEpisodeSettingsSheet = false })
+        }
+    }
+
+    // D-230: Episode search field (swipe-right on "Episodes" text).
+    // onEpisodeClick is hoisted to screen level so it's in scope here.
+    if (showEpisodeSearch) {
+        EpisodeSearchSheet(
+            episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+            episodeMetadata = episodeMetadata,
+            query = episodeSearchQuery,
+            onQueryChange = { episodeSearchQuery = it },
+            onEpisodeClick = { episode ->
+                showEpisodeSearch = false
+                episodeSearchQuery = ""
+                onEpisodeClick(episode)
+            },
+            onDismiss = {
+                showEpisodeSearch = false
+                episodeSearchQuery = ""
+            },
+        )
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1019,13 +1331,51 @@ private fun DetailBanner(
     onUnlinkAniList: () -> Unit = {},
 ) {
     val coverUrl = anime.coverUrl
-    // Per user: use the cover image as the background (like old project).
-    // The old project uses anime.coverUrl for the background — not bannerImage.
-    // A future tint-color system will extract the dominant color from the cover.
-    val bannerUrl = coverUrl
+    // D-236: Background image source — cover or banner (with fallback).
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val bgSource = appPrefs.detailsBackgroundSource
+    val tintEnabled = appPrefs.detailsBannerTint
+    val animationEnabled = appPrefs.detailsBannerAnimation && appPrefs.animationsEnabled
+    // D-236: Select the background image based on user preference.
+    // If BANNER is selected but bannerUrl is null, fall back to cover.
+    val bannerUrl = when (bgSource) {
+        "BANNER" -> anime.bannerUrl ?: coverUrl
+        else -> coverUrl // "COVER" (default)
+    }
+
+    // D-236: Slow pan animation — infinite transition that moves the image.
+    // D-237: Increased speed (12s X, 16s Y — was 20s/28s).
+    val panX by if (animationEnabled) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "bgPanX")
+            .animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(12_000, easing = androidx.compose.animation.core.LinearEasing),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                ),
+                label = "panX",
+            )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
+    val panY by if (animationEnabled) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "bgPanY")
+            .animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(16_000, easing = androidx.compose.animation.core.LinearEasing),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                ),
+                label = "panY",
+            )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
 
     Box(modifier = Modifier.fillMaxWidth()) {
-        // ── Background: blurred banner image + gradient ──
+        // ── Background: blurred banner image + tint + gradient ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1035,11 +1385,36 @@ private fun DetailBanner(
                 AsyncImage(
                     model = bannerUrl,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize().blur(8.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(8.dp)
+                        // D-236: Scale up 15% so panning never reveals edges.
+                        .then(if (animationEnabled) Modifier.scale(1.15f) else Modifier)
+                        // D-236: Apply slow pan offset.
+                        .then(
+                            if (animationEnabled) {
+                                Modifier.offset(
+                                    x = androidx.compose.ui.unit.lerp((-48).dp, 48.dp, panX),
+                                    y = androidx.compose.ui.unit.lerp((-24).dp, 24.dp, panY),
+                                )
+                            } else {
+                                Modifier
+                            },
+                        ),
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+            }
+            // D-236: Accent-color tint overlay (30% alpha) — between the image
+            // and the gradient so the tint colors the image without blocking the
+            // gradient's readability effect.
+            if (tintEnabled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
+                )
             }
             // Gradient overlay: black 20% → transparent → background
             Box(
@@ -1146,12 +1521,15 @@ private fun DetailBanner(
         }
 
         // ── Bottom row: cover thumbnail + title + meta ──
+        // D-238: Align the title/meta Column to the bottom of the cover thumbnail
+        // (was top-aligned by default — user requested bottom alignment).
         Row(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
             if (coverUrl != null) {
                 AsyncImage(
@@ -1164,6 +1542,8 @@ private fun DetailBanner(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
+                // D-238: Tap the title to silently copy to clipboard.
+                val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
                 Text(
                     text = anime.displayName,
                     fontFamily = RobotoFamily,
@@ -1172,45 +1552,31 @@ private fun DetailBanner(
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable {
+                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(anime.displayName))
+                    },
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                // Phase B: auto-link badge / searching indicator.
-                // Shows "Linked to AniList" (green check) when extension entry has anilistId,
-                // or a small spinner + "Auto-linking..." while searching.
-                if (isExtensionEntry && (isAniListLinked || isAutoLinkSearching)) {
+                // D-238: Removed the "Linked to AniList" badge — no longer needed.
+                // Only show the auto-linking spinner while searching.
+                if (isExtensionEntry && isAutoLinkSearching) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.padding(bottom = 4.dp),
                     ) {
-                        if (isAutoLinkSearching) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                strokeWidth = 1.5.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                text = "Auto-linking...",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        } else if (isAniListLinked) {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = "Linked to AniList",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(12.dp),
-                            )
-                            Text(
-                                text = "Linked to AniList",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = "Auto-linking...",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
@@ -1370,7 +1736,11 @@ private fun EpisodesSection(
     episodeState: EpisodeState,
     episodeMetadata: Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>,
     hasAnilistId: Boolean,
+    reverseAutoLinkState: ReverseAutoLinkState = ReverseAutoLinkState.Idle,
+    matchPreviewVisible: Boolean = false,
     onOpenSourcePicker: () -> Unit,
+    // D-209: callback to open the Cloudflare WebView solver.
+    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit,
     onUnlinkSource: () -> Unit,
     onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit,
     downloadStates: Map<String, EpisodeDownloadState> = emptyMap(),
@@ -1385,6 +1755,15 @@ private fun EpisodesSection(
     mainId: String? = null,
     watchProgress: Map<String, com.confused.anikuta.core.watchprogress.WatchProgress> = emptyMap(),
     onToggleWatched: (String) -> Unit = {},
+    // D-230: callback to open the episode list settings bottom sheet.
+    onOpenEpisodeSettings: () -> Unit = {},
+    // D-230: callback to open the episode search (swipe-right gesture).
+    onOpenEpisodeSearch: () -> Unit = {},
+    // D-232: Group switcher data — null when grouping is inactive.
+    currentGroup: EpisodeGroup? = null,
+    totalGroups: Int = 0,
+    onPrevGroup: () -> Unit = {},
+    onNextGroup: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
@@ -1430,7 +1809,35 @@ private fun EpisodesSection(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    // D-231: swipe-right → open episode search (with visual feedback + haptic).
+                    .pointerInput(Unit) {
+                        var totalDrag = 0f
+                        var searchTriggered = false
+                        detectHorizontalDragGestures(
+                            onDragStart = {
+                                totalDrag = 0f
+                                searchTriggered = false
+                            },
+                            onDragEnd = {
+                                totalDrag = 0f
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                totalDrag += dragAmount
+                                // Trigger search when the user swipes right past 80px.
+                                if (totalDrag > 80f && !searchTriggered) {
+                                    searchTriggered = true
+                                    onOpenEpisodeSearch()
+                                }
+                            },
+                        )
+                    }
+                    // D-230: tap → open episode list settings sheet.
+                    .clickable { onOpenEpisodeSettings() },
+            ) {
                 Text(
                     text = "Episodes",
                     fontFamily = RobotoFamily,
@@ -1456,6 +1863,16 @@ private fun EpisodesSection(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+            }
+            // D-232: Group switcher — inline between "Episodes" text and source pill.
+            if (currentGroup != null && totalGroups > 1) {
+                Spacer(Modifier.width(8.dp))
+                EpisodeGroupSwitcher(
+                    currentGroup = currentGroup,
+                    totalGroups = totalGroups,
+                    onPrev = onPrevGroup,
+                    onNext = onNextGroup,
+                )
             }
             Spacer(Modifier.weight(1f))
             // Source selector pill — shows linked source name or "No source".
@@ -1499,51 +1916,157 @@ private fun EpisodesSection(
         // ── Episode list / states ──
         when (episodeState) {
             is EpisodeState.Idle -> {
-                // No source linked — show placeholder.
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Filled.HourglassEmpty,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(48.dp),
+                // D-226: Live-preview the reverse auto-link search here.
+                // Instead of a static "No source linked" message, show the user
+                // what's happening: searching extensions → match found → loading
+                // episodes. Only falls back to "No source linked" when the
+                // reverse auto-link is Idle (feature off / not applicable) or Error.
+                when (reverseAutoLinkState) {
+                    is ReverseAutoLinkState.Searching -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(36.dp),
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                Text(
+                                    text = "Searching extensions…",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Looking for a matching source\nfor this anime.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                    is ReverseAutoLinkState.Matched -> {
+                        // D-228: Match-preview card (extracted to MatchPreviewCard).
+                        MatchPreviewCard(
+                            sourceName = reverseAutoLinkState.sourceName,
+                            animeTitle = reverseAutoLinkState.animeTitle,
+                            thumbnailUrl = reverseAutoLinkState.thumbnailUrl,
+                            showLoadingHint = true,
                         )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = "No source linked",
-                            fontFamily = RobotoFamily,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Tap the source selector above to search\nand link an extension source.",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center,
-                        )
+                    }
+                    is ReverseAutoLinkState.NoMatch -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Filled.SearchOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(48.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "No source found",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Auto-link couldn't find a matching extension.\nTap below to search manually.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                TextButton(onClick = onOpenSourcePicker) {
+                                    Text(
+                                        text = "Link source manually",
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    is ReverseAutoLinkState.Idle, is ReverseAutoLinkState.Error -> {
+                        // No reverse auto-link active — show the original placeholder.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Filled.HourglassEmpty,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(48.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "No source linked",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Tap the source selector above to search\nand link an extension source.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             is EpisodeState.Loading -> {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(32.dp),
+                // D-228: When the reverse auto-link found a match and episodes
+                // are now loading, show the match-preview card. Reuses MatchPreviewCard.
+                val matched = reverseAutoLinkState as? ReverseAutoLinkState.Matched
+                if (matched != null) {
+                    MatchPreviewCard(
+                        sourceName = matched.sourceName,
+                        animeTitle = matched.animeTitle,
+                        thumbnailUrl = matched.thumbnailUrl,
+                        showLoadingHint = true,
                     )
+                } else {
+                    // No reverse match — standard loading spinner.
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(32.dp),
+                        )
+                    }
                 }
             }
 
@@ -1589,51 +2112,354 @@ private fun EpisodesSection(
                 }
             }
 
-            is EpisodeState.Loaded -> {
-                // Episode list — each episode is a row with metadata.
+            is EpisodeState.CloudflareBlocked -> {
+                // D-209: Cloudflare blocked the episode fetch + the headless solver failed.
+                // Show "Open in WebView" (solve manually) + "Try another source".
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    episodeState.episodes.forEach { episode ->
-                        val epNum = episode.episode_number.toInt()
-                        val metadata = episodeMetadata[epNum]
-                        val stateKey = episodeDownloadStateKey(episode)
-                        val downloadState = stateKey?.let { downloadStates[it] }
-                            ?: EpisodeDownloadState.NotDownloaded
-                        // Phase WP: build the standardized episode key + look up watched state.
-                        val epKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
-                        val progress = epKey?.let { watchProgress[it] }
-                        val isWatched = progress?.isWatched ?: false
-                        EpisodeRow(
-                            episode = episode,
-                            metadata = metadata,
-                            onClick = { onEpisodeClick(episode) },
-                            downloadState = downloadState,
-                            onDownload = { onDownloadEpisode(episode) },
-                            onPause = { onPauseEpisodeDownload(episode) },
-                            onResume = { onResumeEpisodeDownload(episode) },
-                            onCancel = { onCancelEpisodeDownload(episode) },
-                            onRetry = { onRetryEpisodeDownload(episode) },
-                            onDelete = { onDeleteDownloadedEpisode(episode) },
-                            onPlayDownloaded = { onEpisodeClick(episode) },
-                            isWatched = isWatched,
-                            progressFraction = progress?.progressFraction ?: 0f,
-                            onToggleWatched = { epKey?.let { onToggleWatched(it) } },
+                    Text(
+                        text = "Cloudflare protection",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "${episodeState.sourceName} is behind Cloudflare and the " +
+                            "automatic bypass failed. Tap \"Open in WebView\" to solve the " +
+                            "challenge manually, then re-open this anime — cookies are saved.",
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.material3.Button(onClick = {
+                        onOpenCloudflareWebView(episodeState.url, episodeState.sourceName)
+                    }) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Icons.Filled.Security,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
                         )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Open in WebView", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                     }
-                    // Unlink button at the bottom.
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onUnlinkSource) {
-                        Text(
-                            "Unlink source",
-                            fontFamily = RobotoFamily,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.ExtraBold,
-                        )
+                    TextButton(onClick = onOpenSourcePicker) {
+                        Text("Try another source", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                     }
                 }
+            }
+
+            is EpisodeState.Loaded -> {
+                // D-228: The episode list is now rendered as lazy `items(...)` in
+                // the OUTER LazyColumn (not here). This file only renders the match
+                // preview card (if visible) above the episode list. The episode rows
+                // + unlink button are emitted directly by the outer LazyColumn for
+                // proper Compose virtualization (~60x node reduction for 1000 eps).
+                val matched = reverseAutoLinkState as? ReverseAutoLinkState.Matched
+                if (matchPreviewVisible && matched != null) {
+                    MatchPreviewCard(
+                        sourceName = matched.sourceName,
+                        animeTitle = matched.animeTitle,
+                        thumbnailUrl = matched.thumbnailUrl,
+                        showLoadingHint = false,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-228: MatchPreviewCard — reusable card showing the reverse auto-link match
+//  (cover image + matched title + source badge + optional loading hint).
+//  Used in: Idle+Matched, Loading+Matched, Loaded+matchPreviewVisible.
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun MatchPreviewCard(
+    sourceName: String,
+    animeTitle: String,
+    thumbnailUrl: String?,
+    showLoadingHint: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // "Linked to" badge.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = "Linked to $sourceName",
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        // Preview card: cover image (left) + matched title (right).
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Cover image (or placeholder if no thumbnail).
+                if (!thumbnailUrl.isNullOrBlank()) {
+                    coil3.compose.AsyncImage(
+                        model = thumbnailUrl,
+                        contentDescription = animeTitle,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier
+                            .size(width = 48.dp, height = 64.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(width = 48.dp, height = 64.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = animeTitle.firstOrNull()?.uppercase() ?: "?",
+                            fontFamily = RobotoFamily,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                }
+                // Matched title + optional loading hint.
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = animeTitle,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (showLoadingHint) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Loading episodes…",
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** D-228: Minimum time the match-preview card stays visible (ms). */
+private const val MATCH_PREVIEW_MIN_MS = 4000L
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-234: NextEpisodeCard — shows the upcoming episode with a countdown
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun NextEpisodeCard(info: NextEpisodeInfo) {
+    // D-234: Live countdown — update every second.
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(info.airingAtMillis) {
+        while (true) {
+            now = System.currentTimeMillis()
+            kotlinx.coroutines.delay(1000L)
+        }
+    }
+    val remainingMs = (info.airingAtMillis - now).coerceAtLeast(0)
+    val days = remainingMs / (1000 * 60 * 60 * 24)
+    val hours = (remainingMs / (1000 * 60 * 60)) % 24
+    val minutes = (remainingMs / (1000 * 60)) % 60
+    val seconds = (remainingMs / 1000) % 60
+    val countdownText = when {
+        days > 0 -> "${days}d ${hours}h ${minutes}m"
+        hours > 0 -> "${hours}h ${minutes}m ${seconds}s"
+        minutes > 0 -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
+    }
+    val releaseDateText = remember(info.airingAtMillis) {
+        val sdf = java.text.SimpleDateFormat("MMM d, yyyy • HH:mm", java.util.Locale.getDefault())
+        sdf.format(java.util.Date(info.airingAtMillis))
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Episode number badge.
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    text = "EP ${info.episodeNumber}",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            // Release info.
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (info.isComingSoon) "Coming soon" else "Next episode",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                )
+                Text(
+                    text = if (info.isComingSoon) "Episode ${info.episodeNumber}" else releaseDateText,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            // Countdown or "Coming soon" badge.
+            if (info.isComingSoon) {
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiary,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        text = "Soon",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onTertiary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        text = countdownText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-231: EpisodeGroupSwitcher — shows between "Episodes" text and source pill
+//  when grouping is active. Lets the user switch between groups of episodes.
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun EpisodeGroupSwitcher(
+    currentGroup: EpisodeGroup,
+    totalGroups: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(50),
+        modifier = modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+        ) {
+            // Previous button.
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = currentGroup.index > 0, onClick = onPrev),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Previous group",
+                    tint = if (currentGroup.index > 0)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f),
+                    modifier = Modifier.size(20.dp).rotate(90f),
+                )
+            }
+            // Group label — D-233: lowEpisode is always the smaller number.
+            Text(
+                text = "EP ${currentGroup.lowEpisode}-${currentGroup.highEpisode}",
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            // Next button.
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable(enabled = currentGroup.index < totalGroups - 1, onClick = onNext),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Next group",
+                    tint = if (currentGroup.index < totalGroups - 1)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f),
+                    modifier = Modifier.size(20.dp).rotate(-90f),
+                )
             }
         }
     }
@@ -1645,6 +2471,9 @@ private fun EpisodeRow(
     metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,
     downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
+    // D-229: Fallback cover URL (the anime's cover image) — used when the
+    // episode has no per-episode thumbnail. Prevents bare circle placeholders.
+    fallbackCoverUrl: String? = null,
     onDownload: () -> Unit = {},
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
@@ -1666,7 +2495,18 @@ private fun EpisodeRow(
             ?: episode.name.ifBlank { "Episode ${formatEpisodeNumber(episode.episode_number)}" }
     }
     val description = metadata?.description ?: episode.summary
-    val thumbnailUrl = metadata?.thumbnailUrl
+    // D-230: Thumbnail fallback is now configurable via EpisodeListPreferences.
+    // - "COVER" → fall back to the anime's cover image (default).
+    // - "NONE" → no image (bare placeholder).
+    val episodeListPrefs = koinInject<com.confused.anikuta.core.preferences.EpisodeListPreferences>()
+    val thumbnailFallback by episodeListPrefs.thumbnailFallback.changes.collectAsState(
+        initial = episodeListPrefs.thumbnailFallback.get(),
+    )
+    val thumbnailUrl = when {
+        !metadata?.thumbnailUrl.isNullOrBlank() -> metadata?.thumbnailUrl
+        thumbnailFallback == "COVER" -> fallbackCoverUrl
+        else -> null
+    }
     val epNumText = formatEpisodeNumber(episode.episode_number)
     val dateText = remember(episode, metadata) {
         val airDate = metadata?.airDate
@@ -1749,9 +2589,9 @@ private fun EpisodeRow(
         }
 
         // The actual card — opaque (NOT transparent), translates with the swipe.
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(12.dp),
+        // D-211: changed from Surface to Box so we can overlay a full-width download
+        // progress bar at the bottom (under the buttons, spanning the entire card width).
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(swipeOffset.value.toInt(), 0) }
@@ -1792,6 +2632,8 @@ private fun EpisodeRow(
                         }
                     }
                 }
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(onClick = onClick),
         ) {
         Column(
@@ -2024,6 +2866,20 @@ private fun EpisodeRow(
                 // (Already rendered inline in the date/audio pills Row above if no synopsis.)
             }
         }
+        // D-211: full-width download progress bar overlay at the bottom of the card.
+        // Spans the ENTIRE card width (under the buttons too). Doesn't add height —
+        // it's an overlay on the Box, aligned BottomCenter. Only shows when downloading.
+        if (downloadState is EpisodeDownloadState.Downloading) {
+            LinearProgressIndicator(
+                progress = { (downloadState.progress / 100f).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(3.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+            )
+        }
     }
     } // close the swipe wrapper Box (Phase WP)
 }
@@ -2162,6 +3018,16 @@ private fun InfoRow(label: String, value: String) {
 
 @Composable
 private fun ErrorState(message: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    // D-223fix: Truncate long error messages (e.g. raw SQLite stack traces).
+    // Show first ~150 chars + "..." if longer. User can copy the full message.
+    val displayMessage = if (message.length > 150) {
+        message.take(150) + "..."
+    } else {
+        message
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2178,12 +3044,26 @@ private fun ErrorState(message: String) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = message,
+            text = displayMessage,
             fontFamily = RobotoFamily,
             fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
         )
+        if (message.length > 150) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.TextButton(onClick = {
+                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(message))
+                }) {
+                    Text("Copy error", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
     }
 }
 

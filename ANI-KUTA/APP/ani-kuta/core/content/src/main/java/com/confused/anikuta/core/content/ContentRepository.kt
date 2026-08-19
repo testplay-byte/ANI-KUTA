@@ -275,6 +275,7 @@ class ContentRepository(
                 extThumbnailUrl = it.ext_thumbnail_url,
                 extExtraJson = it.ext_extra_json,
                 extUpdatedAt = it.ext_updated_at,
+                coverAccentArgb = it.cover_accent_argb,
             )
         }
     }
@@ -308,7 +309,16 @@ class ContentRepository(
             extThumbnailUrl = detail.extThumbnailUrl,
             extExtraJson = detail.extExtraJson,
             extUpdatedAt = detail.extUpdatedAt,
+            coverAccentArgb = detail.coverAccentArgb,
         )
+    }
+
+    /**
+     * D-223: Update only the cover accent color (extracted from cover image via Palette API).
+     * Used by [CoverColorExtractor] to persist the extracted color without touching other fields.
+     */
+    fun updateCoverAccent(mainId: String, argb: Long) {
+        contentQueries.updateCoverAccentArgb(mainId = mainId, argb = argb)
     }
 
     /** Partial UPDATE of all data-source fields (extension fields untouched). */

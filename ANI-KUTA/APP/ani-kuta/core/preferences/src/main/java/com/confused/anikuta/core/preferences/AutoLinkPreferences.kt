@@ -1,18 +1,39 @@
 package com.confused.anikuta.core.preferences
 
 /**
- * Preferences for the auto-link system (Phase B).
+ * Preferences for the auto-link system (D-226 redesign).
  *
- * Backed by [PreferenceStore]. Three layers:
- * 1. **Global toggle** — master switch ([autoLinkEnabled]).
- * 2. **Match strategy + threshold** — controls SmartMatcher behavior.
- * 3. **Per-source overrides** — each source can be Default / Always / Never.
- * 4. **Link cache** — persists successful (sourceId, animeUrl) → anilistId
- *    mappings so re-opening an anime doesn't re-search AniList every time.
+ * Two independent directions, each with its OWN toggle + strategy + threshold:
+ *
+ * **Forward (extension → metadata provider):**
+ *   When the user opens an extension anime, search a metadata provider (AniList)
+ *   by title and merge metadata if a match is found.
+ *   - [autoLinkEnabled] (toggle)
+ *   - [strategy] (fuzzy/strict/manual)
+ *   - [threshold] (fuzzy threshold)
+ *
+ * **Reverse (metadata provider → extensions):**
+ *   When the user opens an AniList anime with NO linked source, search the
+ *   user's extensions (in priority order) for a matching SAnime.
+ *   - [reverseAutoLinkEnabled] (toggle)
+ *   - [reverseStrategy] (fuzzy/strict/manual)
+ *   - [reverseThreshold] (fuzzy threshold)
+ *   - [reverseAutoLinkExtensionOrder] (drag-to-reorder priority list)
+ *
+ * **Shared across both directions:**
+ *   - Per-source overrides ("default" / "on" / "off") — keyed by sourceId.
+ *   - Link cache (sourceId, animeUrl) → anilistId — avoids re-searching.
+ *
+ * **Future-proofing (D-226):** The forward direction is designed to work with
+ * any metadata provider, not just AniList. Currently AniList is the only
+ * provider, but the strategy/threshold/override model is provider-agnostic.
+ * Adding a second provider (e.g., MAL, Kitsu) would add a new
+ * `forwardProvider` pref + a new cache prefix, without changing the UI or
+ * the ReverseAutoLinkService.
  *
  * CORE_RULES §23: The UI toggles flip mutableStateOf snapshots; the underlying
- * SharedPreferences write happens immediately. Reactive consumers (SettingsScreen)
- * recompose on state change.
+ * SharedPreferences write happens immediately. Reactive consumers
+ * (SettingsScreen) recompose on state change.
  *
  * Per-source override is keyed by `sourceId` (Long) — stable across reinstalls
  * because source IDs are derived from the extension package name + source name
@@ -20,29 +41,67 @@ package com.confused.anikuta.core.preferences
  */
 class AutoLinkPreferences(private val store: PreferenceStore) {
 
-    /** Master switch — when false, auto-link never runs (manual sheet still works). */
+    // ════════════════════════════════════════════════════════════════════════
+    //  FORWARD direction (extension → AniList metadata)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /** Forward master switch — when false, forward auto-link never runs. */
     var autoLinkEnabled: Boolean
         get() = store.getBoolean(KEY_AUTO_LINK_ENABLED, true)
         set(value) = store.putBoolean(KEY_AUTO_LINK_ENABLED, value)
 
-    /** Match strategy: "fuzzy" / "strict" / "manual". */
+    /** Forward match strategy: "fuzzy" / "strict" / "manual". */
     var strategy: String
         get() = store.getString(KEY_STRATEGY, "fuzzy")
         set(value) = store.putString(KEY_STRATEGY, value)
 
-    /** FUZZY threshold (0.0..1.0). Stored as a Float. Default 0.80. */
+    /** Forward FUZZY threshold (0.0..1.0). Default 0.80. */
     var threshold: Float
         get() = store.getFloat(KEY_THRESHOLD, 0.80f)
         set(value) = store.putFloat(KEY_THRESHOLD, value)
 
-    // ── Per-source overrides ──────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════════
+    //  REVERSE direction (AniList → extensions) — D-226: own strategy + threshold
+    // ════════════════════════════════════════════════════════════════════════
+
+    /** Reverse master toggle (searching extensions when opening AniList anime). */
+    var reverseAutoLinkEnabled: Boolean
+        get() = store.getBoolean(KEY_REVERSE_ENABLED, true)
+        set(value) = store.putBoolean(KEY_REVERSE_ENABLED, value)
+
+    /**
+     * Reverse match strategy: "fuzzy" / "strict" / "manual".
+     * Independent from the forward [strategy] — the user may want a stricter
+     * threshold when searching extensions (more false positives) vs. AniList.
+     */
+    var reverseStrategy: String
+        get() = store.getString(KEY_REVERSE_STRATEGY, "fuzzy")
+        set(value) = store.putString(KEY_REVERSE_STRATEGY, value)
+
+    /** Reverse FUZZY threshold (0.0..1.0). Default 0.80. */
+    var reverseThreshold: Float
+        get() = store.getFloat(KEY_REVERSE_THRESHOLD, 0.80f)
+        set(value) = store.putFloat(KEY_REVERSE_THRESHOLD, value)
+
+    /**
+     * Ordered list of extension package names for reverse auto-link search priority.
+     * The first extension in this list is searched first; if no match, the next is tried.
+     * Extensions not in this list are appended at the end (newly installed).
+     * Empty list = use the default installation order.
+     */
+    var reverseAutoLinkExtensionOrder: List<String>
+        get() = store.getStringList(KEY_REVERSE_EXT_ORDER, emptyList())
+        set(value) = store.putStringList(KEY_REVERSE_EXT_ORDER, value)
+
+    // ── Per-source overrides (shared by both directions) ─────────────────────
 
     /**
      * Per-source override: "default" / "on" / "off".
      *
-     * - "default" → use the global [autoLinkEnabled] setting.
-     * - "on"      → always auto-link (overrides global OFF).
-     * - "off"     → never auto-link (overrides global ON).
+     * - "default" → use the global [autoLinkEnabled] setting (forward) AND
+     *   [reverseAutoLinkEnabled] (reverse).
+     * - "on"      → always auto-link in BOTH directions (overrides global OFF).
+     * - "off"     → never auto-link in EITHER direction (overrides global ON).
      */
     fun getPerSourceOverride(sourceId: Long): String {
         return store.getString(keyPerSourceOverride(sourceId), "default")
@@ -53,7 +112,7 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
     }
 
     /**
-     * Resolve the effective auto-link setting for a source:
+     * Resolve the effective auto-link setting for a source in the FORWARD direction:
      * global ANDed with the per-source override.
      */
     fun isAutoLinkEnabledForSource(sourceId: Long): Boolean {
@@ -61,6 +120,19 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
             "on" -> true
             "off" -> false
             else -> autoLinkEnabled
+        }
+    }
+
+    /**
+     * D-226: Resolve the effective auto-link setting for a source in the REVERSE
+     * direction. Same override logic as [isAutoLinkEnabledForSource] but uses the
+     * reverse master toggle.
+     */
+    fun isReverseAutoLinkEnabledForSource(sourceId: Long): Boolean {
+        return when (getPerSourceOverride(sourceId)) {
+            "on" -> true
+            "off" -> false
+            else -> reverseAutoLinkEnabled
         }
     }
 
@@ -87,17 +159,60 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
         store.putInt(keyLinkCache(sourceId, animeUrl), 0)
     }
 
+    // ── D-238: Per-anime "user unlinked" blacklist ──────────────────────────
+
+    /**
+     * D-238: Marks an AniList anime as "user unlinked" — the user manually
+     * unlinked the source, so reverse auto-link should NOT re-link it.
+     *
+     * Cleared when the user manually links a source (via [clearUserUnlinked]).
+     */
+    fun markUserUnlinked(anilistId: Int) {
+        store.putBoolean(keyUserUnlinked(anilistId), true)
+    }
+
+    /**
+     * D-238: Checks if the user has manually unlinked this anime.
+     * If true, reverse auto-link should be skipped.
+     */
+    fun isUserUnlinked(anilistId: Int): Boolean {
+        return store.getBoolean(keyUserUnlinked(anilistId), false)
+    }
+
+    /**
+     * D-238: Clears the "user unlinked" flag — called when the user manually
+     * links a source (so future auto-links are allowed again).
+     */
+    fun clearUserUnlinked(anilistId: Int) {
+        store.putBoolean(keyUserUnlinked(anilistId), false)
+    }
+
     companion object {
+        // Forward direction
         private const val KEY_AUTO_LINK_ENABLED = "auto_link_enabled"
         private const val KEY_STRATEGY = "auto_link_strategy"
         private const val KEY_THRESHOLD = "auto_link_threshold"
+
+        // Shared
         private const val KEY_PER_SOURCE_PREFIX = "auto_link_source:"
         private const val KEY_LINK_CACHE_PREFIX = "auto_link_cache:"
+
+        // Reverse direction (D-226: now has own strategy + threshold)
+        private const val KEY_REVERSE_ENABLED = "auto_link_reverse_enabled"
+        private const val KEY_REVERSE_STRATEGY = "auto_link_reverse_strategy"
+        private const val KEY_REVERSE_THRESHOLD = "auto_link_reverse_threshold"
+        private const val KEY_REVERSE_EXT_ORDER = "auto_link_reverse_ext_order"
+
+        // D-238: Per-anime "user unlinked" blacklist (prevents re-auto-linking)
+        private const val KEY_USER_UNLINKED_PREFIX = "auto_link_user_unlinked:"
 
         private fun keyPerSourceOverride(sourceId: Long): String =
             "$KEY_PER_SOURCE_PREFIX$sourceId"
 
         private fun keyLinkCache(sourceId: Long, animeUrl: String): String =
             "$KEY_LINK_CACHE_PREFIX$sourceId:${animeUrl.hashCode()}"
+
+        private fun keyUserUnlinked(anilistId: Int): String =
+            "$KEY_USER_UNLINKED_PREFIX$anilistId"
     }
 }

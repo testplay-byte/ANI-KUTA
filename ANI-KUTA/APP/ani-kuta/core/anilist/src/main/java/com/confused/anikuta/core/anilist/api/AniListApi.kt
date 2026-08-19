@@ -68,6 +68,7 @@ class AniListApi(
                         season
                         seasonYear
                         status
+                        nextAiringEpisode { airingAt episode }
                     }
                 }
             """.trimIndent()

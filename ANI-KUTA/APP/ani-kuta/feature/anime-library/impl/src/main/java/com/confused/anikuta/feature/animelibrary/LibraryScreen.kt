@@ -479,17 +479,50 @@ fun LibraryScreen(
                         icon = Icons.AutoMirrored.Filled.MenuBook,
                     )
 
-                    is LibraryState.Error -> Box(
-                        modifier = Modifier.fillMaxSize().padding(32.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            s.message,
-                            fontFamily = RobotoFamily,
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
+                    is LibraryState.Error -> {
+                        // D-223fix: Truncate long error messages + show copy option.
+                        val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+                        val displayMessage = if (s.message.length > 150) {
+                            s.message.take(150) + "..."
+                        } else {
+                            s.message
+                        }
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    "Failed to load library",
+                                    fontFamily = RobotoFamily,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    displayMessage,
+                                    fontFamily = RobotoFamily,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (s.message.length > 150) {
+                                    Spacer(Modifier.height(8.dp))
+                                    androidx.compose.material3.TextButton(onClick = {
+                                        clipboardManager.setText(
+                                            androidx.compose.ui.text.AnnotatedString(s.message)
+                                        )
+                                    }) {
+                                        Text("Copy error", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     is LibraryState.Success -> {

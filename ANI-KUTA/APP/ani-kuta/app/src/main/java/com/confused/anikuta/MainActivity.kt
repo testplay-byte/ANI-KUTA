@@ -85,6 +85,7 @@ import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
 import com.confused.anikuta.settings.AboutScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
+import com.confused.anikuta.settings.DetailsPageSettingsScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
 import com.confused.anikuta.settings.UpdateCategoriesScreen
@@ -103,6 +104,14 @@ import org.koin.compose.koinInject
 
 class MainActivity : androidx.fragment.app.FragmentActivity() {
 
+    // D-222: OAuth redirect flags — observed by AppRoot to auto-navigate to Trackers
+    // after a successful AniList login + show a snackbar.
+    // D-222-R2: `internal set` (not private) so AppRoot (same module) can clear them.
+    @Volatile var anilistLoginSuccess: Boolean = false
+        internal set
+    @Volatile var anilistLoginError: String? = null
+        internal set
+
     @androidx.compose.material3.ExperimentalMaterial3Api
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -116,6 +125,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 android.graphics.Color.TRANSPARENT,
             ),
         )
+        // D-220: Handle AniList OAuth redirect (anikuta://anilist-auth#access_token=...).
+        // The token is in the URL fragment (not query). Parse + pass to AniListTracker.
+        handleAniListOAuthRedirect(intent)
         setContent {
             val prefs = koinInject<ThemePreferences>()
             val themeMode = prefs.themeMode.value
@@ -132,10 +144,77 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             }
         }
     }
+
+    // D-220: Handle AniList OAuth redirect when the activity is already running.
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAniListOAuthRedirect(intent)
+    }
+
+    /**
+     * D-220: Parse the AniList OAuth2 implicit grant redirect.
+     *
+     * AniList redirects to `anikuta://anilist-auth#access_token=...&expires_in=...`
+     * The token is in the URL **fragment** (after #), NOT the query.
+     *
+     * This method extracts the token + calls AniListTracker.handleLoginCallback(token)
+     * in a background coroutine.
+     */
+    private fun handleAniListOAuthRedirect(intent: android.content.Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "anikuta" || data.host != "anilist-auth") return
+
+        // The access_token is in the URL fragment (implicit grant).
+        val fragment = data.encodedFragment ?: ""
+        val token = com.confused.anikuta.core.trackeranilist.AniListOAuth
+            .parseAccessToken(fragment)
+
+        if (token.isNullOrBlank()) {
+            com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                "AniList OAuth redirect: no access_token in fragment"
+            }
+            return
+        }
+
+        com.confused.anikuta.core.common.Logger.i("MainActivity") {
+            "AniList OAuth redirect received — exchanging token..."
+        }
+
+        // Launch a coroutine to call the tracker (suspend function).
+        kotlinx.coroutines.MainScope().launch {
+            try {
+                val tracker = org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.core.trackeranilist.AniListTracker>()
+                val success = tracker.handleLoginCallback(token)
+                if (success) {
+                    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                        "AniList login successful!"
+                    }
+                    // D-222: auto-navigate to the Trackers page so the user sees
+                    // the confirmation. The redirect opens the app fresh (Browse page),
+                    // so we need to push the Trackers page onto the backstack.
+                    anilistLoginSuccess = true
+                } else {
+                    com.confused.anikuta.core.common.Logger.e("MainActivity") {
+                        "AniList login failed"
+                    }
+                    anilistLoginError = "Login failed — please try again."
+                }
+            } catch (e: Exception) {
+                com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
+                    "AniList OAuth redirect handling failed: ${e.message}"
+                }
+            }
+        }
+    }
 }
 
 @Serializable
 object MoreKey : NavKey
+
+@Serializable
+object TrackersKey : NavKey  // D-220: Trackers settings page (AniList link/unlink)
 
 @Serializable
 object ProfileKey : NavKey
@@ -161,6 +240,9 @@ object AppearanceKey : NavKey
 
 @Serializable
 object AppearanceGeneralKey : NavKey
+
+@Serializable
+object DetailsPageSettingsKey : NavKey
 
 @Serializable
 object EpisodeSettingsKey : NavKey
@@ -220,6 +302,7 @@ private val allowedUpdateSheetKeys = setOf(
     SourcePreferencesKey::class,
     AppearanceKey::class,
     AppearanceGeneralKey::class,
+    DetailsPageSettingsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
     ProfileKey::class,
@@ -241,6 +324,9 @@ private val allowedUpdateSheetKeys = setOf(
 @androidx.compose.material3.ExperimentalMaterial3Api
 @Composable
 fun AppRoot() {
+    // D-209: captured here so the Cloudflare "Open in WebView" callbacks (non-
+    // composable lambdas) can launch CloudflareWebViewActivity.
+    val appContext = androidx.compose.ui.platform.LocalContext.current
     val navItems = remember {
         listOf(
             NavItem("browse", "Browse", NavIcons.Browse),
@@ -283,6 +369,30 @@ fun AppRoot() {
         androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
     }
     val currentKey = backstack.last()
+
+    // D-222: AniList OAuth redirect — auto-navigate to the Trackers page
+    // after a successful login (the redirect opens the app fresh on Browse).
+    // Also show a snackbar confirmation.
+    val mainActivity = appContext as? MainActivity
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        // Poll the flags set by handleAniListOAuthRedirect.
+        while (true) {
+            kotlinx.coroutines.delay(200)
+            if (mainActivity?.anilistLoginSuccess == true) {
+                mainActivity.anilistLoginSuccess = false
+                // Navigate to More → Trackers.
+                if (currentKey !is TrackersKey) {
+                    if (currentKey !is MoreKey) backstack.add(MoreKey)
+                    backstack.add(TrackersKey)
+                }
+            }
+            mainActivity?.anilistLoginError?.let { error ->
+                mainActivity.anilistLoginError = null
+                // TODO: show a snackbar with the error.
+                com.confused.anikuta.core.common.Logger.w("AppRoot") { "AniList login error: $error" }
+            }
+        }
+    }
 
     // ── App update startup check ──
     // Runs once per composition. Mirrors the old project's AnikutaRoot.kt:140-186
@@ -405,6 +515,14 @@ fun AppRoot() {
                                 contentRepository = contentRepository,
                             )
                         },
+                        // D-209: Cloudflare manual solver.
+                        onOpenCloudflareWebView = { url, sourceName ->
+                            appContext.startActivity(
+                                com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                                    context = appContext, url = url, sourceName = sourceName,
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        },
                     )
                     is AnimeDetailsKey.Extension -> DetailsScreen(
                         detailsKey = currentKey,
@@ -430,6 +548,14 @@ fun AppRoot() {
                                 audioLabel = audioLabel,
                                 orchestrator = orchestrator,
                                 contentRepository = contentRepository,
+                            )
+                        },
+                        // D-209: Cloudflare manual solver.
+                        onOpenCloudflareWebView = { url, sourceName ->
+                            appContext.startActivity(
+                                com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                                    context = appContext, url = url, sourceName = sourceName,
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
                             )
                         },
                     )
@@ -464,6 +590,14 @@ fun AppRoot() {
                 onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
                     backstack.add(AnimeDetailsKey.Extension(sourceId, animeUrl, title, thumbnailUrl))
                 },
+                // D-209: Cloudflare manual solver — launched from the Search error card.
+                onOpenCloudflareWebView = { url, sourceName ->
+                    appContext.startActivity(
+                        com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                            context = appContext, url = url, sourceName = sourceName,
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                },
             )
             is MoreKey -> MoreScreen(
                 onOpenSettings = { backstack.add(SettingsKey) },
@@ -472,6 +606,7 @@ fun AppRoot() {
                 onOpenUpdates = { backstack.add(com.confused.anikuta.feature.updates.UpdatesKey) },
                 onOpenProfile = { backstack.add(ProfileKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
+                onOpenTrackers = { backstack.add(TrackersKey) },
             )
             is DownloadsKey -> DownloadsScreen(
                 onBack = pop,
@@ -540,6 +675,10 @@ fun AppRoot() {
                 onOpenAbout = { backstack.add(AboutKey) },
                 onBack = pop,
             )
+            // D-220: Trackers page.
+            is TrackersKey -> com.confused.anikuta.settings.TrackersScreen(
+                onBack = pop,
+            )
             // ── About & Updates ──
             // The update sheet itself renders from AppRoot (below) — gated on
             // AppUpdateManager.shouldShowUpdateSheet (which checkForUpdate flips).
@@ -580,6 +719,17 @@ fun AppRoot() {
                 pkgName = currentKey.pkgName,
                 onBack = pop,
                 onOpenSourcePreferences = { sourceId -> backstack.add(SourcePreferencesKey(sourceId)) },
+                // D-209: "Open in WebView" button on the extension detail page —
+                // opens the source's baseUrl in a WebView so the user can solve
+                // Cloudflare challenges manually. Cookies are saved automatically
+                // via the shared CookieManager.
+                onOpenInWebView = { url, sourceName ->
+                    appContext.startActivity(
+                        com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
+                            context = appContext, url = url, sourceName = sourceName,
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                },
             )
             is SourcePreferencesKey -> com.confused.anikuta.feature.extensionssettings.SourcePreferencesScreen(
                 sourceId = currentKey.sourceId,
@@ -587,12 +737,14 @@ fun AppRoot() {
             )
             is AppearanceKey -> AppearanceScreen(
                 onOpenGeneral = { backstack.add(AppearanceGeneralKey) },
+                onOpenDetailsPage = { backstack.add(DetailsPageSettingsKey) },
                 onOpenEpisodeSettings = { backstack.add(EpisodeSettingsKey) },
                 onBack = pop,
             )
             is AppearanceGeneralKey -> AppearanceGeneralScreen(
                 onBack = pop,
             )
+            is DetailsPageSettingsKey -> DetailsPageSettingsScreen(onBack = pop)
             is EpisodeSettingsKey -> PlaceholderScreen(
                 title = "Episode settings",
                 description = "Episode display settings will be added in a future phase.",
@@ -920,6 +1072,13 @@ private fun handleDownloadSpecificVideo(
             // D.FIX: Use details to fill in FK fields that are null in ContentRecord.
             // For extension-only content, ContentRecord.sourceId/animeUrl/extensionId can
             // be null — content_details always has them on the ext_* axis.
+            // D-210 FIX: sourceIdStr (from the resolver sheet's LinkedSource) is
+            // AUTHORITATIVE — for AniList-saved entries, content.sourceId and
+            // details.sourceId are both null (the AniList path never writes
+            // main_entry.source_id, and loadLinkedSource only sets the in-memory
+            // _linkedSource — doesn't persist ext_* axis via linkExtensionToExisting).
+            // Without this, downloads from AniList-linked content fail silently
+            // with "no source for sourceId=null".
             val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
                 mainId = content.mainId,
                 contentId = content.contentId,
@@ -934,7 +1093,7 @@ private fun handleDownloadSpecificVideo(
                 systemId = content.systemId,
                 extensionRepoId = content.extensionRepoId,
                 extensionId = content.extensionId ?: details?.extensionIdLong,
-                sourceId = content.sourceId ?: details?.sourceId,
+                sourceId = sourceIdStr.toLongOrNull() ?: content.sourceId ?: details?.sourceId,
                 animeUrl = content.animeUrl ?: details?.animeUrl,
                 displaySource = content.displaySource,
                 anilistId = details?.anilistId,
@@ -956,6 +1115,8 @@ private fun handleDownloadSpecificVideo(
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleDownloadSpecificVideo — no source for sourceId=$sourceId"
                 }
+                // D-210 FIX: surface the failure to the user instead of silently returning.
+                showDownloadToast("Download failed: no extension source linked (sourceId=$sourceId). Try re-linking the source on the details page.")
                 return@launch
             }
 

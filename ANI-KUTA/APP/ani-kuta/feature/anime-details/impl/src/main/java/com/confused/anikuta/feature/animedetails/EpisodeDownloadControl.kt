@@ -1,12 +1,17 @@
 package com.confused.anikuta.feature.animedetails
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +28,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Downloading  // D-214: active download icon
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -45,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -118,27 +125,80 @@ fun EpisodeDownloadControl(
                 SmallIconButton(Icons.Filled.Close, "Cancel", onClick = onCancel)
             }
 
-            is EpisodeDownloadState.Downloading -> Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    LinearProgressIndicator(
-                        progress = { (s.progress / 100f).coerceIn(0f, 1f) },
-                        modifier = Modifier.width(60.dp).height(4.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    )
-                    Spacer(Modifier.width(6.dp))
+            is EpisodeDownloadState.Downloading -> {
+                // D-213: animated button — the circle background PULSES (alpha
+                // oscillates 0.15 → 0.40 → 0.15) to clearly indicate active
+                // downloading. Tapping shows a menu with "Pause" + "Cancel".
+                var showMenu by remember { mutableStateOf(false) }
+                // D-213: infinite pulsing animation on the button background.
+                val pulseTransition = rememberInfiniteTransition(label = "downloadPulse")
+                val pulseAlpha by pulseTransition.animateFloat(
+                    initialValue = 0.15f,
+                    targetValue = 0.40f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "pulseAlpha",
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     Text(
                         "${s.progress}%",
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Visible,
                     )
-                    Spacer(Modifier.width(4.dp))
-                    SmallIconButton(Icons.Filled.Pause, "Pause", onClick = onPause)
-                    SmallIconButton(Icons.Filled.Close, "Cancel", onClick = onCancel)
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha))
+                                .clickable { showMenu = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            // D-214: changed from Download to Downloading icon (down arrow
+                            // with a progress arc — better represents active downloading).
+                            Icon(
+                                Icons.Filled.Downloading,
+                                contentDescription = "Downloading — tap for options",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Pause", fontFamily = RobotoFamily) },
+                                onClick = {
+                                    showMenu = false
+                                    onPause()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Cancel",
+                                        fontFamily = RobotoFamily,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onCancel()
+                                },
+                            )
+                        }
+                    }
                 }
             }
 
@@ -254,11 +314,13 @@ private fun SmallIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    // D-211: configurable size (default 28dp, Downloading uses 22dp to not add height).
+    size: Int = 28,
 ) {
     Surface(
         color = Color.Transparent,
         modifier = Modifier
-            .size(28.dp)
+            .size(size.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
     ) {

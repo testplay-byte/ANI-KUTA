@@ -9,6 +9,8 @@ import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.network.CloudflareException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -190,6 +192,47 @@ class SearchViewModel(
         }
     }
 
+    /**
+     * D-209: Retry the last extension search/browse.
+     * Called from the SearchScreen error cards (CloudflareBlocked, ExtensionEmpty,
+     * ExtensionError) when the user taps "Refresh" / "Retry".
+     * If the user has a query → re-search; otherwise → reload popular.
+     */
+    fun retryExtensionSearch() {
+        val src = source.value
+        if (src != SearchSource.EXTENSION) return
+        if (_selectedSourceId.value == null) {
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return
+        }
+        if (_query.value.isNotBlank()) {
+            search(_query.value)
+        } else {
+            loadExtensionPopular()
+        }
+    }
+
+    /**
+     * D-210: Set when the user opens the Cloudflare WebView from the Search screen.
+     * When the Search screen resumes (user returns from the WebView), it checks
+     * this flag + auto-refreshes if true. Cleared after the refresh is triggered.
+     */
+    var pendingWebViewRefresh: Boolean = false
+        private set
+
+    /** D-210: Called by the SearchScreen when the user taps "Open in WebView". */
+    fun onOpenWebView() {
+        pendingWebViewRefresh = true
+    }
+
+    /** D-210: Called by the SearchScreen on resume — auto-refreshes if the flag is set. */
+    fun onScreenResume() {
+        if (pendingWebViewRefresh) {
+            pendingWebViewRefresh = false
+            retryExtensionSearch()
+        }
+    }
+
     fun onSubmit() {
         val q = _query.value.trim()
         if (q.isBlank()) return
@@ -329,17 +372,28 @@ class SearchViewModel(
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 _uiState.value = if (results.isEmpty()) {
-                    SearchUiState.Empty
+                    // D-209: distinguish extension-empty from AniList-empty so the
+                    // UI can show the source name + a Refresh button (the empty result
+                    // might be due to a stale Cloudflare cookie the user just solved).
+                    SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
                 } else {
                     SearchUiState.ExtensionSuccess(results = results)
                 }
             } catch (e: Throwable) {
                 // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
-                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
-                Logger.e(TAG, e) { "Extension popular fetch failed for ${source.name}: $errorMsg" }
-                _uiState.value = SearchUiState.ExtensionError(
-                    "${source.name}: $errorMsg"
-                )
+                // D-209: detect CloudflareException → show the "Open in WebView" button.
+                if (e is CloudflareException) {
+                    Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
+                    _uiState.value = SearchUiState.CloudflareBlocked(
+                        url = e.url, sourceName = source.name,
+                    )
+                } else {
+                    val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                    Logger.e(TAG, e) { "Extension popular fetch failed for ${source.name}: $errorMsg" }
+                    _uiState.value = SearchUiState.ExtensionError(
+                        "${source.name}: $errorMsg"
+                    )
+                }
             }
         }
     }
@@ -374,16 +428,25 @@ class SearchViewModel(
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 _uiState.value = if (results.isEmpty()) {
-                    SearchUiState.Empty
+                    // D-209: distinguish extension-empty from AniList-empty.
+                    SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
                 } else {
                     SearchUiState.ExtensionSuccess(results = results)
                 }
             } catch (e: Throwable) {
-                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
-                Logger.e(TAG, e) { "Extension search failed for ${source.name}: $errorMsg" }
-                _uiState.value = SearchUiState.ExtensionError(
-                    "${source.name}: $errorMsg"
-                )
+                // D-209: detect CloudflareException → show the "Open in WebView" button.
+                if (e is CloudflareException) {
+                    Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
+                    _uiState.value = SearchUiState.CloudflareBlocked(
+                        url = e.url, sourceName = source.name,
+                    )
+                } else {
+                    val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                    Logger.e(TAG, e) { "Extension search failed for ${source.name}: $errorMsg" }
+                    _uiState.value = SearchUiState.ExtensionError(
+                        "${source.name}: $errorMsg"
+                    )
+                }
             }
         }
     }
@@ -426,6 +489,25 @@ sealed interface SearchUiState {
     data class ExtensionSuccess(val results: List<ExtensionAnime>) : SearchUiState
     /** Extension source error — shows the actual error message (source name + reason). */
     data class ExtensionError(val message: String) : SearchUiState
+    /**
+     * D-209: Cloudflare blocked the request + the headless solver failed.
+     * The UI shows an "Open in WebView" button (so the user can solve it
+     * manually) + a "Refresh" button (to retry after solving).
+     *
+     * @param url the URL that was blocked (the source's baseUrl or request URL).
+     * @param sourceName the extension source's display name.
+     */
+    data class CloudflareBlocked(val url: String, val sourceName: String) : SearchUiState
+    /**
+     * D-209: The extension returned 0 results (distinct from AniList's [Empty]
+     * — [ExtensionEmpty] lets the UI show the source name + a "Refresh" button +
+     * an "Open in WebView" button, since the empty result might be due to a
+     * stale Cloudflare cookie that the user needs to solve in the WebView).
+     *
+     * D-210: added [sourceUrl] so the UI can launch the WebView directly.
+     * Null if the source doesn't expose a baseUrl (rare — most do).
+     */
+    data class ExtensionEmpty(val sourceName: String, val sourceUrl: String? = null) : SearchUiState
 }
 
 enum class SearchSource(val displayName: String) {

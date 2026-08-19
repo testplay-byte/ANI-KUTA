@@ -11,9 +11,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.Response
-import java.util.concurrent.TimeUnit.MINUTES
 
-private val DEFAULT_CACHE_CONTROL = CacheControl.Builder().maxAge(10, MINUTES).build()
+// D-199: FORCE_NETWORK — extension API responses should NOT be cached.
+// Many extensions encrypt their API responses with session-specific keys;
+// caching a response from session K1 and replaying it in session K2 causes
+// decryption failures ("bad base-64"). Also prevents Cloudflare challenge
+// HTML from being cached + replayed as if it were a valid API response.
+private val DEFAULT_CACHE_CONTROL = CacheControl.FORCE_NETWORK
 private val DEFAULT_HEADERS = Headers.Builder().build()
 private val DEFAULT_BODY: RequestBody = FormBody.Builder().build()
 
