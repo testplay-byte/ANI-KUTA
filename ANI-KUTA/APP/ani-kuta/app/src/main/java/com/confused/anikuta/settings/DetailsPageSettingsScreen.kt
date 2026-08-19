@@ -40,6 +40,10 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.AppPreferences
 import org.koin.compose.koinInject
 
+// D-237: Reuse the shared helpers from AppearanceGeneralScreen (same package).
+// SettingsSectionLabel is public in SettingsScreen.kt; SwitchCard + SettingsCard
+// are private in AppearanceGeneralScreen.kt — so we define local copies here.
+
 /**
  * D-237: Dedicated settings screen for the Details page background customization.
  *
@@ -192,19 +196,7 @@ fun DetailsPageSettingsScreen(
     }
 }
 
-// ── Shared UI helpers (copied from AppearanceGeneralScreen pattern) ──
-
-@Composable
-private fun SettingsSectionLabel(text: String) {
-    Text(
-        text = text,
-        fontFamily = RobotoFamily,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.ExtraBold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 12.dp, top = 16.dp, bottom = 4.dp),
-    )
-}
+// ── Shared UI helpers (local copies — the ones in AppearanceGeneralScreen are private) ──
 
 @Composable
 private fun SettingsCard(content: @Composable () -> Unit) {

@@ -85,6 +85,7 @@ import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
 import com.confused.anikuta.settings.AboutScreen
 import com.confused.anikuta.settings.AppearanceGeneralScreen
+import com.confused.anikuta.settings.DetailsPageSettingsScreen
 import com.confused.anikuta.settings.AppearanceScreen
 import com.confused.anikuta.settings.SettingsScreen
 import com.confused.anikuta.settings.UpdateCategoriesScreen
