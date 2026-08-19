@@ -453,6 +453,65 @@ fun DetailsScreen(
 
     // D-223: Wrap the Box in the adaptive color scheme (or use the default if null).
     val effectiveColorScheme = adaptiveColorScheme ?: MaterialTheme.colorScheme
+
+    // D-230: Hoist onEpisodeClick to screen level so both the Success branch's
+    // items() AND the EpisodeSearchSheet (outside MaterialTheme) can use it.
+    val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = onEpisodeClick@{ episode ->
+        currentEpisode = episode
+        resolverDownloadMode = false
+        val stateKey = viewModel.episodeDownloadStateKey(episode)
+        val downloadState = stateKey?.let { downloadStates[it] }
+        if (downloadState is EpisodeDownloadState.Downloaded) {
+            val mainId = viewModel.currentMainId
+            if (mainId != null) {
+                val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
+                if (localUri != null) {
+                    Logger.i("Anikuta:Feature:Details") {
+                        "onEpisodeClick — episode is downloaded, playing offline: $localUri"
+                    }
+                    val anime = (state as? DetailsState.Success)?.anime
+                    val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+                    val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                        "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+                    } ?: ""
+                    val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
+                        val title = meta.title ?: ""
+                        val thumb = meta.thumbnailUrl ?: ""
+                        val date = meta.airDate?.toString() ?: "0"
+                        val desc = meta.description ?: ""
+                        val scanlator = episode.scanlator ?: ""
+                        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+                    }
+                    onNavigateToWatch(
+                        mainId ?: "",
+                        localUri,
+                        anime?.displayName ?: "Downloaded",
+                        "Downloaded",
+                        episode.url,
+                        episode.episode_number,
+                        episode.name,
+                        epListStr,
+                        "", // no headers for local file
+                        "", // no resolvedVideosKey
+                        effectiveLinkedSource?.sourceId ?: 0L,
+                        "", // no subtitle tracks (they're on disk)
+                        "", // no audio tracks
+                        epMetaStr,
+                    )
+                    return@onEpisodeClick
+                }
+            }
+        }
+        // Not downloaded — resolve + try auto-play (Phase 2).
+        viewModel.clearResolver()
+        viewModel.resolveEpisode(episode)
+        if (viewModel.isAutoSelectEnabled()) {
+            pendingAutoPlay = true
+        } else {
+            showResolverSheet = true
+        }
+    }
+
     MaterialTheme(colorScheme = effectiveColorScheme) {
         Box(
             modifier = Modifier
@@ -607,67 +666,9 @@ fun DetailsScreen(
                     }
                 }
 
-                // D-228: Hoist onEpisodeClick so it can be reused by both EpisodesSection
-                // (header + non-Loaded states) and the lazy items() in the outer
-                // LazyColumn (Loaded state — proper virtualization).
-                val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = onEpisodeClick@{ episode ->
-                    currentEpisode = episode
-                    resolverDownloadMode = false
-                    // D.FIX: Check if this episode is already downloaded.
-                    // If so, play it offline (skip the resolver).
-                    val stateKey = viewModel.episodeDownloadStateKey(episode)
-                    val downloadState = stateKey?.let { downloadStates[it] }
-                    if (downloadState is EpisodeDownloadState.Downloaded) {
-                        // Play offline — use the downloaded video URI.
-                        val mainId = viewModel.currentMainId
-                        if (mainId != null) {
-                            val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
-                            if (localUri != null) {
-                                Logger.i("Anikuta:Feature:Details") {
-                                    "onEpisodeClick — episode is downloaded, playing offline: $localUri"
-                                }
-                                val anime = (state as? DetailsState.Success)?.anime
-                                val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-                                val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
-                                    "${e.url}${delim}${e.episode_number}${delim}${e.name}"
-                                } ?: ""
-                                val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                                    val title = meta.title ?: ""
-                                    val thumb = meta.thumbnailUrl ?: ""
-                                    val date = meta.airDate?.toString() ?: "0"
-                                    val desc = meta.description ?: ""
-                                    val scanlator = episode.scanlator ?: ""
-                                    "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                                }
-                                onNavigateToWatch(
-                                    mainId ?: "",
-                                    localUri,
-                                    anime?.displayName ?: "Downloaded",
-                                    "Downloaded",
-                                    episode.url,
-                                    episode.episode_number,
-                                    episode.name,
-                                    epListStr,
-                                    "", // no headers for local file
-                                    "", // no resolvedVideosKey
-                                    effectiveLinkedSource?.sourceId ?: 0L,
-                                    "", // no subtitle tracks (they're on disk)
-                                    "", // no audio tracks
-                                    epMetaStr,
-                                )
-                                return@onEpisodeClick
-                            }
-                        }
-                    }
-                    // Not downloaded — resolve + try auto-play (Phase 2).
-                    viewModel.clearResolver()
-                    viewModel.resolveEpisode(episode)
-                    if (viewModel.isAutoSelectEnabled()) {
-                        pendingAutoPlay = true
-                    } else {
-                        showResolverSheet = true
-                    }
-                }
+                // D-228: onEpisodeClick is now hoisted to screen level (before
+                // MaterialTheme) so both the Success branch + EpisodeSearchSheet
+                // (outside MaterialTheme) can use it.
 
                 Box(modifier = Modifier
                     .fillMaxSize()
@@ -1055,6 +1056,7 @@ fun DetailsScreen(
     }
 
     // D-230: Episode search field (swipe-right on "Episodes" text).
+    // onEpisodeClick is hoisted to screen level so it's in scope here.
     if (showEpisodeSearch) {
         EpisodeSearchSheet(
             episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
@@ -1597,9 +1599,10 @@ private fun EpisodesSection(
                 modifier = Modifier
                     // D-230: swipe-right → open episode search.
                     .pointerInput(Unit) {
-                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                        detectHorizontalDragGestures(
                             onDragEnd = { },
-                            onHorizontalDrag = { _, dragAmount ->
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
                                 if (dragAmount > 40f) onOpenEpisodeSearch()
                             },
                         )
