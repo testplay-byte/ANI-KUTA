@@ -893,6 +893,10 @@ class DetailsViewModel(
                         )
                     }
                     Logger.i(TAG) { "D.3 Stage 2: Refreshed AniList metadata" }
+                    // D-235: Also refresh the airing schedule data.
+                    if (mainId != null) {
+                        triggerNextEpisodeInfo(mainId, fresh.nextAiringEpisode, fresh.status)
+                    }
                 } catch (e: Exception) {
                     Logger.e(TAG, e) { "D.3 Stage 2: Metadata refresh failed: ${e.message}" }
                 }
@@ -1243,7 +1247,8 @@ class DetailsViewModel(
             refreshContentAndLibraryStatus(mainId)
             // D-223: Trigger cover color extraction for adaptive theming.
             triggerCoverColorExtraction(mainId, detail.dataCoverUrl)
-            triggerNextEpisodeInfo(mainId)
+            // D-235: Pass the fresh airing data from the AniList fetch.
+            triggerNextEpisodeInfo(mainId, anime.nextAiringEpisode, anime.status)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "resolveContentForAniList failed: ${e.message}" }
         }
@@ -1420,7 +1425,27 @@ class DetailsViewModel(
      *
      * For completed series (status == FINISHED/CANCELLED), sets null (no card).
      */
-    private fun triggerNextEpisodeInfo(mainId: String) {
+    private fun triggerNextEpisodeInfo(
+        mainId: String,
+        airingEpisode: com.confused.anikuta.core.anilist.model.AniListAiringEpisode? = null,
+        status: String? = null,
+    ) {
+        // D-235: If we have fresh airing data from the AniList fetch, store it
+        // in the DB first so it's available for future reads (cache path, etc.).
+        if (airingEpisode != null || status != null) {
+            // D-235: Ensure the row exists first (updateAiringData is an UPDATE,
+            // not an upsert — it will silently fail if the row doesn't exist).
+            updateEngine.ensureUpdateState(mainId, status)
+            val airingAtMillis = airingEpisode?.airingAt?.let {
+                // AniList returns SECONDS — convert to millis.
+                if (it < 1_000_000_000_000L) it * 1000 else it
+            }
+            val epNum = airingEpisode?.episode?.toLong()
+            updateStore.updateAiringData(mainId, epNum, airingAtMillis, status)
+            Logger.d(TAG) { "D-235: Stored airing data: ep=$epNum, airingAt=$airingAtMillis, status=$status" }
+        }
+
+        // Now read from the DB (which may have just been updated).
         val state = updateStore.getAnimeUpdateState(mainId)
         if (state == null) {
             _nextEpisodeInfo.value = null
