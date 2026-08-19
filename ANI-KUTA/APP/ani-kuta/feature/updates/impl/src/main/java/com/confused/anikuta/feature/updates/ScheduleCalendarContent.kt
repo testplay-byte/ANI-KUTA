@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -349,20 +350,34 @@ private fun DayCell(
             )
             if (hasEpisodes) {
                 Spacer(modifier = Modifier.height(2.dp))
-                // Simple dot count indicator
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
-                ) {
-                    entries.take(4).forEach {
-                        Box(Modifier.size(4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-                    }
-                    if (entries.size > 4) {
-                        Text(
-                            text = "+${entries.size - 4}",
-                            fontFamily = RobotoFamily,
-                            fontSize = 8.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                // D-238: Color-coded dots — each dot uses the anime's cover accent
+                // color. If >5 episodes, show a gradient bar instead of dots+plus.
+                if (entries.size > 5) {
+                    // D-238: Gradient bar — built from the accent colors of all
+                    // entries on this day. Falls back to primary if no accent.
+                    val gradientColors = entries.take(5).map { entry ->
+                        entry.coverAccentArgb?.let { androidx.compose.ui.graphics.Color(it.toInt()) }
+                            ?: MaterialTheme.colorScheme.primary
+                    } + MaterialTheme.colorScheme.primary // ensure at least 2 colors for gradient
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(
+                                Brush.horizontalGradient(gradientColors),
+                            ),
+                    )
+                } else {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
+                    ) {
+                        entries.take(5).forEach { entry ->
+                            val dotColor = entry.coverAccentArgb?.let {
+                                androidx.compose.ui.graphics.Color(it.toInt())
+                            } ?: MaterialTheme.colorScheme.primary
+                            Box(Modifier.size(4.dp).clip(CircleShape).background(dotColor))
+                        }
                     }
                 }
             }

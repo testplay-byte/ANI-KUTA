@@ -1521,12 +1521,15 @@ private fun DetailBanner(
         }
 
         // ── Bottom row: cover thumbnail + title + meta ──
+        // D-238: Align the title/meta Column to the bottom of the cover thumbnail
+        // (was top-aligned by default — user requested bottom alignment).
         Row(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
             if (coverUrl != null) {
                 AsyncImage(
@@ -1539,6 +1542,8 @@ private fun DetailBanner(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
+                // D-238: Tap the title to silently copy to clipboard.
+                val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
                 Text(
                     text = anime.displayName,
                     fontFamily = RobotoFamily,
@@ -1547,45 +1552,31 @@ private fun DetailBanner(
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable {
+                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(anime.displayName))
+                    },
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                // Phase B: auto-link badge / searching indicator.
-                // Shows "Linked to AniList" (green check) when extension entry has anilistId,
-                // or a small spinner + "Auto-linking..." while searching.
-                if (isExtensionEntry && (isAniListLinked || isAutoLinkSearching)) {
+                // D-238: Removed the "Linked to AniList" badge — no longer needed.
+                // Only show the auto-linking spinner while searching.
+                if (isExtensionEntry && isAutoLinkSearching) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.padding(bottom = 4.dp),
                     ) {
-                        if (isAutoLinkSearching) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                strokeWidth = 1.5.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Text(
-                                text = "Auto-linking...",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        } else if (isAniListLinked) {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = "Linked to AniList",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(12.dp),
-                            )
-                            Text(
-                                text = "Linked to AniList",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = "Auto-linking...",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))

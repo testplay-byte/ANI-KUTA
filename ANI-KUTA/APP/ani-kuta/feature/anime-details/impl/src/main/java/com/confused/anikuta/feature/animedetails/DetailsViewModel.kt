@@ -653,8 +653,14 @@ class DetailsViewModel(
                 }
 
                 // D-225: Reverse auto-link — if no source is linked, search extensions.
+                // D-238: Skip if the user has manually unlinked — don't re-link what
+                // the user explicitly removed.
                 val savedLink = preferenceStore.getString(KEY_SOURCE_LINK_PREFIX + animeId, "")
-                if (savedLink.isBlank() && reverseAutoLinkService != null) {
+                val isUserUnlinked = autoLinkPreferences.isUserUnlinked(animeId)
+                if (isUserUnlinked) {
+                    Logger.d(TAG) { "D-238: Reverse auto-link skipped — user manually unlinked this anime" }
+                }
+                if (savedLink.isBlank() && reverseAutoLinkService != null && !isUserUnlinked) {
                     val anime = anilistBase
                     if (anime != null) {
                         Logger.i(TAG) { "D-225: Reverse auto-link — no source linked, searching extensions..." }
@@ -2084,6 +2090,20 @@ class DetailsViewModel(
         )
         _linkedSource.value = LinkedSource(source.id, source.name, sAnime.url)
 
+        // D-238: Clear the "user unlinked" flag — the user is manually linking
+        // a source, so future auto-links should be allowed again.
+        if (animeId > 0) {
+            autoLinkPreferences.clearUserUnlinked(animeId)
+        }
+
+        // D-238: Clear the episode cache so episodes from the OLD source don't
+        // mix with the NEW source's episodes. The fresh fetch will repopulate.
+        val mainIdForCacheClear = currentMainId
+        if (mainIdForCacheClear != null) {
+            dataCacheRepository.deleteEpisodeMetadata(mainIdForCacheClear)
+            Logger.d(TAG) { "D-238: Cleared episode cache for mainId=$mainIdForCacheClear (new source linked)" }
+        }
+
         // D-139: Cache the reverse mapping (sourceId, animeUrl) → anilistId.
         // This ensures that when the user opens the SAME anime from the extension
         // later, resolveContentForExtension finds the cached anilistId → finds
@@ -2177,11 +2197,22 @@ class DetailsViewModel(
         _linkedSource.value = null
         _episodeState.value = EpisodeState.Idle
 
-        // D-198: persist the unlink in the content database.
+        // D-238: Mark this anime as "user unlinked" so reverse auto-link
+        // doesn't re-link the same (or a different) source on next open.
+        if (animeId > 0) {
+            autoLinkPreferences.markUserUnlinked(animeId)
+            Logger.d(TAG) { "D-238: Marked anilistId=$animeId as user-unlinked (reverse auto-link will skip)" }
+        }
+
+        // D-238: Clear the episode cache so stale episodes from the old source
+        // don't load on next open (before the new source's episodes are fetched).
         val mainId = currentMainId
         if (mainId != null) {
             contentResolver.unlinkExtension(mainId)
             refreshContentId(mainId)
+            // D-238: Clear the episode cache for this mainId.
+            dataCacheRepository.deleteEpisodeMetadata(mainId)
+            Logger.d(TAG) { "D-238: Cleared episode cache for mainId=$mainId (source unlinked)" }
         }
 
         // D-134: Clear the extension base + re-merge.

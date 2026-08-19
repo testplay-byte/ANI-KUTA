@@ -159,6 +159,34 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
         store.putInt(keyLinkCache(sourceId, animeUrl), 0)
     }
 
+    // ── D-238: Per-anime "user unlinked" blacklist ──────────────────────────
+
+    /**
+     * D-238: Marks an AniList anime as "user unlinked" — the user manually
+     * unlinked the source, so reverse auto-link should NOT re-link it.
+     *
+     * Cleared when the user manually links a source (via [clearUserUnlinked]).
+     */
+    fun markUserUnlinked(anilistId: Int) {
+        store.putBoolean(keyUserUnlinked(anilistId), true)
+    }
+
+    /**
+     * D-238: Checks if the user has manually unlinked this anime.
+     * If true, reverse auto-link should be skipped.
+     */
+    fun isUserUnlinked(anilistId: Int): Boolean {
+        return store.getBoolean(keyUserUnlinked(anilistId), false)
+    }
+
+    /**
+     * D-238: Clears the "user unlinked" flag — called when the user manually
+     * links a source (so future auto-links are allowed again).
+     */
+    fun clearUserUnlinked(anilistId: Int) {
+        store.putBoolean(keyUserUnlinked(anilistId), false)
+    }
+
     companion object {
         // Forward direction
         private const val KEY_AUTO_LINK_ENABLED = "auto_link_enabled"
@@ -175,10 +203,16 @@ class AutoLinkPreferences(private val store: PreferenceStore) {
         private const val KEY_REVERSE_THRESHOLD = "auto_link_reverse_threshold"
         private const val KEY_REVERSE_EXT_ORDER = "auto_link_reverse_ext_order"
 
+        // D-238: Per-anime "user unlinked" blacklist (prevents re-auto-linking)
+        private const val KEY_USER_UNLINKED_PREFIX = "auto_link_user_unlinked:"
+
         private fun keyPerSourceOverride(sourceId: Long): String =
             "$KEY_PER_SOURCE_PREFIX$sourceId"
 
         private fun keyLinkCache(sourceId: Long, animeUrl: String): String =
             "$KEY_LINK_CACHE_PREFIX$sourceId:${animeUrl.hashCode()}"
+
+        private fun keyUserUnlinked(anilistId: Int): String =
+            "$KEY_USER_UNLINKED_PREFIX$anilistId"
     }
 }
