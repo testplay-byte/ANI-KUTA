@@ -877,6 +877,35 @@ fun DetailsScreen(
                         // episodesToShow are now computed ABOVE (before EpisodesSection).
 
                         if (episodesToShow != null && !matchPreviewVisible) {
+                            // D-233: Empty-state when filters produce no results.
+                            if (episodesToShow.isEmpty() && rawEpisodes?.isNotEmpty() == true) {
+                                item {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 24.dp, vertical = 32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Text(
+                                            text = "No episodes match your filters",
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                        Spacer(Modifier.height(8.dp))
+                                        TextButton(onClick = { episodeListPrefs.resetFilters() }) {
+                                            Text(
+                                                "Reset filters",
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
                             // D-232: Group switcher is now INLINE in the EpisodesSection
                             // header (between "Episodes" text and source pill), not here.
                             items(episodesToShow, key = { it.url }) { episode ->
@@ -924,6 +953,7 @@ fun DetailsScreen(
                                     )
                                 }
                             }
+                            } // end else (non-empty episodesToShow)
                         }
 
                         // ── Info ──
@@ -2228,11 +2258,9 @@ private fun EpisodeGroupSwitcher(
                     modifier = Modifier.size(20.dp).rotate(90f),
                 )
             }
-            // Group label — D-232: show smaller value on LEFT, bigger on RIGHT.
-            val low = minOf(currentGroup.startEpisode, currentGroup.endEpisode)
-            val high = maxOf(currentGroup.startEpisode, currentGroup.endEpisode)
+            // Group label — D-233: lowEpisode is always the smaller number.
             Text(
-                text = "EP $low-$high",
+                text = "EP ${currentGroup.lowEpisode}-${currentGroup.highEpisode}",
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,

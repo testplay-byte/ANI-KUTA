@@ -116,25 +116,35 @@ fun applyEpisodeListPreferences(
 /**
  * Represents a group of episodes (for the group switcher UI).
  *
+ * D-233: `lowEpisode` is always the smaller number, `highEpisode` the bigger.
+ * The display label is "EP {low}-{high}".
+ *
  * @param index The group index (0-based).
- * @param startEpisode The first episode number in this group.
- * @param endEpisode The last episode number in this group.
- * @param episodes The episodes in this group.
+ * @param lowEpisode The smaller episode number in this group.
+ * @param highEpisode The larger episode number in this group.
+ * @param episodes The episodes in this group (in the user's chosen sort order).
  */
 data class EpisodeGroup(
     val index: Int,
-    val startEpisode: Int,
-    val endEpisode: Int,
+    val lowEpisode: Int,
+    val highEpisode: Int,
     val episodes: List<SEpisode>,
 )
 
 /**
- * Splits the episode list into groups of [groupSize] episodes each.
+ * D-233: Splits the episode list into groups by EPISODE-NUMBER RANGE.
+ *
+ * For groupSize=100: Group 0 = episodes 1-100, Group 1 = 101-200, etc.
+ * This produces round-number boundaries (1-100, 101-200) regardless of
+ * the total episode count — matches the user's mental model.
+ *
+ * The episode list is NOT re-sorted here — it preserves the user's chosen
+ * sort order (from applyEpisodeListPreferences). Episodes are assigned to
+ * groups by their episode NUMBER, then each group's episodes are in the
+ * user's sort order.
+ *
  * Returns a single group (the full list) if groupSize is 0 or the episode
  * count doesn't exceed the group size.
- *
- * Episodes are sorted descending by episode number before grouping (so the
- * latest episodes are in group 0 — matches the default descending display).
  */
 fun groupEpisodes(
     episodes: List<SEpisode>,
@@ -144,20 +154,28 @@ fun groupEpisodes(
         return listOf(EpisodeGroup(0, 0, 0, episodes))
     }
 
-    // Sort descending by episode number (latest first).
-    val sorted = episodes.sortedByDescending { it.episode_number }
+    // D-233: Group by episode-number RANGE (not by count).
+    // Find the min + max episode numbers to determine the range.
+    val epNumbers = episodes.map { it.episode_number.toInt() }
+    val minEp = epNumbers.minOrNull() ?: 0
+    val maxEp = epNumbers.maxOrNull() ?: 0
 
+    // Create range-based groups: [1..100], [101..200], etc.
     val groups = mutableListOf<EpisodeGroup>()
+    var rangeStart = ((minEp - 1) / groupSize) * groupSize + 1 // round down to group boundary
     var index = 0
-    var startIndex = 0
-    while (startIndex < sorted.size) {
-        val endIndex = minOf(startIndex + groupSize, sorted.size)
-        val chunk = sorted.subList(startIndex, endIndex)
-        val startEp = chunk.firstOrNull()?.episode_number?.toInt() ?: 0
-        val endEp = chunk.lastOrNull()?.episode_number?.toInt() ?: 0
-        groups.add(EpisodeGroup(index, startEp, endEp, chunk))
-        index++
-        startIndex = endIndex
+    while (rangeStart <= maxEp) {
+        val rangeEnd = rangeStart + groupSize - 1
+        // Episodes whose number falls in [rangeStart, rangeEnd].
+        val chunk = episodes.filter { ep ->
+            val n = ep.episode_number.toInt()
+            n in rangeStart..rangeEnd
+        }
+        if (chunk.isNotEmpty()) {
+            groups.add(EpisodeGroup(index, rangeStart, rangeEnd, chunk))
+            index++
+        }
+        rangeStart = rangeEnd + 1
     }
     return groups
 }

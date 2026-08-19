@@ -111,6 +111,32 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         KEY_GROUPING_SIZE, 0, IntSerializer,
     )
 
+    // ════════════════════════════════════════════════════════════════════════
+    //  6. Next episode release date display
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * D-233: Whether to show the next upcoming episode (with countdown) at the
+     * top/bottom of the episode list. When enabled, if there's a future-dated
+     * episode in the metadata, it's shown as a special card with the release
+     * date + countdown instead of the normal episode row.
+     *
+     * Default: true (most users want to see upcoming episodes).
+     */
+    val showNextEpisode = store.preference(
+        KEY_SHOW_NEXT_EPISODE, true, BooleanSerializer,
+    )
+
+    /**
+     * D-233: Reset all filters to their defaults (downloaded=OFF, watched=OFF,
+     * audio=BOTH). Called when the user taps "Reset filters" on the empty-state.
+     */
+    fun resetFilters() {
+        downloadedFilter.set("OFF")
+        watchedFilter.set("OFF")
+        audioFilter.set("BOTH")
+    }
+
     companion object {
         private const val KEY_THUMBNAIL_FALLBACK = "pref_episode_list_thumbnail_fallback"
         private const val KEY_DOWNLOADED_FILTER = "pref_episode_list_downloaded_filter"
@@ -119,5 +145,6 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_SORT_DESCENDING = "pref_episode_list_sort_descending"
         private const val KEY_AUDIO_FILTER = "pref_episode_list_audio_filter"
         private const val KEY_GROUPING_SIZE = "pref_episode_list_grouping_size"
+        private const val KEY_SHOW_NEXT_EPISODE = "pref_episode_list_show_next_episode"
     }
 }
