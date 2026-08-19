@@ -251,6 +251,8 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             single { AppPreferences(get()) }
             single { AutoLinkPreferences(get()) }
             single { PlayerPreferences(get()) }
+            // D-230: Episode list customization (filters, sort, grouping, thumbnail fallback).
+            single { com.confused.anikuta.core.preferences.EpisodeListPreferences(get()) }
             single { ThemePreferences(get()) }
             single { com.confused.anikuta.core.preferences.NotificationPreferences(get()) }
             // D-192: SettingsRepository for backup/restore (mirrors PreferenceStore to app_settings table)

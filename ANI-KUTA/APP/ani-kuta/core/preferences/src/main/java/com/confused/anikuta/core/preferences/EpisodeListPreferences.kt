@@ -1,0 +1,123 @@
+package com.confused.anikuta.core.preferences
+
+/**
+ * D-230: Preferences for the episode list customization system.
+ *
+ * Controls the episode list on BOTH the Details page + the Watch page.
+ * Settings are GLOBAL (apply to all anime) — per-anime overrides can be
+ * added in a future iteration if requested.
+ *
+ * **Categories:**
+ * 1. **Thumbnail fallback** — what to show when an episode has no per-episode
+ *    thumbnail: fall back to the anime's cover image, or show no image.
+ * 2. **Filters** — downloaded-only, unseen-only, seen-only (three-state: off/show/hide).
+ * 3. **Sort** — by episode number, upload date, or alphabetical; ascending/descending.
+ * 4. **Audio filter** — sub, dub, or both.
+ * 5. **Grouping** — for long series (100+ episodes), group into chunks of 100/200/300/400.
+ *
+ * Uses the reactive `Preference<T>` pattern so the UI auto-recomposes on change.
+ *
+ * CORE_RULES §23: Settings changes propagate live (the next episode list
+ * recomposition reads the current values).
+ */
+class EpisodeListPreferences(private val store: PreferenceStore) {
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  1. Thumbnail fallback
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * What to show when an episode has no per-episode thumbnail.
+     * - `"COVER"` → fall back to the anime's cover image (default).
+     * - `"NONE"` → show no image (a bare placeholder).
+     */
+    val thumbnailFallback = store.preference(
+        KEY_THUMBNAIL_FALLBACK, "COVER", StringSerializer,
+    )
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  2. Filters (three-state: off / show-only / hide)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Downloaded filter state.
+     * - `"OFF"` → no filter (default).
+     * - `"SHOW"` → show only downloaded episodes.
+     * - `"HIDE"` → show only non-downloaded episodes.
+     */
+    val downloadedFilter = store.preference(
+        KEY_DOWNLOADED_FILTER, "OFF", StringSerializer,
+    )
+
+    /**
+     * Watched/seen filter state.
+     * - `"OFF"` → no filter (default).
+     * - `"SHOW"` → show only watched episodes.
+     * - `"HIDE"` → show only unwatched episodes.
+     */
+    val watchedFilter = store.preference(
+        KEY_WATCHED_FILTER, "OFF", StringSerializer,
+    )
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  3. Sort
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Sort mode for the episode list.
+     * - `"EPISODE_NUMBER"` → sort by episode number (default).
+     * - `"UPLOAD_DATE"` → sort by upload/air date.
+     * - `"ALPHABETICAL"` → sort by title alphabetically.
+     */
+    val sortMode = store.preference(
+        KEY_SORT_MODE, "EPISODE_NUMBER", StringSerializer,
+    )
+
+    /** Sort descending (true) or ascending (false, default). */
+    val sortDescending = store.preference(
+        KEY_SORT_DESCENDING, false, BooleanSerializer,
+    )
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  4. Audio filter
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Audio type filter.
+     * - `"BOTH"` → show all episodes (default).
+     * - `"SUB"` → show only subbed episodes.
+     * - `"DUB"` → show only dubbed episodes.
+     */
+    val audioFilter = store.preference(
+        KEY_AUDIO_FILTER, "BOTH", StringSerializer,
+    )
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  5. Grouping (for long series)
+    // ════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Grouping size for long series.
+     * - `0` → no grouping (default).
+     * - `100` → group into chunks of 100.
+     * - `200` → group into chunks of 200.
+     * - `300` → group into chunks of 300.
+     * - `400` → group into chunks of 400.
+     *
+     * Grouping only activates when the episode count exceeds the group size.
+     * The group switcher UI appears between the "Episodes" text and the source pill.
+     */
+    val groupingSize = store.preference(
+        KEY_GROUPING_SIZE, 0, IntSerializer,
+    )
+
+    companion object {
+        private const val KEY_THUMBNAIL_FALLBACK = "pref_episode_list_thumbnail_fallback"
+        private const val KEY_DOWNLOADED_FILTER = "pref_episode_list_downloaded_filter"
+        private const val KEY_WATCHED_FILTER = "pref_episode_list_watched_filter"
+        private const val KEY_SORT_MODE = "pref_episode_list_sort_mode"
+        private const val KEY_SORT_DESCENDING = "pref_episode_list_sort_descending"
+        private const val KEY_AUDIO_FILTER = "pref_episode_list_audio_filter"
+        private const val KEY_GROUPING_SIZE = "pref_episode_list_grouping_size"
+    }
+}

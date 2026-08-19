@@ -235,6 +235,11 @@ fun DetailsScreen(
     var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
 
+    // D-230: Episode list settings sheet + search state.
+    var showEpisodeSettingsSheet by remember { mutableStateOf(false) }
+    var showEpisodeSearch by remember { mutableStateOf(false) }
+    var episodeSearchQuery by remember { mutableStateOf("") }
+
     // Phase 2: Auto-select video — when the user clicks an episode, set pendingAutoPlay
     // instead of showResolverSheet. The LaunchedEffect below observes resolverState +
     // when it becomes Success, tries auto-select. If a video is picked → navigate to
@@ -764,6 +769,8 @@ fun DetailsScreen(
                                 mainId = viewModel.currentMainId,
                                 watchProgress = watchProgress,
                                 onToggleWatched = { epKey -> viewModel.toggleWatched(epKey) },
+                                onOpenEpisodeSettings = { showEpisodeSettingsSheet = true },
+                                onOpenEpisodeSearch = { showEpisodeSearch = true },
                             )
                         }
 
@@ -1039,6 +1046,30 @@ fun DetailsScreen(
             onToggleCategory = { categoryId -> viewModel.toggleCategory(categoryId) },
             onCreateCategory = { name -> viewModel.createCategoryAndAdd(name) },
             onDismiss = { viewModel.dismissCategorySheet() },
+        )
+    }
+
+    // D-230: Episode list settings bottom sheet (tap "Episodes" text).
+    if (showEpisodeSettingsSheet) {
+        EpisodeListSettingsSheet(onDismiss = { showEpisodeSettingsSheet = false })
+    }
+
+    // D-230: Episode search field (swipe-right on "Episodes" text).
+    if (showEpisodeSearch) {
+        EpisodeSearchSheet(
+            episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+            episodeMetadata = episodeMetadata,
+            query = episodeSearchQuery,
+            onQueryChange = { episodeSearchQuery = it },
+            onEpisodeClick = { episode ->
+                showEpisodeSearch = false
+                episodeSearchQuery = ""
+                onEpisodeClick(episode)
+            },
+            onDismiss = {
+                showEpisodeSearch = false
+                episodeSearchQuery = ""
+            },
         )
     }
 }
@@ -1512,6 +1543,10 @@ private fun EpisodesSection(
     mainId: String? = null,
     watchProgress: Map<String, com.confused.anikuta.core.watchprogress.WatchProgress> = emptyMap(),
     onToggleWatched: (String) -> Unit = {},
+    // D-230: callback to open the episode list settings bottom sheet.
+    onOpenEpisodeSettings: () -> Unit = {},
+    // D-230: callback to open the episode search (swipe-right gesture).
+    onOpenEpisodeSearch: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
@@ -1557,7 +1592,21 @@ private fun EpisodesSection(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    // D-230: swipe-right → open episode search.
+                    .pointerInput(Unit) {
+                        androidx.compose.foundation.gestures.detectHorizontalDragGestures(
+                            onDragEnd = { },
+                            onHorizontalDrag = { _, dragAmount ->
+                                if (dragAmount > 40f) onOpenEpisodeSearch()
+                            },
+                        )
+                    }
+                    // D-230: tap → open episode list settings sheet.
+                    .clickable { onOpenEpisodeSettings() },
+            ) {
                 Text(
                     text = "Episodes",
                     fontFamily = RobotoFamily,
@@ -2030,10 +2079,18 @@ private fun EpisodeRow(
             ?: episode.name.ifBlank { "Episode ${formatEpisodeNumber(episode.episode_number)}" }
     }
     val description = metadata?.description ?: episode.summary
-    // D-229: Fall back to the anime's cover image when the episode has no
-    // per-episode thumbnail. AniZip/Kitsu only have thumbnails for some anime;
-    // without this fallback, episodes show a bare circle placeholder.
-    val thumbnailUrl = metadata?.thumbnailUrl ?: fallbackCoverUrl
+    // D-230: Thumbnail fallback is now configurable via EpisodeListPreferences.
+    // - "COVER" → fall back to the anime's cover image (default).
+    // - "NONE" → no image (bare placeholder).
+    val episodeListPrefs = koinInject<com.confused.anikuta.core.preferences.EpisodeListPreferences>()
+    val thumbnailFallback by episodeListPrefs.thumbnailFallback.changes.collectAsState(
+        initial = episodeListPrefs.thumbnailFallback.get(),
+    )
+    val thumbnailUrl = when {
+        !metadata?.thumbnailUrl.isNullOrBlank() -> metadata?.thumbnailUrl
+        thumbnailFallback == "COVER" -> fallbackCoverUrl
+        else -> null
+    }
     val epNumText = formatEpisodeNumber(episode.episode_number)
     val dateText = remember(episode, metadata) {
         val airDate = metadata?.airDate
