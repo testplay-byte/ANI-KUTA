@@ -784,6 +784,33 @@ fun DetailsScreen(
                         // Header + non-Loaded states (Idle/Loading/Empty/Error/CloudflareBlocked)
                         // are rendered inside EpisodesSection. When Loaded, the episode rows
                         // are emitted as lazy items() BELOW — proper Compose virtualization.
+                        //
+                        // D-232: Compute the processed/grouped episodes BEFORE the
+                        // EpisodesSection call so the group switcher data is available
+                        // for the header (the switcher is inline in the header now).
+                        val rawEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                        val processedEpisodes = if (rawEpisodes != null) {
+                            applyEpisodeListPreferences(
+                                episodes = rawEpisodes,
+                                metadata = episodeMetadata,
+                                downloadStates = downloadStates,
+                                watchProgress = watchProgress,
+                                mainId = viewModel.currentMainId,
+                                downloadedFilter = downloadedFilter,
+                                watchedFilter = watchedFilter,
+                                audioFilter = audioFilter,
+                                sortMode = sortMode,
+                                sortDescending = sortDescending,
+                            )
+                        } else null
+                        val episodeGroups = if (processedEpisodes != null) {
+                            groupEpisodes(processedEpisodes, groupingSize)
+                        } else null
+                        val currentGroup = if (episodeGroups != null && episodeGroups.size > 1) {
+                            episodeGroups.getOrElse(currentGroupIndex) { episodeGroups.first() }
+                        } else null
+                        val episodesToShow = currentGroup?.episodes ?: processedEpisodes
+
                         item {
                             EpisodesSection(
                                 linkedSource = effectiveLinkedSource,
@@ -846,34 +873,8 @@ fun DetailsScreen(
                         // see the preview card during that window — the episodes load in
                         // the background but don't appear until the preview dismisses.
                         //
-                        // D-231: Apply the user's filter + sort preferences to the episode
-                        // list. D-232: Pass individual collected VALUES (not the prefs
-                        // object) so Compose tracks reads + recomposes on any change.
-                        val rawEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
-                        val processedEpisodes = if (rawEpisodes != null) {
-                            applyEpisodeListPreferences(
-                                episodes = rawEpisodes,
-                                metadata = episodeMetadata,
-                                downloadStates = downloadStates,
-                                watchProgress = watchProgress,
-                                mainId = viewModel.currentMainId,
-                                downloadedFilter = downloadedFilter,
-                                watchedFilter = watchedFilter,
-                                audioFilter = audioFilter,
-                                sortMode = sortMode,
-                                sortDescending = sortDescending,
-                            )
-                        } else null
-
-                        // D-231: Grouping — split into chunks if groupingSize > 0 + the
-                        // episode count exceeds the group size.
-                        val episodeGroups = if (processedEpisodes != null) {
-                            groupEpisodes(processedEpisodes, groupingSize)
-                        } else null
-                        val currentGroup = if (episodeGroups != null && episodeGroups.size > 1) {
-                            episodeGroups.getOrElse(currentGroupIndex) { episodeGroups.first() }
-                        } else null
-                        val episodesToShow = currentGroup?.episodes ?: processedEpisodes
+                        // D-232: rawEpisodes/processedEpisodes/episodeGroups/currentGroup/
+                        // episodesToShow are now computed ABOVE (before EpisodesSection).
 
                         if (episodesToShow != null && !matchPreviewVisible) {
                             // D-232: Group switcher is now INLINE in the EpisodesSection
