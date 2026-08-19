@@ -183,6 +183,8 @@ fun DetailsScreen(
 
     // D-223: Per-anime accent color (extracted from cover image).
     val coverAccent by viewModel.coverAccent.collectAsState()
+    // D-234: Next-episode release info (for the countdown card).
+    val nextEpisodeInfo by viewModel.nextEpisodeInfo.collectAsState()
 
     // Phase 4: per-anime user rating (0-100, null = unrated).
     val animeRating by viewModel.animeRating.collectAsState()
@@ -243,6 +245,10 @@ fun DetailsScreen(
     )
     val groupingSize by episodeListPrefs.groupingSize.changes.collectAsState(
         initial = episodeListPrefs.groupingSize.get(),
+    )
+    // D-234: Show next episode release card.
+    val showNextEpisode by episodeListPrefs.showNextEpisode.changes.collectAsState(
+        initial = episodeListPrefs.showNextEpisode.get(),
     )
 
     // D-146: Refresh visual feedback
@@ -906,6 +912,13 @@ fun DetailsScreen(
                                     }
                                 }
                             } else {
+                            // D-234: Next-episode card — shows at the top of the list
+                            // when showNextEpisode is enabled + there's a future episode.
+                            if (showNextEpisode && nextEpisodeInfo != null) {
+                                item {
+                                    NextEpisodeCard(nextEpisodeInfo!!)
+                                }
+                            }
                             // D-232: Group switcher is now INLINE in the EpisodesSection
                             // header (between "Episodes" text and source pill), not here.
                             items(episodesToShow, key = { it.url }) { episode ->
@@ -2218,6 +2231,96 @@ private fun MatchPreviewCard(
 
 /** D-228: Minimum time the match-preview card stays visible (ms). */
 private const val MATCH_PREVIEW_MIN_MS = 4000L
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-234: NextEpisodeCard — shows the upcoming episode with a countdown
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun NextEpisodeCard(info: NextEpisodeInfo) {
+    // D-234: Live countdown — update every second.
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(info.airingAtMillis) {
+        while (true) {
+            now = System.currentTimeMillis()
+            kotlinx.coroutines.delay(1000L)
+        }
+    }
+    val remainingMs = (info.airingAtMillis - now).coerceAtLeast(0)
+    val days = remainingMs / (1000 * 60 * 60 * 24)
+    val hours = (remainingMs / (1000 * 60 * 60)) % 24
+    val minutes = (remainingMs / (1000 * 60)) % 60
+    val seconds = (remainingMs / 1000) % 60
+    val countdownText = when {
+        days > 0 -> "${days}d ${hours}h ${minutes}m"
+        hours > 0 -> "${hours}h ${minutes}m ${seconds}s"
+        minutes > 0 -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
+    }
+    val releaseDateText = remember(info.airingAtMillis) {
+        val sdf = java.text.SimpleDateFormat("MMM d, yyyy • HH:mm", java.util.Locale.getDefault())
+        sdf.format(java.util.Date(info.airingAtMillis))
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Episode number badge.
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    text = "EP ${info.episodeNumber}",
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            // Release info.
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Next episode",
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                )
+                Text(
+                    text = releaseDateText,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            // Countdown.
+            Surface(
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(
+                    text = countdownText,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  D-231: EpisodeGroupSwitcher — shows between "Episodes" text and source pill

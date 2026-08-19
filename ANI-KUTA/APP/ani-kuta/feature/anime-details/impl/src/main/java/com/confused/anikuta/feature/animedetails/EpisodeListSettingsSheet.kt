@@ -115,43 +115,51 @@ private fun TabSelector(
     selected: Int,
     onSelect: (Int) -> Unit,
 ) {
-    Row(
+    // D-234: Tab selector with a distinct container background + underline
+    // indicator — looks like a category bar, not content.
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        tabs.forEach { (index, label) ->
-            val isSelected = index == selected
-            val bg by animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                animationSpec = tween(180),
-                label = "tabBg",
-            )
-            val fg by animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                animationSpec = tween(180),
-                label = "tabFg",
-            )
-            Surface(
-                color = bg,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable { onSelect(index) },
-            ) {
-                Box(
-                    modifier = Modifier.padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center,
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            tabs.forEach { (index, label) ->
+                val isSelected = index == selected
+                val bg by animateColorAsState(
+                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+                        else androidx.compose.ui.graphics.Color.Transparent,
+                    animationSpec = tween(180),
+                    label = "tabBg",
+                )
+                val fg by animateColorAsState(
+                    targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = tween(180),
+                    label = "tabFg",
+                )
+                Surface(
+                    color = bg,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onSelect(index) },
                 ) {
-                    Text(
-                        text = label,
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                        color = fg,
-                    )
+                    Box(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                            color = fg,
+                        )
+                    }
                 }
             }
         }
@@ -172,27 +180,105 @@ private fun SortTab(prefs: EpisodeListPreferences) {
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // Sort mode.
-        SectionLabel("Sort by")
-        SegmentedSelector(
-            options = listOf(
-                "EPISODE_NUMBER" to "Episode",
-                "UPLOAD_DATE" to "Date",
-                "ALPHABETICAL" to "A-Z",
-            ),
-            selected = sortMode,
-            onSelect = { prefs.sortMode.set(it) },
+        // D-234: Sort options in a LIST format (not segmented pills).
+        // Each row: label on the left, ascending/descending arrow on the right.
+        // Tapping a row selects that sort mode. If already selected, tapping
+        // again toggles the direction (ascending ↔ descending).
+        SortOptionRow(
+            label = "Episode",
+            isSelected = sortMode == "EPISODE_NUMBER",
+            isDescending = sortDescending,
+            onClick = {
+                if (sortMode == "EPISODE_NUMBER") {
+                    // Already selected → toggle direction.
+                    prefs.sortDescending.set(!sortDescending)
+                } else {
+                    // New selection → set mode + reset to ascending.
+                    prefs.sortMode.set("EPISODE_NUMBER")
+                    prefs.sortDescending.set(false)
+                }
+            },
         )
-        Spacer(Modifier.height(4.dp))
-        // Ascending/Descending toggle.
-        SectionLabel("Direction")
-        SegmentedSelector(
-            options = listOf(false to "Ascending", true to "Descending"),
-            selected = sortDescending,
-            onSelect = { prefs.sortDescending.set(it) },
+        SortOptionRow(
+            label = "Date",
+            isSelected = sortMode == "UPLOAD_DATE",
+            isDescending = sortDescending,
+            onClick = {
+                if (sortMode == "UPLOAD_DATE") {
+                    prefs.sortDescending.set(!sortDescending)
+                } else {
+                    prefs.sortMode.set("UPLOAD_DATE")
+                    prefs.sortDescending.set(false)
+                }
+            },
         )
+        SortOptionRow(
+            label = "Alphabetical",
+            isSelected = sortMode == "ALPHABETICAL",
+            isDescending = sortDescending,
+            onClick = {
+                if (sortMode == "ALPHABETICAL") {
+                    prefs.sortDescending.set(!sortDescending)
+                } else {
+                    prefs.sortMode.set("ALPHABETICAL")
+                    prefs.sortDescending.set(false)
+                }
+            },
+        )
+    }
+}
+
+/**
+ * D-234: A sort option row — label on the left, direction arrow on the right.
+ * When selected, shows the accent color + an arrow (↑ ascending / ↓ descending).
+ */
+@Composable
+private fun SortOptionRow(
+    label: String,
+    isSelected: Boolean,
+    isDescending: Boolean,
+    onClick: () -> Unit,
+) {
+    val bg by animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        animationSpec = tween(180),
+        label = "sortRowBg",
+    )
+    Surface(
+        color = bg,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            // Direction arrow (only shown when selected).
+            if (isSelected) {
+                Text(
+                    text = if (isDescending) "↓" else "↑",
+                    fontFamily = RobotoFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
     }
 }
 

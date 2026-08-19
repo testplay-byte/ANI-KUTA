@@ -81,6 +81,8 @@ class DetailsViewModel(
     private val genreRepository: com.confused.anikuta.core.content.genre.GenreRepository,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
     private val updateEngine: com.confused.anikuta.core.updates.UpdateEngine,
+    // D-234: UpdateStore for next-episode release schedule data.
+    private val updateStore: com.confused.anikuta.core.updates.UpdateStore,
     // D-223: Cover color extractor for adaptive theming.
     private val coverColorExtractor: com.confused.anikuta.core.designsystem.color.CoverColorExtractor? = null,
     // D-225: Reverse auto-link service (AniList → extensions).
@@ -109,6 +111,18 @@ class DetailsViewModel(
      */
     private val _coverAccent = MutableStateFlow<Int?>(null)
     val coverAccent: StateFlow<Int?> = _coverAccent.asStateFlow()
+
+    /**
+     * D-234: Next-episode release info — shows the upcoming episode with a
+     * countdown at the top/bottom of the episode list. Derived from
+     * UpdateStore's `anime_update_state` table (populated by ScheduleEngine
+     * from AniList's `nextAiringEpisode` data).
+     *
+     * Null when: no mainId, no update state row, episode already aired, or
+     * series is FINISHED/CANCELLED.
+     */
+    private val _nextEpisodeInfo = MutableStateFlow<NextEpisodeInfo?>(null)
+    val nextEpisodeInfo: StateFlow<NextEpisodeInfo?> = _nextEpisodeInfo.asStateFlow()
 
     /** The available trusted sources (for the manual search sheet). */
     val availableSources: StateFlow<List<AnimeCatalogueSource>> =
@@ -490,6 +504,7 @@ class DetailsViewModel(
         _isInLibrary.value = false
         _contentId.value = ""
         _coverAccent.value = null
+        _nextEpisodeInfo.value = null
         _showCategorySheet.value = false
         _isRefreshing.value = false
         _refreshState.value = RefreshState.Idle
@@ -528,6 +543,7 @@ class DetailsViewModel(
         // D-227: Reset per-anime UI state that was NOT reset before (caused "shadow"
         // of the previous anime's data — adaptive accent, category sheet, refresh).
         _coverAccent.value = null
+        _nextEpisodeInfo.value = null
         _showCategorySheet.value = false
         _isRefreshing.value = false
         _refreshState.value = RefreshState.Idle
@@ -574,6 +590,7 @@ class DetailsViewModel(
                         refreshContentAndLibraryStatus(cachedMainId)
                         // D-223: Trigger cover color extraction for the AniList cache-first path.
                         triggerCoverColorExtraction(cachedMainId, cachedMeta.dataCoverUrl)
+                        triggerNextEpisodeInfo(cachedMainId)
                         loadLinkedSource(animeId)
                     }
                 }
@@ -988,6 +1005,7 @@ class DetailsViewModel(
         // D-227: Reset per-anime UI state that was NOT reset before (caused "shadow"
         // of the previous anime's data — adaptive accent, category sheet, refresh).
         _coverAccent.value = null
+        _nextEpisodeInfo.value = null
         _showCategorySheet.value = false
         _isRefreshing.value = false
         _refreshState.value = RefreshState.Idle
@@ -1132,6 +1150,7 @@ class DetailsViewModel(
             // would never get the adaptive accent color.
             val cacheCoverUrl = details?.extThumbnailUrl ?: details?.dataCoverUrl ?: thumbnailUrl
             triggerCoverColorExtraction(existingContent.mainId, cacheCoverUrl)
+            triggerNextEpisodeInfo(existingContent.mainId)
 
             // Try to load cached episodes.
             val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
@@ -1224,6 +1243,7 @@ class DetailsViewModel(
             refreshContentAndLibraryStatus(mainId)
             // D-223: Trigger cover color extraction for adaptive theming.
             triggerCoverColorExtraction(mainId, detail.dataCoverUrl)
+            triggerNextEpisodeInfo(mainId)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "resolveContentForAniList failed: ${e.message}" }
         }
@@ -1307,6 +1327,7 @@ class DetailsViewModel(
 
             // D-223: Trigger cover color extraction for adaptive theming.
             triggerCoverColorExtraction(mainId, unifiedAnime?.coverUrl)
+            triggerNextEpisodeInfo(mainId)
 
             // D-142 + D-198: Store the extension detail (with coverUrl) for library display.
             // Without this, the library can't show cover images for extension-only entries.
@@ -1388,6 +1409,44 @@ class DetailsViewModel(
                 Logger.i(TAG) { "Cover accent extracted + stored: 0x${"%08X".format(argb)}" }
             }
         }
+    }
+
+    /**
+     * D-234: Load the next-episode release info from UpdateStore.
+     *
+     * Called when a new anime is loaded (same places as triggerCoverColorExtraction).
+     * Reads `anime_update_state` for the current mainId — if the series is
+     * RELEASING + has a future `nextAiringAt`, sets [_nextEpisodeInfo].
+     *
+     * For completed series (status == FINISHED/CANCELLED), sets null (no card).
+     */
+    private fun triggerNextEpisodeInfo(mainId: String) {
+        val state = updateStore.getAnimeUpdateState(mainId)
+        if (state == null) {
+            _nextEpisodeInfo.value = null
+            return
+        }
+        // D-234: Only show for RELEASING series with a future air date.
+        val isFinished = state.status == "FINISHED" || state.status == "CANCELLED"
+        val airingAt = state.nextAiringAt
+        val epNum = state.nextAiringEpisode
+        if (isFinished || airingAt == null || airingAt <= 0 || epNum == null || epNum <= 0) {
+            _nextEpisodeInfo.value = null
+            return
+        }
+        // Convert to millis if needed (AniList returns seconds — but UpdateStore
+        // should already store millis. Check just in case).
+        val airingAtMillis = if (airingAt < 1_000_000_000_000L) airingAt * 1000 else airingAt
+        // Only show if the episode hasn't aired yet.
+        if (airingAtMillis <= System.currentTimeMillis()) {
+            _nextEpisodeInfo.value = null
+            return
+        }
+        _nextEpisodeInfo.value = NextEpisodeInfo(
+            episodeNumber = epNum.toInt(),
+            airingAtMillis = airingAtMillis,
+        )
+        Logger.d(TAG) { "Next episode: EP $epNum at ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(airingAtMillis))}" }
     }
 
     /**
@@ -2539,6 +2598,17 @@ data class LinkedSource(
     val sourceId: Long,
     val sourceName: String,
     val animeUrl: String,
+)
+
+/**
+ * D-234: Next-episode release info — shows the upcoming episode with a countdown.
+ *
+ * @param episodeNumber The episode number that will air next.
+ * @param airingAtMillis The Unix timestamp (millis) when the episode airs.
+ */
+data class NextEpisodeInfo(
+    val episodeNumber: Int,
+    val airingAtMillis: Long,
 )
 
 /** Manual search state (source linking — AniList entries). */
