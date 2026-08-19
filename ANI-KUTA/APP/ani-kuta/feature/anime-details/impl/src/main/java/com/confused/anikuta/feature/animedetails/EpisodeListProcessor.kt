@@ -65,10 +65,10 @@ fun applyEpisodeListPreferences(
         }
 
         // Audio filter (sub/dub) — parsed from scanlator + episode name.
-        val audio = parseAudioAvailability(episode.scanlator, episode.name)
+        val (hasSub, hasDub) = parseAudioAvailability(episode.scanlator, episode.name)
         val passesAudioFilter = when (audioFilter) {
-            "SUB" -> audio.hasSub
-            "DUB" -> audio.hasDub
+            "SUB" -> hasSub
+            "DUB" -> hasDub
             else -> true // "BOTH"
         }
 
@@ -85,21 +85,21 @@ fun applyEpisodeListPreferences(
                 val epNum = ep.episode_number.toInt()
                 metadata[epNum]?.airDate ?: ep.date_upload
             }
-            if (sortDescending) sortedWith(comparator.reversed())
-            else sortedWith(comparator)
+            if (sortDescending) filtered.sortedWith(comparator.reversed())
+            else filtered.sortedWith(comparator)
         }
         "ALPHABETICAL" -> {
             val comparator = compareBy<SEpisode> { ep ->
                 val epNum = ep.episode_number.toInt()
                 metadata[epNum]?.title ?: ep.name
             }
-            if (sortDescending) sortedWith(comparator.reversed())
-            else sortedWith(comparator)
+            if (sortDescending) filtered.sortedWith(comparator.reversed())
+            else filtered.sortedWith(comparator)
         }
         else -> { // "EPISODE_NUMBER" (default)
             val comparator = compareBy<SEpisode> { it.episode_number }
-            if (sortDescending) sortedWith(comparator.reversed())
-            else sortedWith(comparator)
+            if (sortDescending) filtered.sortedWith(comparator.reversed())
+            else filtered.sortedWith(comparator)
         }
     }
 
@@ -163,21 +163,14 @@ fun groupEpisodes(
 //  Audio availability parser (mirrors DetailsScreen.parseAudioAvailability)
 // ════════════════════════════════════════════════════════════════════════════
 
-private data class AudioAvailability(
-    val hasSub: Boolean,
-    val hasDub: Boolean,
-    val hasHsub: Boolean,
-)
-
-private fun parseAudioAvailability(scanlator: String?, episodeName: String): AudioAvailability {
+/**
+ * Returns (hasSub, hasDub) by parsing the scanlator + episode name.
+ */
+private fun parseAudioAvailability(scanlator: String?, episodeName: String): Pair<Boolean, Boolean> {
     val combined = ((scanlator ?: "") + " " + (episodeName ?: "")).uppercase()
     val hasSub = combined.contains("SUB") && !combined.contains("DUB")
         || combined.contains("SUBBED")
+        || combined.contains("HSUB") || combined.contains("HARDSUB")
     val hasDub = combined.contains("DUB") || combined.contains("DUBBED")
-    val hasHsub = combined.contains("HSUB") || combined.contains("HARDSUB")
-    return AudioAvailability(
-        hasSub = hasSub || hasHsub,
-        hasDub = hasDub,
-        hasHsub = hasHsub,
-    )
+    return Pair(hasSub, hasDub)
 }
