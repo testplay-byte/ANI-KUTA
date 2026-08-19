@@ -197,6 +197,63 @@ fun AppearanceGeneralScreen(
                             onCheckedChange = { prefs.setHeaderBlurEffect(it) },
                         )
                     }
+
+                    // ── D-236: Details page ──
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SettingsSectionLabel("Details page")
+                    }
+                    item {
+                        val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+                        SwitchCard(
+                            title = "Accent tint",
+                            subtitle = "Tint the background image with the cover-derived accent color",
+                            checked = appPrefs.detailsBannerTint,
+                            onCheckedChange = { appPrefs.detailsBannerTint = it },
+                        )
+                    }
+                    item {
+                        val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+                        SettingsCard {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                            ) {
+                                Text(
+                                    text = "Background image",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "Choose which image to show as the details page background. Banner falls back to cover if unavailable.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                SegmentedToggle(
+                                    options = listOf("Cover", "Banner"),
+                                    selectedIndex = if (appPrefs.detailsBackgroundSource == "BANNER") 1 else 0,
+                                    onSelect = { idx ->
+                                        appPrefs.detailsBackgroundSource = if (idx == 1) "BANNER" else "COVER"
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+                        SwitchCard(
+                            title = "Animated background",
+                            subtitle = "Slowly pan the background image for a dynamic effect",
+                            checked = appPrefs.detailsBannerAnimation,
+                            onCheckedChange = { appPrefs.detailsBannerAnimation = it },
+                        )
+                    }
                 }
 
                 ScrollBlurOverlay(

@@ -68,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -83,6 +84,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
@@ -1327,13 +1329,50 @@ private fun DetailBanner(
     onUnlinkAniList: () -> Unit = {},
 ) {
     val coverUrl = anime.coverUrl
-    // Per user: use the cover image as the background (like old project).
-    // The old project uses anime.coverUrl for the background — not bannerImage.
-    // A future tint-color system will extract the dominant color from the cover.
-    val bannerUrl = coverUrl
+    // D-236: Background image source — cover or banner (with fallback).
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val bgSource = appPrefs.detailsBackgroundSource
+    val tintEnabled = appPrefs.detailsBannerTint
+    val animationEnabled = appPrefs.detailsBannerAnimation && appPrefs.animationsEnabled
+    // D-236: Select the background image based on user preference.
+    // If BANNER is selected but bannerUrl is null, fall back to cover.
+    val bannerUrl = when (bgSource) {
+        "BANNER" -> anime.bannerUrl ?: coverUrl
+        else -> coverUrl // "COVER" (default)
+    }
+
+    // D-236: Slow pan animation — infinite transition that moves the image.
+    val panX by if (animationEnabled) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "bgPanX")
+            .animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(20_000, easing = androidx.compose.animation.core.LinearEasing),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                ),
+                label = "panX",
+            )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
+    val panY by if (animationEnabled) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "bgPanY")
+            .animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(28_000, easing = androidx.compose.animation.core.LinearEasing),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                ),
+                label = "panY",
+            )
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
 
     Box(modifier = Modifier.fillMaxWidth()) {
-        // ── Background: blurred banner image + gradient ──
+        // ── Background: blurred banner image + tint + gradient ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1343,11 +1382,36 @@ private fun DetailBanner(
                 AsyncImage(
                     model = bannerUrl,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize().blur(8.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(8.dp)
+                        // D-236: Scale up 15% so panning never reveals edges.
+                        .then(if (animationEnabled) Modifier.scale(1.15f) else Modifier)
+                        // D-236: Apply slow pan offset.
+                        .then(
+                            if (animationEnabled) {
+                                Modifier.offset(
+                                    x = androidx.compose.ui.unit.lerp((-48).dp, 48.dp, panX),
+                                    y = androidx.compose.ui.unit.lerp((-24).dp, 24.dp, panY),
+                                )
+                            } else {
+                                Modifier
+                            },
+                        ),
                     contentScale = ContentScale.Crop,
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+            }
+            // D-236: Accent-color tint overlay (30% alpha) — between the image
+            // and the gradient so the tint colors the image without blocking the
+            // gradient's readability effect.
+            if (tintEnabled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
+                )
             }
             // Gradient overlay: black 20% → transparent → background
             Box(

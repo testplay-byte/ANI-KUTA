@@ -83,6 +83,8 @@ class DetailsViewModel(
     private val updateEngine: com.confused.anikuta.core.updates.UpdateEngine,
     // D-234: UpdateStore for next-episode release schedule data.
     private val updateStore: com.confused.anikuta.core.updates.UpdateStore,
+    // D-236: ScheduleStore for writing episode_schedule rows on-demand.
+    private val scheduleStore: com.confused.anikuta.core.schedule.ScheduleStore,
     // D-223: Cover color extractor for adaptive theming.
     private val coverColorExtractor: com.confused.anikuta.core.designsystem.color.CoverColorExtractor? = null,
     // D-225: Reverse auto-link service (AniList → extensions).
@@ -1443,6 +1445,24 @@ class DetailsViewModel(
             val epNum = airingEpisode?.episode?.toLong()
             updateStore.updateAiringData(mainId, epNum, airingAtMillis, status)
             Logger.d(TAG) { "D-235: Stored airing data: ep=$epNum, airingAt=$airingAtMillis, status=$status" }
+
+            // D-236: Also upsert an episode_schedule row so the anime appears in
+            // the schedule list. Without this, only anime processed by the periodic
+            // ScheduleEngine worker (which writes episode_schedule) would show up.
+            if (epNum != null && airingAtMillis != null && airingAtMillis > System.currentTimeMillis()) {
+                val anilistId = currentAnimeId.toLong()
+                scheduleStore.upsertScheduleEntry(
+                    mainId = mainId,
+                    anilistId = anilistId,
+                    episodeNumber = epNum.toDouble(),
+                    scheduledAt = airingAtMillis,
+                    actualAt = null,
+                    audioVariant = "unknown",
+                    source = "anilist",
+                    fetchedAt = System.currentTimeMillis(),
+                )
+                Logger.d(TAG) { "D-236: Upserted episode_schedule: mainId=$mainId ep=$epNum airingAt=$airingAtMillis" }
+            }
         }
 
         // Now read from the DB (which may have just been updated).

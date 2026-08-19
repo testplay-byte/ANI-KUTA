@@ -26,6 +26,7 @@ dependencies {
     implementation(project(":core:ratings"))  // Phase 4: per-anime rating UI
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
     implementation(project(":core:updates"))  // D-192 Phase 3: updates feature
+    implementation(project(":core:schedule"))  // D-236: episode schedule (for on-demand airing data)
     implementation(project(":core:notifications"))  // D-193 v2: per-anime notification config UI
     implementation(project(":data:extension"))
 
