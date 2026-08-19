@@ -275,17 +275,22 @@ fun DetailsScreen(
 
     // D-231: Auto-scroll to the episodes section when the settings sheet opens,
     // so the user sees live changes. Restore the original position on dismiss.
+    // D-232: Fixed — use animateScrollToItem for BOTH open + restore (smooth both
+    // ways). Removed the false guard (savedScrollPosition > 0) that prevented
+    // restore when the user was at the very top.
     LaunchedEffect(showEpisodeSettingsSheet) {
         if (showEpisodeSettingsSheet) {
             // Save current position.
             savedScrollPosition = detailsLazyListState.firstVisibleItemIndex
             savedScrollOffset = detailsLazyListState.firstVisibleItemScrollOffset
-            // Scroll to the episodes section (item index 3: banner, genres, synopsis, episodes).
-            // The episodes item is at index 3 in the outer LazyColumn.
+            // Smooth scroll to the episodes section (item index 3).
             detailsLazyListState.animateScrollToItem(3, scrollOffset = 0)
-        } else if (savedScrollPosition > 0 || savedScrollOffset > 0) {
-            // Restore the original position.
-            detailsLazyListState.scrollToItem(savedScrollPosition, savedScrollOffset)
+        } else {
+            // Smooth restore to the original position.
+            detailsLazyListState.animateScrollToItem(
+                savedScrollPosition,
+                scrollOffset = savedScrollOffset,
+            )
         }
     }
 
@@ -821,6 +826,14 @@ fun DetailsScreen(
                                 onToggleWatched = { epKey -> viewModel.toggleWatched(epKey) },
                                 onOpenEpisodeSettings = { showEpisodeSettingsSheet = true },
                                 onOpenEpisodeSearch = { showEpisodeSearch = true },
+                                // D-232: Group switcher data (inline in header).
+                                currentGroup = currentGroup,
+                                totalGroups = episodeGroups?.size ?: 0,
+                                onPrevGroup = { if (currentGroupIndex > 0) currentGroupIndex-- },
+                                onNextGroup = {
+                                    val max = (episodeGroups?.size ?: 1) - 1
+                                    if (currentGroupIndex < max) currentGroupIndex++
+                                },
                             )
                         }
 
@@ -834,8 +847,8 @@ fun DetailsScreen(
                         // the background but don't appear until the preview dismisses.
                         //
                         // D-231: Apply the user's filter + sort preferences to the episode
-                        // list. The preferences are collected reactively (above) so the list
-                        // re-filters/re-sorts live when the user changes settings.
+                        // list. D-232: Pass individual collected VALUES (not the prefs
+                        // object) so Compose tracks reads + recomposes on any change.
                         val rawEpisodes = (episodeState as? EpisodeState.Loaded)?.episodes
                         val processedEpisodes = if (rawEpisodes != null) {
                             applyEpisodeListPreferences(
@@ -844,7 +857,11 @@ fun DetailsScreen(
                                 downloadStates = downloadStates,
                                 watchProgress = watchProgress,
                                 mainId = viewModel.currentMainId,
-                                prefs = episodeListPrefs,
+                                downloadedFilter = downloadedFilter,
+                                watchedFilter = watchedFilter,
+                                audioFilter = audioFilter,
+                                sortMode = sortMode,
+                                sortDescending = sortDescending,
                             )
                         } else null
 
@@ -859,18 +876,8 @@ fun DetailsScreen(
                         val episodesToShow = currentGroup?.episodes ?: processedEpisodes
 
                         if (episodesToShow != null && !matchPreviewVisible) {
-                            // D-231: Group switcher — shows between "Episodes" text and source pill
-                            // when grouping is active (more than 1 group).
-                            if (episodeGroups != null && episodeGroups.size > 1 && currentGroup != null) {
-                                item {
-                                    EpisodeGroupSwitcher(
-                                        currentGroup = currentGroup,
-                                        totalGroups = episodeGroups.size,
-                                        onPrev = { if (currentGroupIndex > 0) currentGroupIndex-- },
-                                        onNext = { if (currentGroupIndex < episodeGroups.size - 1) currentGroupIndex++ },
-                                    )
-                                }
-                            }
+                            // D-232: Group switcher is now INLINE in the EpisodesSection
+                            // header (between "Episodes" text and source pill), not here.
                             items(episodesToShow, key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
@@ -1650,6 +1657,11 @@ private fun EpisodesSection(
     onOpenEpisodeSettings: () -> Unit = {},
     // D-230: callback to open the episode search (swipe-right gesture).
     onOpenEpisodeSearch: () -> Unit = {},
+    // D-232: Group switcher data — null when grouping is inactive.
+    currentGroup: EpisodeGroup? = null,
+    totalGroups: Int = 0,
+    onPrevGroup: () -> Unit = {},
+    onNextGroup: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
@@ -1749,6 +1761,16 @@ private fun EpisodesSection(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+            }
+            // D-232: Group switcher — inline between "Episodes" text and source pill.
+            if (currentGroup != null && totalGroups > 1) {
+                Spacer(Modifier.width(8.dp))
+                EpisodeGroupSwitcher(
+                    currentGroup = currentGroup,
+                    totalGroups = totalGroups,
+                    onPrev = onPrevGroup,
+                    onNext = onNextGroup,
+                )
             }
             Spacer(Modifier.weight(1f))
             // Source selector pill — shows linked source name or "No source".
@@ -2205,9 +2227,11 @@ private fun EpisodeGroupSwitcher(
                     modifier = Modifier.size(20.dp).rotate(90f),
                 )
             }
-            // Group label.
+            // Group label — D-232: show smaller value on LEFT, bigger on RIGHT.
+            val low = minOf(currentGroup.startEpisode, currentGroup.endEpisode)
+            val high = maxOf(currentGroup.startEpisode, currentGroup.endEpisode)
             Text(
-                text = "EP ${currentGroup.startEpisode}-${currentGroup.endEpisode}",
+                text = "EP $low-$high",
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,

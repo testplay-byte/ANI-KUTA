@@ -1,7 +1,6 @@
 package com.confused.anikuta.feature.animedetails
 
 import com.confused.anikuta.core.metadata.EpisodeMetadata
-import com.confused.anikuta.core.preferences.EpisodeListPreferences
 import com.confused.anikuta.core.watchprogress.WatchProgress
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 
@@ -19,12 +18,19 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 /**
  * Applies the user's filter + sort preferences to the episode list.
  *
+ * D-232: Takes individual preference VALUES (not the EpisodeListPreferences object)
+ * so Compose can track reads + recompose when any preference changes.
+ *
  * @param episodes The raw episode list (from the source).
  * @param metadata Per-episode metadata (keyed by episode number).
  * @param downloadStates Download state map (keyed by "$mainId|$episodeUrl").
  * @param watchProgress Watch progress map (keyed by "$mainId|%05d episodeNumber").
  * @param mainId The current content's mainId (for building lookup keys).
- * @param prefs The user's episode list preferences.
+ * @param downloadedFilter "OFF" / "SHOW" / "HIDE".
+ * @param watchedFilter "OFF" / "SHOW" / "HIDE".
+ * @param audioFilter "BOTH" / "SUB" / "DUB".
+ * @param sortMode "EPISODE_NUMBER" / "UPLOAD_DATE" / "ALPHABETICAL".
+ * @param sortDescending true = descending.
  * @return The filtered + sorted episode list.
  */
 fun applyEpisodeListPreferences(
@@ -33,13 +39,13 @@ fun applyEpisodeListPreferences(
     downloadStates: Map<String, EpisodeDownloadState>,
     watchProgress: Map<String, WatchProgress>,
     mainId: String?,
-    prefs: EpisodeListPreferences,
+    downloadedFilter: String,
+    watchedFilter: String,
+    audioFilter: String,
+    sortMode: String,
+    sortDescending: Boolean,
 ): List<SEpisode> {
     // ── 1. Filter ──
-    val downloadedFilter = prefs.downloadedFilter.get()
-    val watchedFilter = prefs.watchedFilter.get()
-    val audioFilter = prefs.audioFilter.get()
-
     val filtered = episodes.filter { episode ->
         val epNum = episode.episode_number.toInt()
 
@@ -75,10 +81,7 @@ fun applyEpisodeListPreferences(
         passesDownloadedFilter && passesWatchedFilter && passesAudioFilter
     }
 
-    // ── 2. Sort ──
-    val sortMode = prefs.sortMode.get()
-    val sortDescending = prefs.sortDescending.get()
-
+    // ── 2. Sort ── (sortMode + sortDescending are now params)
     val sorted = when (sortMode) {
         "UPLOAD_DATE" -> {
             val comparator = compareBy<SEpisode> { ep ->
