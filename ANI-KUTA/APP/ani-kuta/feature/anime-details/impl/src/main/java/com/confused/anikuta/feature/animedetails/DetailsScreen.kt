@@ -916,8 +916,10 @@ fun DetailsScreen(
                             } else {
                             // D-234: Next-episode card — shows at the top of the list
                             // when showNextEpisode is enabled + there's a future episode.
+                            // D-237: Use a unique key to prevent LazyColumn key collisions
+                            // with episode rows (which are keyed by it.url).
                             if (showNextEpisode && nextEpisodeInfo != null) {
-                                item {
+                                item(key = "next_episode_card") {
                                     NextEpisodeCard(nextEpisodeInfo!!)
                                 }
                             }
@@ -1342,13 +1344,14 @@ private fun DetailBanner(
     }
 
     // D-236: Slow pan animation — infinite transition that moves the image.
+    // D-237: Increased speed (12s X, 16s Y — was 20s/28s).
     val panX by if (animationEnabled) {
         androidx.compose.animation.core.rememberInfiniteTransition(label = "bgPanX")
             .animateFloat(
                 initialValue = 0f,
                 targetValue = 1f,
                 animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                    animation = androidx.compose.animation.core.tween(20_000, easing = androidx.compose.animation.core.LinearEasing),
+                    animation = androidx.compose.animation.core.tween(12_000, easing = androidx.compose.animation.core.LinearEasing),
                     repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
                 ),
                 label = "panX",
@@ -1362,7 +1365,7 @@ private fun DetailBanner(
                 initialValue = 0f,
                 targetValue = 1f,
                 animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                    animation = androidx.compose.animation.core.tween(28_000, easing = androidx.compose.animation.core.LinearEasing),
+                    animation = androidx.compose.animation.core.tween(16_000, easing = androidx.compose.animation.core.LinearEasing),
                     repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
                 ),
                 label = "panY",
@@ -2355,32 +2358,48 @@ private fun NextEpisodeCard(info: NextEpisodeInfo) {
             // Release info.
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Next episode",
+                    text = if (info.isComingSoon) "Coming soon" else "Next episode",
                     fontFamily = RobotoFamily,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                 )
                 Text(
-                    text = releaseDateText,
+                    text = if (info.isComingSoon) "Episode ${info.episodeNumber}" else releaseDateText,
                     fontFamily = RobotoFamily,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
-            // Countdown.
-            Surface(
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text(
-                    text = countdownText,
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                )
+            // Countdown or "Coming soon" badge.
+            if (info.isComingSoon) {
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiary,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        text = "Soon",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onTertiary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        text = countdownText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
     }

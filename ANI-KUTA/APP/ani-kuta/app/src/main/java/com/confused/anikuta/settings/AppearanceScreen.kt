@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
@@ -50,6 +51,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 @Composable
 fun AppearanceScreen(
     onOpenGeneral: () -> Unit,
+    onOpenDetailsPage: () -> Unit,
     onOpenEpisodeSettings: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -78,6 +80,14 @@ fun AppearanceScreen(
                             title = "General",
                             subtitle = "Theme mode, palettes, and colors",
                             onClick = onOpenGeneral,
+                        )
+                    }
+                    item {
+                        AppearanceNavRow(
+                            icon = Icons.Filled.Image,
+                            title = "Details page",
+                            subtitle = "Background image, tint, and animation",
+                            onClick = onOpenDetailsPage,
                         )
                     }
                     item {

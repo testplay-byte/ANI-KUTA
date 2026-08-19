@@ -684,6 +684,15 @@ class DetailsViewModel(
                                         // persist KEY_SOURCE_LINK_PREFIX, linkExtensionToExisting,
                                         // set extensionBase, fetch episodes, cache forward link.
                                         linkSource(result.source, result.sAnime)
+                                        // D-237: Refresh airing data after reverse auto-link.
+                                        // The reverse auto-link fires AFTER loadFromAniList's
+                                        // cache-first path (which doesn't have airing data).
+                                        // Without this, the next-episode card doesn't show
+                                        // when opening from Library for the first time.
+                                        val mid = currentMainId
+                                        if (mid != null && currentAnimeId > 0) {
+                                            refreshAiringData(mid, currentAnimeId)
+                                        }
                                         // D-225c: popup confirms the match.
                                         // D-227: include thumbnailUrl for the preview card.
                                         _reverseAutoLinkState.value = ReverseAutoLinkState.Matched(
@@ -1427,6 +1436,29 @@ class DetailsViewModel(
      *
      * For completed series (status == FINISHED/CANCELLED), sets null (no card).
      */
+
+    /**
+     * D-237: Fetches fresh airing data from AniList + stores it + updates the
+     * next-episode card. Called from paths that DON'T go through
+     * resolveContentForAniList (which already passes airing data):
+     * - mergeAniListIntoUnified (forward auto-link: ext → AniList)
+     * - Reverse auto-link Matched (library first-open with no source)
+     * - Cache-first path (belt-and-suspenders: refresh stale airing data)
+     */
+    private fun refreshAiringData(mainId: String, anilistId: Int) {
+        viewModelScope.launch {
+            try {
+                val anime = anilistApi.fetchAnimeDetails(anilistId)
+                // D-227: Capture gen so stale results are discarded.
+                val gen = loadGeneration
+                if (gen != loadGeneration) return@launch
+                triggerNextEpisodeInfo(mainId, anime.nextAiringEpisode, anime.status)
+                Logger.d(TAG) { "D-237: refreshAiringData — fetched + stored airing data for anilistId=$anilistId" }
+            } catch (e: Exception) {
+                Logger.w(TAG) { "D-237: refreshAiringData failed: ${e.message}" }
+            }
+        }
+    }
     private fun triggerNextEpisodeInfo(
         mainId: String,
         airingEpisode: com.confused.anikuta.core.anilist.model.AniListAiringEpisode? = null,
@@ -1482,14 +1514,34 @@ class DetailsViewModel(
         // Convert to millis if needed (AniList returns seconds — but UpdateStore
         // should already store millis. Check just in case).
         val airingAtMillis = if (airingAt < 1_000_000_000_000L) airingAt * 1000 else airingAt
-        // Only show if the episode hasn't aired yet.
-        if (airingAtMillis <= System.currentTimeMillis()) {
-            _nextEpisodeInfo.value = null
+        val now = System.currentTimeMillis()
+        // D-237: If the air time has passed, check if the episode is already
+        // available in the episode list. If it IS available, hide the card (the
+        // episode is in the list — no need for a "coming soon" card). If it's
+        // NOT available yet (the source hasn't added it), show "Coming soon".
+        val isComingSoon = airingAtMillis <= now
+        if (isComingSoon) {
+            // Check if the episode number exists in the current episode list.
+            val loadedEpisodes = (_episodeState.value as? EpisodeState.Loaded)?.episodes
+            val episodeExists = loadedEpisodes?.any { it.episode_number.toInt() == epNum.toInt() } ?: false
+            if (episodeExists) {
+                // Episode is available — hide the card.
+                _nextEpisodeInfo.value = null
+                return
+            }
+            // Episode isn't available yet — show "Coming soon".
+            _nextEpisodeInfo.value = NextEpisodeInfo(
+                episodeNumber = epNum.toInt(),
+                airingAtMillis = airingAtMillis,
+                isComingSoon = true,
+            )
+            Logger.d(TAG) { "Next episode: EP $epNum — Coming soon (aired but not yet available)" }
             return
         }
         _nextEpisodeInfo.value = NextEpisodeInfo(
             episodeNumber = epNum.toInt(),
             airingAtMillis = airingAtMillis,
+            isComingSoon = false,
         )
         Logger.d(TAG) { "Next episode: EP $epNum at ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(airingAtMillis))}" }
     }
@@ -1715,6 +1767,10 @@ class DetailsViewModel(
                     dataUpdatedAt = System.currentTimeMillis(),
                 )
                 contentResolver.linkAniList(mainId, anilistId, detail)
+                // D-237: Fetch + store fresh airing data now that we have an anilistId.
+                // Without this, the next-episode card doesn't show when an extension
+                // entry is auto-linked to AniList (forward auto-link path).
+                refreshAiringData(mainId, anilistId)
                 // Genre System: normalize + store genres in the junction table.
                 anilistData.genres?.let { genres ->
                     genreRepository.setGenresForContent(mainId, genres, "anilist")
@@ -2650,10 +2706,13 @@ data class LinkedSource(
  *
  * @param episodeNumber The episode number that will air next.
  * @param airingAtMillis The Unix timestamp (millis) when the episode airs.
+ * @param isComingSoon D-237: true when the air time has passed but the episode
+ *   isn't available on the source yet. Shows "Coming soon" instead of a countdown.
  */
 data class NextEpisodeInfo(
     val episodeNumber: Int,
     val airingAtMillis: Long,
+    val isComingSoon: Boolean = false,
 )
 
 /** Manual search state (source linking — AniList entries). */

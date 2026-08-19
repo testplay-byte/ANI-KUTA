@@ -241,6 +241,9 @@ object AppearanceKey : NavKey
 object AppearanceGeneralKey : NavKey
 
 @Serializable
+object DetailsPageSettingsKey : NavKey
+
+@Serializable
 object EpisodeSettingsKey : NavKey
 
 @Serializable
@@ -298,6 +301,7 @@ private val allowedUpdateSheetKeys = setOf(
     SourcePreferencesKey::class,
     AppearanceKey::class,
     AppearanceGeneralKey::class,
+    DetailsPageSettingsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
     ProfileKey::class,
@@ -732,12 +736,14 @@ fun AppRoot() {
             )
             is AppearanceKey -> AppearanceScreen(
                 onOpenGeneral = { backstack.add(AppearanceGeneralKey) },
+                onOpenDetailsPage = { backstack.add(DetailsPageSettingsKey) },
                 onOpenEpisodeSettings = { backstack.add(EpisodeSettingsKey) },
                 onBack = pop,
             )
             is AppearanceGeneralKey -> AppearanceGeneralScreen(
                 onBack = pop,
             )
+            is DetailsPageSettingsKey -> DetailsPageSettingsScreen(onBack = pop)
             is EpisodeSettingsKey -> PlaceholderScreen(
                 title = "Episode settings",
                 description = "Episode display settings will be added in a future phase.",
