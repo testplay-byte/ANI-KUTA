@@ -1,8 +1,7 @@
 package com.confused.anikuta.core.trackeranilist
 
-import com.confused.anikuta.core.activitytracker.ActivityTracker
-import com.confused.anikuta.core.activitytracker.ActivityEventType
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.trackerapi.TrackEntry
 import com.confused.anikuta.core.trackerapi.TrackStatus
 import com.confused.anikuta.core.trackerapi.Tracker
@@ -18,33 +17,38 @@ import kotlinx.coroutines.launch
 /**
  * Orchestrates sync between the internal tracking system and external trackers.
  *
- * Architecture (user's vision):
+ * D-242: NOW FULLY WIRED. Resolves `mainId → anilistId` via [contentRepository]
+ * + caches the result in [trackEntryRepository]. The `trackerId = 0` placeholder
+ * is gone — every sync now uses the real AniList anime ID.
+ *
+ * Architecture:
  * ```
- * User watches anime
+ * User marks episode watched / rates / etc.
  *      ↓
- * ActivityTracker (internal, PRIMARY)
- *      ↓ records everything (watch events, ratings, library changes)
+ * DetailsViewModel (calls relayWatchEvent / relayRating)
+ *      ↓
  * TrackSyncManager
- *      ↓ formats data for each tracker
- *      ↓ relays to external trackers
- * Tracker (AniList — SECONDARY)
- *      ↓ syncs to external service
+ *      ↓ resolves mainId → anilistId via ContentRepository
+ *      ↓ formats TrackEntry for each tracker
+ *      ↓ relays to external Tracker
+ * Tracker (AniList — syncEntry → SaveMediaListEntry mutation)
+ *      ↓
+ * AniList API
  * ```
  *
- * This manager:
- * 1. Listens to activity events from [ActivityTracker].
- * 2. When a watch-complete or rating event occurs, formats it for each tracker.
- * 3. Relays the formatted data to the external [Tracker] implementations.
- *
- * The relay is ONE-WAY: internal → external. External trackers don't write back
- * to the internal tracker (that would create conflicts). The user's local data
- * is always the source of truth.
+ * The relay is ONE-WAY: internal → external. The user's local data is always
+ * the source of truth. External trackers don't write back to the internal
+ * tracker (that would create conflicts). The `fetchEntry` flow (pull from
+ * AniList → update local cache) is a separate path triggered by the TrackSheet
+ * "refresh" button or the details page "refresh" button.
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Core:Tracker:SyncManager".
  * CORE_RULES §23: Sync state is reactive (StateFlow).
  */
 class TrackSyncManager(
     private val trackers: List<Tracker>,
+    private val contentRepository: ContentRepository,
+    private val trackEntryRepository: TrackEntryRepository,
 ) {
 
     companion object {
@@ -59,13 +63,17 @@ class TrackSyncManager(
     /**
      * Relay a watch event to all logged-in external trackers.
      *
-     * Called when the internal tracker records a WATCH_COMPLETE event.
-     * Formats the event for each tracker and syncs.
+     * D-242: Resolves [contentKey] (mainId) → AniList anime ID via
+     * [contentRepository.getContentDetails]. If the content has no AniList link,
+     * the sync is silently skipped (the user hasn't linked the anime to AniList).
      *
-     * @param contentKey The content that was watched.
-     * @param episodeNumber The episode number.
+     * After a successful sync, the [TrackEntryRepository] cache is updated so
+     * the TrackSheet shows fresh data immediately.
+     *
+     * @param contentKey The content's mainId.
+     * @param episodeNumber The episode number (drives `progress`).
      * @param status The watch status to relay.
-     * @param score Optional score (if the user rated it).
+     * @param score Optional score (0-100, if the user rated it).
      */
     fun relayWatchEvent(
         contentKey: String,
@@ -76,6 +84,16 @@ class TrackSyncManager(
         Logger.i(TAG) { "Relaying watch event: $contentKey ep$episodeNumber → $status" }
 
         scope.launch {
+            // D-242: resolve mainId → anilistId via ContentRepository.
+            val details = contentRepository.getContentDetails(contentKey)
+            val anilistId = details?.anilistId
+            if (anilistId == null) {
+                Logger.d(TAG) {
+                    "relayWatchEvent — no AniList link for mainId=$contentKey; skipping sync"
+                }
+                return@launch
+            }
+
             for (tracker in trackers) {
                 if (!tracker.isLoggedIn()) {
                     Logger.d(TAG) { "${tracker.displayName} not logged in — skipping" }
@@ -83,18 +101,27 @@ class TrackSyncManager(
                 }
 
                 try {
-                    // Format the entry for this tracker
-                    val entry = TrackEntry(
+                    // Fetch the cached entry (to preserve score/dates) or build a new one.
+                    val cached = trackEntryRepository.get(contentKey, tracker.type)
+                    val entry = (cached ?: TrackEntry(
                         contentKey = contentKey,
-                        trackerId = 0, // TODO: Resolve contentKey → tracker ID (needs identity system)
+                        trackerId = anilistId,
+                    )).copy(
                         status = status,
-                        score = score,
                         progress = episodeNumber.toInt(),
+                        score = score ?: cached?.score,
+                        totalEpisodes = details.dataEpisodes?.toInt() ?: cached?.totalEpisodes,
+                        updatedAt = System.currentTimeMillis(),
                     )
 
                     val success = tracker.syncEntry(entry)
                     if (success) {
-                        Logger.i(TAG) { "Synced to ${tracker.displayName}: $contentKey" }
+                        // Update the local cache so the TrackSheet shows fresh data.
+                        trackEntryRepository.upsert(entry, tracker.type)
+                        Logger.i(TAG) {
+                            "Synced to ${tracker.displayName}: $contentKey (anilistId=$anilistId, " +
+                                "progress=${entry.progress}, status=${entry.status})"
+                        }
                     } else {
                         Logger.w(TAG) { "Failed to sync to ${tracker.displayName}: $contentKey" }
                     }
@@ -108,21 +135,41 @@ class TrackSyncManager(
     /**
      * Relay a rating to all logged-in external trackers.
      *
-     * @param contentKey The content that was rated.
-     * @param score The score (0-100).
+     * Preserves the existing status/progress (only updates the score).
+     *
+     * @param contentKey The content's mainId.
+     * @param score The score (0-100, AniList-native scale).
      */
     fun relayRating(contentKey: String, score: Int) {
-        Logger.i(TAG) { "Relaying rating: $contentKey → $score" }
-        relayWatchEvent(contentKey, 0.0, TrackStatus.WATCHING, score)
+        Logger.i(TAG) { "Relaying rating: $contentKey → score=$score" }
+        scope.launch {
+            val details = contentRepository.getContentDetails(contentKey)
+            val anilistId = details?.anilistId ?: return@launch
+
+            for (tracker in trackers) {
+                if (!tracker.isLoggedIn()) continue
+                try {
+                    val cached = trackEntryRepository.get(contentKey, tracker.type)
+                    val entry = (cached ?: TrackEntry(
+                        contentKey = contentKey,
+                        trackerId = anilistId,
+                    )).copy(
+                        score = score,
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                    if (tracker.syncEntry(entry)) {
+                        trackEntryRepository.upsert(entry, tracker.type)
+                    }
+                } catch (e: Exception) {
+                    Logger.e(TAG, e) { "relayRating failed: ${e.message}" }
+                }
+            }
+        }
     }
 
-    /**
-     * Get all registered trackers.
-     */
+    /** Get all registered trackers. */
     fun getTrackers(): List<Tracker> = trackers
 
-    /**
-     * Get a tracker by type.
-     */
+    /** Get a tracker by type. */
     fun getTracker(type: TrackerType): Tracker? = trackers.find { it.type == type }
 }

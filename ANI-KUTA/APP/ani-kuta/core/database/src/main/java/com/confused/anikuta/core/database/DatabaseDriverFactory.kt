@@ -125,6 +125,12 @@ class DatabaseDriverFactory(private val context: Context) {
                         db.execSQL("ALTER TABLE downloaded_episode ADD COLUMN video_audio TEXT")
                     }
 
+                    // D-242: Add episode_description column to download_queue (for
+                    // existing debug installs — fresh installs get it from onCreate).
+                    if (!hasColumn(db, "download_queue", "episode_description")) {
+                        db.execSQL("ALTER TABLE download_queue ADD COLUMN episode_description TEXT")
+                    }
+
                     // ── data_cache_episode: check for episode_url (D.FIX migration) ──
                     if (!hasColumn(db, "data_cache_episode", "episode_url")) {
                         // Add the episode_url column to the existing table.

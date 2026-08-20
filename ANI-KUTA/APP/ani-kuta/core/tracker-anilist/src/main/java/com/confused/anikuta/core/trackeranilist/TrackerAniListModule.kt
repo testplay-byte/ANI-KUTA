@@ -10,6 +10,10 @@ val trackerAniListModule = module {
     // authenticated GraphQL queries (Viewer + MediaListCollection).
     single { AniListTracker(get(), get(), get(), get()) }
 
+    // D-242: TrackEntryRepository — local cache for track entries (one row per
+    // mainId + trackerType). Used by the TrackSheet + details page badges.
+    single { TrackEntryRepository(get()) }
+
     // Multi-binding: List<Tracker> for TrackSyncManager
     single<List<Tracker>>(named("trackers")) {
         listOf(
@@ -17,5 +21,5 @@ val trackerAniListModule = module {
         )
     }
 
-    single { TrackSyncManager(get(named("trackers"))) }
+    single { TrackSyncManager(get(named("trackers")), get(), get()) }
 }

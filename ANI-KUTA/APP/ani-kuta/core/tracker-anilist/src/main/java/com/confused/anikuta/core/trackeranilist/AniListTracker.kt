@@ -16,6 +16,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -259,21 +260,205 @@ class AniListTracker(
         }
     }
 
-    // ── Stubs (implemented next session) ──
+    // ── D-242: Implemented syncEntry / fetchEntry / search ──
 
-    override suspend fun syncEntry(entry: TrackEntry): Boolean {
-        Logger.d(TAG) { "Sync stub: ${entry.contentKey} (status=${entry.status})" }
+    /**
+     * Pushes [entry] to AniList via the `SaveMediaListEntry` mutation.
+     *
+     * Creates OR updates the MediaList entry for `entry.trackerId` (the AniList
+     * anime ID). AniList upserts by `(userId, mediaId)` — if no entry exists,
+     * one is created; if one exists, it's updated.
+     *
+     * Returns `true` on success, `false` on failure (not logged in, network
+     * error, API error). The [TrackEntryRepository] cache is NOT updated here —
+     * the caller is responsible for calling `repository.upsert(entry)` after
+     * a successful sync.
+     */
+    override suspend fun syncEntry(entry: TrackEntry): Boolean = withContext(dispatchers.io) {
+        val token = accessToken ?: run {
+            _syncState.value = TrackerSyncState.Failed("Not logged in")
+            Logger.w(TAG) { "syncEntry — not logged in; aborting" }
+            return@withContext false
+        }
         _syncState.value = TrackerSyncState.Syncing
-        // TODO: Implement SaveMediaListEntry mutation.
-        _syncState.value = TrackerSyncState.Success(System.currentTimeMillis())
-        return true
+        try {
+            val query = """
+                mutation (
+                    ${'$'}mediaId: Int!,
+                    ${'$'}status: MediaListStatus,
+                    ${'$'}scoreRaw: Int,
+                    ${'$'}progress: Int,
+                    ${'$'}startedAt: FuzzyDateInput,
+                    ${'$'}completedAt: FuzzyDateInput
+                ) {
+                    SaveMediaListEntry(
+                        mediaId: ${'$'}mediaId,
+                        status: ${'$'}status,
+                        scoreRaw: ${'$'}scoreRaw,
+                        progress: ${'$'}progress,
+                        startedAt: ${'$'}startedAt,
+                        completedAt: ${'$'}completedAt
+                    ) { id status progress score }
+                }
+            """.trimIndent()
+            val variables = buildJsonObject {
+                put("mediaId", entry.trackerId)
+                put("status", AniListStatusMapper.toAniList(entry.status))
+                put("scoreRaw", entry.score ?: 0)
+                put("progress", entry.progress)
+                put("startedAt", epochToFuzzyDate(entry.startedAt))
+                put("completedAt", epochToFuzzyDate(entry.completedAt))
+            }
+            val response = executeAuthenticatedQuery(query, variables, token)
+            val root = json.parseToJsonElement(response).jsonObject
+            val data = root["data"]?.jsonObject
+            val errors = root["errors"]?.jsonArray
+            if (errors != null && errors.isNotEmpty()) {
+                val msg = errors.first().jsonObject["message"]?.jsonPrimitive?.content ?: "Unknown API error"
+                Logger.e(TAG) { "syncEntry — API error: $msg" }
+                _syncState.value = TrackerSyncState.Failed(msg)
+                return@withContext false
+            }
+            Logger.i(TAG) {
+                "syncEntry — OK: mediaId=${entry.trackerId}, status=${entry.status}, " +
+                    "progress=${entry.progress}, score=${entry.score}"
+            }
+            _syncState.value = TrackerSyncState.Success(System.currentTimeMillis())
+            true
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "syncEntry failed: ${e.message}" }
+            _syncState.value = TrackerSyncState.Failed(e.message ?: "Unknown error")
+            false
+        }
     }
 
-    override suspend fun fetchEntry(trackerId: Int): TrackEntry? = null
+    /**
+     * Fetches the user's MediaList entry for [trackerId] (the AniList anime ID).
+     *
+     * Returns the [TrackEntry] (with `listId` populated for future updates), or
+     * `null` if the user has no entry for this anime (not in their list), or if
+     * not logged in, or on network error.
+     */
+    override suspend fun fetchEntry(trackerId: Int): TrackEntry? = withContext(dispatchers.io) {
+        val token = accessToken ?: return@withContext null
+        val uid = userId ?: return@withContext null
+        try {
+            val query = """
+                query (${'$'}userId: Int!, ${'$'}mediaId: Int!) {
+                    MediaList(userId: ${'$'}userId, mediaId: ${'$'}mediaId) {
+                        id status score(format: POINT_100) progress
+                        startedAt { year month day }
+                        completedAt { year month day }
+                        updatedAt
+                    }
+                }
+            """.trimIndent()
+            val variables = buildJsonObject {
+                put("userId", uid)
+                put("mediaId", trackerId)
+            }
+            val response = executeAuthenticatedQuery(query, variables, token)
+            val root = json.parseToJsonElement(response).jsonObject
+            val ml = root["data"]?.jsonObject?.get("MediaList")?.jsonObject
+                ?: return@withContext null
+            val status = ml["status"]?.jsonPrimitive?.contentOrNull()
+            val entry = TrackEntry(
+                contentKey = "",  // caller fills in
+                trackerId = trackerId,
+                status = AniListStatusMapper.fromAniList(status),
+                score = ml["score"]?.jsonPrimitive?.intOrNull,
+                progress = ml["progress"]?.jsonPrimitive?.intOrNull ?: 0,
+                listId = ml["id"]?.jsonPrimitive?.intOrNull,
+                startedAt = fuzzyDateToEpoch(ml["startedAt"]?.jsonObject),
+                completedAt = fuzzyDateToEpoch(ml["completedAt"]?.jsonObject),
+                updatedAt = (ml["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L) * 1000,
+            )
+            Logger.i(TAG) {
+                "fetchEntry — OK: mediaId=$trackerId, status=${entry.status}, " +
+                    "progress=${entry.progress}, score=${entry.score}"
+            }
+            entry
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "fetchEntry failed: ${e.message}" }
+            null
+        }
+    }
 
-    override suspend fun search(query: String): List<TrackEntry> = emptyList()
+    /**
+     * Searches AniList for anime by title. Returns a list of [TrackEntry]s
+     * with `trackerId` + `totalEpisodes` populated (for the manual-link flow).
+     *
+     * Uses the PUBLIC GraphQL endpoint (no auth needed for search).
+     */
+    override suspend fun search(query: String): List<TrackEntry> = withContext(dispatchers.io) {
+        if (query.isBlank()) return@withContext emptyList()
+        try {
+            val gqlQuery = """
+                query (${'$'}search: String!) {
+                    Page(perPage: 10) {
+                        media(search: ${'$'}search, type: ANIME) {
+                            id
+                            title { romaji english native }
+                            episodes
+                            coverImage { large }
+                        }
+                    }
+                }
+            """.trimIndent()
+            val variables = buildJsonObject { put("search", query) }
+            val response = executeAuthenticatedQuery(gqlQuery, variables, accessToken ?: "")
+            val root = json.parseToJsonElement(response).jsonObject
+            val media = root["data"]?.jsonObject?.get("Page")?.jsonObject
+                ?.get("media")?.jsonArray ?: return@withContext emptyList()
+            media.mapNotNull { el ->
+                val obj = el.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+                TrackEntry(
+                    contentKey = "",
+                    trackerId = id,
+                    totalEpisodes = obj["episodes"]?.jsonPrimitive?.intOrNull,
+                )
+            }
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "search failed: ${e.message}" }
+            emptyList()
+        }
+    }
 
     // ── Private helpers ──
+
+    /** Converts an epoch-millis timestamp to AniList's FuzzyDateInput JSON object. */
+    private fun epochToFuzzyDate(epochMillis: Long?): kotlinx.serialization.json.JsonObject {
+        if (epochMillis == null || epochMillis <= 0) {
+            return buildJsonObject {
+                put("year", kotlinx.serialization.json.JsonNull)
+                put("month", kotlinx.serialization.json.JsonNull)
+                put("day", kotlinx.serialization.json.JsonNull)
+            }
+        }
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = epochMillis }
+        return buildJsonObject {
+            put("year", cal.get(java.util.Calendar.YEAR))
+            put("month", cal.get(java.util.Calendar.MONTH) + 1) // Calendar.MONTH is 0-based
+            put("day", cal.get(java.util.Calendar.DAY_OF_MONTH))
+        }
+    }
+
+    /** Converts AniList's FuzzyDateInput JSON object to an epoch-millis timestamp. */
+    private fun fuzzyDateToEpoch(fuzzy: kotlinx.serialization.json.JsonObject?): Long? {
+        if (fuzzy == null) return null
+        val year = fuzzy["year"]?.jsonPrimitive?.intOrNull ?: return null
+        val month = fuzzy["month"]?.jsonPrimitive?.intOrNull ?: 1
+        val day = fuzzy["day"]?.jsonPrimitive?.intOrNull ?: 1
+        return java.util.Calendar.getInstance().apply {
+            clear()
+            set(year, month - 1, day)
+        }.timeInMillis
+    }
+
+    /** Returns the content of a JsonPrimitive as a String, or null if the primitive is null. */
+    private fun kotlinx.serialization.json.JsonPrimitive.contentOrNull(): String? =
+        if (this == kotlinx.serialization.json.JsonNull) null else content
 
     private fun executeAuthenticatedQuery(query: String, token: String): String {
         val requestBody = buildJsonObject { put("query", query) }

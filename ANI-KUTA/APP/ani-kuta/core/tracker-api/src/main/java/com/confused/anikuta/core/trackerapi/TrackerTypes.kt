@@ -17,7 +17,11 @@ enum class TrackerType(val id: String) {
 
 /**
  * Watch status for tracker sync.
- * Maps to AniList's status enum + MAL's status enum.
+ *
+ * D-242: The [value] strings are the APP's canonical status names. Each
+ * tracker implementation maps these to its own API enum at the boundary
+ * (e.g. AniList uses `CURRENT` for [WATCHING], `PLANNING` for [PLAN_TO_WATCH]
+ * — see `AniListStatusMapper` for the conversion).
  */
 enum class TrackStatus(val value: String) {
     WATCHING("WATCHING"),
@@ -31,13 +35,18 @@ enum class TrackStatus(val value: String) {
 /**
  * A track entry — the data synced to/from an external tracker.
  *
- * @param contentKey The app's temporary content key.
- * @param trackerId The tracker's ID for this content (e.g., AniList anime ID).
+ * @param contentKey The app's mainId (stable UUID). Used to link the track
+ *   entry to the local content identity.
+ * @param trackerId The tracker's ID for this content (e.g. AniList anime ID).
  * @param status Watch status.
- * @param score User's score (0-100, or null if not rated).
+ * @param score User's score (0-100, or null if not rated). AniList-native scale.
  * @param progress Episodes watched.
  * @param totalEpisodes Total episodes (from tracker, nullable).
- * @param updatedAt When this was last synced (epoch millis).
+ * @param listId The tracker's list entry ID (AniList's MediaList.id). Needed
+ *   for update/delete operations. Null for new entries (not yet synced).
+ * @param startedAt When the user started watching (epoch millis, nullable).
+ * @param completedAt When the user finished watching (epoch millis, nullable).
+ * @param updatedAt When this entry was last synced (epoch millis).
  */
 data class TrackEntry(
     val contentKey: String,
@@ -46,6 +55,9 @@ data class TrackEntry(
     val score: Int? = null,
     val progress: Int = 0,
     val totalEpisodes: Int? = null,
+    val listId: Int? = null,
+    val startedAt: Long? = null,
+    val completedAt: Long? = null,
     val updatedAt: Long = System.currentTimeMillis(),
 )
 

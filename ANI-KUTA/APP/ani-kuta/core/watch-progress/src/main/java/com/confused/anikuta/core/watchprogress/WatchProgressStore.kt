@@ -98,6 +98,20 @@ interface WatchProgressStore {
     suspend fun getWatchedEpisodeCount(mainId: String): Int
 
     /**
+     * D-242: Mark all episodes from 1 to [upToEpisodeNumber] (inclusive) as
+     * watched for the given [mainId]. Used by the "mark all previous episodes"
+     * prompt when the user marks episode N as watched but 1..N-1 aren't.
+     *
+     * Calls [setUserMarkedWatched] for each episode key. The episode key
+     * format is `"$mainId|${String.format("%05d", epNum)}"`.
+     *
+     * @param mainId The content's mainId.
+     * @param episodeKeys The list of episode keys to mark (caller builds them
+     *   from the episode list — filtered to episodes with number ≤ threshold).
+     */
+    suspend fun markAllWatched(mainId: String, episodeKeys: List<String>)
+
+    /**
      * Phase WP: Clear all progress for an anime (for library-remove — S3).
      */
     suspend fun clearByMainId(mainId: String)

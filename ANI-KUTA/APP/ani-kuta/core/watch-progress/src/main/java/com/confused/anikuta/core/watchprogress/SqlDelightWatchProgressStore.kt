@@ -231,6 +231,18 @@ class SqlDelightWatchProgressStore(
         database.watchQueries.getWatchedEpisodeCount(mainId).executeAsOne().toInt()
     }
 
+    /**
+     * D-242: Mark all episodes in [episodeKeys] as watched (sticky).
+     * Delegates to [setUserMarkedWatched] for each key — reuses the INSERT-or-UPDATE
+     * logic that handles the case where the row doesn't exist yet.
+     */
+    override suspend fun markAllWatched(mainId: String, episodeKeys: List<String>) = withContext(dispatchers) {
+        for (key in episodeKeys) {
+            setUserMarkedWatched(key)
+        }
+        Logger.i(TAG) { "markAllWatched: mainId=$mainId, ${episodeKeys.size} episode(s) marked" }
+    }
+
     override suspend fun clearByMainId(mainId: String) = withContext(dispatchers) {
         database.watchQueries.clearByMainId(mainId)
         Logger.i(TAG) { "clearByMainId: mainId=$mainId (library-remove)" }

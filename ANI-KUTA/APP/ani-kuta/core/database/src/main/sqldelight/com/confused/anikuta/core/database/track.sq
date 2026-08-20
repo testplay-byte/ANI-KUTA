@@ -1,0 +1,74 @@
+-- ──────────────────────────────────────────────────────────────────────────
+-- Track entry table (D-242 — AniList tracking)
+-- ──────────────────────────────────────────────────────────────────────────
+--
+-- Stores the last-known tracker state for a content (anime). One row per
+-- (main_id, tracker_type). This is a LOCAL CACHE of the remote tracker entry
+-- (AniList MediaList) — the remote is the source of truth, but we cache here
+-- so the TrackSheet opens instantly + works offline.
+--
+-- The tracker_type column is designed for multi-tracker extensibility
+-- (AniList now, MAL/Shikimori future). Currently only 'anilist' is used.
+--
+-- Status values match the TrackStatus enum (TrackerTypes.kt):
+--   WATCHING | COMPLETED | PAUSED | DROPPED | PLAN_TO_WATCH | REWATCHING
+--
+-- Score is 0-100 (AniList-native POINT_100 format). The UI displays this as
+-- 0-10 stars (each star = 10 points).
+--
+-- started_at / completed_at are epoch millis (nullable). AniList uses
+-- FuzzyDateInput { year, month, day } — we convert at the API boundary.
+
+CREATE TABLE IF NOT EXISTS track_entry (
+    main_id TEXT NOT NULL,
+    tracker_type TEXT NOT NULL,           -- 'anilist' | 'mal' | 'shikimori' (future)
+    tracker_id INTEGER NOT NULL,          -- AniList anime ID (the mediaId)
+    status TEXT NOT NULL,                 -- TrackStatus.value
+    score INTEGER,                        -- 0-100, nullable
+    progress INTEGER NOT NULL DEFAULT 0,  -- episodes watched
+    total_episodes INTEGER,               -- cached from AniList (may change)
+    list_id INTEGER,                      -- AniList's MediaList.id (for update/delete)
+    started_at INTEGER,                   -- epoch millis (nullable)
+    completed_at INTEGER,                 -- epoch millis (nullable)
+    updated_at INTEGER NOT NULL,          -- last sync time
+    PRIMARY KEY (main_id, tracker_type),
+    FOREIGN KEY (main_id) REFERENCES main_entry(main_id) ON DELETE CASCADE
+);
+
+-- Fast lookup by tracker ID (e.g. "does this AniList anime already have a track entry?")
+CREATE INDEX IF NOT EXISTS idx_track_entry_tracker_id
+    ON track_entry(tracker_type, tracker_id);
+
+-- ── Queries ────────────────────────────────────────────────────────────────
+
+upsertTrackEntry:
+INSERT OR REPLACE INTO track_entry(
+    main_id, tracker_type, tracker_id, status, score, progress,
+    total_episodes, list_id, started_at, completed_at, updated_at
+) VALUES (
+    :main_id, :tracker_type, :tracker_id, :status, :score, :progress,
+    :total_episodes, :list_id, :started_at, :completed_at, :updated_at
+);
+
+getTrackEntry:
+SELECT * FROM track_entry
+WHERE main_id = :main_id AND tracker_type = :tracker_type
+LIMIT 1;
+
+getTrackEntryByTrackerId:
+SELECT * FROM track_entry
+WHERE tracker_type = :tracker_type AND tracker_id = :tracker_id
+LIMIT 1;
+
+deleteTrackEntry:
+DELETE FROM track_entry
+WHERE main_id = :main_id AND tracker_type = :tracker_type;
+
+getAllTrackEntries:
+SELECT * FROM track_entry;
+
+-- Get all track entries for a given tracker type (for "populate library" flows)
+getTrackEntriesByType:
+SELECT * FROM track_entry
+WHERE tracker_type = :tracker_type
+ORDER BY updated_at DESC;
