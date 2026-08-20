@@ -164,13 +164,25 @@ class DownloadScanner(
 
         // Reconcile: any DB-downloaded episode NOT in the scanned set is "missing"
         // (folder removed from under us, or user deleted files manually).
+        // D-240: GUARD — if the scan found 0 content folders but the DB has
+        // episodes, DON'T delete them. This prevents mass data loss when the
+        // SAF folder is temporarily inaccessible (permissions revoked, SD card
+        // unmounted, etc.). The episodes will be re-verified on the next
+        // successful scan.
         var orphansCleaned = 0
         val allDbEpisodes = store.getDownloadedEpisodes()
-        for (ep in allDbEpisodes) {
-            val key = ep.content.mainId to ep.episode.episodeKey
-            if (key !in scannedEpisodeKeys) {
-                store.markEpisodeMissing(ep.content.mainId, ep.episode.episodeKey)
-                orphansCleaned++
+        if (contentCount == 0 && allDbEpisodes.isNotEmpty()) {
+            DownloadLogger.w {
+                "scan: 0 content folders found but ${allDbEpisodes.size} DB episodes exist — " +
+                    "SKIPPING orphan cleanup (SAF folder may be inaccessible)"
+            }
+        } else {
+            for (ep in allDbEpisodes) {
+                val key = ep.content.mainId to ep.episode.episodeKey
+                if (key !in scannedEpisodeKeys) {
+                    store.markEpisodeMissing(ep.content.mainId, ep.episode.episodeKey)
+                    orphansCleaned++
+                }
             }
         }
 
@@ -269,26 +281,28 @@ class DownloadScanner(
         // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
         val details = contentRepository.getContentDetails(dataJson.mainId)
 
-        // Build the latest DownloadContentInfo from the DB state.
-        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+        // D-240: Build the latest DownloadContentInfo from the DB state, BUT
+        // preserve non-null .data.json values when the DB-side value is null.
+        // This prevents the null-overwrite bug where DB nulls (from incomplete
+        // D-198 migration) destroy valid data in .data.json.
+        val dbCoverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
         val latest = DownloadContentInfo(
             mainId = record.mainId,
             contentId = record.contentId,
             title = record.title,
-            coverUrl = coverUrl,
+            coverUrl = dbCoverUrl ?: dataJson.coverUrl,
             coverColor = null,
             contentFormat = record.contentFormat,
             contentType = record.contentType,
-            // D-198: main_entry.description dropped — use content_details axes as fallback.
-            description = details?.dataSynopsis ?: details?.extDescription,
-            dataSourceId = record.dataSourceId,
-            systemId = record.systemId,
-            extensionRepoId = record.extensionRepoId,
-            extensionId = record.extensionId ?: details?.extensionIdLong,
-            sourceId = record.sourceId ?: details?.sourceId,
-            animeUrl = record.animeUrl ?: details?.animeUrl,
+            description = (details?.dataSynopsis ?: details?.extDescription) ?: dataJson.description,
+            dataSourceId = record.dataSourceId ?: dataJson.dataSourceId,
+            systemId = record.systemId ?: dataJson.systemId,
+            extensionRepoId = record.extensionRepoId ?: dataJson.extensionRepoId,
+            extensionId = record.extensionId ?: details?.extensionIdLong ?: dataJson.extensionId,
+            sourceId = record.sourceId ?: details?.sourceId ?: dataJson.sourceId,
+            animeUrl = record.animeUrl ?: details?.animeUrl ?: dataJson.animeUrl,
             displaySource = record.displaySource,
-            anilistId = details?.anilistId,
+            anilistId = details?.anilistId ?: dataJson.anilistId,
         )
 
         // Compare key fields — only write if something changed.

@@ -100,12 +100,29 @@ class DatabaseDriverFactory(private val context: Context) {
 
                     // ── download_queue: check for main_id (D.0 migration) ──
                     if (!hasColumn(db, "download_queue", "main_id")) {
-                        // Old schema — drop + recreate the download tables.
+                        // D-240: Only drop + recreate download_queue (the active queue).
+                        // DON'T drop downloaded_episode — it has the user's downloaded
+                        // episode records. Instead, add main_id to it via ALTER TABLE
+                        // if needed (it should already have main_id from the v2 schema,
+                        // but this is defense-in-depth).
                         db.execSQL("DROP TABLE IF EXISTS download_queue")
-                        db.execSQL("DROP TABLE IF EXISTS downloaded_episode")
-                        // Recreate all tables — CREATE TABLE IF NOT EXISTS preserves
-                        // existing tables; the dropped download tables are recreated.
+                        // Recreate tables — CREATE TABLE IF NOT EXISTS preserves
+                        // existing tables (including downloaded_episode).
                         onCreate(db)
+                    }
+
+                    // D-240: Add ALTER TABLE migrations for downloaded_episode's
+                    // D-192 columns (source_id, video_server, video_audio). These
+                    // columns were added in the .sq file but no ALTER TABLE migration
+                    // existed — causing INSERT crashes on old installs.
+                    if (!hasColumn(db, "downloaded_episode", "source_id")) {
+                        db.execSQL("ALTER TABLE downloaded_episode ADD COLUMN source_id INTEGER")
+                    }
+                    if (!hasColumn(db, "downloaded_episode", "video_server")) {
+                        db.execSQL("ALTER TABLE downloaded_episode ADD COLUMN video_server TEXT")
+                    }
+                    if (!hasColumn(db, "downloaded_episode", "video_audio")) {
+                        db.execSQL("ALTER TABLE downloaded_episode ADD COLUMN video_audio TEXT")
                     }
 
                     // ── data_cache_episode: check for episode_url (D.FIX migration) ──
