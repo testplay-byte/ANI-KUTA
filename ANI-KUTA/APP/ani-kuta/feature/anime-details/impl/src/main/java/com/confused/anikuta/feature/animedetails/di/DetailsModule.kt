@@ -8,9 +8,9 @@ import org.koin.dsl.module
 val detailsModule = module {
     single { VideoResolver() }
     // D-236: Use viewModel { } instead of viewModelOf(::DetailsViewModel) because
-    // the constructor now has 22 params — Koin's viewModelOf has overloads for
-    // 21 and 22 params, causing overload resolution ambiguity. The explicit
-    // lambda form resolves all params via get() + getOrNull() for nullable ones.
+    // the constructor now has 25 params — Koin's viewModelOf has overloads that
+    // cause overload resolution ambiguity at this count. The explicit lambda
+    // form resolves all params via get() + getOrNull() for nullable ones.
     viewModel {
         DetailsViewModel(
             anilistApi = get(),
@@ -36,6 +36,10 @@ val detailsModule = module {
             scheduleStore = get(),
             coverColorExtractor = getOrNull(),
             reverseAutoLinkService = getOrNull(),
+            // D-242: AniList tracking deps.
+            aniListTracker = getOrNull(),
+            trackEntryRepository = getOrNull(),
+            trackSyncManager = getOrNull(),
         )
     }
 }

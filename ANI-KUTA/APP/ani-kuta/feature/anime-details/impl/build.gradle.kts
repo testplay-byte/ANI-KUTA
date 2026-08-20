@@ -28,6 +28,8 @@ dependencies {
     implementation(project(":core:updates"))  // D-192 Phase 3: updates feature
     implementation(project(":core:schedule"))  // D-236: episode schedule (for on-demand airing data)
     implementation(project(":core:notifications"))  // D-193 v2: per-anime notification config UI
+    implementation(project(":core:tracker-anilist"))  // D-242: AniList tracking (TrackSheet + sync)
+    implementation(project(":core:tracker-api"))  // D-242: Tracker interface + TrackEntry/TrackStatus
     implementation(project(":data:extension"))
 
     implementation(platform(libs.androidx.compose.bom))

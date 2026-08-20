@@ -89,6 +89,10 @@ class DetailsViewModel(
     private val coverColorExtractor: com.confused.anikuta.core.designsystem.color.CoverColorExtractor? = null,
     // D-225: Reverse auto-link service (AniList → extensions).
     private val reverseAutoLinkService: com.confused.anikuta.core.smartmatcher.ReverseAutoLinkService? = null,
+    // D-242: AniList tracking — the tracker, local cache repo, + sync manager.
+    private val aniListTracker: com.confused.anikuta.core.trackeranilist.AniListTracker? = null,
+    private val trackEntryRepository: com.confused.anikuta.core.trackeranilist.TrackEntryRepository? = null,
+    private val trackSyncManager: com.confused.anikuta.core.trackeranilist.TrackSyncManager? = null,
 ) : ViewModel() {
 
     companion object {
@@ -278,12 +282,129 @@ class DetailsViewModel(
     fun toggleWatched(episodeKey: String) {
         viewModelScope.launch {
             runCatching {
-                watchProgressStore.toggleWatched(episodeKey)
-                Logger.i(TAG) { "toggleWatched: episodeKey=$episodeKey" }
+                val newWatched = watchProgressStore.toggleWatched(episodeKey)
+                Logger.i(TAG) { "toggleWatched: episodeKey=$episodeKey → watched=$newWatched" }
+
+                // D-242: relay to AniList if linked.
+                relayWatchProgressIfNeeded(episodeKey, newWatched)
+
+                // D-242: if the user just marked an episode as watched, check if
+                // previous episodes need the "mark all previous" prompt.
+                if (newWatched) {
+                    checkMarkPreviousPrompt(episodeKey)
+                    checkMarkSeriesPrompt()
+                }
             }.onFailure { e ->
                 Logger.e(TAG, e) { "toggleWatched failed: ${e.message}" }
             }
         }
+    }
+
+    /**
+     * D-242: Checks if the "mark all previous episodes" prompt should be shown.
+     *
+     * Called after the user marks an episode as watched. If episodes 1..N-1 are
+     * NOT all watched, shows the prompt for episode N.
+     */
+    private suspend fun checkMarkPreviousPrompt(episodeKey: String) {
+        val mid = currentMainId ?: return
+        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return
+        val watchProgressMap = watchProgress.value
+
+        // Parse the episode number from the key ("$mainId|$epNumPadded").
+        val epNumStr = episodeKey.substringAfterLast('|', "")
+        val epNum = epNumStr.toIntOrNull() ?: return
+
+        // Check if all episodes 1..epNum-1 are watched.
+        val allPreviousWatched = episodes.all { ep ->
+            val n = ep.episode_number.toInt()
+            if (n >= epNum) return@all true // skip this episode + later ones
+            val key = "$mid|${String.format("%05d", n)}"
+            watchProgressMap[key]?.isWatched == true
+        }
+
+        if (!allPreviousWatched && epNum > 1) {
+            Logger.i(TAG) { "checkMarkPreviousPrompt — showing prompt for ep $epNum (previous not watched)" }
+            _showMarkPreviousPrompt.value = epNum
+        }
+    }
+
+    /**
+     * D-242: Checks if the "mark series as watched" prompt should be shown.
+     *
+     * Called after the user marks an episode as watched. If ALL episodes are now
+     * watched AND the series is FINISHED (not still releasing), shows the prompt.
+     */
+    private suspend fun checkMarkSeriesPrompt() {
+        val mid = currentMainId ?: return
+        val anime = (state.value as? DetailsState.Success)?.anime ?: return
+        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return
+        if (episodes.isEmpty()) return
+
+        // Only show if the series is FINISHED (not RELEASING/NOT_YET_RELEASED/etc.)
+        if (anime.status != "FINISHED") return
+
+        // Check if all episodes are watched.
+        val watchProgressMap = watchProgress.value
+        val allWatched = episodes.all { ep ->
+            val key = "$mid|${String.format("%05d", ep.episode_number.toInt())}"
+            watchProgressMap[key]?.isWatched == true
+        }
+
+        if (allWatched) {
+            Logger.i(TAG) { "checkMarkSeriesPrompt — all episodes watched + series FINISHED; showing prompt" }
+            _showMarkSeriesPrompt.value = true
+        }
+    }
+
+    /**
+     * D-242: Relays the current watch progress to AniList (if the anime is linked
+     * + the user is logged in). Called after [toggleWatched] + after [markAllPreviousWatched].
+     *
+     * AniList's `progress` = the episode number the user has watched up to.
+     * If the user marks episode N as watched, progress = N (AniList assumes 1..N
+     * are all watched — this matches the user's spec: "still it will mark the
+     * previous episodes up until episode 5 as watched in any list").
+     *
+     * If the user unmarks episode N, progress = the highest remaining watched
+     * episode number (or 0 if none).
+     *
+     * If progress == total episodes + the series is FINISHED → status = COMPLETED.
+     */
+    private suspend fun relayWatchProgressIfNeeded(episodeKey: String, newWatched: Boolean) {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val syncMgr = trackSyncManager ?: return
+        val details = contentRepository.getContentDetails(mid)
+        val anilistId = details?.anilistId ?: return
+
+        if (!tracker.isLoggedIn()) return
+
+        // Compute the AniList progress (highest watched episode number).
+        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return
+        val watchProgressMap = watchProgress.value
+        val highestWatched = episodes.maxOfOrNull { ep ->
+            val n = ep.episode_number.toInt()
+            val key = "$mid|${String.format("%05d", n)}"
+            if (watchProgressMap[key]?.isWatched == true) n else 0
+        } ?: 0
+
+        val totalEps = details.dataEpisodes?.toInt() ?: episodes.size
+        val anime = (state.value as? DetailsState.Success)?.anime
+        val isFinished = anime?.status == "FINISHED"
+        val newStatus = if (highestWatched >= totalEps && isFinished) {
+            com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
+        } else if (highestWatched > 0) {
+            com.confused.anikuta.core.trackerapi.TrackStatus.WATCHING
+        } else {
+            com.confused.anikuta.core.trackerapi.TrackStatus.PLAN_TO_WATCH
+        }
+
+        syncMgr.relayWatchEvent(
+            contentKey = mid,
+            episodeNumber = highestWatched.toDouble(),
+            status = newStatus,
+        )
     }
 
     // ── Phase 4: Per-anime user rating ──
@@ -318,8 +439,277 @@ class DetailsViewModel(
                     contentType = "anime",
                     payload = stars.toString(),
                 )
+
+                // D-242: relay the rating to AniList (if linked + logged in).
+                // The 0-100 backend scale is already AniList-native (POINT_100).
+                trackSyncManager?.relayRating(mid, stars * 10)
             }.onFailure { e ->
                 Logger.e(TAG, e) { "setAnimeRating failed: ${e.message}" }
+            }
+        }
+    }
+
+    // ── D-242: AniList Tracking ──────────────────────────────────────────────
+
+    /** Whether the TrackSheet should be shown. */
+    private val _showTrackSheet = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val showTrackSheet: kotlinx.coroutines.flow.StateFlow<Boolean> = _showTrackSheet.asStateFlow()
+
+    /** The current track entry (cached locally + synced from AniList). */
+    private val _trackEntry = kotlinx.coroutines.flow.MutableStateFlow<com.confused.anikuta.core.trackerapi.TrackEntry?>(null)
+    val trackEntry: kotlinx.coroutines.flow.StateFlow<com.confused.anikuta.core.trackerapi.TrackEntry?> = _trackEntry.asStateFlow()
+
+    /** Whether the "mark all previous episodes" prompt should be shown (with the episode number). */
+    private val _showMarkPreviousPrompt = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+    val showMarkPreviousPrompt: kotlinx.coroutines.flow.StateFlow<Int?> = _showMarkPreviousPrompt.asStateFlow()
+
+    /** Whether the "mark series as watched" prompt should be shown. */
+    private val _showMarkSeriesPrompt = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val showMarkSeriesPrompt: kotlinx.coroutines.flow.StateFlow<Boolean> = _showMarkSeriesPrompt.asStateFlow()
+
+    /**
+     * D-242: Opens the TrackSheet. Pre-loads the cached track entry + fetches
+     * the latest from AniList in the background (so the sheet opens instantly
+     * with cached data + updates when the network fetch completes).
+     *
+     * If the anime has no AniList link, opens the ManualLinkSheet instead
+     * (the user must link the anime to AniList before tracking).
+     */
+    fun openTrackSheet() {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val repo = trackEntryRepository ?: return
+
+        val anime = (state.value as? DetailsState.Success)?.anime
+        val anilistId = anime?.anilistId
+        if (anilistId == null) {
+            // No AniList link — open the manual link sheet instead.
+            Logger.i(TAG) { "openTrackSheet — no AniList link; opening ManualLinkSheet" }
+            openManualLinkSheet()
+            return
+        }
+
+        _showTrackSheet.value = true
+
+        viewModelScope.launch {
+            // 1. Load the cached entry (instant).
+            val cached = repo.get(mid)
+            _trackEntry.value = cached
+
+            // 2. Fetch the latest from AniList (background).
+            if (tracker.isLoggedIn()) {
+                runCatching {
+                    val remote = tracker.fetchEntry(anilistId)
+                    if (remote != null) {
+                        val entry = remote.copy(contentKey = mid)
+                        repo.upsert(entry)
+                        _trackEntry.value = entry
+                        Logger.i(TAG) { "openTrackSheet — fetched from AniList: $entry" }
+                    }
+                }.onFailure { e ->
+                    Logger.w(TAG) { "openTrackSheet — fetchEntry failed (using cached): ${e.message}" }
+                }
+            }
+        }
+    }
+
+    /** Dismisses the TrackSheet. */
+    fun dismissTrackSheet() {
+        _showTrackSheet.value = false
+    }
+
+    /**
+     * D-242: Updates the track status (WATCHING / COMPLETED / PAUSED / etc.)
+     * + syncs to AniList. Updates the local cache immediately (optimistic).
+     */
+    fun updateTrackStatus(status: com.confused.anikuta.core.trackerapi.TrackStatus) {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val repo = trackEntryRepository ?: return
+        val anime = (state.value as? DetailsState.Success)?.anime ?: return
+        val anilistId = anime.anilistId ?: return
+
+        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
+            contentKey = mid,
+            trackerId = anilistId,
+        )
+        val updated = current.copy(status = status, updatedAt = System.currentTimeMillis())
+        _trackEntry.value = updated // optimistic
+
+        viewModelScope.launch {
+            repo.upsert(updated)
+            if (tracker.isLoggedIn()) {
+                val success = tracker.syncEntry(updated)
+                if (!success) {
+                    Logger.w(TAG) { "updateTrackStatus — sync failed (cache updated anyway)" }
+                }
+            }
+        }
+    }
+
+    /**
+     * D-242: Updates the track progress (episodes watched) + syncs to AniList.
+     */
+    fun updateTrackProgress(progress: Int) {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val repo = trackEntryRepository ?: return
+        val anime = (state.value as? DetailsState.Success)?.anime ?: return
+        val anilistId = anime.anilistId ?: return
+
+        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
+            contentKey = mid,
+            trackerId = anilistId,
+        )
+        val updated = current.copy(progress = progress.coerceAtLeast(0), updatedAt = System.currentTimeMillis())
+        _trackEntry.value = updated
+
+        viewModelScope.launch {
+            repo.upsert(updated)
+            if (tracker.isLoggedIn()) {
+                tracker.syncEntry(updated)
+            }
+        }
+    }
+
+    /**
+     * D-242: Updates the track score (0-100) + syncs to AniList.
+     * Also updates the local `user_rating` table so the star bar stays in sync.
+     */
+    fun updateTrackScore(score: Int) {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val repo = trackEntryRepository ?: return
+        val anime = (state.value as? DetailsState.Success)?.anime ?: return
+        val anilistId = anime.anilistId ?: return
+
+        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
+            contentKey = mid,
+            trackerId = anilistId,
+        )
+        val updated = current.copy(score = score, updatedAt = System.currentTimeMillis())
+        _trackEntry.value = updated
+
+        viewModelScope.launch {
+            repo.upsert(updated)
+            // Also update the local rating (keeps the star bar in sync).
+            ratingStore.setAnimeRating(mid, score)
+            if (tracker.isLoggedIn()) {
+                tracker.syncEntry(updated)
+            }
+        }
+    }
+
+    /**
+     * D-242: Updates the start/finish dates + syncs to AniList.
+     */
+    fun updateTrackDates(startedAt: Long?, completedAt: Long?) {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val repo = trackEntryRepository ?: return
+        val anime = (state.value as? DetailsState.Success)?.anime ?: return
+        val anilistId = anime.anilistId ?: return
+
+        val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
+            contentKey = mid,
+            trackerId = anilistId,
+        )
+        val updated = current.copy(
+            startedAt = startedAt,
+            completedAt = completedAt,
+            updatedAt = System.currentTimeMillis(),
+        )
+        _trackEntry.value = updated
+
+        viewModelScope.launch {
+            repo.upsert(updated)
+            if (tracker.isLoggedIn()) {
+                tracker.syncEntry(updated)
+            }
+        }
+    }
+
+    /**
+     * D-242: Shows the "mark all previous episodes as watched" prompt.
+     * Called when the user marks episode N as watched but 1..N-1 aren't.
+     *
+     * The prompt has a 5-second timeout bar. If the user doesn't respond in 5s,
+     * it auto-confirms (per the user's spec: "still it will mark the previous
+     * episodes up until episode 5 as watched in any list").
+     */
+    fun showMarkPreviousPrompt(episodeNumber: Int) {
+        _showMarkPreviousPrompt.value = episodeNumber
+    }
+
+    /** Dismisses the "mark all previous" prompt (user declined). */
+    fun dismissMarkPreviousPrompt() {
+        _showMarkPreviousPrompt.value = null
+    }
+
+    /**
+     * D-242: Marks all episodes from 1 to [upToEpisode] (inclusive) as watched.
+     * Called when the user confirms the "mark all previous" prompt (or when the
+     * 5-second timeout auto-confirms).
+     *
+     * Also relays the updated progress to AniList.
+     */
+    fun markAllPreviousWatched(upToEpisode: Int) {
+        val mid = currentMainId ?: return
+        _showMarkPreviousPrompt.value = null // dismiss the prompt
+
+        viewModelScope.launch {
+            runCatching {
+                val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return@runCatching
+                val keysToMark = episodes
+                    .filter { it.episode_number.toInt() <= upToEpisode }
+                    .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                watchProgressStore.markAllWatched(mid, keysToMark)
+                Logger.i(TAG) { "markAllPreviousWatched — marked ${keysToMark.size} episodes (1..$upToEpisode)" }
+
+                // Relay to AniList.
+                relayWatchProgressIfNeeded("", true)
+            }.onFailure { e ->
+                Logger.e(TAG, e) { "markAllPreviousWatched failed: ${e.message}" }
+            }
+        }
+    }
+
+    /**
+     * D-242: Shows the "mark series as watched" prompt. Only called when the
+     * series is FINISHED + all episodes have been watched.
+     */
+    fun showMarkSeriesPrompt() {
+        _showMarkSeriesPrompt.value = true
+    }
+
+    /** Dismisses the "mark series as watched" prompt. */
+    fun dismissMarkSeriesPrompt() {
+        _showMarkSeriesPrompt.value = false
+    }
+
+    /**
+     * D-242: Marks the entire series as watched (sets status = COMPLETED on AniList).
+     * Called when the user confirms the "mark series as watched" prompt.
+     */
+    fun markSeriesAsWatched() {
+        val mid = currentMainId ?: return
+        _showMarkSeriesPrompt.value = false
+
+        viewModelScope.launch {
+            runCatching {
+                val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return@runCatching
+                val keysToMark = episodes.map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                watchProgressStore.markAllWatched(mid, keysToMark)
+                Logger.i(TAG) { "markSeriesAsWatched — marked all ${keysToMark.size} episodes" }
+
+                // Set status = COMPLETED on AniList.
+                trackSyncManager?.relayWatchEvent(
+                    contentKey = mid,
+                    episodeNumber = episodes.size.toDouble(),
+                    status = com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED,
+                )
+            }.onFailure { e ->
+                Logger.e(TAG, e) { "markSeriesAsWatched failed: ${e.message}" }
             }
         }
     }
@@ -549,6 +939,11 @@ class DetailsViewModel(
         _showCategorySheet.value = false
         _isRefreshing.value = false
         _refreshState.value = RefreshState.Idle
+        // D-242: Reset tracking state.
+        _trackEntry.value = null
+        _showTrackSheet.value = false
+        _showMarkPreviousPrompt.value = null
+        _showMarkSeriesPrompt.value = false
         // Read the saved source link from PreferenceStore SYNCHRONOUSLY (SharedPreferences
         // is in-memory cached) so the UI shows the correct linked source immediately —
         // no async gap where "No Source" is shown despite being linked.
@@ -951,9 +1346,37 @@ class DetailsViewModel(
         viewModelScope.launch {
             refreshMetadata()
             refreshEpisodesList()
+            // D-242: also refresh the tracking data from AniList (if linked).
+            refreshTracking()
             kotlinx.coroutines.delay(500) // Brief delay so the spinner is visible
             _isRefreshing.value = false
             Logger.i(TAG) { "D.3 Stage 3: Refresh complete" }
+        }
+    }
+
+    /**
+     * D-242: Refreshes the track entry from AniList (if the anime is linked +
+     * the user is logged in). Updates the local cache + the [_trackEntry] StateFlow.
+     */
+    private suspend fun refreshTracking() {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val repo = trackEntryRepository ?: return
+        val anime = (state.value as? DetailsState.Success)?.anime ?: return
+        val anilistId = anime.anilistId ?: return
+
+        if (!tracker.isLoggedIn()) return
+
+        runCatching {
+            val remote = tracker.fetchEntry(anilistId)
+            if (remote != null) {
+                val entry = remote.copy(contentKey = mid)
+                repo.upsert(entry)
+                _trackEntry.value = entry
+                Logger.i(TAG) { "refreshTracking — fetched from AniList: $entry" }
+            }
+        }.onFailure { e ->
+            Logger.w(TAG) { "refreshTracking failed (non-fatal): ${e.message}" }
         }
     }
 
@@ -1030,6 +1453,11 @@ class DetailsViewModel(
         _showCategorySheet.value = false
         _isRefreshing.value = false
         _refreshState.value = RefreshState.Idle
+        // D-242: Reset tracking state.
+        _trackEntry.value = null
+        _showTrackSheet.value = false
+        _showMarkPreviousPrompt.value = null
+        _showMarkSeriesPrompt.value = false
         viewModelScope.launch {
             try {
                 // D-210 FIX: Cache-first for instant open (mirrors loadFromAniList's
