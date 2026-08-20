@@ -8,56 +8,55 @@ import kotlinx.serialization.json.Json
 /**
  * The `data.json` file written to each content folder.
  *
- * D.1.4 + REVIEW-5 M5 (R1-C2): contains ALL FK columns from the `content` table
- * so the scan-on-startup can fully restore the [ContentRecord] after app-delete
- * + reinstall + same-folder-selection.
+ * D-240: Schema v2 — added [episodes] list to track downloaded episodes.
+ * This allows the app to restore download state after reinstall — when the
+ * user selects the same SAF folder, the scanner reads data.json + knows
+ * exactly which episodes were downloaded, their quality, server, audio, etc.
+ *
+ * The [contentId] is the PRIMARY linking mechanism for reinstall recognition
+ * (NOT [mainId], which is a random UUID that changes on reinstall). The
+ * scanner uses [contentId] to find existing content records via
+ * `ContentRepository.getMainEntryByContentId`.
  *
  * Schema is versioned ([schemaVersion]) + parsed with `ignoreUnknownKeys = true`
  * so future schema changes don't break old data.json files on disk.
  *
- * Example:
+ * Example (v2):
  * ```json
  * {
- *   "schemaVersion": 1,
- *   "mainId": "550e8400-e29b-41d4-a716-446655440000",
- *   "contentId": "anilist:anikuta:https://repo.example.com/index.min.json:com.aniyomi.anikoto:69023:https://anikoto.example.com/anime/123",
+ *   "schemaVersion": 2,
+ *   "mainId": "550e8400-...",
+ *   "contentId": "anilist:aniyomi:none:com.aniyomi.anikoto:69023:https://anikoto.example.com/anime/123",
  *   "title": "Jujutsu Kaisen",
  *   "contentType": "anime",
  *   "contentFormat": "video",
- *   "description": null,
- *   "dataSourceId": null,
- *   "systemId": null,
+ *   "description": "A boy swallows a cursed talisman...",
+ *   "dataSourceId": 1,
+ *   "systemId": 1,
  *   "extensionRepoId": null,
- *   "extensionId": null,
+ *   "extensionId": 69023,
  *   "sourceId": 69023,
  *   "animeUrl": "https://anikoto.example.com/anime/123",
  *   "displaySource": "extension",
  *   "coverUrl": "https://cdn.example.com/covers/123.jpg",
  *   "anilistId": 101522,
+ *   "episodes": [
+ *     {
+ *       "episodeNumber": 1.0,
+ *       "episodeUrl": "https://anikoto.example.com/anime/123/ep1",
+ *       "episodeName": "Episode 1",
+ *       "videoUrl": "https://cdn.example.com/video/123-ep1.mp4",
+ *       "quality": "1080p",
+ *       "videoServer": "AniKoto",
+ *       "audioVariant": "sub",
+ *       "downloadedAt": 1786069380000,
+ *       "fileSize": 524288000
+ *     }
+ *   ],
  *   "createdAt": 1786069380000,
  *   "updatedAt": 1786069380000
  * }
  * ```
- *
- * @param schemaVersion The data.json schema version (bump on breaking changes).
- * @param mainId The stable UUID — primary key. Survives source switches + reinstalls.
- * @param contentId The structured content ID (6-section colon-delimited per
- *   ContentIdGenerator). Changes when sources switch.
- * @param title Human-readable title (for folder name + UI).
- * @param contentType "anime" | "movie" | "series" | "manga" | "novel" | ...
- * @param contentFormat "video" | "images" | "text" | "audio".
- * @param description Optional description.
- * @param dataSourceId FK to `data_source` table (nullable — AniList, TMDB, etc.).
- * @param systemId FK to `system` table (nullable — Aniyomi, CloudStream, etc.).
- * @param extensionRepoId FK to `content_ext_repo` table (nullable).
- * @param extensionId Aniyomi internal source.id (plain INTEGER; NOT a FK post-D-189 — content_ext table is unused).
- * @param sourceId The internal source ID within the extension (nullable).
- * @param animeUrl The content's URL on the source (nullable).
- * @param displaySource "extension" | "anilist" | "tmdb" | ...
- * @param coverUrl Cover image URL (for the Downloads screen thumbnail + cover.jpg).
- * @param anilistId Optional AniList ID (if linked — for metadata sync).
- * @param createdAt Epoch millis when the content was first created.
- * @param updatedAt Epoch millis when the content was last updated.
  */
 @Serializable
 data class ContentDataJson(
@@ -93,6 +92,9 @@ data class ContentDataJson(
     val coverUrl: String? = null,
     @SerialName("anilistId")
     val anilistId: Int? = null,
+    /** D-240: List of downloaded episodes for this content. */
+    @SerialName("episodes")
+    val episodes: List<DownloadedEpisodeInfo> = emptyList(),
     @SerialName("createdAt")
     val createdAt: Long,
     @SerialName("updatedAt")
@@ -100,7 +102,7 @@ data class ContentDataJson(
 ) {
     companion object {
         /** The current data.json schema version. Bump on breaking changes. */
-        const val CURRENT_SCHEMA_VERSION = 1
+        const val CURRENT_SCHEMA_VERSION = 2
 
         /**
          * The JSON parser — `ignoreUnknownKeys = true` so future schema changes
@@ -125,3 +127,32 @@ data class ContentDataJson(
             json.encodeToString(data)
     }
 }
+
+/**
+ * D-240: Per-episode download info stored in data.json.
+ *
+ * When a download completes, this info is appended to the `episodes` list.
+ * When the app is reinstalled + the user selects the same SAF folder, the
+ * scanner reads this list + restores the `downloaded_episode` DB rows.
+ */
+@Serializable
+data class DownloadedEpisodeInfo(
+    @SerialName("episodeNumber")
+    val episodeNumber: Double,
+    @SerialName("episodeUrl")
+    val episodeUrl: String,
+    @SerialName("episodeName")
+    val episodeName: String? = null,
+    @SerialName("videoUrl")
+    val videoUrl: String? = null,
+    @SerialName("quality")
+    val quality: String? = null,
+    @SerialName("videoServer")
+    val videoServer: String? = null,
+    @SerialName("audioVariant")
+    val audioVariant: String? = null,
+    @SerialName("downloadedAt")
+    val downloadedAt: Long,
+    @SerialName("fileSize")
+    val fileSize: Long? = null,
+)
