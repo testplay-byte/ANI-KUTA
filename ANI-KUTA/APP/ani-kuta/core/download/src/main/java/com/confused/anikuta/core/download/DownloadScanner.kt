@@ -121,24 +121,43 @@ class DownloadScanner(
                     index
                 }
 
-                // D-241: build the new episodes list from the on-disk file walk.
-                // For each video file, construct a DownloadedEpisodeInfo. For
-                // metadata that's NOT derivable from the file walk (quality,
-                // videoServer, videoAudio, videoUrl, downloadedAt, fileSize),
-                // try to find a matching entry in the EXISTING dataJson.episodes
-                // list (matched by episodeKey) and reuse its values — this
-                // preserves the metadata that was captured at download time.
-                val existingEpisodesBykey = dataJson.episodes
-                    .filter { it.episodeKey != null }
-                    .associateBy { it.episodeKey!! }
+                // D-242: build the new episodes list from the on-disk file walk.
+                //
+                // CRITICAL: match against the EXISTING `.data.json` episodes list by
+                // `episodeNumber` (Double) — NOT by re-derived episodeKey. The original
+                // episodeKey equals `SEpisode.url` (the extension's episode URL, e.g.
+                // "/watch/chainsmoker-cat/ep-4"). The runtime lookup
+                // (`downloadManager.isEpisodeDownloaded(mainId, episodeKey)`) uses
+                // `SEpisode.url`, so the stored key MUST match. If we re-derive the
+                // key as `"$mainId|$epNumPadded"`, the runtime lookup will NEVER match
+                // → episodes won't show as Downloaded on the details page.
+                //
+                // For metadata NOT derivable from the file walk (quality, videoServer,
+                // videoAudio, videoUrl, episodeDescription, downloadedAt), reuse values
+                // from the matching existing entry — this preserves the metadata that
+                // was captured at download time.
+                val existingEpisodesByNum = dataJson.episodes
+                    .associateBy { it.episodeNumber }
                 val rebuiltEpisodes = mutableListOf<DownloadedEpisodeInfo>()
 
                 for ((fileName, file) in videoIndex) {
                     if (!file.isFile) continue
                     if (!isVideoFile(fileName)) continue
-                    val episodeKey = deriveEpisodeKey(dataJson.mainId, fileName) ?: continue
-                    val episodeNumber = deriveEpisodeNumber(fileName) ?: continue
-                    val episodeName = deriveEpisodeName(fileName)
+                    val derivedNumber = deriveEpisodeNumber(fileName) ?: continue
+                    val derivedName = deriveEpisodeName(fileName)
+
+                    // D-242: PRESERVE the original episodeKey from .data.json.
+                    // The original key = SEpisode.url (set by HttpDownloader at
+                    // download time). Fall back to the derived key ONLY for orphan
+                    // files (no matching .data.json entry — e.g. user manually
+                    // dropped a video file into the folder).
+                    val existing = existingEpisodesByNum[derivedNumber.toDouble()]
+                    val episodeKey = existing?.episodeKey
+                        ?: deriveEpisodeKey(dataJson.mainId, fileName)
+                        ?: continue
+                    val episodeNumber = existing?.episodeNumber?.toFloat() ?: derivedNumber
+                    val episodeName = existing?.episodeName ?: derivedName
+                    val episodeDescription = existing?.episodeDescription
 
                     // D-FIX-SUB: re-discover subtitle files for this episode.
                     // Searches the subtitles/ subfolder (new) or the content root (legacy).
@@ -160,30 +179,29 @@ class DownloadScanner(
                                 episodeKey = episodeKey,
                                 episodeNumber = episodeNumber,
                                 name = episodeName,
+                                description = episodeDescription,
                             ),
                             videoUri = file.uri.toString(),
                             subtitleUris = subtitleUris,
                             sizeBytes = file.length(),
-                            quality = null,
-                            completedAt = dataJson.updatedAt,
+                            quality = existing?.quality,
+                            completedAt = existing?.downloadedAt ?: dataJson.updatedAt,
                         ),
                     )
                     scannedEpisodeKeys.add(dataJson.mainId to episodeKey)
                     episodeCount++
 
-                    // D-241: build the DownloadedEpisodeInfo for this file.
-                    // Prefer the existing episodeName from .data.json (set by
-                    // HttpDownloader at download time from `task.episode.name`,
-                    // e.g. "Episode 1 - The Beginning") over the filename-derived
-                    // name (which is just the content title, e.g. "Jujutsu Kaisen").
-                    // Falls back to the filename-derived name only if no existing
-                    // entry (e.g. user manually dropped a video file into the folder).
-                    val existing = existingEpisodesBykey[episodeKey]
+                    // D-242: build the DownloadedEpisodeInfo for this file.
+                    // Preserve ALL metadata from the existing entry (matched by
+                    // episodeNumber). Only videoUri + subtitleUris + fileSize are
+                    // rebuilt from the on-disk file walk (they change after a
+                    // reinstall because the SAF URI changes).
                     rebuiltEpisodes += DownloadedEpisodeInfo(
                         episodeKey = episodeKey,
                         episodeNumber = episodeNumber.toDouble(),
                         episodeUrl = existing?.episodeUrl ?: "",
-                        episodeName = existing?.episodeName ?: episodeName,
+                        episodeName = episodeName,
+                        episodeDescription = episodeDescription,
                         videoUrl = existing?.videoUrl,
                         videoUri = file.uri.toString(),
                         subtitleUris = subtitleUris,
@@ -195,7 +213,7 @@ class DownloadScanner(
                     )
                 }
 
-                // D-241: write the rebuilt episodes list back to .data.json.
+                // D-242: write the rebuilt episodes list back to .data.json.
                 // This is the (re)install-recognition mechanism — after a reinstall,
                 // the SQLite DB is empty, but the .data.json files on disk survive
                 // (they're in the user-selected SAF folder, not the app's internal
@@ -206,16 +224,18 @@ class DownloadScanner(
                 //
                 // Only write if the list actually CHANGED (avoids unnecessary SAF
                 // I/O on every startup). The compare is by episodeKey set + each
-                // entry's key fields.
-                val existingKeyed = dataJson.episodes.sortedBy { it.episodeKey ?: "" }
-                val rebuiltKeyed = rebuiltEpisodes.sortedBy { it.episodeKey ?: "" }
+                // entry's key fields (videoUri + subtitleUris change after reinstall
+                // because the SAF URI changes).
+                val existingKeyed = dataJson.episodes.sortedBy { it.episodeKey }
+                val rebuiltKeyed = rebuiltEpisodes.sortedBy { it.episodeKey }
                 val listsDiffer = existingKeyed.size != rebuiltKeyed.size ||
                     existingKeyed.zip(rebuiltKeyed).any { (a, b) ->
                         a.episodeKey != b.episodeKey ||
                             a.videoUri != b.videoUri ||
                             a.subtitleUris != b.subtitleUris ||
                             a.fileSize != b.fileSize ||
-                            a.episodeName != b.episodeName
+                            a.episodeName != b.episodeName ||
+                            a.episodeDescription != b.episodeDescription
                     }
                 if (listsDiffer) {
                     DownloadLogger.i {
@@ -281,8 +301,32 @@ class DownloadScanner(
         }
     }
 
-    /** UPSERTs a [ContentRecord] built from [data] (REVIEW-5 M5 — lossless). */
+    /**
+     * UPSERTs a [ContentRecord] built from [data].
+     *
+     * D-242: SKIP the upsert if a row with this [data.mainId] already exists.
+     * The DB is the CANONICAL store — the `.data.json` is a durable backup.
+     * Previously, this used `INSERT OR REPLACE` which overwrote the DB row
+     * with whatever was in `.data.json` (including null FK fields when the
+     * `.data.json` was written by a buggy download flow). This caused the
+     * scanner to PROPAGATE nulls from `.data.json` into the DB, defeating
+     * `reconcileDataJsonFromContent` (which reads the DB to fill `.data.json`
+     * nulls — but the DB was now nulled too).
+     *
+     * Now: only insert if the row is MISSING (the genuine reinstall case).
+     * If the row exists, it's already at least as fresh as `.data.json`, so
+     * we leave it alone + let `reconcileDataJsonFromContent` bring `.data.json`
+     * up to date with the DB.
+     */
     private fun upsertContentRecord(data: ContentDataJson) {
+        // D-242: don't overwrite an existing main_entry row — the DB is canonical.
+        if (contentRepository.getMainEntryByMainId(data.mainId) != null) {
+            DownloadLogger.d {
+                "upsertContentRecord — mainId=${data.mainId} already exists in DB; " +
+                    "skipping upsert (DB is canonical, .data.json will be reconciled)"
+            }
+            return
+        }
         val now = System.currentTimeMillis()
         val record = ContentRecord(
             mainId = data.mainId,
@@ -290,7 +334,6 @@ class DownloadScanner(
             title = data.title,
             contentType = data.contentType,
             contentFormat = data.contentFormat,
-            // D-198: main_entry.description dropped — readers use content_details.
             dataSourceId = data.dataSourceId,
             systemId = data.systemId,
             extensionRepoId = data.extensionRepoId,
@@ -301,24 +344,42 @@ class DownloadScanner(
             createdAt = data.createdAt,
             updatedAt = now,
         )
-        // ContentRepository.insertMainEntry uses INSERT OR REPLACE — UPSERT semantics.
+        DownloadLogger.i {
+            "upsertContentRecord — restoring mainId=${data.mainId} from .data.json (reinstall recognition)"
+        }
         contentRepository.insertMainEntry(record)
     }
 
-    /** UPSERTs the data-source axis of content_details built from [data] (only when anilistId is set). */
+    /**
+     * UPSERTs the data-source axis of content_details built from [data] (only when anilistId is set).
+     *
+     * D-242: `updateDataSourceAxis` is a partial UPDATE — it silently no-ops if
+     * the `content_details` row doesn't exist. This was Bug #2 in the downloads-
+     * detection research: after a reinstall, the scanner restores `main_entry`
+     * but the `content_details` row is missing → `getMainEntryByAniListId`
+     * (which INNER JOINs `main_entry` + `content_details`) returns null →
+     * `resolveOrCreateForAniList` creates a NEW mainId → downloaded episodes
+     * are orphaned under the OLD mainId + don't show on the details page.
+     *
+     * Fix: ensure the `content_details` row EXISTS before the partial UPDATE.
+     * We call `upsertContentDetails` with a minimal row (just mainId) if the
+     * row is missing — then `updateDataSourceAxis` can fill in the AniList axis.
+     */
     private fun upsertAniListDetail(data: ContentDataJson) {
         val now = System.currentTimeMillis()
-        // D-198: AniListDetail → ContentDetails (data-source axis). The data-source
-        // axis stores anilist_id as TEXT in data_source_ref_id + the metadata fields.
         val detail = ContentDetails(
             mainId = data.mainId,
             dataSourceType = if (data.anilistId != null) "anilist" else null,
             dataSourceRefId = data.anilistId?.toString(),
             dataUpdatedAt = now,
-            // Extension axis + remaining data-axis fields are left null — this is a
-            // minimal upsert of just the link identity. updateDataSourceAxis preserves
-            // any existing extension axis data.
         )
+        // D-242: ensure the content_details row exists before the partial UPDATE.
+        if (contentRepository.getContentDetails(data.mainId) == null) {
+            DownloadLogger.i {
+                "upsertAniListDetail — creating missing content_details row for mainId=${data.mainId}"
+            }
+            contentRepository.upsertContentDetails(ContentDetails(mainId = data.mainId))
+        }
         contentRepository.updateDataSourceAxis(detail)
     }
 

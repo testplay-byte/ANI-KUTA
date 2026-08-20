@@ -62,6 +62,7 @@ class DownloadStore(private val database: AnikutaDatabase) {
             content_title = content.title,
             episode_number = episode.episodeNumber.toDouble(),
             episode_name = episode.name,
+            episode_description = episode.description,
             cover_url = content.coverUrl,
             cover_color = content.coverColor?.toLong(),
             source_id = request.sourceId,
@@ -383,6 +384,7 @@ class DownloadStore(private val database: AnikutaDatabase) {
             episodeKey = episode_key,
             episodeNumber = episode_number.toFloat(),
             name = episode_name,
+            description = episode_description,
         )
         val status = runCatching { DownloadStatus.valueOf(state) }.getOrDefault(DownloadStatus.QUEUED)
         return DownloadTask(

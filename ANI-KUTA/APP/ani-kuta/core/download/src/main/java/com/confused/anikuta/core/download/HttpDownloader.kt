@@ -51,6 +51,16 @@ class HttpDownloader(
     private val store: DownloadStore,
     private val preferences: DownloadPreferences,
     /**
+     * D-242: The content repository — used to re-fetch the canonical content
+     * metadata (FK fields, description, anilistId, etc.) before writing
+     * `.data.json`. The `download_queue` table doesn't store these fields
+     * (they're denormalized on `main_entry` + `content_details`), so without
+     * this re-fetch, `.data.json` would have null FK fields whenever the task
+     * was loaded from the DB (which is always — `DownloadQueue.enqueue` reads
+     * the task back via `toTask()` which defaults FK fields to null).
+     */
+    private val contentRepository: com.confused.anikuta.core.content.ContentRepository? = null,
+    /**
      * The proxy-churn re-resolver. `null` if the proxy-churn fix is disabled.
      * Set by the Koin module — :app passes the [ReResolver] impl from :core:video-resolver
      * (D.2 will introduce this); :core:download doesn't depend on :core:video-resolver
@@ -124,11 +134,20 @@ class HttpDownloader(
             // D-FIX-SUB: pass the per-track language labels so the on-disk subtitle
             // filenames include the language (e.g. `.subtitle_E00001_english_0.srt`),
             // and capture the returned subtitle URIs so they land on the task + DB.
+            //
+            // D-242: BEFORE publishing, re-fetch the canonical content metadata from
+            // ContentRepository. The `download_queue` table doesn't store the FK
+            // fields (description, dataSourceId, systemId, extensionId, sourceId,
+            // animeUrl, anilistId, etc.) — they're denormalized on `main_entry` +
+            // `content_details`. Without this re-fetch, `.data.json` would have
+            // null FK fields (the user's reported bug). We use `?: task.content.X`
+            // as a fallback so we NEVER overwrite a non-null value with null.
+            val enrichedContent = enrichContentMetadata(task.content)
             val subtitleLangs = task.subtitleTracks.map { it.lang }
             val publishResult = storage.publishVideoFile(
                 downloadId = task.id,
                 tempFile = tempVideo,
-                content = task.content,
+                content = enrichedContent,
                 episode = task.episode,
                 videoExtension = ext,
                 subtitleFiles = subtitleFiles,
@@ -145,13 +164,14 @@ class HttpDownloader(
             // be inserted by DownloadQueue.launchDownload; the scanner will rebuild
             // the episodes list from the file walk on the next startup if needed).
             runCatching {
-                val contentFolder = storage.findContentFolder(task.content.mainId)
+                val contentFolder = storage.findContentFolder(enrichedContent.mainId)
                 if (contentFolder != null) {
                     val episodeInfo = DownloadedEpisodeInfo(
                         episodeKey = task.episode.episodeKey,
                         episodeNumber = task.episode.episodeNumber.toDouble(),
                         episodeUrl = task.videoUrl,
                         episodeName = task.episode.name,
+                        episodeDescription = task.episode.description,
                         videoUrl = task.videoUrl,
                         videoUri = publishResult.videoUri,
                         subtitleUris = publishResult.subtitleUris,
@@ -543,6 +563,47 @@ class HttpDownloader(
             "ass", "srt", "vtt", "ssa", "sub" -> ext
             else -> "srt"
         }
+    }
+
+    /**
+     * D-242: Re-fetches the canonical content metadata from [contentRepository]
+     * and enriches [content] with the FK fields (description, dataSourceId,
+     * systemId, extensionId, sourceId, animeUrl, anilistId, etc.).
+     *
+     * The `download_queue` table doesn't store these fields — they're
+     * denormalized on `main_entry` + `content_details`. Without this re-fetch,
+     * `.data.json` would have null FK fields (the user's reported bug).
+     *
+     * Uses `?: content.X` as a fallback so we NEVER overwrite a non-null value
+     * with null (defensive — preserves any FK fields that were already set on
+     * the task before the re-fetch).
+     *
+     * Returns [content] unchanged if [contentRepository] is null (test context)
+     * or if the main_entry row doesn't exist (shouldn't happen — the content
+     * was resolved before the download was enqueued).
+     */
+    private suspend fun enrichContentMetadata(
+        content: DownloadContentInfo,
+    ): DownloadContentInfo {
+        val repo = contentRepository ?: return content
+        val record = repo.getMainEntryByMainId(content.mainId) ?: return content
+        val details = repo.getContentDetails(content.mainId)
+        val dbCoverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+        return content.copy(
+            title = record.title.ifBlank { content.title },
+            contentType = record.contentType.ifBlank { content.contentType },
+            contentFormat = record.contentFormat.ifBlank { content.contentFormat },
+            description = (details?.dataSynopsis ?: details?.extDescription) ?: content.description,
+            dataSourceId = record.dataSourceId ?: content.dataSourceId,
+            systemId = record.systemId ?: content.systemId,
+            extensionRepoId = record.extensionRepoId ?: content.extensionRepoId,
+            extensionId = record.extensionId ?: details?.extensionIdLong ?: content.extensionId,
+            sourceId = record.sourceId ?: details?.sourceId ?: content.sourceId,
+            animeUrl = record.animeUrl ?: details?.animeUrl ?: content.animeUrl,
+            displaySource = record.displaySource.ifBlank { content.displaySource },
+            coverUrl = dbCoverUrl ?: content.coverUrl,
+            anilistId = details?.anilistId ?: content.anilistId,
+        )
     }
 
     /**

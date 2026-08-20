@@ -965,6 +965,7 @@ private fun handleDownloadEpisode(
                 episodeKey = episode.url,
                 episodeNumber = episode.episode_number,
                 name = episode.name,
+                description = episode.summary,
             )
 
             // 3. Look up the extension source.
@@ -1102,6 +1103,7 @@ private fun handleDownloadSpecificVideo(
                 episodeKey = episode.url,
                 episodeNumber = episode.episode_number,
                 name = episode.name,
+                description = episode.summary,
             )
 
             val sourceId = contentInfo.sourceId

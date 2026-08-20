@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS download_queue (
     content_title TEXT NOT NULL,
     episode_number REAL NOT NULL,
     episode_name TEXT NOT NULL,
+    episode_description TEXT,       -- D-242: episode synopsis (from SEpisode.summary)
     cover_url TEXT,
     cover_color INTEGER,          -- ARGB int for UI tinting
 
@@ -77,12 +78,14 @@ CREATE INDEX IF NOT EXISTS idx_download_queue_state
 insertDownloadQueue:
 INSERT INTO download_queue(
     main_id, episode_key, content_id, content_title, episode_number, episode_name,
+    episode_description,
     cover_url, cover_color, source_id, video_server, video_quality, video_audio,
     video_url, video_headers, video_uri, subtitle_tracks, audio_tracks, subtitle_uris,
     state, progress, downloaded_bytes, total_bytes,
     retry_max_attempts, resolve_context, queued_at, updated_at
 ) VALUES (
     :main_id, :episode_key, :content_id, :content_title, :episode_number, :episode_name,
+    :episode_description,
     :cover_url, :cover_color, :source_id, :video_server, :video_quality, :video_audio,
     :video_url, :video_headers, :video_uri, :subtitle_tracks, :audio_tracks, :subtitle_uris,
     'QUEUED', 0, 0, -1,

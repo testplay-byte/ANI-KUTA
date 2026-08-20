@@ -176,8 +176,20 @@ class DownloadViewModel(
     fun getDownloadedEpisodeUri(mainId: String, episodeKey: String): String? =
         manager.getDownloadedEpisodeUri(mainId, episodeKey)
 
-    /** Persists the SAF folder URI (from the folder picker). */
+    /**
+     * Persists the SAF folder URI (from the folder picker).
+     *
+     * D-242: ALSO triggers a folder rescan. Without this, the Downloaded page
+     * would show empty after the user re-selects the folder (e.g. after clearing
+     * app data + reinstalling) — the scanner only ran on app startup (when the
+     * URI was still blank), so the `downloaded_episode` DB rows were never
+     * restored from `.data.json`. The user had to kill + restart the app to
+     * trigger the scan. Now the rescan fires immediately after folder selection.
+     */
     fun setDownloadFolder(treeUriString: String) {
         preferences.downloadFolderUri.set(treeUriString)
+        viewModelScope.launch {
+            manager.requestFolderRescan()
+        }
     }
 }

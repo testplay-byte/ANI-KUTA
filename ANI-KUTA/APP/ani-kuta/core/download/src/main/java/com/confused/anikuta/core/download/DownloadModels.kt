@@ -53,15 +53,19 @@ data class DownloadContentInfo(
  * or number — used as the composite PK alongside [mainId]).
  *
  * @param episodeKey The stable episode key (matches the DB `episode_key` column).
+ *   Equals `SEpisode.url` (the extension's episode URL).
  * @param episodeNumber The episode number (float; .5 = special). Drives the
  *   `E00001` file name (5-digit zero-padded, per D.1 plan — supports 10,000+ episodes).
  * @param name The episode display name (for the Downloads screen + data.json).
+ * @param description The episode synopsis (from `SEpisode.summary`). Nullable —
+ *   not all extensions provide it. Stored in `.data.json` for offline display.
  */
 @Serializable
 data class DownloadEpisodeInfo(
     val episodeKey: String,
     val episodeNumber: Float,
     val name: String,
+    val description: String? = null,
 )
 
 // ──────────────────────────────────────────────────────────────────────────────

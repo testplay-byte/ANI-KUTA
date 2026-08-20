@@ -86,6 +86,9 @@ val downloadModule = module {
             hlsDownloader = get(),
             store = get(),
             preferences = get(),
+            // D-242: re-fetches canonical content metadata before writing .data.json
+            // (fixes null FK fields — description, anilistId, sourceId, etc.).
+            contentRepository = get(),
             // D-149-fix: wired via Koin lazy resolution. The :app module registers
             // an HttpDownloader.ReResolver adapter (ReResolverAdapter) that bridges
             // to the app-class ReResolver. If no binding exists (e.g. in a test

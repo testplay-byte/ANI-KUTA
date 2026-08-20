@@ -6,31 +6,36 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
- * The `data.json` file written to each content folder.
+ * The `.data.json` file written to each content folder.
  *
- * D-240: Schema v2 — added [episodes] list to track downloaded episodes.
- * This allows the app to restore download state after reinstall — when the
- * user selects the same SAF folder, the scanner reads data.json + knows
- * exactly which episodes were downloaded, their quality, server, audio, etc.
+ * Schema v1 (D-242 reset — per §30 debug-build schema freedom, we don't worry
+ * about migration or backward-compat with old schema versions; the debug workflow
+ * is "clear app data → reinstall → fresh DB → test"). This is the canonical
+ * schema; there are no v2/v3 predecessors to be compatible with.
  *
- * D-241: Schema v3 — added `episodeKey`, `videoUri`, `subtitleUris` to each
- * entry in [episodes]. `episodeKey` is REQUIRED for the delete flow to find
- * the right entry to remove. Old v2 .data.json files still load (parser is
- * ignoreUnknownKeys=true + every new field has a default); the scanner
- * backfills `episodeKey` from the file name on the next scan.
+ * Contains:
+ *  - Content-level identity (mainId, contentId, title, cover, FK fields).
+ *  - Per-episode download info ([episodes] list — one entry per downloaded
+ *    episode, carrying the episode key, number, name, description, video URI,
+ *    subtitle URIs, quality, server, audio variant, download timestamp, file size).
  *
  * The [contentId] is the PRIMARY linking mechanism for reinstall recognition
- * (NOT [mainId], which is a random UUID that changes on reinstall). The
- * scanner uses [contentId] to find existing content records via
+ * (NOT [mainId], which is a random UUID that changes on reinstall). The scanner
+ * uses [contentId] to find existing content records via
  * `ContentRepository.getMainEntryByContentId`.
  *
- * Schema is versioned ([schemaVersion]) + parsed with `ignoreUnknownKeys = true`
- * so future schema changes don't break old data.json files on disk.
+ * The [episodes] list is the DURABLE source of truth for which episodes are
+ * downloaded. The SQLite `downloaded_episode` table is a cache (rebuilt by the
+ * scanner from this list on startup). When the user marks an episode for delete,
+ * the entry is removed from this list AND the DB row is deleted.
  *
- * Example (v3):
+ * Schema is parsed with `ignoreUnknownKeys = true` so adding fields in the
+ * future won't break old files (defensive — not needed for debug, but cheap).
+ *
+ * Example:
  * ```json
  * {
- *   "schemaVersion": 3,
+ *   "schemaVersion": 1,
  *   "mainId": "550e8400-...",
  *   "contentId": "anilist:aniyomi:none:com.aniyomi.anikoto:69023:https://anikoto.example.com/anime/123",
  *   "title": "Jujutsu Kaisen",
@@ -48,15 +53,14 @@ import kotlinx.serialization.json.Json
  *   "anilistId": 101522,
  *   "episodes": [
  *     {
- *       "episodeKey": "550e8400-...|00001",
+ *       "episodeKey": "https://anikoto.example.com/anime/123/ep1",
  *       "episodeNumber": 1.0,
  *       "episodeUrl": "https://anikoto.example.com/anime/123/ep1",
- *       "episodeName": "Episode 1",
+ *       "episodeName": "Episode 1 — The Beginning",
+ *       "episodeDescription": "Yuji encounters a cursed spirit...",
  *       "videoUrl": "https://cdn.example.com/video/123-ep1.mp4",
- *       "videoUri": "content://com.android.externalstorage.documents/tree/...%2FJujutsu%20Kaisen%2Fepisodes%2FJujutsu%20Kaisen%20-%20E00001.mp4",
- *       "subtitleUris": [
- *         "content://com.android.externalstorage.documents/tree/...%2FJujutsu%20Kaisen%2Fsubtitles%2Fsubtitle_E00001_english_0.vtt"
- *       ],
+ *       "videoUri": "content://com.android.externalstorage.documents/tree/...%2FEpisode%2001.mp4",
+ *       "subtitleUris": ["content://.../subtitle_E00001_english_0.vtt"],
  *       "quality": "1080p",
  *       "videoServer": "AniKoto",
  *       "audioVariant": "sub",
@@ -103,7 +107,7 @@ data class ContentDataJson(
     val coverUrl: String? = null,
     @SerialName("anilistId")
     val anilistId: Int? = null,
-    /** D-240: List of downloaded episodes for this content. */
+    /** Per-episode download info — one entry per downloaded episode. */
     @SerialName("episodes")
     val episodes: List<DownloadedEpisodeInfo> = emptyList(),
     @SerialName("createdAt")
@@ -112,12 +116,12 @@ data class ContentDataJson(
     val updatedAt: Long,
 ) {
     companion object {
-        /** The current data.json schema version. Bump on breaking changes. */
-        const val CURRENT_SCHEMA_VERSION = 3
+        /** The current data.json schema version. */
+        const val CURRENT_SCHEMA_VERSION = 1
 
         /**
-         * The JSON parser — `ignoreUnknownKeys = true` so future schema changes
-         * (adding new fields) don't break old data.json files on disk.
+         * The JSON parser — `ignoreUnknownKeys = true` so adding fields in the
+         * future won't break old files on disk (defensive — cheap insurance).
          */
         val json: Json = Json {
             ignoreUnknownKeys = true
@@ -140,54 +144,53 @@ data class ContentDataJson(
 }
 
 /**
- * D-240: Per-episode download info stored in data.json.
+ * Per-episode download info stored in `.data.json`'s `episodes` list.
  *
  * When a download completes, this info is appended (or updated, if the episode
- * was previously downloaded) to the `episodes` list of the content's
- * `.data.json` file. When the app is reinstalled and the user re-selects the
- * same SAF folder, the scanner reads this list and restores the
- * `downloaded_episode` DB rows — so the user sees their downloads without
- * having to re-download.
+ * was previously downloaded) to the `episodes` list. When the app is reinstalled
+ * and the user re-selects the same SAF folder, the scanner reads this list and
+ * restores the `downloaded_episode` DB rows — so the user sees their downloads
+ * without having to re-download.
  *
- * D-241 (this commit): added [episodeKey] + [videoUri] + [subtitleUris].
- * - [episodeKey] is the stable, unique key (`$mainId|$epNumPadded`) used by
- *   the rest of the download stack — without it, the delete flow can't find
- *   the right entry to remove from the list.
- * - [videoUri] is the `content://` URI of the on-disk video file. After a
- *   reinstall the SAF URI changes (different tree), so the scanner rebuilds
- *   this from the file walk. It's stored for diagnostic / inspection purposes.
- * - [subtitleUris] is the list of subtitle `content://` URIs (rebuilt on scan,
- *   same caveat).
- *
- * Schema is forward-compat: `ignoreUnknownKeys = true` on the parser, and
- * every field added since v1 has a default. v1 .data.json files (no `episodes`
- * list at all) load with `episodes = emptyList()`; v2 files written before
- * D-241 load with `episodeKey = null`/`videoUri = null`/`subtitleUris = null`
- * and the scanner backfills them on the next scan.
+ * Field notes:
+ *  - [episodeKey] is the stable, unique key used by the rest of the download
+ *    stack. It equals `SEpisode.url` (the extension's episode URL) — NOT a
+ *    derived `$mainId|$epNumPadded` string. This is CRITICAL: the runtime
+ *    lookup (`downloadManager.isEpisodeDownloaded(mainId, episodeKey)`) uses
+ *    `SEpisode.url`, so the stored key MUST match.
+ *  - [episodeDescription] is the episode synopsis (from `SEpisode.summary`).
+ *    Nullable — not all extensions provide it.
+ *  - [videoUri] is the `content://` URI of the on-disk video file. After a
+ *    reinstall the SAF URI changes (different tree), so the scanner rebuilds
+ *    this from the file walk.
+ *  - [subtitleUris] is the list of subtitle `content://` URIs (rebuilt on scan).
  */
 @Serializable
 data class DownloadedEpisodeInfo(
     /**
-     * D-241: The stable episode key (`$mainId|$epNumPadded`) — same value as
-     * `DownloadedEpisode.episode.episodeKey`. REQUIRED for delete matching.
-     *
-     * Nullable for forward-compat with v2 files written before D-241 — the
-     * scanner derives it from the video file name when missing.
+     * The stable episode key — equals `SEpisode.url` (the extension's episode
+     * URL). This is what `downloadManager.isEpisodeDownloaded(mainId, episodeKey)`
+     * + `downloadManager.getDownloadedEpisodeUri(mainId, episodeKey)` look up.
+     * The scanner MUST preserve this from the existing `.data.json` (not
+     * re-derive it from the file name) so the runtime lookup matches.
      */
     @SerialName("episodeKey")
-    val episodeKey: String? = null,
+    val episodeKey: String,
     @SerialName("episodeNumber")
     val episodeNumber: Double,
     @SerialName("episodeUrl")
     val episodeUrl: String,
     @SerialName("episodeName")
     val episodeName: String? = null,
+    /** Episode synopsis (from `SEpisode.summary`). Nullable — not all extensions provide it. */
+    @SerialName("episodeDescription")
+    val episodeDescription: String? = null,
     @SerialName("videoUrl")
     val videoUrl: String? = null,
-    /** D-241: On-disk `content://` URI of the published video (rebuilt on scan). */
+    /** On-disk `content://` URI of the published video (rebuilt on scan). */
     @SerialName("videoUri")
     val videoUri: String? = null,
-    /** D-241: On-disk `content://` URIs of published subtitle files (rebuilt on scan). */
+    /** On-disk `content://` URIs of published subtitle files (rebuilt on scan). */
     @SerialName("subtitleUris")
     val subtitleUris: List<String> = emptyList(),
     @SerialName("quality")

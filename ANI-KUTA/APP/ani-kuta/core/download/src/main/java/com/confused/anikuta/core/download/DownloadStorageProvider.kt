@@ -249,11 +249,16 @@ class DownloadStorageProvider(
      * copies to the SAF target. The SAF provider either has the old `data.json`
      * or the new one — never a half-written one.
      *
-     * D-241: PRESERVES the existing `episodes` list. The `.copy()` below only
-     * overrides the FK / metadata fields; `episodes` (and `schemaVersion`,
-     * `createdAt`) keep their existing values from [existing]. This means a
-     * reconcile call (which goes through `DownloadScanner.reconcileDataJsonFromContent`)
+     * D-242: PRESERVES the existing `episodes` list (the `.copy()` only overrides
+     * FK / metadata fields; `episodes` + `createdAt` keep their existing values).
+     * This means a reconcile call (which goes through `DownloadScanner.reconcileDataJsonFromContent`)
      * will NOT clobber the episodes list that was built up by prior downloads.
+     *
+     * D-242: Uses `content.X ?: existing.X` for each FK field — a null value on
+     * [content] does NOT clobber a non-null value on [existing]. This prevents
+     * the null-overwrite bug where a partially-populated `DownloadContentInfo`
+     * (e.g. from a `download_queue` round-trip that drops FK fields) would
+     * destroy good data in `.data.json`.
      */
     suspend fun writeDataJson(
         content: DownloadContentInfo,
@@ -281,19 +286,21 @@ class DownloadStorageProvider(
             createdAt = now,
             updatedAt = now,
         )).copy(
-            title = content.title,
-            contentType = content.contentType,
-            contentFormat = content.contentFormat,
-            description = content.description,
-            dataSourceId = content.dataSourceId,
-            systemId = content.systemId,
-            extensionRepoId = content.extensionRepoId,
-            extensionId = content.extensionId,
-            sourceId = content.sourceId,
-            animeUrl = content.animeUrl,
-            displaySource = content.displaySource,
-            coverUrl = content.coverUrl,
-            anilistId = content.anilistId,
+            // D-242: use `content.X ?: existing.X` so nulls on `content` don't
+            // clobber non-null values on `existing`. This is the null-overwrite fix.
+            title = content.title.ifBlank { existing?.title ?: content.title },
+            contentType = content.contentType.ifBlank { existing?.contentType ?: content.contentType },
+            contentFormat = content.contentFormat.ifBlank { existing?.contentFormat ?: content.contentFormat },
+            description = content.description ?: existing?.description,
+            dataSourceId = content.dataSourceId ?: existing?.dataSourceId,
+            systemId = content.systemId ?: existing?.systemId,
+            extensionRepoId = content.extensionRepoId ?: existing?.extensionRepoId,
+            extensionId = content.extensionId ?: existing?.extensionId,
+            sourceId = content.sourceId ?: existing?.sourceId,
+            animeUrl = content.animeUrl ?: existing?.animeUrl,
+            displaySource = content.displaySource.ifBlank { existing?.displaySource ?: content.displaySource },
+            coverUrl = content.coverUrl ?: existing?.coverUrl,
+            anilistId = content.anilistId ?: existing?.anilistId,
             updatedAt = now,
         )
         writeDataJsonRaw(updated, folder, index)
@@ -331,16 +338,15 @@ class DownloadStorageProvider(
             }
             return@withContext false
         }
-        val matcher: (DownloadedEpisodeInfo) -> Boolean = if (episode.episodeKey != null) {
-            { it.episodeKey == episode.episodeKey }
-        } else {
-            { it.episodeNumber == episode.episodeNumber }
-        }
+        // D-242: match by episodeKey (now non-nullable). Fall back to
+        // episodeNumber for safety (shouldn't happen, but defensive).
+        val matcher: (DownloadedEpisodeInfo) -> Boolean =
+            { it.episodeKey == episode.episodeKey || it.episodeNumber == episode.episodeNumber }
         // Replace existing entry (if any) + append the new one at the end.
         // Sorted by episodeNumber on write so the list is human-readable in
         // a file viewer + stable across re-downloads.
         val newList = (existing.episodes.filterNot(matcher) + episode)
-            .sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey ?: "" }))
+            .sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey }))
         val updated = existing.copy(
             schemaVersion = ContentDataJson.CURRENT_SCHEMA_VERSION,
             episodes = newList,
@@ -385,14 +391,9 @@ class DownloadStorageProvider(
             }
             return@withContext false
         }
-        // Match by episodeKey. For forward-compat with v2 files written before
-        // D-241 (where episodeKey is null), fall back to deriving the key from
-        // episodeNumber + mainId. The episodeKey format is "$mainId|$epNumPadded".
+        // D-242: match by episodeKey (now non-nullable — no v2 fallback needed).
         val before = existing.episodes.size
-        val newList = existing.episodes.filterNot { ep ->
-            ep.episodeKey == episodeKey ||
-                (ep.episodeKey == null && "${existing.mainId}|${deriveEpNumPadded(ep.episodeNumber)}" == episodeKey)
-        }
+        val newList = existing.episodes.filterNot { ep -> ep.episodeKey == episodeKey }
         if (newList.size == before) {
             DownloadLogger.d {
                 "removeEpisodeFromDataJson — episode $episodeKey not in ${folder.name}'s " +
@@ -429,7 +430,7 @@ class DownloadStorageProvider(
         val existing = readDataJsonIndexed(index) ?: return@withContext false
         val updated = existing.copy(
             schemaVersion = ContentDataJson.CURRENT_SCHEMA_VERSION,
-            episodes = episodes.sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey ?: "" })),
+            episodes = episodes.sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey })),
             updatedAt = System.currentTimeMillis(),
         )
         writeDataJsonRaw(updated, folder, index)
@@ -439,16 +440,8 @@ class DownloadStorageProvider(
         true
     }
 
-    /** D-241: Derives the 5-digit-padded episode-number segment for legacy v2 keys. */
-    private fun deriveEpNumPadded(episodeNumber: Double): String {
-        val intPart = episodeNumber.toInt().coerceAtLeast(0)
-        if (episodeNumber == intPart.toDouble()) {
-            return "%05d".format(intPart)
-        }
-        val fractional = episodeNumber - intPart
-        val fracStr = fractional.toString().removePrefix("0.").trimEnd('0').ifBlank { "0" }
-        return if (fracStr == "0") "%05d".format(intPart) else "%05d.%s".format(intPart, fracStr)
-    }
+    // D-242: deriveEpNumPadded removed — episodeKey is now non-nullable + equals
+    // SEpisode.url (not a derived "$mainId|$epNumPadded" string). No fallback needed.
 
     /**
      * D-241: Low-level write — serializes [data] to JSON + atomically writes
