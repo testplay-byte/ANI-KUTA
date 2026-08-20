@@ -1549,23 +1549,11 @@ private fun DetailBanner(
                         androidx.compose.material3.HorizontalDivider()
                         DropdownMenuItem(
                             text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "Tracking",
-                                        fontFamily = RobotoFamily,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    painter = androidx.compose.ui.res.painterResource(
-                                        id = android.R.drawable.ic_menu_compass,
-                                    ),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp),
+                                Text(
+                                    "Tracking",
+                                    fontFamily = RobotoFamily,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
                             },
                             onClick = onOpenTracking,
