@@ -459,6 +459,10 @@ class DetailsViewModel(
     private val _trackEntry = kotlinx.coroutines.flow.MutableStateFlow<com.confused.anikuta.core.trackerapi.TrackEntry?>(null)
     val trackEntry: kotlinx.coroutines.flow.StateFlow<com.confused.anikuta.core.trackerapi.TrackEntry?> = _trackEntry.asStateFlow()
 
+    /** D-242: Whether the user is logged in to AniList (for the TrackSheet). */
+    private val _isTrackerLoggedIn = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isTrackerLoggedIn: kotlinx.coroutines.flow.StateFlow<Boolean> = _isTrackerLoggedIn.asStateFlow()
+
     /** Whether the "mark all previous episodes" prompt should be shown (with the episode number). */
     private val _showMarkPreviousPrompt = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
     val showMarkPreviousPrompt: kotlinx.coroutines.flow.StateFlow<Int?> = _showMarkPreviousPrompt.asStateFlow()
@@ -496,7 +500,10 @@ class DetailsViewModel(
             val cached = repo.get(mid)
             _trackEntry.value = cached
 
-            // 2. Fetch the latest from AniList (background).
+            // 2. Check login state.
+            _isTrackerLoggedIn.value = tracker.isLoggedIn()
+
+            // 3. Fetch the latest from AniList (background).
             if (tracker.isLoggedIn()) {
                 runCatching {
                     val remote = tracker.fetchEntry(anilistId)

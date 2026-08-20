@@ -261,6 +261,13 @@ fun DetailsScreen(
     val contentCategories by viewModel.contentCategories.collectAsState()
     val showCategorySheet by viewModel.showCategorySheet.collectAsState()
 
+    // D-242: Tracking state.
+    val showTrackSheet by viewModel.showTrackSheet.collectAsState()
+    val trackEntry by viewModel.trackEntry.collectAsState()
+    val isTrackerLoggedIn by viewModel.isTrackerLoggedIn.collectAsState()
+    val showMarkPreviousPrompt by viewModel.showMarkPreviousPrompt.collectAsState()
+    val showMarkSeriesPrompt by viewModel.showMarkSeriesPrompt.collectAsState()
+
     var showMenu by remember { mutableStateOf(false) }
     var showManualSearch by remember { mutableStateOf(false) }
     var showResolverSheet by remember { mutableStateOf(false) }
@@ -768,6 +775,11 @@ fun DetailsScreen(
                                     showMenu = false
                                     viewModel.unlinkAniList()
                                 },
+                                // D-242: Tracking — opens the TrackSheet.
+                                onOpenTracking = {
+                                    showMenu = false
+                                    viewModel.openTrackSheet()
+                                },
                                 // D-134: Data source selector — shows when both
                                 // anilistId + sourceId are present (both data sources).
                                 hasBothDataSources = anime.anilistId != null && anime.sourceId != null,
@@ -1230,6 +1242,37 @@ fun DetailsScreen(
             },
         )
     }
+
+    // D-242: TrackSheet — AniList tracking management.
+    if (showTrackSheet) {
+        TrackSheet(
+            trackEntry = trackEntry,
+            isLoggedIn = isTrackerLoggedIn,
+            totalEpisodes = (state as? DetailsState.Success)?.anime?.episodes,
+            onStatusChange = viewModel::updateTrackStatus,
+            onProgressChange = viewModel::updateTrackProgress,
+            onScoreChange = viewModel::updateTrackScore,
+            onDatesChange = viewModel::updateTrackDates,
+            onDismiss = viewModel::dismissTrackSheet,
+        )
+    }
+
+    // D-242: "Mark all previous episodes as watched" prompt (5s timeout).
+    showMarkPreviousPrompt?.let { epNum ->
+        MarkPreviousEpisodesPrompt(
+            episodeNumber = epNum,
+            onConfirm = { viewModel.markAllPreviousWatched(epNum) },
+            onDismiss = viewModel::dismissMarkPreviousPrompt,
+        )
+    }
+
+    // D-242: "Mark series as watched" prompt (only if FINISHED + all watched).
+    if (showMarkSeriesPrompt) {
+        MarkSeriesWatchedPrompt(
+            onConfirm = viewModel::markSeriesAsWatched,
+            onDismiss = viewModel::dismissMarkSeriesPrompt,
+        )
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1329,6 +1372,8 @@ private fun DetailBanner(
     onSwitchDataSource: (com.confused.anikuta.core.common.model.DataSourcePriority) -> Unit = {},
     onLinkAniList: () -> Unit = {},
     onUnlinkAniList: () -> Unit = {},
+    // D-242: Tracking — opens the TrackSheet.
+    onOpenTracking: () -> Unit = {},
 ) {
     val coverUrl = anime.coverUrl
     // D-236: Background image source — cover or banner (with fallback).
@@ -1500,6 +1545,32 @@ private fun DetailBanner(
                             text = { Text("Share", fontFamily = RobotoFamily) },
                             onClick = onDismissMenu,
                         )
+                        // ── D-242: Tracking (highlighted, separate) ──
+                        androidx.compose.material3.HorizontalDivider()
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "Tracking",
+                                        fontFamily = RobotoFamily,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    painter = androidx.compose.ui.res.painterResource(
+                                        id = android.R.drawable.ic_menu_compass,
+                                    ),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            },
+                            onClick = onOpenTracking,
+                        )
+                        androidx.compose.material3.HorizontalDivider()
                         // ── Phase B: AniList link/unlink (extension entries only) ──
                         if (isExtensionEntry) {
                             androidx.compose.material3.HorizontalDivider()
