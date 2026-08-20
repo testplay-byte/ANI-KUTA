@@ -500,6 +500,10 @@ class DownloadQueue(
                             )
                             store.insertDownloadedEpisode(downloadedEp)
                             DownloadLogger.i { "launchDownload — inserted into downloaded_episode table for task ${task.id}" }
+                            // D-241: the on-disk .data.json episodes list is updated by
+                            // HttpDownloader.publishVideoFile flow (it has the storage ref +
+                            // runs the upsert right after the video file is published, before
+                            // returning the success result to the queue). Nothing to do here.
                         }
 
                         scheduleAutoClear(task.id)

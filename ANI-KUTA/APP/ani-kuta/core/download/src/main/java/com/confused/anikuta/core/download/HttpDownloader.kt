@@ -136,6 +136,39 @@ class HttpDownloader(
             )
             emitPhaseProgress(onProgress, downloadedBytes, 99)
 
+            // D-241: upsert this episode into the on-disk `.data.json` episodes list.
+            // `publishVideoFile` already wrote `.data.json` with the content identity +
+            // metadata; now we append (or update) this episode in the `episodes` list.
+            // This is the DURABLE source of truth — survives reinstall, so the user
+            // sees the episode as downloaded even after the SQLite DB is wiped.
+            // Best-effort: a failure here doesn't fail the download (the DB row will
+            // be inserted by DownloadQueue.launchDownload; the scanner will rebuild
+            // the episodes list from the file walk on the next startup if needed).
+            runCatching {
+                val contentFolder = storage.findContentFolder(task.content.mainId)
+                if (contentFolder != null) {
+                    val episodeInfo = DownloadedEpisodeInfo(
+                        episodeKey = task.episode.episodeKey,
+                        episodeNumber = task.episode.episodeNumber.toDouble(),
+                        episodeUrl = task.videoUrl,
+                        episodeName = task.episode.name,
+                        videoUrl = task.videoUrl,
+                        videoUri = publishResult.videoUri,
+                        subtitleUris = publishResult.subtitleUris,
+                        quality = task.videoQuality.ifBlank { null },
+                        videoServer = task.videoServer.ifBlank { null },
+                        audioVariant = task.videoAudio.ifBlank { null },
+                        downloadedAt = System.currentTimeMillis(),
+                        fileSize = tempVideo.length(),
+                    )
+                    storage.upsertEpisodeInDataJson(contentFolder, episodeInfo)
+                }
+            }.onFailure { e ->
+                DownloadLogger.w {
+                    "HttpDownloader — upsertEpisodeInDataJson failed for task ${task.id} (non-fatal): ${e.message}"
+                }
+            }
+
             // 6. SUCCESS — clean up temp dir (preserveForResume = false).
             tempCache.cleanupTask(task.id, preserveForResume = false)
 

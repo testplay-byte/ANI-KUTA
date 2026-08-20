@@ -121,6 +121,18 @@ class DownloadScanner(
                     index
                 }
 
+                // D-241: build the new episodes list from the on-disk file walk.
+                // For each video file, construct a DownloadedEpisodeInfo. For
+                // metadata that's NOT derivable from the file walk (quality,
+                // videoServer, videoAudio, videoUrl, downloadedAt, fileSize),
+                // try to find a matching entry in the EXISTING dataJson.episodes
+                // list (matched by episodeKey) and reuse its values — this
+                // preserves the metadata that was captured at download time.
+                val existingEpisodesBykey = dataJson.episodes
+                    .filter { it.episodeKey != null }
+                    .associateBy { it.episodeKey!! }
+                val rebuiltEpisodes = mutableListOf<DownloadedEpisodeInfo>()
+
                 for ((fileName, file) in videoIndex) {
                     if (!file.isFile) continue
                     if (!isVideoFile(fileName)) continue
@@ -158,6 +170,59 @@ class DownloadScanner(
                     )
                     scannedEpisodeKeys.add(dataJson.mainId to episodeKey)
                     episodeCount++
+
+                    // D-241: build the DownloadedEpisodeInfo for this file.
+                    // Prefer the existing episodeName from .data.json (set by
+                    // HttpDownloader at download time from `task.episode.name`,
+                    // e.g. "Episode 1 - The Beginning") over the filename-derived
+                    // name (which is just the content title, e.g. "Jujutsu Kaisen").
+                    // Falls back to the filename-derived name only if no existing
+                    // entry (e.g. user manually dropped a video file into the folder).
+                    val existing = existingEpisodesBykey[episodeKey]
+                    rebuiltEpisodes += DownloadedEpisodeInfo(
+                        episodeKey = episodeKey,
+                        episodeNumber = episodeNumber.toDouble(),
+                        episodeUrl = existing?.episodeUrl ?: "",
+                        episodeName = existing?.episodeName ?: episodeName,
+                        videoUrl = existing?.videoUrl,
+                        videoUri = file.uri.toString(),
+                        subtitleUris = subtitleUris,
+                        quality = existing?.quality,
+                        videoServer = existing?.videoServer,
+                        audioVariant = existing?.audioVariant,
+                        downloadedAt = existing?.downloadedAt ?: dataJson.updatedAt,
+                        fileSize = file.length(),
+                    )
+                }
+
+                // D-241: write the rebuilt episodes list back to .data.json.
+                // This is the (re)install-recognition mechanism — after a reinstall,
+                // the SQLite DB is empty, but the .data.json files on disk survive
+                // (they're in the user-selected SAF folder, not the app's internal
+                // storage). The scanner reads each .data.json + rebuilds the
+                // episodes list from the actual on-disk files. If the user later
+                // reinstalls + selects the same SAF folder, the same scan runs +
+                // the same episodes list is restored.
+                //
+                // Only write if the list actually CHANGED (avoids unnecessary SAF
+                // I/O on every startup). The compare is by episodeKey set + each
+                // entry's key fields.
+                val existingKeyed = dataJson.episodes.sortedBy { it.episodeKey ?: "" }
+                val rebuiltKeyed = rebuiltEpisodes.sortedBy { it.episodeKey ?: "" }
+                val listsDiffer = existingKeyed.size != rebuiltKeyed.size ||
+                    existingKeyed.zip(rebuiltKeyed).any { (a, b) ->
+                        a.episodeKey != b.episodeKey ||
+                            a.videoUri != b.videoUri ||
+                            a.subtitleUris != b.subtitleUris ||
+                            a.fileSize != b.fileSize ||
+                            a.episodeName != b.episodeName
+                    }
+                if (listsDiffer) {
+                    DownloadLogger.i {
+                        "scan — updating ${contentDir.name} .data.json episodes list: " +
+                            "${dataJson.episodes.size} → ${rebuiltEpisodes.size} episode(s)"
+                    }
+                    storage.replaceEpisodesInDataJson(contentDir, rebuiltEpisodes)
                 }
             }
         }

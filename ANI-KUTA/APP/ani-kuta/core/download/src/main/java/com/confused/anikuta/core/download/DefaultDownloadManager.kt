@@ -222,7 +222,21 @@ class DefaultDownloadManager(
         }
         // 2. Delete the DB row.
         store.deleteDownloadedEpisode(mainId, episodeKey)
-        // 3. Refresh the cache.
+        // 3. D-241: remove this episode from the on-disk `.data.json` episodes list.
+        //    Best-effort — a failure here doesn't fail the delete (the DB row is
+        //    already gone, so the episode is functionally deleted; the scanner will
+        //    reconcile the episodes list from the file walk on the next startup).
+        runCatching {
+            val contentDir = storage.findContentFolder(mainId)
+            if (contentDir != null) {
+                storage.removeEpisodeFromDataJson(contentDir, episodeKey)
+            }
+        }.onFailure { e ->
+            DownloadLogger.w {
+                "deleteDownloadedEpisode — removeEpisodeFromDataJson failed (non-fatal): ${e.message}"
+            }
+        }
+        // 4. Refresh the cache.
         refreshDownloadedEpisodes()
     }
 

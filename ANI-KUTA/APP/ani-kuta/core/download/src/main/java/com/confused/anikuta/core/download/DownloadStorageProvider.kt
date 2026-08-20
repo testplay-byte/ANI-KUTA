@@ -248,6 +248,12 @@ class DownloadStorageProvider(
      * Atomicity (§6.4): writes to a temp file in `context.cacheDir` first, then
      * copies to the SAF target. The SAF provider either has the old `data.json`
      * or the new one — never a half-written one.
+     *
+     * D-241: PRESERVES the existing `episodes` list. The `.copy()` below only
+     * overrides the FK / metadata fields; `episodes` (and `schemaVersion`,
+     * `createdAt`) keep their existing values from [existing]. This means a
+     * reconcile call (which goes through `DownloadScanner.reconcileDataJsonFromContent`)
+     * will NOT clobber the episodes list that was built up by prior downloads.
      */
     suspend fun writeDataJson(
         content: DownloadContentInfo,
@@ -290,9 +296,176 @@ class DownloadStorageProvider(
             anilistId = content.anilistId,
             updatedAt = now,
         )
-        val jsonText = ContentDataJson.stringify(updated)
+        writeDataJsonRaw(updated, folder, index)
+    }
 
-        // Atomic write: temp file → SAF copy.
+    /**
+     * D-241: Upserts (append-or-replace) a single [DownloadedEpisodeInfo] into
+     * the `episodes` list of the `.data.json` for [folder].
+     *
+     * Called by [DownloadQueue.launchDownload] AFTER the video file is published
+     * AND the `downloaded_episode` DB row is inserted — this keeps the on-disk
+     * `.data.json` in sync with the DB.
+     *
+     * Match policy (in priority order):
+     *  1. If [DownloadedEpisodeInfo.episodeKey] is non-null → match by episodeKey.
+     *  2. Else match by [DownloadedEpisodeInfo.episodeNumber] (rounded to 2dp).
+     *
+     * If a matching entry exists, it's REPLACED (so re-downloads update the
+     * quality / fileSize / videoUri). If no match, the entry is appended.
+     *
+     * Idempotent — calling twice with the same episode produces the same file.
+     * Returns `true` on success, `false` if the `.data.json` couldn't be read
+     * or written (the caller logs but doesn't fail the download — the DB row
+     * is already inserted, so the episode will still play).
+     */
+    suspend fun upsertEpisodeInDataJson(
+        folder: DocumentFile,
+        episode: DownloadedEpisodeInfo,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val index = folder.listFiles().associateBy { it.name!! }
+        val existing = readDataJsonIndexed(index) ?: run {
+            DownloadLogger.w {
+                "upsertEpisodeInDataJson — no .data.json in ${folder.name}; " +
+                    "cannot append episode (the download flow should have written it first)"
+            }
+            return@withContext false
+        }
+        val matcher: (DownloadedEpisodeInfo) -> Boolean = if (episode.episodeKey != null) {
+            { it.episodeKey == episode.episodeKey }
+        } else {
+            { it.episodeNumber == episode.episodeNumber }
+        }
+        // Replace existing entry (if any) + append the new one at the end.
+        // Sorted by episodeNumber on write so the list is human-readable in
+        // a file viewer + stable across re-downloads.
+        val newList = (existing.episodes.filterNot(matcher) + episode)
+            .sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey ?: "" }))
+        val updated = existing.copy(
+            schemaVersion = ContentDataJson.CURRENT_SCHEMA_VERSION,
+            episodes = newList,
+            updatedAt = System.currentTimeMillis(),
+        )
+        writeDataJsonRaw(updated, folder, index)
+        DownloadLogger.i {
+            "upsertEpisodeInDataJson — ${folder.name} now has ${newList.size} episode(s) " +
+                "(added/updated ep ${episode.episodeNumber}, key=${episode.episodeKey})"
+        }
+        true
+    }
+
+    /**
+     * D-241: Removes a single episode (matched by [episodeKey]) from the
+     * `episodes` list of the `.data.json` for [folder].
+     *
+     * Called by [DefaultDownloadManager.deleteDownloadedEpisode] AFTER the
+     * video file is deleted AND the `downloaded_episode` DB row is removed —
+     * this keeps the on-disk `.data.json` in sync with the DB.
+     *
+     * If the deleted episode was the LAST one in the list, the `.data.json` is
+     * left in place (with an empty `episodes` list). The folder + `.data.json`
+     * are kept so a future re-download doesn't have to recreate the content
+     * identity; if the user wants to fully remove the content they can use the
+     * "delete entire content" action (TODO — currently the delete flow only
+     * removes individual episodes).
+     *
+     * Returns `true` on success, `false` if the `.data.json` couldn't be read
+     * or written (the caller logs but doesn't fail the delete — the DB row is
+     * already gone, so the episode is functionally deleted).
+     */
+    suspend fun removeEpisodeFromDataJson(
+        folder: DocumentFile,
+        episodeKey: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val index = folder.listFiles().associateBy { it.name!! }
+        val existing = readDataJsonIndexed(index) ?: run {
+            DownloadLogger.w {
+                "removeEpisodeFromDataJson — no .data.json in ${folder.name}; " +
+                    "nothing to remove"
+            }
+            return@withContext false
+        }
+        // Match by episodeKey. For forward-compat with v2 files written before
+        // D-241 (where episodeKey is null), fall back to deriving the key from
+        // episodeNumber + mainId. The episodeKey format is "$mainId|$epNumPadded".
+        val before = existing.episodes.size
+        val newList = existing.episodes.filterNot { ep ->
+            ep.episodeKey == episodeKey ||
+                (ep.episodeKey == null && "${existing.mainId}|${deriveEpNumPadded(ep.episodeNumber)}" == episodeKey)
+        }
+        if (newList.size == before) {
+            DownloadLogger.d {
+                "removeEpisodeFromDataJson — episode $episodeKey not in ${folder.name}'s " +
+                    ".data.json (already removed or never added)"
+            }
+            return@withContext true // not an error — idempotent
+        }
+        val updated = existing.copy(
+            episodes = newList,
+            updatedAt = System.currentTimeMillis(),
+        )
+        writeDataJsonRaw(updated, folder, index)
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — ${folder.name} now has ${newList.size} episode(s) " +
+                "(removed $episodeKey)"
+        }
+        true
+    }
+
+    /**
+     * D-241: Replaces the entire `episodes` list of the `.data.json` for
+     * [folder] with [episodes]. Used by [DownloadScanner.scan] when it
+     * rebuilds the list from the on-disk file walk (reinstall recognition).
+     *
+     * This is the ONLY public way to set the episodes list as a whole —
+     * callers MUST ensure [episodes] reflects the actual on-disk state
+     * (every video file in `episodes/` should have a corresponding entry).
+     */
+    suspend fun replaceEpisodesInDataJson(
+        folder: DocumentFile,
+        episodes: List<DownloadedEpisodeInfo>,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val index = folder.listFiles().associateBy { it.name!! }
+        val existing = readDataJsonIndexed(index) ?: return@withContext false
+        val updated = existing.copy(
+            schemaVersion = ContentDataJson.CURRENT_SCHEMA_VERSION,
+            episodes = episodes.sortedWith(compareBy({ it.episodeNumber }, { it.episodeKey ?: "" })),
+            updatedAt = System.currentTimeMillis(),
+        )
+        writeDataJsonRaw(updated, folder, index)
+        DownloadLogger.i {
+            "replaceEpisodesInDataJson — ${folder.name} now has ${episodes.size} episode(s)"
+        }
+        true
+    }
+
+    /** D-241: Derives the 5-digit-padded episode-number segment for legacy v2 keys. */
+    private fun deriveEpNumPadded(episodeNumber: Double): String {
+        val intPart = episodeNumber.toInt().coerceAtLeast(0)
+        if (episodeNumber == intPart.toDouble()) {
+            return "%05d".format(intPart)
+        }
+        val fractional = episodeNumber - intPart
+        val fracStr = fractional.toString().removePrefix("0.").trimEnd('0').ifBlank { "0" }
+        return if (fracStr == "0") "%05d".format(intPart) else "%05d.%s".format(intPart, fracStr)
+    }
+
+    /**
+     * D-241: Low-level write — serializes [data] to JSON + atomically writes
+     * it to the `.data.json` file in [folder]. Used by [writeDataJson],
+     * [upsertEpisodeInDataJson], [removeEpisodeFromDataJson],
+     * [replaceEpisodesInDataJson].
+     *
+     * Atomicity: writes to a temp file in `context.cacheDir` first, then
+     * copies to the SAF target. The SAF provider either has the old
+     * `.data.json` or the new one — never a half-written one.
+     */
+    private suspend fun writeDataJsonRaw(
+        data: ContentDataJson,
+        folder: DocumentFile,
+        index: Map<String, DocumentFile>,
+    ) = withContext(Dispatchers.IO) {
+        val jsonText = ContentDataJson.stringify(data)
         val tempFile = File.createTempFile("data", ".json", context.cacheDir)
         try {
             tempFile.writeText(jsonText)
