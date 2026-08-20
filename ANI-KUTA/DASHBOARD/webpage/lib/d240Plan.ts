@@ -1,19 +1,20 @@
 /*
- * D-240 / D-241 — Download & Tracking Improvements Plan
+ * D-242 — Download Fixes + AniList Tracking
  *
  * Sources:
- *  - ANI-KUTA/APP/ani-kuta/core/download/.../ContentDataJson.kt (schema v3)
- *  - ANI-KUTA/APP/ani-kuta/core/download/.../DownloadStorageProvider.kt (write/preserve/upsert/remove/replace)
- *  - ANI-KUTA/APP/ani-kuta/core/download/.../DownloadScanner.kt (rebuild-on-scan + orphan guard)
- *  - ANI-KUTA/APP/ani-kuta/core/download/.../HttpDownloader.kt (upsert-on-publish)
- *  - ANI-KUTA/APP/ani-kuta/core/download/.../DefaultDownloadManager.kt (remove-on-delete)
- *  - ANI-KUTA/APP/ani-kuta/core/appupdate/GitHubUpdateSource.kt (auto-update fix)
- *  - ANI-KUTA/APP/ani-kuta/core/database/DatabaseDriverFactory.kt (migration fix)
- *  - ANI-KUTA/APP/ani-kuta/core/content/ContentResolver.kt (contentId fallback linking)
- *  - ANI-KUTA/APP/ani-kuta/build-logic/.../AndroidConfig.kt (versionCode 24 / versionName 0.2.23)
+ *  - ANI-KUTA/APP/ani-kuta/core/download/.../ContentDataJson.kt (schema v1, episodeDescription)
+ *  - ANI-KUTA/APP/ani-kuta/core/download/.../HttpDownloader.kt (enrichContentMetadata)
+ *  - ANI-KUTA/APP/ani-kuta/core/download/.../DownloadScanner.kt (skip upsert if exists, preserve episodeKey)
+ *  - ANI-KUTA/APP/ani-kuta/core/download/.../DownloadStorageProvider.kt (null-overwrite fix)
+ *  - ANI-KUTA/APP/ani-kuta/core/tracker-anilist/.../AniListTracker.kt (syncEntry, fetchEntry, search)
+ *  - ANI-KUTA/APP/ani-kuta/core/tracker-anilist/.../TrackEntryRepository.kt (local cache CRUD)
+ *  - ANI-KUTA/APP/ani-kuta/core/tracker-anilist/.../TrackSyncManager.kt (trackerId resolution)
+ *  - ANI-KUTA/APP/ani-kuta/core/database/.../track.sq (track_entry table)
+ *  - ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/.../TrackSheet.kt (tracking UI)
+ *  - ANI-KUTA/APP/ani-kuta/feature/anime-details/impl/.../DetailsViewModel.kt (tracking methods + sync hooks)
  *
- * Branch: functionality/improvements (D-240 + D-241)
- * Status: code complete + code-reviewed; pending APK build verification.
+ * Branch: functionality/improvements (D-242)
+ * Status: code complete + CI build GREEN + GitHub release v0.2.24 published.
  */
 
 /* ---------------------------------------------------------------------------
@@ -21,13 +22,13 @@
  * ------------------------------------------------------------------------- */
 
 export const D240_HERO = {
-  status: "Code complete — pending APK build",
+  status: "Shipped — v0.2.24 released",
   statusColor: "var(--c-success)",
-  title: "D-240 / D-241 — Download Persistence + Tracking Improvements",
+  title: "D-242 — data.json Fixes + Downloads Detection + AniList Tracking",
   subtitle:
-    "Five root-cause fixes for the download system: auto-update version comparison, " +
-    "data.json v3 with per-episode tracking, install/update/reinstall persistence, " +
-    "contentId-based fallback linking, and live data.json sync on download/delete.",
+    "Three major improvements: (1) data.json now has all fields populated + episode descriptions, " +
+    "(2) downloads are properly detected after reinstall, (3) AniList tracking with sync, " +
+    "prompts, and a beautiful TrackSheet UI.",
   summary:
     "The prior APK (v0.2.22) shipped with three regressions: (1) the auto-update " +
     "checker always reported an update was available because it compared GitHub's " +
