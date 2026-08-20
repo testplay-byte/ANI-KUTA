@@ -56,6 +56,26 @@ class ContentResolver(
             return existing.mainId
         }
 
+        // D-240: Fallback — try contentId lookup (handles reinstall case where
+        // the scanner restored main_entry from data.json but the anilistId axis
+        // wasn't fully restored in content_details).
+        val fallbackContentId = ContentIdGenerator.generate(
+            dataSource = "anilist",
+            system = null,
+            repoUrl = null,
+            extensionPkg = null,
+            sourceId = null,
+            animeUrl = null,
+        )
+        val existingByContentId = repo.getMainEntryByContentId(fallbackContentId)
+        if (existingByContentId != null) {
+            Logger.d(TAG) { "AniList $anilistId → found via contentId fallback, mainId=${existingByContentId.mainId}" }
+            if (anilistDetail != null) {
+                updateDataSourceAxisInTransaction(existingByContentId.mainId, anilistDetail)
+            }
+            return existingByContentId.mainId
+        }
+
         // Create new main_entry record.
         val mainId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
@@ -127,6 +147,23 @@ class ContentResolver(
         if (existing != null) {
             Logger.d(TAG) { "Extension $extensionId/$animeUrl → existing mainId=${existing.mainId}" }
             return existing.mainId
+        }
+
+        // D-240: Fallback — try contentId lookup (handles reinstall case where
+        // the scanner restored main_entry from data.json but the extension axis
+        // in content_details wasn't fully restored).
+        val fallbackContentId = ContentIdGenerator.generate(
+            dataSource = null,
+            system = systemName,
+            repoUrl = repoUrl,
+            extensionPkg = extensionPkg,
+            sourceId = sourceId,
+            animeUrl = animeUrl,
+        )
+        val existingByContentId = repo.getMainEntryByContentId(fallbackContentId)
+        if (existingByContentId != null) {
+            Logger.d(TAG) { "Extension $extensionId/$animeUrl → found via contentId fallback, mainId=${existingByContentId.mainId}" }
+            return existingByContentId.mainId
         }
 
         // Create new main_entry record.
