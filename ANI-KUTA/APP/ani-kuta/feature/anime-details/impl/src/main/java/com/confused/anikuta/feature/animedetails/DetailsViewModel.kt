@@ -1215,10 +1215,7 @@ class DetailsViewModel(
         // D-242-fix: Fetch the AniList track entry + sync its progress into
         // local watch_progress so the episode list reflects AniList state.
         // Only fires if the anime has an anilistId + the user is logged in.
-        // Wrapped in viewModelScope.launch because refreshTracking is suspend
-        // + loadFromAniList is NOT suspend. Generation-guarded so a stale load
-        // (user navigated away) doesn't overwrite the new anime's tracking state.
-        val gen = loadGeneration
+        // Reuses the existing `gen` from line 989 (generation-guarded).
         viewModelScope.launch {
             if (gen == loadGeneration) refreshTracking()
         }

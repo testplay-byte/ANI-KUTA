@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.Delete
@@ -311,7 +312,7 @@ private fun StatusDropdown(
                         color = MaterialTheme.colorScheme.primary,
                     )
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown,
+                        imageVector = Icons.Filled.KeyboardArrowDown,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp),
