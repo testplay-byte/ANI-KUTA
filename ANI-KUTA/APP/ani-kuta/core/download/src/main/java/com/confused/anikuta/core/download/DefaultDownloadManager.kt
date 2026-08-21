@@ -217,7 +217,10 @@ class DefaultDownloadManager(
         store.getDownloadedVideoUri(mainId, episodeKey)
 
     override suspend fun deleteDownloadedEpisode(mainId: String, episodeKey: String) {
-        DownloadLogger.i { "deleteDownloadedEpisode — mainId=$mainId, episodeKey=$episodeKey" }
+        DownloadLogger.i {
+            "deleteDownloadedEpisode — ENTER mainId=$mainId, " +
+                "episodeKey='$episodeKey' (len=${episodeKey.length})"
+        }
 
         // D-242-fix4: find the content folder ONCE + reuse throughout.
         // Previously findContentFolder was called twice (step 1 + step 3) — the
@@ -225,31 +228,74 @@ class DefaultDownloadManager(
         // the file deletion in step 1, causing removeEpisodeFromDataJson to be
         // silently skipped (the .data.json still had the deleted episode).
         val contentDir = storage.findContentFolder(mainId)
+        DownloadLogger.i {
+            "deleteDownloadedEpisode — findContentFolder returned: " +
+                if (contentDir != null) {
+                    "name='${contentDir.name}', uri=${contentDir.uri}, " +
+                        "exists=${contentDir.exists()}, isDirectory=${contentDir.isDirectory}"
+                } else {
+                    "null (no folder with mainId=$mainId found in any format folder)"
+                }
+        }
 
         if (contentDir != null) {
             // 1. Read the episode entry from .data.json to get its file URIs.
             val dataJson = storage.readDataJson(contentDir)
+            if (dataJson == null) {
+                DownloadLogger.w {
+                    "deleteDownloadedEpisode — readDataJson returned null for " +
+                        "contentDir=${contentDir.name} (no .data.json or parse failure)"
+                }
+            } else {
+                DownloadLogger.i {
+                    "deleteDownloadedEpisode — readDataJson OK: mainId='${dataJson.mainId}', " +
+                        "${dataJson.episodes.size} episode(s), " +
+                        "keys=${dataJson.episodes.map { it.episodeKey }}"
+                }
+            }
             val entry = dataJson?.episodes?.firstOrNull { it.episodeKey == episodeKey }
+            DownloadLogger.i {
+                "deleteDownloadedEpisode — episode entry lookup for '$episodeKey': " +
+                    if (entry != null) {
+                        "FOUND (videoUri=${entry.videoUri}, " +
+                            "subtitleUris=${entry.subtitleUris.size})"
+                    } else {
+                        "NOT FOUND — file deletion will be skipped (but .data.json " +
+                            "update still attempted)"
+                    }
+            }
 
             if (entry != null) {
                 // Delete video file by URI.
                 entry.videoUri?.let { uriStr ->
                     runCatching {
                         val uri = android.net.Uri.parse(uriStr)
-                        android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
-                        DownloadLogger.i { "Deleted video file: $uriStr" }
+                        val deleted = android.provider.DocumentsContract.deleteDocument(
+                            context.contentResolver, uri,
+                        )
+                        DownloadLogger.i {
+                            "Deleted video file: $uriStr (deleteDocument returned=$deleted)"
+                        }
                     }.onFailure {
-                        DownloadLogger.w { "Failed to delete video $uriStr: ${it.message}" }
+                        DownloadLogger.e(it) {
+                            "Failed to delete video $uriStr: ${it.javaClass.simpleName}: ${it.message}"
+                        }
                     }
                 }
                 // Delete subtitle files by URI.
                 for (subUriStr in entry.subtitleUris) {
                     runCatching {
                         val uri = android.net.Uri.parse(subUriStr)
-                        android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
-                        DownloadLogger.i { "Deleted subtitle file: $subUriStr" }
+                        val deleted = android.provider.DocumentsContract.deleteDocument(
+                            context.contentResolver, uri,
+                        )
+                        DownloadLogger.i {
+                            "Deleted subtitle file: $subUriStr (deleteDocument returned=$deleted)"
+                        }
                     }.onFailure {
-                        DownloadLogger.w { "Failed to delete subtitle $subUriStr: ${it.message}" }
+                        DownloadLogger.e(it) {
+                            "Failed to delete subtitle $subUriStr: ${it.javaClass.simpleName}: ${it.message}"
+                        }
                     }
                 }
             } else {
@@ -261,28 +307,39 @@ class DefaultDownloadManager(
 
             // 2. Remove this episode from the on-disk `.data.json` episodes list.
             // Done BEFORE deleting the DB row so the .data.json is always consistent.
+            // R1-DATA-JSON-STILL: capture the boolean result + log the FULL stack
+            // trace on failure (previous code logged only ${e.message}, hiding the
+            // actual exception type + stack from the developer).
             runCatching {
-                storage.removeEpisodeFromDataJson(contentDir, episodeKey)
+                val removeResult = storage.removeEpisodeFromDataJson(contentDir, episodeKey)
                 DownloadLogger.i {
-                    "deleteDownloadedEpisode — removed episode from .data.json " +
-                        "(episodeKey=$episodeKey)"
+                    "deleteDownloadedEpisode — removeEpisodeFromDataJson returned=$removeResult " +
+                        "for episodeKey='$episodeKey' " +
+                        "(true=ok OR idempotent no-match; false=no .data.json / write failed / verify failed)"
                 }
             }.onFailure { e ->
-                DownloadLogger.w {
-                    "deleteDownloadedEpisode — removeEpisodeFromDataJson failed (non-fatal): ${e.message}"
+                DownloadLogger.e(e) {
+                    "deleteDownloadedEpisode — removeEpisodeFromDataJson THREW " +
+                        "${e.javaClass.simpleName}: ${e.message}. " +
+                        "Stack trace logged above. THIS IS LIKELY THE ROOT CAUSE."
                 }
             }
         } else {
             DownloadLogger.w {
-                "deleteDownloadedEpisode — content folder not found for mainId=$mainId"
+                "deleteDownloadedEpisode — content folder not found for mainId=$mainId; " +
+                    "skipping .data.json update entirely (file + DB row deletion will still proceed)"
             }
         }
 
         // 3. Delete the DB row.
+        DownloadLogger.i {
+            "deleteDownloadedEpisode — deleting DB row for mainId=$mainId, episodeKey='$episodeKey'"
+        }
         store.deleteDownloadedEpisode(mainId, episodeKey)
 
         // 4. Refresh the cache (always — even if prior steps failed).
         refreshDownloadedEpisodes()
+        DownloadLogger.i { "deleteDownloadedEpisode — DONE (cache refreshed)" }
     }
 
     override suspend fun requestFolderRescan() {

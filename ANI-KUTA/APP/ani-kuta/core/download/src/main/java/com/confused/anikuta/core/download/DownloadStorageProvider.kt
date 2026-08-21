@@ -229,20 +229,49 @@ class DownloadStorageProvider(
      * builds the index on-demand — used by [scanAllContent]).
      */
     fun readDataJson(folder: DocumentFile): ContentDataJson? {
-        val index = folder.listFiles().associateBy { it.name!! }
+        val index = folder.listFiles().associateBy { it.name ?: "<null-name>" }
         return readDataJsonIndexed(index)
     }
 
     /** Same as [readDataJson] but accepts a pre-built index (REVIEW-5 M55). */
     private fun readDataJsonIndexed(index: Map<String, DocumentFile>): ContentDataJson? {
-        val dataJsonFile = index[".data.json"] ?: return null
+        val dataJsonFile = index[".data.json"] ?: run {
+            DownloadLogger.w {
+                "readDataJsonIndexed — '.data.json' NOT in index " +
+                    "(index.keys=${index.keys.toList()})"
+            }
+            return null
+        }
         return try {
-            context.contentResolver.openInputStream(dataJsonFile.uri)?.use { input ->
-                val text = input.bufferedReader().readText()
-                ContentDataJson.parse(text)
+            val stream = context.contentResolver.openInputStream(dataJsonFile.uri)
+            if (stream == null) {
+                DownloadLogger.w {
+                    "readDataJsonIndexed — openInputStream returned null for " +
+                        "uri=${dataJsonFile.uri}"
+                }
+                null
+            } else {
+                stream.use { input ->
+                    val text = input.bufferedReader().readText()
+                    DownloadLogger.d {
+                        "readDataJsonIndexed — read ${text.length} chars from .data.json " +
+                            "(first 200: ${text.take(200)})"
+                    }
+                    val parsed = ContentDataJson.parse(text)
+                    if (parsed == null) {
+                        DownloadLogger.w {
+                            "readDataJsonIndexed — ContentDataJson.parse returned null " +
+                                "(JSON malformed — see ContentDataJson.parse catch)"
+                        }
+                    }
+                    parsed
+                }
             }
         } catch (e: Exception) {
-            DownloadLogger.w { "Failed to read data.json: ${e.message}" }
+            DownloadLogger.e(e) {
+                "readDataJsonIndexed — FAILED to read .data.json: " +
+                    "${e.javaClass.simpleName}: ${e.message}"
+            }
             null
         }
     }
@@ -389,21 +418,76 @@ class DownloadStorageProvider(
         folder: DocumentFile,
         episodeKey: String,
     ): Boolean = withContext(Dispatchers.IO) {
-        val index = folder.listFiles().associateBy { it.name!! }
-        val existing = readDataJsonIndexed(index) ?: run {
-            DownloadLogger.w {
-                "removeEpisodeFromDataJson — no .data.json in ${folder.name}; " +
-                    "nothing to remove"
+        // R1-DATA-JSON-STILL: extensive logging to diagnose why .data.json
+        // still contains the deleted episode after deleteDownloadedEpisode.
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — ENTER folder.name='${folder.name}', " +
+                "folder.uri=${folder.uri}, exists=${folder.exists()}, " +
+                "isDirectory=${folder.isDirectory}, canWrite=${folder.canWrite()}, " +
+                "episodeKey='$episodeKey' (len=${episodeKey.length}, " +
+                "utf8Bytes=${episodeKey.toByteArray(Charsets.UTF_8).size})"
+        }
+        val rawList = try {
+            folder.listFiles()
+        } catch (e: Exception) {
+            DownloadLogger.e(e) {
+                "removeEpisodeFromDataJson — folder.listFiles() THREW " +
+                    "${e.javaClass.simpleName}: ${e.message}"
             }
             return@withContext false
         }
-        // D-242: match by episodeKey (now non-nullable — no v2 fallback needed).
+        val childNames = rawList.map { it.name }
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — folder.listFiles() returned ${rawList.size} " +
+                "child(ren): $childNames"
+        }
+        // D-242-fix6: don't !! on .name — a null name on any child throws
+        // KotlinNullPointerException inside associateBy, which is swallowed
+        // by the caller's runCatching → silent failure. Use a fallback key.
+        val index = rawList.associateBy { it.name ?: "<null-name>" }
+        val existing = readDataJsonIndexed(index)
+        if (existing == null) {
+            DownloadLogger.w {
+                "removeEpisodeFromDataJson — readDataJsonIndexed returned null. " +
+                    "index has .data.json? ${index.containsKey(".data.json")}. " +
+                    "index keys: ${index.keys}. " +
+                    "(If '.data.json' is missing → wrong folder or file deleted. " +
+                    "If present but null → parse failed — see prior 'Failed to read data.json' log.)"
+            }
+            return@withContext false
+        }
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — read .data.json OK: mainId='${existing.mainId}', " +
+                "${existing.episodes.size} episode(s) in list. " +
+                "Episode keys + lengths: " +
+                existing.episodes.map { "'${it.episodeKey}'(len=${it.episodeKey.length})" }
+        }
+        // D-242-fix6: log each episode key alongside the requested key so we can
+        // spot any whitespace / encoding / normalization mismatch by eye.
+        existing.episodes.forEach { ep ->
+            val sameRef = ep.episodeKey === episodeKey
+            val sameVal = ep.episodeKey == episodeKey
+            val sameLen = ep.episodeKey.length == episodeKey.length
+            DownloadLogger.i {
+                "removeEpisodeFromDataJson — COMPARE stored='${ep.episodeKey}' " +
+                    "(len=${ep.episodeKey.length}, " +
+                    "utf8=${ep.episodeKey.toByteArray(Charsets.UTF_8).size}) " +
+                    "vs requested='$episodeKey' (len=${episodeKey.length}) " +
+                    "→ sameRef=$sameRef, sameVal=$sameVal, sameLen=$sameLen"
+            }
+        }
         val before = existing.episodes.size
         val newList = existing.episodes.filterNot { ep -> ep.episodeKey == episodeKey }
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — filterNot result: before=$before, " +
+                "after=${newList.size}, matchFound=${newList.size < before}"
+        }
         if (newList.size == before) {
-            DownloadLogger.d {
-                "removeEpisodeFromDataJson — episode $episodeKey not in ${folder.name}'s " +
-                    ".data.json (already removed or never added)"
+            DownloadLogger.w {
+                "removeEpisodeFromDataJson — NO MATCH for episodeKey='$episodeKey' " +
+                    "in ${folder.name}'s .data.json. Returning true (idempotent) " +
+                    "BUT .data.json was NOT modified. This is the smoking gun if " +
+                    "the user reports the episode is still in .data.json."
             }
             return@withContext true // not an error — idempotent
         }
@@ -411,10 +495,43 @@ class DownloadStorageProvider(
             episodes = newList,
             updatedAt = System.currentTimeMillis(),
         )
-        writeDataJsonRaw(updated, folder, index)
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — calling writeDataJsonRaw with " +
+                "${newList.size} episode(s) (was $before)"
+        }
+        try {
+            writeDataJsonRaw(updated, folder, index)
+            DownloadLogger.i {
+                "removeEpisodeFromDataJson — writeDataJsonRaw completed without exception"
+            }
+        } catch (e: Exception) {
+            DownloadLogger.e(e) {
+                "removeEpisodeFromDataJson — writeDataJsonRaw THREW " +
+                    "${e.javaClass.simpleName}: ${e.message}"
+            }
+            return@withContext false
+        }
+        // R1-DATA-JSON-STILL: VERIFY the write by re-reading the file.
+        // If the write went to the wrong target (stale URI, wrong folder),
+        // the re-read will still show the unfiltered list.
+        val verifyIndex = folder.listFiles().associateBy { it.name ?: "<null-name>" }
+        val verifyExisting = readDataJsonIndexed(verifyIndex)
+        DownloadLogger.i {
+            "removeEpisodeFromDataJson — VERIFY re-read: " +
+                "episodes=${verifyExisting?.episodes?.size ?: "null"}, " +
+                "keys=${verifyExisting?.episodes?.map { it.episodeKey }}"
+        }
+        if (verifyExisting != null && verifyExisting.episodes.any { it.episodeKey == episodeKey }) {
+            DownloadLogger.w {
+                "removeEpisodeFromDataJson — VERIFY FAILED: episodeKey='$episodeKey' " +
+                    "is STILL in .data.json after writeDataJsonRaw. " +
+                    "The write either went to the wrong file or was rolled back."
+            }
+            return@withContext false
+        }
         DownloadLogger.i {
             "removeEpisodeFromDataJson — ${folder.name} now has ${newList.size} episode(s) " +
-                "(removed $episodeKey)"
+                "(removed $episodeKey) — VERIFIED"
         }
         true
     }
@@ -471,7 +588,13 @@ class DownloadStorageProvider(
             val target = index[".data.json"]
                 ?: folder.createFile("application/json", ".data.json")
                 ?: throw DownloadException("Failed to create data.json in ${folder.name}")
+            DownloadLogger.i {
+                "writeDataJsonRaw — writing ${jsonText.length} chars " +
+                    "(${tempFile.length()} bytes) to uri=${target.uri}, " +
+                    "folder.name='${folder.name}', episodes=${data.episodes.size}"
+            }
             copyFile(tempFile, target.uri)
+            DownloadLogger.i { "writeDataJsonRaw — copyFile completed" }
         } finally {
             tempFile.delete()
         }
@@ -538,14 +661,44 @@ class DownloadStorageProvider(
      * folder's `data.json` matches [mainId].
      */
     suspend fun findContentFolder(mainId: String): DocumentFile? = withContext(Dispatchers.IO) {
-        val root = getRootFolder() ?: return@withContext null
+        val root = getRootFolder() ?: run {
+            DownloadLogger.w { "findContentFolder — getRootFolder() returned null (no SAF folder set or no permission)" }
+            return@withContext null
+        }
+        var matchingFolders = 0
         for (format in SCAN_FORMATS) {
             val formatDir = root.findFile(format)?.takeIf { it.isDirectory } ?: continue
             for (contentDir in formatDir.listFiles()) {
                 if (!contentDir.isDirectory) continue
-                val index = contentDir.listFiles().associateBy { it.name!! }
+                val index = contentDir.listFiles().associateBy { it.name ?: "<null-name>" }
                 val dataJson = readDataJsonIndexed(index) ?: continue
-                if (dataJson.mainId == mainId) return@withContext contentDir
+                if (dataJson.mainId == mainId) {
+                    matchingFolders++
+                    if (matchingFolders == 1) {
+                        DownloadLogger.i {
+                            "findContentFolder — MATCH found (first): " +
+                                "format=$format, folder.name='${contentDir.name}', " +
+                                "folder.uri=${contentDir.uri}, " +
+                                "episodesInDataJson=${dataJson.episodes.size}, " +
+                                "keys=${dataJson.episodes.map { it.episodeKey }}"
+                        }
+                        return@withContext contentDir
+                    }
+                }
+            }
+        }
+        if (matchingFolders > 1) {
+            DownloadLogger.w {
+                "findContentFolder — DUPLICATE mainId detected: $matchingFolders folders " +
+                    "match mainId=$mainId. Returned the FIRST one. If the user is " +
+                    "inspecting a DIFFERENT folder's .data.json, the delete will " +
+                    "appear to fail. Run a folder rescan or manually delete the " +
+                    "stale duplicate folder."
+            }
+        } else if (matchingFolders == 0) {
+            DownloadLogger.w {
+                "findContentFolder — NO folder with mainId=$mainId found in any of " +
+                    "formats=$SCAN_FORMATS"
             }
         }
         null

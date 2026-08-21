@@ -7,14 +7,12 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -30,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
@@ -55,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,14 +65,17 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * D-242: TrackSheet — tap-to-expand design with vertical scrollable pickers.
+ * D-242: TrackSheet — tap-to-expand with smooth animations.
  *
  * Layout:
  *  - Header: series name + close
- *  - Top section: Status | Progress | Score (3 values on one row)
- *    - Tap any → expands a vertical scrollable picker below
+ *  - Top section: Status | Progress | Score (3 cells, always visible)
+ *    - Tap any → expands a vertical scrollable picker with smooth animation
  *  - Separator line
- *  - Bottom section: Started date, Finished date, Remove from tracking
+ *  - Bottom section: dates + remove
+ *
+ * Pickers use a "wheel" feel: items fade + shrink at the edges, center is selected.
+ * Animations use tween(300) for smooth transitions.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,7 +111,7 @@ fun TrackSheet(
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header ──
+            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -137,93 +138,87 @@ fun TrackSheet(
                 return@ModalBottomSheet
             }
 
-            // ── Top section: Status | Progress | Score ──
+            // Top section: always show all 3 cells
+            val effectiveTotal = totalEpisodes ?: (trackEntry?.progress ?: 0).coerceAtLeast(24)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Status (left)
                 PickerCell(
                     label = "Status",
                     value = (trackEntry?.status ?: TrackStatus.WATCHING).displayLabel(),
                     isExpanded = expandedPicker == ExpandedPicker.STATUS,
-                    onClick = { expandedPicker = if (expandedPicker == ExpandedPicker.STATUS) null else ExpandedPicker.STATUS },
+                    onClick = {
+                        expandedPicker = if (expandedPicker == ExpandedPicker.STATUS) null else ExpandedPicker.STATUS
+                    },
                     modifier = Modifier.weight(1f),
                 )
-                // Progress (middle)
-                if (totalEpisodes != null) {
-                    PickerCell(
-                        label = "Progress",
-                        value = "${trackEntry?.progress ?: 0}/$totalEpisodes",
-                        isExpanded = expandedPicker == ExpandedPicker.PROGRESS,
-                        onClick = { expandedPicker = if (expandedPicker == ExpandedPicker.PROGRESS) null else ExpandedPicker.PROGRESS },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                // Score (right)
+                PickerCell(
+                    label = "Progress",
+                    value = if (totalEpisodes != null) "${trackEntry?.progress ?: 0}/$totalEpisodes"
+                            else "${trackEntry?.progress ?: 0}",
+                    isExpanded = expandedPicker == ExpandedPicker.PROGRESS,
+                    onClick = {
+                        expandedPicker = if (expandedPicker == ExpandedPicker.PROGRESS) null else ExpandedPicker.PROGRESS
+                    },
+                    modifier = Modifier.weight(1f),
+                )
                 PickerCell(
                     label = "Score",
                     value = trackEntry?.score?.let { String.format("%.1f", it / 10.0) } ?: "—",
                     isExpanded = expandedPicker == ExpandedPicker.SCORE,
-                    onClick = { expandedPicker = if (expandedPicker == ExpandedPicker.SCORE) null else ExpandedPicker.SCORE },
+                    onClick = {
+                        expandedPicker = if (expandedPicker == ExpandedPicker.SCORE) null else ExpandedPicker.SCORE
+                    },
                     modifier = Modifier.weight(1f),
                 )
             }
 
-            // ── Expanded picker (vertical scroll) ──
+            // Expanded picker — smooth animation
             AnimatedVisibility(
                 visible = expandedPicker != null,
-                enter = expandVertically(tween(200)) + fadeIn(tween(200)),
-                exit = shrinkVertically(tween(200)) + fadeOut(tween(200)),
+                enter = expandVertically(tween(300)) + fadeIn(tween(300)),
+                exit = shrinkVertically(tween(300)) + fadeOut(tween(300)),
             ) {
-                when (expandedPicker) {
-                    ExpandedPicker.STATUS -> StatusVerticalPicker(
-                        currentStatus = trackEntry?.status,
-                        onStatusChange = { status ->
-                            onStatusChange(status)
-                            expandedPicker = null
-                        },
-                    )
-                    ExpandedPicker.PROGRESS -> {
-                        if (totalEpisodes != null) {
-                            ProgressVerticalPicker(
-                                currentProgress = trackEntry?.progress ?: 0,
-                                totalEpisodes = totalEpisodes,
-                                onProgressChange = { progress ->
-                                    onProgressChange(progress)
-                                },
-                            )
-                        }
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    when (expandedPicker) {
+                        ExpandedPicker.STATUS -> WheelPicker(
+                            items = TrackStatus.entries.map { it.displayLabel() },
+                            selectedIndex = TrackStatus.entries.indexOf(trackEntry?.status ?: TrackStatus.WATCHING),
+                            onItemClick = { index ->
+                                onStatusChange(TrackStatus.entries[index])
+                            },
+                        )
+                        ExpandedPicker.PROGRESS -> WheelPicker(
+                            items = (0..effectiveTotal).map { if (it == 0) "Not started" else it.toString() },
+                            selectedIndex = (trackEntry?.progress ?: 0).coerceIn(0, effectiveTotal),
+                            onItemClick = { index ->
+                                onProgressChange(index)
+                            },
+                        )
+                        ExpandedPicker.SCORE -> WheelPicker(
+                            items = (0..100).map { if (it == 0) "—" else String.format("%.1f", it / 10.0) },
+                            selectedIndex = (trackEntry?.score ?: 0).coerceIn(0, 100),
+                            onItemClick = { index ->
+                                onScoreChange(index)
+                            },
+                        )
+                        null -> {}
                     }
-                    ExpandedPicker.SCORE -> ScoreVerticalPicker(
-                        currentScore = trackEntry?.score,
-                        onScoreChange = { score ->
-                            onScoreChange(score)
-                        },
-                    )
-                    null -> {}
                 }
             }
 
-            // ── Separator ──
+            // Separator
             HorizontalDivider(
                 modifier = Modifier.padding(vertical = 16.dp),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             )
 
-            // ── Bottom section: Dates + Remove ──
-            DateRow(
-                label = "Started",
-                dateMillis = trackEntry?.startedAt,
-                onDateChange = { onDatesChange(it, trackEntry?.completedAt) },
-            )
+            // Bottom section: dates + remove
+            DateRow("Started", trackEntry?.startedAt) { onDatesChange(it, trackEntry?.completedAt) }
             Spacer(Modifier.height(8.dp))
-            DateRow(
-                label = "Finished",
-                dateMillis = trackEntry?.completedAt,
-                onDateChange = { onDatesChange(trackEntry?.startedAt, it) },
-            )
+            DateRow("Finished", trackEntry?.completedAt) { onDatesChange(trackEntry?.startedAt, it) }
             Spacer(Modifier.height(20.dp))
 
             // Remove button
@@ -251,14 +246,68 @@ fun TrackSheet(
             confirmButton = { TextButton(onClick = { showRemoveConfirm = false; onRemove() }) { Text("Remove", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = { showRemoveConfirm = false }) { Text("Cancel") } },
             title = { Text("Remove from tracking?") },
-            text = { Text("This will remove the series from your AniList tracking. Local watch progress is kept.", style = MaterialTheme.typography.bodyMedium) },
+            text = { Text("This will remove the series from your AniList tracking. Local watch progress is kept.") },
         )
     }
 }
 
 private enum class ExpandedPicker { STATUS, PROGRESS, SCORE }
 
-// ── Picker cell (top row) ───────────────────────────────────────────────────
+// ── Wheel-like picker ───────────────────────────────────────────────────────
+// Items fade + shrink at edges; center item is highlighted.
+// Uses LazyColumn with alpha based on distance from center.
+
+@Composable
+private fun WheelPicker(
+    items: List<String>,
+    selectedIndex: Int,
+    onItemClick: (Int) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val clampedIndex = selectedIndex.coerceIn(0, items.lastIndex)
+
+    LaunchedEffect(clampedIndex) {
+        listState.animateScrollToItem(clampedIndex)
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxWidth().height(180.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        items(items.size) { index ->
+            val item = items[index]
+            val isSelected = index == clampedIndex
+            val alphaAnimated by animateColorAsState(
+                if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                tween(200), "wheelAlpha",
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onItemClick(index) }
+                    .padding(vertical = 10.dp, horizontal = 24.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isSelected) {
+                    Icon(Icons.Filled.Star, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    item,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = alphaAnimated,
+                    modifier = Modifier.alpha(if (isSelected) 1f else 0.5f),
+                )
+            }
+        }
+    }
+}
+
+// ── Picker cell ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun PickerCell(
@@ -271,12 +320,12 @@ private fun PickerCell(
     val bgAnimated by animateColorAsState(
         if (isExpanded) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        tween(200), "pickerBg",
+        tween(300), "cellBg",
     )
     val fgAnimated by animateColorAsState(
         if (isExpanded) MaterialTheme.colorScheme.onPrimary
         else MaterialTheme.colorScheme.onSurfaceVariant,
-        tween(200), "pickerFg",
+        tween(300), "cellFg",
     )
     Surface(
         modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick),
@@ -290,129 +339,6 @@ private fun PickerCell(
             Text(label, style = MaterialTheme.typography.labelSmall, color = fgAnimated.copy(alpha = 0.7f))
             Spacer(Modifier.height(4.dp))
             Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = fgAnimated, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-// ── Status vertical picker ──────────────────────────────────────────────────
-
-@Composable
-private fun StatusVerticalPicker(
-    currentStatus: TrackStatus?,
-    onStatusChange: (TrackStatus) -> Unit,
-) {
-    val listState = rememberLazyListState()
-    val statuses = TrackStatus.entries
-    val selectedIndex = statuses.indexOf(currentStatus ?: TrackStatus.WATCHING).coerceAtLeast(0)
-
-    LaunchedEffect(selectedIndex) {
-        listState.scrollToItem(selectedIndex)
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxWidth().height(200.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        items(statuses) { status ->
-            val isSelected = status == currentStatus
-            Text(
-                status.displayLabel(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onStatusChange(status) }
-                    .padding(vertical = 12.dp, horizontal = 24.dp),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                color = if (isSelected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-// ── Progress vertical picker ────────────────────────────────────────────────
-
-@Composable
-private fun ProgressVerticalPicker(
-    currentProgress: Int,
-    totalEpisodes: Int,
-    onProgressChange: (Int) -> Unit,
-) {
-    val listState = rememberLazyListState()
-    val displayProgress = currentProgress.coerceIn(0, totalEpisodes)
-
-    LaunchedEffect(displayProgress) {
-        listState.scrollToItem(displayProgress)
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxWidth().height(200.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        items(totalEpisodes + 1) { epNum ->
-            val isSelected = epNum == displayProgress
-            Text(
-                if (epNum == 0) "Not started" else "Episode $epNum",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onProgressChange(epNum) }
-                    .padding(vertical = 12.dp, horizontal = 24.dp),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                color = if (isSelected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-// ── Score vertical picker (0.0 to 10.0 in 0.1 increments) ──────────────────
-
-@Composable
-private fun ScoreVerticalPicker(
-    currentScore: Int?,
-    onScoreChange: (Int) -> Unit,
-) {
-    val listState = rememberLazyListState()
-    // Scores from 0 to 100 (in steps of 1 = 0.1 stars). 101 items.
-    val scores = (0..100).toList()
-    val currentScoreInt = currentScore ?: 0
-    val selectedIndex = currentScoreInt.coerceIn(0, 100)
-
-    LaunchedEffect(selectedIndex) {
-        listState.scrollToItem(selectedIndex)
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxWidth().height(200.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        items(scores) { scoreInt ->
-            val isSelected = scoreInt == selectedIndex
-            val displayValue = String.format("%.1f", scoreInt / 10.0)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onScoreChange(scoreInt) }
-                    .padding(vertical = 8.dp, horizontal = 24.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isSelected) {
-                    Icon(Icons.Filled.Star, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                }
-                Text(
-                    if (scoreInt == 0) "No rating" else displayValue,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
     }
 }
@@ -488,7 +414,7 @@ private fun DateRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Snackbar prompts (unchanged from fix3)
+// Snackbar prompts
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable

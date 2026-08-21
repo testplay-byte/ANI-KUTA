@@ -134,6 +134,11 @@ data class ContentDataJson(
             try {
                 json.decodeFromString<ContentDataJson>(jsonString)
             } catch (e: Exception) {
+                // R1-DATA-JSON-STILL: log parse failures (was previously silent).
+                DownloadLogger.e(e) {
+                    "ContentDataJson.parse — FAILED: ${e.javaClass.simpleName}: ${e.message}. " +
+                        "JSON length=${jsonString.length}, first 200 chars: ${jsonString.take(200)}"
+                }
                 null
             }
 

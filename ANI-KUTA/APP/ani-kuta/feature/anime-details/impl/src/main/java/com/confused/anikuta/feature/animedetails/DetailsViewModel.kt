@@ -592,17 +592,52 @@ class DetailsViewModel(
         val anime = (state.value as? DetailsState.Success)?.anime ?: return
         val anilistId = anime.anilistId ?: return
 
+        val clampedProgress = progress.coerceAtLeast(0)
         val current = _trackEntry.value ?: com.confused.anikuta.core.trackerapi.TrackEntry(
             contentKey = mid,
             trackerId = anilistId,
         )
-        val updated = current.copy(progress = progress.coerceAtLeast(0), updatedAt = System.currentTimeMillis())
+        val updated = current.copy(progress = clampedProgress, updatedAt = System.currentTimeMillis())
         _trackEntry.value = updated
 
         viewModelScope.launch {
             repo.upsert(updated)
             if (tracker.isLoggedIn()) {
                 tracker.syncEntry(updated)
+            }
+
+            // D-242-fix5: Sync the progress change back to local watch_progress.
+            // If the user decreased the progress (e.g., from 6 to 1), episodes
+            // 2..6 should be unmarked as watched locally. If they increased it,
+            // episodes 1..newProgress should be marked as watched.
+            runCatching {
+                val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
+                if (!episodes.isNullOrEmpty()) {
+                    val oldProgress = current.progress
+                    if (clampedProgress < oldProgress) {
+                        // Progress decreased — unmark episodes (clampedProgress+1)..oldProgress.
+                        // We do this by deleting watch progress for those episodes.
+                        for (ep in episodes) {
+                            val n = ep.episode_number.toInt()
+                            if (n in (clampedProgress + 1)..oldProgress) {
+                                val key = "$mid|${String.format("%05d", n)}"
+                                watchProgressStore.delete(key)
+                            }
+                        }
+                        Logger.i(TAG) { "updateTrackProgress — unmarked episodes ${clampedProgress + 1}..$oldProgress" }
+                    } else if (clampedProgress > oldProgress) {
+                        // Progress increased — mark episodes (oldProgress+1)..clampedProgress as watched.
+                        val keysToMark = episodes
+                            .filter { it.episode_number.toInt() in (oldProgress + 1)..clampedProgress }
+                            .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                        if (keysToMark.isNotEmpty()) {
+                            watchProgressStore.markAllWatched(mid, keysToMark)
+                            Logger.i(TAG) { "updateTrackProgress — marked episodes ${oldProgress + 1}..$clampedProgress" }
+                        }
+                    }
+                }
+            }.onFailure { e ->
+                Logger.w(TAG) { "updateTrackProgress — local sync failed (non-fatal): ${e.message}" }
             }
         }
     }
