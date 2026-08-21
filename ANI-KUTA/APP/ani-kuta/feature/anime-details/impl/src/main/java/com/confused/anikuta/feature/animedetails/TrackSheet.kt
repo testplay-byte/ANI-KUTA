@@ -346,9 +346,12 @@ private fun ProgressScrollable(
     onProgressChange: (Int) -> Unit,
 ) {
     val listState = rememberLazyListState()
+    // D-242-fix: clamp display progress to [0, totalEpisodes] so stale tracker
+    // data (progress > total) doesn't break the chip highlighting.
+    val displayProgress = currentProgress.coerceIn(0, totalEpisodes)
 
     Text(
-        "Progress: $currentProgress / $totalEpisodes",
+        "Progress: $displayProgress / $totalEpisodes",
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -361,7 +364,7 @@ private fun ProgressScrollable(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp),
     ) {
         items(totalEpisodes + 1) { epNum -> // 0..totalEpisodes (0 = "not started")
-            val isSelected = epNum == currentProgress
+            val isSelected = epNum == displayProgress
             val animatedColor by animateColorAsState(
                 targetValue = if (isSelected) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -535,7 +538,7 @@ fun MarkPreviousEpisodesSnackbar(
         val durationMs = 5000L
         val steps = 100
         val stepDelay = durationMs / steps
-        for (i in 0 until steps) {
+        for (i in 1..steps) {
             progress = 1f - (i.toFloat() / steps)
             kotlinx.coroutines.delay(stepDelay)
         }

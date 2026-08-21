@@ -655,16 +655,20 @@ class DetailsViewModel(
         _trackEntry.value = null
 
         viewModelScope.launch {
+            // D-242-fix: split into separate runCatching blocks so local cache
+            // is always cleaned, even if the remote delete fails.
             runCatching {
-                // 1. Delete from AniList (remote).
                 if (tracker.isLoggedIn()) {
                     tracker.deleteEntry(anilistId)
                 }
-                // 2. Delete from local cache.
-                repo.delete(mid)
-                Logger.i(TAG) { "removeTrackEntry — removed tracking for mainId=$mid" }
             }.onFailure { e ->
-                Logger.e(TAG, e) { "removeTrackEntry failed: ${e.message}" }
+                Logger.w(TAG) { "removeTrackEntry — remote delete failed (non-fatal): ${e.message}" }
+            }
+            runCatching {
+                repo.delete(mid)
+                Logger.i(TAG) { "removeTrackEntry — removed local cache for mainId=$mid" }
+            }.onFailure { e ->
+                Logger.e(TAG, e) { "removeTrackEntry — local delete failed: ${e.message}" }
             }
         }
     }
@@ -1181,7 +1185,13 @@ class DetailsViewModel(
         // D-242-fix: Fetch the AniList track entry + sync its progress into
         // local watch_progress so the episode list reflects AniList state.
         // Only fires if the anime has an anilistId + the user is logged in.
-        refreshTracking()
+        // Wrapped in viewModelScope.launch because refreshTracking is suspend
+        // + loadFromAniList is NOT suspend. Generation-guarded so a stale load
+        // (user navigated away) doesn't overwrite the new anime's tracking state.
+        val gen = loadGeneration
+        viewModelScope.launch {
+            if (gen == loadGeneration) refreshTracking()
+        }
     }
 
     /**
@@ -1651,7 +1661,10 @@ class DetailsViewModel(
 
         // D-242-fix: Fetch the AniList track entry (if auto-linked) + sync its
         // progress into local watch_progress so the episode list reflects AniList.
-        refreshTracking()
+        val gen = loadGeneration
+        viewModelScope.launch {
+            if (gen == loadGeneration) refreshTracking()
+        }
     }
 
     /**
