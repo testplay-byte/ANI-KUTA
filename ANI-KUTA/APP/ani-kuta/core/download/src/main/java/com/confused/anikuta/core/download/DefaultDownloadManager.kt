@@ -207,55 +207,82 @@ class DefaultDownloadManager(
 
     override suspend fun deleteDownloadedEpisode(mainId: String, episodeKey: String) {
         DownloadLogger.i { "deleteDownloadedEpisode — mainId=$mainId, episodeKey=$episodeKey" }
-        // 1. Delete the video file + subtitle files on disk (best-effort).
+
+        // D-242-fix: Delete files by URI (from .data.json) instead of by filename
+        // matching. The old code used episodeKey.substringAfter('|') to extract
+        // the episode number, but episodeKey is now SEpisode.url (no '|'), so
+        // numStr was always empty and file.delete() was NEVER called.
         runCatching {
             val contentDir = storage.findContentFolder(mainId)
             if (contentDir != null) {
-                val numStr = episodeKey.substringAfter('|', "")
-                // Look in the "episodes" subfolder (new) + the root (legacy) for the video.
-                val episodesDir = contentDir.listFiles().firstOrNull { it.name == "episodes" && it.isDirectory }
-                val videoSearchDirs = if (episodesDir != null) listOf(episodesDir, contentDir) else listOf(contentDir)
-                for (dir in videoSearchDirs) {
-                    for (file in dir.listFiles()) {
-                        if (!file.isFile) continue
-                        if (numStr.isNotBlank() && file.name?.contains("E$numStr", ignoreCase = true) == true) {
-                            file.delete()
-                            DownloadLogger.i { "Deleted video: ${file.name}" }
+                // Read the episode entry from .data.json to get its file URIs.
+                val dataJson = storage.readDataJson(contentDir)
+                val entry = dataJson?.episodes?.firstOrNull { it.episodeKey == episodeKey }
+
+                if (entry != null) {
+                    // Delete video file by URI.
+                    entry.videoUri?.let { uriStr ->
+                        runCatching {
+                            val uri = android.net.Uri.parse(uriStr)
+                            android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+                            DownloadLogger.i { "Deleted video file: $uriStr" }
+                        }.onFailure {
+                            DownloadLogger.w { "Failed to delete video $uriStr: ${it.message}" }
                         }
+                    }
+                    // Delete subtitle files by URI.
+                    for (subUriStr in entry.subtitleUris) {
+                        runCatching {
+                            val uri = android.net.Uri.parse(subUriStr)
+                            android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+                            DownloadLogger.i { "Deleted subtitle file: $subUriStr" }
+                        }.onFailure {
+                            DownloadLogger.w { "Failed to delete subtitle $subUriStr: ${it.message}" }
+                        }
+                    }
+                } else {
+                    DownloadLogger.w {
+                        "deleteDownloadedEpisode — episode entry not found in .data.json " +
+                            "(episodeKey=$episodeKey); skipping file deletion"
                     }
                 }
-                // Look in the "subtitles" subfolder (new) + the root (legacy) for subtitle files.
-                val subtitlesDir = contentDir.listFiles().firstOrNull { it.name == "subtitles" && it.isDirectory }
-                val subtitleSearchDirs = if (subtitlesDir != null) listOf(subtitlesDir, contentDir) else listOf(contentDir)
-                for (dir in subtitleSearchDirs) {
-                    for (file in dir.listFiles()) {
-                        if (!file.isFile) continue
-                        if (numStr.isNotBlank() && file.name?.contains("E$numStr", ignoreCase = true) == true) {
-                            file.delete()
-                            DownloadLogger.i { "Deleted subtitle: ${file.name}" }
-                        }
-                    }
+            } else {
+                DownloadLogger.w {
+                    "deleteDownloadedEpisode — content folder not found for mainId=$mainId; " +
+                        "skipping file deletion"
                 }
             }
         }.onFailure { e ->
             DownloadLogger.w { "deleteDownloadedEpisode — file delete failed (non-fatal): ${e.message}" }
         }
+
         // 2. Delete the DB row.
         store.deleteDownloadedEpisode(mainId, episodeKey)
-        // 3. D-241: remove this episode from the on-disk `.data.json` episodes list.
-        //    Best-effort — a failure here doesn't fail the delete (the DB row is
-        //    already gone, so the episode is functionally deleted; the scanner will
-        //    reconcile the episodes list from the file walk on the next startup).
+
+        // 3. Remove this episode from the on-disk `.data.json` episodes list.
         runCatching {
             val contentDir = storage.findContentFolder(mainId)
             if (contentDir != null) {
                 storage.removeEpisodeFromDataJson(contentDir, episodeKey)
+
+                // D-242-fix: If the episodes list is now empty, delete the entire
+                // content folder (including .data.json, cover.jpg, .nomedia, etc.).
+                // The user expects that deleting all episodes removes everything.
+                val updated = storage.readDataJson(contentDir)
+                if (updated == null || updated.episodes.isEmpty()) {
+                    DownloadLogger.i {
+                        "deleteDownloadedEpisode — no episodes remaining; " +
+                            "deleting content folder: ${contentDir.name}"
+                    }
+                    contentDir.delete()
+                }
             }
         }.onFailure { e ->
             DownloadLogger.w {
                 "deleteDownloadedEpisode — removeEpisodeFromDataJson failed (non-fatal): ${e.message}"
             }
         }
+
         // 4. Refresh the cache.
         refreshDownloadedEpisodes()
     }

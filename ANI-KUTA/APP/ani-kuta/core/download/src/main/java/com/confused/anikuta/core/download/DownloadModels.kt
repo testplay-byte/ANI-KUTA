@@ -255,4 +255,12 @@ data class DownloadedEpisode(
 data class PublishResult(
     val videoUri: String,
     val subtitleUris: List<String> = emptyList(),
+    /**
+     * D-242-fix: The content folder where the video + subtitles were published.
+     * Returned so callers (HttpDownloader) can pass it directly to
+     * upsertEpisodeInDataJson without a SECOND findContentFolder walk (which
+     * was silently failing on some devices, causing episodes to not be appended
+     * to .data.json).
+     */
+    val contentFolder: androidx.documentfile.provider.DocumentFile? = null,
 )

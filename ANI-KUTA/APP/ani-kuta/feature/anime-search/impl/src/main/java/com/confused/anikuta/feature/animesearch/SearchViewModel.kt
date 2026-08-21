@@ -273,16 +273,21 @@ class SearchViewModel(
             .distinctUntilChanged()
             .onEach { q ->
                 if (q.isBlank()) {
-                    if (_source.value == SearchSource.ANILIST) {
-                        loadTrending()
+                    // D-242-fix: if the user has search history, keep it visible
+                    // (set uiState to Idle) instead of loading trending (which
+                    // hides the history card). Only load trending if no recents.
+                    if (_recents.value.isNotEmpty()) {
+                        _uiState.value = SearchUiState.Idle
                     } else {
-                        loadExtensionPopular()
+                        if (_source.value == SearchSource.ANILIST) {
+                            loadTrending()
+                        } else {
+                            loadExtensionPopular()
+                        }
                     }
                 } else {
                     // D-242-fix: record the search term in history. The debounce +
                     // distinctUntilChanged upstream ensures one add per distinct term.
-                    // Without this, type-ahead searches were never saved to history
-                    // (only explicit submit via the search icon was saved).
                     addRecent(q.trim())
                     search(q)
                 }

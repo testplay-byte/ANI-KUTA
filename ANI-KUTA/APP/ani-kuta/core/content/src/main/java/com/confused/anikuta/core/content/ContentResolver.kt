@@ -56,25 +56,12 @@ class ContentResolver(
             return existing.mainId
         }
 
-        // D-240: Fallback — try contentId lookup (handles reinstall case where
-        // the scanner restored main_entry from data.json but the anilistId axis
-        // wasn't fully restored in content_details).
-        val fallbackContentId = ContentIdGenerator.generate(
-            dataSource = "anilist",
-            system = null,
-            repoUrl = null,
-            extensionPkg = null,
-            sourceId = null,
-            animeUrl = null,
-        )
-        val existingByContentId = repo.getMainEntryByContentId(fallbackContentId)
-        if (existingByContentId != null) {
-            Logger.d(TAG) { "AniList $anilistId → found via contentId fallback, mainId=${existingByContentId.mainId}" }
-            if (anilistDetail != null) {
-                updateDataSourceAxisInTransaction(existingByContentId.mainId, anilistDetail)
-            }
-            return existingByContentId.mainId
-        }
+        // D-242-fix: REMOVED the broken contentId fallback (D-240). It generated
+        // the SAME contentId ("anilist:none:none:none:none:none") for ALL AniList
+        // anime, causing Populate Library to collapse all 300+ onto one mainId.
+        // The primary lookup above (getMainEntryByAniListId) is sufficient for
+        // both normal flow + reinstall recognition (the scanner restores
+        // content_details.data_source_ref_id from .data.json).
 
         // Create new main_entry record.
         val mainId = UUID.randomUUID().toString()

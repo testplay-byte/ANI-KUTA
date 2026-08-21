@@ -9,7 +9,8 @@ import com.confused.anikuta.core.trackerapi.TrackStatus
  * AniList's enum values differ from our canonical names:
  *  - `CURRENT` (not WATCHING)
  *  - `PLANNING` (not PLAN_TO_WATCH)
- *  - `COMPLETED`, `PAUSED`, `DROPPED`, `REWATCHING` match.
+ *  - `REPEATING` (not REWATCHING) — AniList's actual enum value.
+ *  - `COMPLETED`, `PAUSED`, `DROPPED` match.
  *
  * This mapper is used at the AniList API boundary:
  *  - [toAniList] when pushing (syncEntry → SaveMediaListEntry mutation).
@@ -24,7 +25,7 @@ object AniListStatusMapper {
         TrackStatus.COMPLETED -> "COMPLETED"
         TrackStatus.PAUSED -> "PAUSED"
         TrackStatus.DROPPED -> "DROPPED"
-        TrackStatus.REWATCHING -> "REWATCHING"
+        TrackStatus.REWATCHING -> "REPEATING"   // D-242-fix: AniList's actual enum is REPEATING, not REWATCHING
     }
 
     /**
@@ -38,7 +39,7 @@ object AniListStatusMapper {
         "COMPLETED" -> TrackStatus.COMPLETED
         "PAUSED" -> TrackStatus.PAUSED
         "DROPPED" -> TrackStatus.DROPPED
-        "REWATCHING" -> TrackStatus.REWATCHING
+        "REPEATING" -> TrackStatus.REWATCHING   // D-242-fix: AniList's actual enum is REPEATING
         else -> TrackStatus.WATCHING
     }
 }

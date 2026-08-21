@@ -185,7 +185,13 @@ class DownloadStorageProvider(
             "publishVideoFile($downloadId) — published $videoName (${tempFile.length()} bytes) " +
                 "to ${contentDir.name} + ${publishedSubtitleUris.size} subtitle(s)"
         }
-        PublishResult(videoUri = videoTarget.uri.toString(), subtitleUris = publishedSubtitleUris)
+        // D-242-fix: return the contentFolder so HttpDownloader can pass it directly
+        // to upsertEpisodeInDataJson without a second findContentFolder walk.
+        PublishResult(
+            videoUri = videoTarget.uri.toString(),
+            subtitleUris = publishedSubtitleUris,
+            contentFolder = contentDir,
+        )
     }
 
     /**

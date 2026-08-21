@@ -114,9 +114,16 @@ fun SearchScreen(
     var showSourcePicker by remember { mutableStateOf(false) }
     val activeFilterCount = pendingFilters.activeCount
 
-    // Load trending on first enter (AniList + no query).
+    // Load trending on first enter (AniList + no query + NO recents).
+    // D-242-fix: if the user has search history, DON'T auto-load trending —
+    // keep the history card visible instead. Trending was hiding the history
+    // by flipping uiState from Idle → Loading → Success.
     LaunchedEffect(Unit) {
-        if (source == SearchSource.ANILIST && query.isBlank() && uiState is SearchUiState.Idle) {
+        if (source == SearchSource.ANILIST &&
+            query.isBlank() &&
+            uiState is SearchUiState.Idle &&
+            recents.isEmpty()    // only auto-load trending if there's no history
+        ) {
             viewModel.onSourceChange(SearchSource.ANILIST)
         }
     }

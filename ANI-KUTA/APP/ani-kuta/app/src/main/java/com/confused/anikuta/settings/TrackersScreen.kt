@@ -522,9 +522,9 @@ private suspend fun populateLibraryFromAniList(
  */
 private val AniListStatusMapping = mapOf(
     "CURRENT" to "Watching",
+    "REPEATING" to "Watching",   // D-242-fix: AniList's rewatching status → Watching category
     "PLANNING" to "Planning",
     "COMPLETED" to "Completed",
     "DROPPED" to "Dropped",
     "PAUSED" to "Paused",
-    // REPEATING is merged into Watching.
 )

@@ -164,7 +164,11 @@ class HttpDownloader(
             // be inserted by DownloadQueue.launchDownload; the scanner will rebuild
             // the episodes list from the file walk on the next startup if needed).
             runCatching {
-                val contentFolder = storage.findContentFolder(enrichedContent.mainId)
+                // D-242-fix: use the contentFolder returned by publishVideoFile
+                // directly — NO second findContentFolder walk (which was silently
+                // returning null on some devices, causing episodes to not be
+                // appended to .data.json).
+                val contentFolder = publishResult.contentFolder
                 if (contentFolder != null) {
                     val episodeInfo = DownloadedEpisodeInfo(
                         episodeKey = task.episode.episodeKey,
@@ -182,6 +186,15 @@ class HttpDownloader(
                         fileSize = tempVideo.length(),
                     )
                     storage.upsertEpisodeInDataJson(contentFolder, episodeInfo)
+                    DownloadLogger.i {
+                        "HttpDownloader — upserted episode ${task.episode.episodeKey} " +
+                            "into .data.json for ${contentFolder.name}"
+                    }
+                } else {
+                    DownloadLogger.w {
+                        "HttpDownloader — publishResult.contentFolder is null for task ${task.id}; " +
+                            "episode NOT appended to .data.json (scanner will reconcile on next startup)"
+                    }
                 }
             }.onFailure { e ->
                 DownloadLogger.w {
