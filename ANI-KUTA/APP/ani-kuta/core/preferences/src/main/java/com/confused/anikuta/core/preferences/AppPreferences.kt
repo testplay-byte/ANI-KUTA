@@ -57,19 +57,20 @@ class AppPreferences(private val store: PreferenceStore) {
 
     /**
      * D-236: Background image source for the details page.
-     * - `"COVER"` → use the cover image (default).
+     * - `"COVER"` → use the cover image.
      * - `"BANNER"` → use the banner image (falls back to cover if null).
+     * D-242-fix7: default changed from "COVER" to "BANNER" per user request.
      */
     var detailsBackgroundSource: String
-        get() = store.getString(KEY_DETAILS_BG_SOURCE, "COVER")
+        get() = store.getString(KEY_DETAILS_BG_SOURCE, "BANNER")
         set(value) = store.putString(KEY_DETAILS_BG_SOURCE, value)
 
     /**
      * D-236: Whether to animate the details page background (slow pan).
-     * Default: false (can be motion-intensive on older devices).
+     * D-242-fix7: default changed from false to true per user request.
      */
     var detailsBannerAnimation: Boolean
-        get() = store.getBoolean(KEY_DETAILS_BANNER_ANIMATION, false)
+        get() = store.getBoolean(KEY_DETAILS_BANNER_ANIMATION, true)
         set(value) = store.putBoolean(KEY_DETAILS_BANNER_ANIMATION, value)
 
     companion object {

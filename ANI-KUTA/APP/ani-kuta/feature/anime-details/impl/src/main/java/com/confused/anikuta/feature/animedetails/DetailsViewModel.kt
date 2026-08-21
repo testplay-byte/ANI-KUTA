@@ -716,11 +716,10 @@ class DetailsViewModel(
 
         _showTrackSheet.value = false
         _trackEntry.value = null
-        _pendingRemoteTrackEntry.value = null // D-242-fix: prevent stale entry from applying to wrong anime
+        _pendingRemoteTrackEntry.value = null
 
         viewModelScope.launch {
-            // D-242-fix: split into separate runCatching blocks so local cache
-            // is always cleaned, even if the remote delete fails.
+            // 1. Delete from AniList (remote).
             runCatching {
                 if (tracker.isLoggedIn()) {
                     tracker.deleteEntry(anilistId)
@@ -728,11 +727,27 @@ class DetailsViewModel(
             }.onFailure { e ->
                 Logger.w(TAG) { "removeTrackEntry — remote delete failed (non-fatal): ${e.message}" }
             }
+            // 2. Delete from local cache.
             runCatching {
                 repo.delete(mid)
                 Logger.i(TAG) { "removeTrackEntry — removed local cache for mainId=$mid" }
             }.onFailure { e ->
                 Logger.e(TAG, e) { "removeTrackEntry — local delete failed: ${e.message}" }
+            }
+            // 3. D-242-fix7: Clear all local watch progress for this anime.
+            // When the user removes tracking, all episodes should be unmarked as watched.
+            runCatching {
+                watchProgressStore.clearByMainId(mid)
+                Logger.i(TAG) { "removeTrackEntry — cleared watch progress for mainId=$mid" }
+            }.onFailure { e ->
+                Logger.w(TAG) { "removeTrackEntry — clear watch progress failed (non-fatal): ${e.message}" }
+            }
+            // 4. D-242-fix7: Reset the rating.
+            runCatching {
+                ratingStore.deleteAnimeRating(mid)
+                Logger.i(TAG) { "removeTrackEntry — reset rating for mainId=$mid" }
+            }.onFailure { e ->
+                Logger.w(TAG) { "removeTrackEntry — reset rating failed (non-fatal): ${e.message}" }
             }
         }
     }

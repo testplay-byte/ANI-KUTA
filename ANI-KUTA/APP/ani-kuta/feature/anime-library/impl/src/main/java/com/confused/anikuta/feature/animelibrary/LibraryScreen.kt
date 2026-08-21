@@ -542,6 +542,10 @@ fun LibraryScreen(
                                 selectedMainIds = selectedMainIds,
                                 onClickEntry = onEntryClick,
                                 onLongClickEntry = onEntryLongClick,
+                                episodeBadgeMode = episodeBadgeMode,
+                                episodeBadgePosition = episodeBadgePosition,
+                                showScoreBadge = showScoreBadge,
+                                scoreBadgePosition = scoreBadgePosition,
                             )
                         } else {
                             LibraryList(
@@ -1938,6 +1942,10 @@ private fun LibraryGrid(
     selectedMainIds: Set<String>,
     onClickEntry: (LibraryEntry) -> Unit,
     onLongClickEntry: (LibraryEntry) -> Unit,
+    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
+    episodeBadgePosition: BadgePosition = BadgePosition.TOP_END,
+    showScoreBadge: Boolean = false,
+    scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
 ) {
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyVerticalGrid(
@@ -1960,6 +1968,10 @@ private fun LibraryGrid(
                 isSelected = item.mainId in selectedMainIds,
                 onClick = onClickEntry,
                 onLongClick = onLongClickEntry,
+                episodeBadgeMode = episodeBadgeMode,
+                episodeBadgePosition = episodeBadgePosition,
+                showScoreBadge = showScoreBadge,
+                scoreBadgePosition = scoreBadgePosition,
             )
         }
     }
@@ -1973,6 +1985,10 @@ private fun LibraryGridCard(
     isSelected: Boolean,
     onClick: (LibraryEntry) -> Unit,
     onLongClick: (LibraryEntry) -> Unit,
+    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
+    episodeBadgePosition: BadgePosition = BadgePosition.TOP_END,
+    showScoreBadge: Boolean = false,
+    scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2011,6 +2027,31 @@ private fun LibraryGridCard(
                 .aspectRatio(2f / 3f)
                 .clip(RoundedCornerShape(12.dp)),
         )
+
+        // D-242-fix7: Cover badges (leaf-shaped, color-coded)
+        // Episode badge — color: secondary (teal/amber complement to primary)
+        if (!isSelectionMode && episodeBadgeMode != EpisodeBadgeMode.OFF && anime.episodes != null) {
+            val epText = when (episodeBadgeMode) {
+                EpisodeBadgeMode.TOTAL -> "EP ${anime.episodes}"
+                EpisodeBadgeMode.RELEASED -> "EP ${anime.episodes}"
+                EpisodeBadgeMode.OFF -> ""
+            }
+            if (epText.isNotBlank()) {
+                CoverBadge(
+                    text = epText,
+                    position = episodeBadgePosition,
+                    color = Color(0xFF4CAF50).copy(alpha = 0.85f), // green — complementing primary
+                )
+            }
+        }
+        // Score badge — color: amber (warm complement to primary)
+        if (!isSelectionMode && showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
+            CoverBadge(
+                text = "★ ${anime.averageScore}",
+                position = scoreBadgePosition,
+                color = Color(0xFFFFA726).copy(alpha = 0.85f), // amber — warm complement
+            )
+        }
 
         // Title overlay at bottom with gradient (compact grid style)
         Box(
@@ -2505,4 +2546,45 @@ private fun DeleteSelectedDialog(
             }
         },
     )
+}
+
+/**
+ * D-242-fix7: A leaf-shaped cover badge — small, color-coded, positioned at a corner.
+ * The shape has one rounded corner (pointing away from the cover edge) + one flat side
+ * (hugging the cover edge). Color is semi-transparent for blend with the cover.
+ */
+@Composable
+private fun CoverBadge(
+    text: String,
+    position: BadgePosition,
+    color: Color,
+) {
+    val alignment = when (position) {
+        BadgePosition.TOP_START -> Alignment.TopStart
+        BadgePosition.TOP_END -> Alignment.TopEnd
+        BadgePosition.BOTTOM_START -> Alignment.BottomStart
+        BadgePosition.BOTTOM_END -> Alignment.BottomEnd
+    }
+    Box(
+        modifier = Modifier
+            .align(alignment)
+            .padding(4.dp)
+            .clip(
+                when (position) {
+                    BadgePosition.TOP_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 10.dp, bottomStart = 0.dp, bottomEnd = 10.dp)
+                    BadgePosition.TOP_END -> RoundedCornerShape(topStart = 10.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 0.dp)
+                    BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 10.dp, bottomStart = 0.dp, bottomEnd = 10.dp)
+                    BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 10.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 0.dp)
+                }
+            )
+            .background(color)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = text,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+        )
+    }
 }
