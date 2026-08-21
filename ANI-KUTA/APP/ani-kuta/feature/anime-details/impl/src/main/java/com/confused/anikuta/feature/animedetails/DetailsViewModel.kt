@@ -637,10 +637,43 @@ class DetailsViewModel(
     }
 
     /**
+     * D-242: Removes the track entry for the current anime — both locally
+     * (deletes the `track_entry` cache row) + remotely (calls AniList's
+     * `DeleteMediaListEntry` mutation).
+     *
+     * Called when the user taps "Remove from tracking" in the TrackSheet +
+     * confirms the dialog.
+     */
+    fun removeTrackEntry() {
+        val mid = currentMainId ?: return
+        val tracker = aniListTracker ?: return
+        val repo = trackEntryRepository ?: return
+        val anime = (state.value as? DetailsState.Success)?.anime ?: return
+        val anilistId = anime.anilistId ?: return
+
+        _showTrackSheet.value = false
+        _trackEntry.value = null
+
+        viewModelScope.launch {
+            runCatching {
+                // 1. Delete from AniList (remote).
+                if (tracker.isLoggedIn()) {
+                    tracker.deleteEntry(anilistId)
+                }
+                // 2. Delete from local cache.
+                repo.delete(mid)
+                Logger.i(TAG) { "removeTrackEntry — removed tracking for mainId=$mid" }
+            }.onFailure { e ->
+                Logger.e(TAG, e) { "removeTrackEntry failed: ${e.message}" }
+            }
+        }
+    }
+
+    /**
      * D-242: Shows the "mark all previous episodes as watched" prompt.
      * Called when the user marks episode N as watched but 1..N-1 aren't.
      *
-     * The prompt has a 5-second timeout bar. If the user doesn't respond in 5s,
+     * The prompt has a 5-second timeout. If the user doesn't respond in 5s,
      * it auto-confirms (per the user's spec: "still it will mark the previous
      * episodes up until episode 5 as watched in any list").
      */
@@ -1624,6 +1657,9 @@ class DetailsViewModel(
                             name = meta.sourceName ?: meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
                             date_upload = meta.airDate ?: 0L
                             scanlator = meta.scanlator
+                            // D-242-fix: propagate the cached description (from AniZip/Kitsu)
+                            // so it's available when the user downloads the episode.
+                            summary = meta.description
                         }
                     }.sortedByDescending { it.episode_number }
                     _episodeState.value = EpisodeState.Loaded(episodes)
@@ -2678,6 +2714,9 @@ class DetailsViewModel(
                             name = meta.sourceName ?: meta.title ?: "Episode ${meta.episodeNumber.toInt()}"
                             date_upload = meta.airDate ?: 0L
                             scanlator = meta.scanlator
+                            // D-242-fix: propagate the cached description (from AniZip/Kitsu)
+                            // so it's available when the user downloads the episode.
+                            summary = meta.description
                         }
                     }.sortedByDescending { it.episode_number }
                     _episodeState.value = EpisodeState.Loaded(episodes)

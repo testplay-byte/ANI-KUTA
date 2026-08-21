@@ -119,6 +119,26 @@ class DefaultDownloadManager(
                 _episodeDownloadStates.value = current
             }
         }
+
+        // D-242-fix: Auto-rescan when the folder URI changes. This is the single
+        // source of truth for "the user just picked/changed the SAF folder" —
+        // covers ALL folder-selection paths (FirstRunSetupDialog,
+        // DownloadSettingsScreen, DownloadsScreen) without requiring each one
+        // to remember to call requestFolderRescan(). Without this, picking the
+        // folder from FirstRunSetupDialog (the first-run default) leaves the
+        // Downloaded page empty until the next app restart.
+        scope.launch {
+            var lastSeen = preferences.downloadFolderUri.get()
+            preferences.downloadFolderUri.changes.collect { uri ->
+                if (uri != lastSeen) {
+                    lastSeen = uri
+                    if (uri.isNotBlank()) {
+                        DownloadLogger.i { "Folder URI changed — auto-rescanning" }
+                        requestFolderRescan()
+                    }
+                }
+            }
+        }
     }
 
     // ── Queue operations (delegate to [queue]) ───────────────────────────────

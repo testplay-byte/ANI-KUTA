@@ -425,6 +425,53 @@ class AniListTracker(
         }
     }
 
+    /**
+     * D-242: Deletes the user's MediaList entry for [trackerId] (the AniList anime ID).
+     *
+     * Uses the `DeleteMediaListEntry` mutation. Returns `true` on success,
+     * `false` on failure (not logged in, network error, or the entry didn't exist).
+     *
+     * The caller is responsible for deleting the local cache entry via
+     * `TrackEntryRepository.delete(mainId)`.
+     */
+    suspend fun deleteEntry(trackerId: Int): Boolean = withContext(dispatchers.io) {
+        val token = accessToken ?: run {
+            Logger.w(TAG) { "deleteEntry — not logged in; aborting" }
+            return@withContext false
+        }
+        try {
+            // AniList's DeleteMediaListEntry takes the list entry ID (not the mediaId).
+            // We need to first fetch the entry to get its `id`, then delete by `id`.
+            val existing = fetchEntry(trackerId)
+            val listId = existing?.listId
+            if (listId == null) {
+                Logger.w(TAG) { "deleteEntry — no existing entry for mediaId=$trackerId; nothing to delete" }
+                return@withContext true // not an error — already absent
+            }
+            val query = """
+                mutation (${'$'}id: Int!) {
+                    DeleteMediaListEntry(id: ${'$'}id) {
+                        deleted
+                    }
+                }
+            """.trimIndent()
+            val variables = buildJsonObject { put("id", listId) }
+            val response = executeAuthenticatedQuery(query, variables, token)
+            val root = json.parseToJsonElement(response).jsonObject
+            val errors = root["errors"]?.jsonArray
+            if (errors != null && errors.isNotEmpty()) {
+                val msg = errors.first().jsonObject["message"]?.jsonPrimitive?.content ?: "Unknown API error"
+                Logger.e(TAG) { "deleteEntry — API error: $msg" }
+                return@withContext false
+            }
+            Logger.i(TAG) { "deleteEntry — OK: mediaId=$trackerId, listId=$listId deleted" }
+            true
+        } catch (e: Exception) {
+            Logger.e(TAG, e) { "deleteEntry failed: ${e.message}" }
+            false
+        }
+    }
+
     // ── Private helpers ──
 
     /** Converts an epoch-millis timestamp to AniList's FuzzyDateInput JSON object. */

@@ -1253,25 +1253,39 @@ fun DetailsScreen(
             onProgressChange = viewModel::updateTrackProgress,
             onScoreChange = viewModel::updateTrackScore,
             onDatesChange = viewModel::updateTrackDates,
+            onRemove = viewModel::removeTrackEntry,
             onDismiss = viewModel::dismissTrackSheet,
         )
     }
 
-    // D-242: "Mark all previous episodes as watched" prompt (5s timeout).
+    // D-242: "Mark all previous episodes as watched" — bottom-anchored snackbar
+    // (NOT a fullscreen dialog, per user feedback). 5s timeout with auto-confirm.
     showMarkPreviousPrompt?.let { epNum ->
-        MarkPreviousEpisodesPrompt(
-            episodeNumber = epNum,
-            onConfirm = { viewModel.markAllPreviousWatched(epNum) },
-            onDismiss = viewModel::dismissMarkPreviousPrompt,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            MarkPreviousEpisodesSnackbar(
+                episodeNumber = epNum,
+                onConfirm = { viewModel.markAllPreviousWatched(epNum) },
+                onDismiss = viewModel::dismissMarkPreviousPrompt,
+            )
+        }
     }
 
-    // D-242: "Mark series as watched" prompt (only if FINISHED + all watched).
+    // D-242: "Mark series as watched" — bottom-anchored snackbar (only if FINISHED + all watched).
     if (showMarkSeriesPrompt) {
-        MarkSeriesWatchedPrompt(
-            onConfirm = viewModel::markSeriesAsWatched,
-            onDismiss = viewModel::dismissMarkSeriesPrompt,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            MarkSeriesWatchedSnackbar(
+                onConfirm = viewModel::markSeriesAsWatched,
+                onDismiss = viewModel::dismissMarkSeriesPrompt,
+            )
+        }
     }
 }
 

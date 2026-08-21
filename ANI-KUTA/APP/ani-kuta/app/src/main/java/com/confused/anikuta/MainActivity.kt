@@ -961,11 +961,21 @@ private fun handleDownloadEpisode(
                 displaySource = content.displaySource,
                 anilistId = details?.anilistId,
             )
+            // D-242-fix: defensive fallback — if episode.summary is null (extension
+            // didn't provide it), look up the cached description from the episode
+            // metadata cache (populated by the AniZip/Kitsu metadata engine).
+            val effectiveDescription: String? = episode.summary ?: run {
+                val cache = org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.core.datacache.DataCacheRepository>()
+                cache.getEpisodeMetadata(content.mainId)
+                    .firstOrNull { it.episodeUrl == episode.url }
+                    ?.description
+            }
             val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
                 episodeKey = episode.url,
                 episodeNumber = episode.episode_number,
                 name = episode.name,
-                description = episode.summary,
+                description = effectiveDescription,
             )
 
             // 3. Look up the extension source.
@@ -1099,11 +1109,20 @@ private fun handleDownloadSpecificVideo(
                 displaySource = content.displaySource,
                 anilistId = details?.anilistId,
             )
+            // D-242-fix: defensive fallback — if episode.summary is null, look up
+            // the cached description from the episode metadata cache.
+            val effectiveDescriptionSpecific: String? = episode.summary ?: run {
+                val cache = org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.core.datacache.DataCacheRepository>()
+                cache.getEpisodeMetadata(content.mainId)
+                    .firstOrNull { it.episodeUrl == episode.url }
+                    ?.description
+            }
             val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
                 episodeKey = episode.url,
                 episodeNumber = episode.episode_number,
                 name = episode.name,
-                description = episode.summary,
+                description = effectiveDescriptionSpecific,
             )
 
             val sourceId = contentInfo.sourceId
