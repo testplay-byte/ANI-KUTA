@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -482,12 +483,10 @@ class DetailsViewModel(
             ) { epState, entry ->
                 if (entry != null && epState is EpisodeState.Loaded) entry to epState.episodes
                 else null
-            }.collect { (entry, episodes) ->
-                if (entry != null && episodes.isNotEmpty()) {
-                    _pendingRemoteTrackEntry.value = null // consume
-                    runCatching { syncLocalProgressFromTracker(entry, episodes) }
-                        .onFailure { Logger.w(TAG) { "pendingRemoteTrackEntry sync failed: ${it.message}" } }
-                }
+            }.filterNotNull().collect { (entry, episodes) ->
+                _pendingRemoteTrackEntry.value = null // consume
+                runCatching { syncLocalProgressFromTracker(entry, episodes) }
+                    .onFailure { Logger.w(TAG) { "pendingRemoteTrackEntry sync failed: ${it.message}" } }
             }
         }
     }
@@ -682,6 +681,7 @@ class DetailsViewModel(
 
         _showTrackSheet.value = false
         _trackEntry.value = null
+        _pendingRemoteTrackEntry.value = null // D-242-fix: prevent stale entry from applying to wrong anime
 
         viewModelScope.launch {
             // D-242-fix: split into separate runCatching blocks so local cache
@@ -1014,6 +1014,7 @@ class DetailsViewModel(
         _refreshState.value = RefreshState.Idle
         // D-242: Reset tracking state.
         _trackEntry.value = null
+        _pendingRemoteTrackEntry.value = null // D-242-fix: prevent stale entry from applying to wrong anime
         _showTrackSheet.value = false
         _showMarkPreviousPrompt.value = null
         _showMarkSeriesPrompt.value = false
@@ -1589,6 +1590,7 @@ class DetailsViewModel(
         _refreshState.value = RefreshState.Idle
         // D-242: Reset tracking state.
         _trackEntry.value = null
+        _pendingRemoteTrackEntry.value = null // D-242-fix: prevent stale entry from applying to wrong anime
         _showTrackSheet.value = false
         _showMarkPreviousPrompt.value = null
         _showMarkSeriesPrompt.value = false
