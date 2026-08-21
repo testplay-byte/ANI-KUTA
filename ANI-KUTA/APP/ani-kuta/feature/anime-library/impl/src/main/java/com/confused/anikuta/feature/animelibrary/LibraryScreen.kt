@@ -2552,9 +2552,10 @@ private fun DeleteSelectedDialog(
  * D-242-fix7: A leaf-shaped cover badge — small, color-coded, positioned at a corner.
  * The shape has one rounded corner (pointing away from the cover edge) + one flat side
  * (hugging the cover edge). Color is semi-transparent for blend with the cover.
+ * NOTE: Must be called inside a BoxScope (the parent Box provides the alignment).
  */
 @Composable
-private fun CoverBadge(
+private fun BoxScope.CoverBadge(
     text: String,
     position: BadgePosition,
     color: Color,
