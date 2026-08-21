@@ -105,10 +105,15 @@ class TrackSyncManager(
                     val cached = trackEntryRepository.get(contentKey, tracker.type)
                     val now = System.currentTimeMillis()
 
+                    // D-242-fix: capture into local vars to enable smart-casting
+                    // (can't smart-cast public API properties from a different module).
+                    val cachedStartedAt = cached?.startedAt
+                    val cachedCompletedAt = cached?.completedAt
+
                     // D-242-fix: set startedAt on the first watch transition
                     // (null/PLAN_TO_WATCH → WATCHING/COMPLETED). Preserve once set.
                     val startedAt = when {
-                        cached?.startedAt != null && cached.startedAt > 0 -> cached.startedAt
+                        cachedStartedAt != null && cachedStartedAt > 0 -> cachedStartedAt
                         status == TrackStatus.WATCHING ||
                             status == TrackStatus.COMPLETED ||
                             status == TrackStatus.PAUSED ||
@@ -118,8 +123,8 @@ class TrackSyncManager(
                     // D-242-fix: set completedAt when status becomes COMPLETED.
                     val completedAt = when {
                         status == TrackStatus.COMPLETED &&
-                            (cached?.completedAt == null || cached.completedAt <= 0) -> now
-                        status == TrackStatus.COMPLETED -> cached?.completedAt
+                            (cachedCompletedAt == null || cachedCompletedAt <= 0) -> now
+                        status == TrackStatus.COMPLETED -> cachedCompletedAt
                         else -> null
                     }
 
