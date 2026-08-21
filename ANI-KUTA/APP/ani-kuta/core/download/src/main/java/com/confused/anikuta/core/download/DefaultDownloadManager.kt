@@ -107,9 +107,20 @@ class DefaultDownloadManager(
         // FIX: Also refresh episodeDownloadStates when _downloadedEpisodes changes
         // (covers the case where a download completes + auto-clears from the queue
         // — the downloaded_episode table is the source of truth).
+        // D-242-fix3: Also REMOVE stale COMPLETED entries for episodes no longer in
+        // the DB (deleted). Without this, the details page showed deleted episodes
+        // as "Downloaded" because the map still had the old entry.
         scope.launch {
             _downloadedEpisodes.collect { downloaded ->
                 val current = _episodeDownloadStates.value.toMutableMap()
+                val downloadedKeys = downloaded
+                    .map { "${it.content.mainId}|${it.episode.episodeKey}" }
+                    .toSet()
+                // Remove COMPLETED entries for episodes no longer in the DB (deleted).
+                // Don't touch active states (DOWNLOADING/QUEUED/etc.) — those are queue-owned.
+                current.keys
+                    .filter { it !in downloadedKeys && current[it]?.first == DownloadStatus.COMPLETED }
+                    .forEach { current.remove(it) }
                 for (ep in downloaded) {
                     val key = "${ep.content.mainId}|${ep.episode.episodeKey}"
                     if (key !in current || current[key]?.first != DownloadStatus.DOWNLOADING) {
@@ -208,14 +219,11 @@ class DefaultDownloadManager(
     override suspend fun deleteDownloadedEpisode(mainId: String, episodeKey: String) {
         DownloadLogger.i { "deleteDownloadedEpisode — mainId=$mainId, episodeKey=$episodeKey" }
 
-        // D-242-fix: Delete files by URI (from .data.json) instead of by filename
-        // matching. The old code used episodeKey.substringAfter('|') to extract
-        // the episode number, but episodeKey is now SEpisode.url (no '|'), so
-        // numStr was always empty and file.delete() was NEVER called.
+        // D-242-fix3: Delete files by URI (from .data.json) instead of by filename
+        // matching. Read the episode entry BEFORE removing it from .data.json.
         runCatching {
             val contentDir = storage.findContentFolder(mainId)
             if (contentDir != null) {
-                // Read the episode entry from .data.json to get its file URIs.
                 val dataJson = storage.readDataJson(contentDir)
                 val entry = dataJson?.episodes?.firstOrNull { it.episodeKey == episodeKey }
 
@@ -248,8 +256,7 @@ class DefaultDownloadManager(
                 }
             } else {
                 DownloadLogger.w {
-                    "deleteDownloadedEpisode — content folder not found for mainId=$mainId; " +
-                        "skipping file deletion"
+                    "deleteDownloadedEpisode — content folder not found for mainId=$mainId"
                 }
             }
         }.onFailure { e ->
@@ -260,21 +267,18 @@ class DefaultDownloadManager(
         store.deleteDownloadedEpisode(mainId, episodeKey)
 
         // 3. Remove this episode from the on-disk `.data.json` episodes list.
+        // D-242-fix3: Do NOT delete the content folder here even if episodes is
+        // empty — SAF caching can cause readDataJson to return a stale (empty)
+        // list right after removeEpisodeFromDataJson writes, which would delete
+        // the folder + remaining episodes. Folder cleanup is deferred to the
+        // scanner (which runs on startup + after folder selection).
         runCatching {
             val contentDir = storage.findContentFolder(mainId)
             if (contentDir != null) {
                 storage.removeEpisodeFromDataJson(contentDir, episodeKey)
-
-                // D-242-fix: If the episodes list is now empty, delete the entire
-                // content folder (including .data.json, cover.jpg, .nomedia, etc.).
-                // The user expects that deleting all episodes removes everything.
-                val updated = storage.readDataJson(contentDir)
-                if (updated == null || updated.episodes.isEmpty()) {
-                    DownloadLogger.i {
-                        "deleteDownloadedEpisode — no episodes remaining; " +
-                            "deleting content folder: ${contentDir.name}"
-                    }
-                    contentDir.delete()
+                DownloadLogger.i {
+                    "deleteDownloadedEpisode — removed episode from .data.json " +
+                        "(episodeKey=$episodeKey)"
                 }
             }
         }.onFailure { e ->
@@ -283,7 +287,7 @@ class DefaultDownloadManager(
             }
         }
 
-        // 4. Refresh the cache.
+        // 4. Refresh the cache (always — even if prior steps failed).
         refreshDownloadedEpisodes()
     }
 

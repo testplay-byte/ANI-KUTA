@@ -168,6 +168,9 @@ fun SearchScreen(
 
         // Scrollable content
         Box(modifier = Modifier.fillMaxSize()) {
+            // D-242-fix3: Show recents ABOVE the results (collapsed by default)
+            // when results are displayed. Previously recents only showed in Idle
+            // state — they disappeared as soon as results loaded.
             when (uiState) {
                 is SearchUiState.Idle -> {
                     Column(
@@ -199,18 +202,47 @@ fun SearchScreen(
                     }
                 }
 
-                SearchUiState.Loading -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                SearchUiState.Loading -> {
+                    // Show collapsed recents above the loading spinner.
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (recents.isNotEmpty()) {
+                            RecentSearchesCard(
+                                recents = recents,
+                                collapsed = true, // always collapsed when loading/results
+                                onToggleCollapsed = viewModel::toggleRecentsCollapsed,
+                                onPick = viewModel::onPickRecent,
+                                onRemove = viewModel::onRemoveRecent,
+                                onClear = viewModel::onClearRecents,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
 
-                SearchUiState.Empty -> SearchPromptCard(
-                    title = "No results",
-                    description = "Try a different title or sort option.",
-                    icon = Icons.Filled.SearchOff,
-                )
+                SearchUiState.Empty -> {
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
+                        if (recents.isNotEmpty()) {
+                            RecentSearchesCard(
+                                recents = recents,
+                                collapsed = true,
+                                onToggleCollapsed = viewModel::toggleRecentsCollapsed,
+                                onPick = viewModel::onPickRecent,
+                                onRemove = viewModel::onRemoveRecent,
+                                onClear = viewModel::onClearRecents,
+                            )
+                        }
+                        SearchPromptCard(
+                            title = "No results",
+                            description = "Try a different title or sort option.",
+                            icon = Icons.Filled.SearchOff,
+                        )
+                    }
+                }
 
                 SearchUiState.Error -> SearchPromptCard(
                     title = "AniList is being a tsundere",
@@ -276,23 +308,49 @@ fun SearchScreen(
                 }
 
                 is SearchUiState.Success -> {
-                    val results = (uiState as SearchUiState.Success).results
-                    ResultsGrid(
-                        results = results,
-                        gridState = gridState,
-                        onResultTap = onNavigateToDetails,
-                    )
+                    // D-242-fix3: Show collapsed recents above results.
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (recents.isNotEmpty()) {
+                            RecentSearchesCard(
+                                recents = recents,
+                                collapsed = true,
+                                onToggleCollapsed = viewModel::toggleRecentsCollapsed,
+                                onPick = viewModel::onPickRecent,
+                                onRemove = viewModel::onRemoveRecent,
+                                onClear = viewModel::onClearRecents,
+                            )
+                        }
+                        val results = (uiState as SearchUiState.Success).results
+                        ResultsGrid(
+                            results = results,
+                            gridState = gridState,
+                            onResultTap = onNavigateToDetails,
+                        )
+                    }
                 }
 
                 is SearchUiState.ExtensionSuccess -> {
-                    val results = (uiState as SearchUiState.ExtensionSuccess).results
-                    ExtensionResultsGrid(
-                        results = results,
-                        gridState = gridState,
-                        onResultTap = { anime ->
-                            onNavigateToExtensionAnime(anime.sourceId, anime.url, anime.title, anime.thumbnailUrl)
-                        },
-                    )
+                    // D-242-fix3: Show collapsed recents above extension results.
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (recents.isNotEmpty()) {
+                            RecentSearchesCard(
+                                recents = recents,
+                                collapsed = true,
+                                onToggleCollapsed = viewModel::toggleRecentsCollapsed,
+                                onPick = viewModel::onPickRecent,
+                                onRemove = viewModel::onRemoveRecent,
+                                onClear = viewModel::onClearRecents,
+                            )
+                        }
+                        val results = (uiState as SearchUiState.ExtensionSuccess).results
+                        ExtensionResultsGrid(
+                            results = results,
+                            gridState = gridState,
+                            onResultTap = { anime ->
+                                onNavigateToExtensionAnime(anime.sourceId, anime.url, anime.title, anime.thumbnailUrl)
+                            },
+                        )
+                    }
                 }
             }
 

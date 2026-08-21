@@ -49,6 +49,7 @@ class LibraryViewModel(
         private const val KEY_SHOW_CATEGORY_COUNTS = "library_show_category_counts"
         private const val KEY_SORT_TYPE = "library_sort_type"
         private const val KEY_SORT_ASCENDING = "library_sort_ascending"
+        private const val KEY_SELECTED_CATEGORY = "library_selected_category_id"
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
@@ -424,6 +425,9 @@ class LibraryViewModel(
      */
     fun selectCategory(categoryId: Long?) {
         _selectedCategoryId.value = categoryId
+        // D-242-fix3: persist the selected category across app restarts.
+        // -1L sentinel = "All" (null selection).
+        preferenceStore.putLong(KEY_SELECTED_CATEGORY, categoryId ?: -1L)
         reloadFromCache()
     }
 
@@ -735,6 +739,11 @@ class LibraryViewModel(
         _showContinueWatching.value = preferenceStore.getBoolean(KEY_SHOW_CONTINUE_WATCHING, true)
         _showTotalEntries.value = preferenceStore.getBoolean(KEY_SHOW_TOTAL_ENTRIES, true)
         _showCategoryCounts.value = preferenceStore.getBoolean(KEY_SHOW_CATEGORY_COUNTS, false)
+
+        // D-242-fix3: restore last-selected category across app restarts.
+        // -1L sentinel = "All" (null selection).
+        val savedCatId = preferenceStore.getLong(KEY_SELECTED_CATEGORY, -1L)
+        _selectedCategoryId.value = if (savedCatId == -1L) null else savedCatId
     }
 
     private fun applyFilters() {
