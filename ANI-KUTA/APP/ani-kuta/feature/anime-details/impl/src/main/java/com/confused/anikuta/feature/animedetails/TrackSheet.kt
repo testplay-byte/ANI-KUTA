@@ -304,11 +304,19 @@ private fun StatusDropdown(
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Text(
-                    "Change",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Change",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
         DropdownMenu(
@@ -349,6 +357,13 @@ private fun ProgressScrollable(
     // D-242-fix: clamp display progress to [0, totalEpisodes] so stale tracker
     // data (progress > total) doesn't break the chip highlighting.
     val displayProgress = currentProgress.coerceIn(0, totalEpisodes)
+
+    // D-242-fix: auto-scroll to the current progress chip on first composition.
+    androidx.compose.runtime.LaunchedEffect(displayProgress, totalEpisodes) {
+        if (displayProgress > 0) {
+            listState.scrollToItem(displayProgress.coerceAtLeast(0))
+        }
+    }
 
     Text(
         "Progress: $displayProgress / $totalEpisodes",

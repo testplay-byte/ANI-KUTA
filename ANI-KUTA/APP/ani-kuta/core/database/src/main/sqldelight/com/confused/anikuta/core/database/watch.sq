@@ -107,6 +107,19 @@ WHERE episode_key = ?;
 getWatchedEpisodeCount:
 SELECT COUNT(*) FROM watch_progress WHERE main_id = ? AND completed = 1;
 
+-- D-242-fix: Get the HIGHEST watched episode number for an anime.
+-- Used by DetailsViewModel.relayWatchProgressIfNeeded to compute AniList progress.
+-- AniList progress = the episode number the user has watched up to (not count).
+-- Episode key format: "${mainId}|${padded_5_digit}" — extract the number after '|'.
+getHighestWatchedEpisodeNumber:
+SELECT COALESCE(
+    MAX(CAST(SUBSTR(episode_key, INSTR(episode_key, '|') + 1) AS INTEGER)),
+    0
+)
+FROM watch_progress
+WHERE main_id = :mainId
+  AND ((completed = 1 AND auto_mark_suppressed = 0) OR user_marked_watched = 1);
+
 -- Phase WP: Clear all progress for an anime (for library-remove — S3).
 clearByMainId:
 DELETE FROM watch_progress WHERE main_id = ?;

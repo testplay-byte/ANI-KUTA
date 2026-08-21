@@ -98,6 +98,14 @@ interface WatchProgressStore {
     suspend fun getWatchedEpisodeCount(mainId: String): Int
 
     /**
+     * D-242-fix: Get the HIGHEST watched episode number for an anime.
+     * Used by DetailsViewModel to compute AniList progress (AniList progress =
+     * the episode number the user has watched up to, NOT the count of watched episodes).
+     * Returns 0 if no episodes are watched.
+     */
+    suspend fun getHighestWatchedEpisodeNumber(mainId: String): Int
+
+    /**
      * D-242: Mark all episodes from 1 to [upToEpisodeNumber] (inclusive) as
      * watched for the given [mainId]. Used by the "mark all previous episodes"
      * prompt when the user marks episode N as watched but 1..N-1 aren't.

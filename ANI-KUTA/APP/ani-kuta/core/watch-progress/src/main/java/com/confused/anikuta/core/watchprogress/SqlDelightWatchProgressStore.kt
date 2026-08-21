@@ -231,6 +231,10 @@ class SqlDelightWatchProgressStore(
         database.watchQueries.getWatchedEpisodeCount(mainId).executeAsOne().toInt()
     }
 
+    override suspend fun getHighestWatchedEpisodeNumber(mainId: String): Int = withContext(dispatchers) {
+        database.watchQueries.getHighestWatchedEpisodeNumber(mainId).executeAsOne().toInt()
+    }
+
     /**
      * D-242: Mark all episodes in [episodeKeys] as watched (sticky).
      * Delegates to [setUserMarkedWatched] for each key — reuses the INSERT-or-UPDATE

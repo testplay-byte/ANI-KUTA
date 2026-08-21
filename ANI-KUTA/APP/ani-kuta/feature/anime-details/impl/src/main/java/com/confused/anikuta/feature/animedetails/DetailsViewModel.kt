@@ -380,21 +380,20 @@ class DetailsViewModel(
 
         if (!tracker.isLoggedIn()) return
 
-        // D-242-fix: query the DB DIRECTLY for the watched count. The StateFlow
-        // `watchProgress.value` is stale here — the DB write in toggleWatched just
-        // committed but the Flow chain (mapToList → map → stateIn) hasn't re-emitted
-        // yet. This was the root cause of "3 marked but 2 shown" — the StateFlow
-        // lagged by one toggle.
-        val watchedCount = watchProgressStore.getWatchedEpisodeCount(mid)
+        // D-242-fix: query the DB DIRECTLY for the highest watched episode number.
+        // AniList progress = the episode number the user has watched up to (NOT count).
+        // If the user marks episode 5 (skipping 3, 4), progress should be 5 — AniList
+        // assumes 1..N are all watched.
+        val highestWatched = watchProgressStore.getHighestWatchedEpisodeNumber(mid)
 
         // Also get the episode list to determine totalEps + isFinished.
         val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
         val totalEps = details.dataEpisodes?.toInt() ?: episodes?.size ?: 0
         val anime = (state.value as? DetailsState.Success)?.anime
         val isFinished = anime?.status == "FINISHED"
-        val newStatus = if (watchedCount >= totalEps && totalEps > 0 && isFinished) {
+        val newStatus = if (highestWatched >= totalEps && totalEps > 0 && isFinished) {
             com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
-        } else if (watchedCount > 0) {
+        } else if (highestWatched > 0) {
             com.confused.anikuta.core.trackerapi.TrackStatus.WATCHING
         } else {
             com.confused.anikuta.core.trackerapi.TrackStatus.PLAN_TO_WATCH
@@ -402,7 +401,7 @@ class DetailsViewModel(
 
         syncMgr.relayWatchEvent(
             contentKey = mid,
-            episodeNumber = watchedCount.toDouble(),
+            episodeNumber = highestWatched.toDouble(),
             status = newStatus,
         )
     }
@@ -462,6 +461,36 @@ class DetailsViewModel(
     /** D-242: Whether the user is logged in to AniList (for the TrackSheet). */
     private val _isTrackerLoggedIn = kotlinx.coroutines.flow.MutableStateFlow(false)
     val isTrackerLoggedIn: kotlinx.coroutines.flow.StateFlow<Boolean> = _isTrackerLoggedIn.asStateFlow()
+
+    /**
+     * D-242-fix: Pending remote track entry that hasn't been synced to local
+     * watch_progress yet (because the episode list wasn't loaded when
+     * refreshTracking ran). An observer combines this with episodeState and
+     * applies the sync once both are ready.
+     */
+    private val _pendingRemoteTrackEntry = kotlinx.coroutines.flow.MutableStateFlow<com.confused.anikuta.core.trackerapi.TrackEntry?>(null)
+
+    init {
+        // D-242-fix: Observe both episodeState + pendingRemoteTrackEntry.
+        // When both are ready, apply the sync (mark local episodes as watched
+        // based on the remote AniList track entry). This fixes the race condition
+        // where refreshTracking runs before the episode list has loaded.
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(
+                episodeState,
+                _pendingRemoteTrackEntry,
+            ) { epState, entry ->
+                if (entry != null && epState is EpisodeState.Loaded) entry to epState.episodes
+                else null
+            }.collect { (entry, episodes) ->
+                if (entry != null && episodes.isNotEmpty()) {
+                    _pendingRemoteTrackEntry.value = null // consume
+                    runCatching { syncLocalProgressFromTracker(entry, episodes) }
+                        .onFailure { Logger.w(TAG) { "pendingRemoteTrackEntry sync failed: ${it.message}" } }
+                }
+            }
+        }
+    }
 
     /** Whether the "mark all previous episodes" prompt should be shown (with the episode number). */
     private val _showMarkPreviousPrompt = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
@@ -1430,10 +1459,11 @@ class DetailsViewModel(
                 _trackEntry.value = entry
                 Logger.i(TAG) { "refreshTracking — fetched from AniList: $entry" }
 
-                // D-242-fix: sync remote progress → local watch_progress so the
-                // episode list shows watched checkmarks for episodes the user has
-                // already completed on AniList.
-                syncLocalProgressFromTracker(entry)
+                // D-242-fix: set the pending entry so the init{} observer can
+                // sync it to local watch_progress once the episode list is loaded.
+                // This fixes the race condition where refreshTracking runs before
+                // the episode list has loaded (episodeState is still Loading/Idle).
+                _pendingRemoteTrackEntry.value = entry
             }
         }.onFailure { e ->
             Logger.w(TAG) { "refreshTracking failed (non-fatal): ${e.message}" }
@@ -1442,27 +1472,21 @@ class DetailsViewModel(
 
     /**
      * D-242-fix: Syncs the remote AniList track entry's progress INTO the local
-     * `watch_progress` table. Called after [refreshTracking] fetches the entry.
+     * `watch_progress` table. Called by the init{} observer when BOTH the track
+     * entry AND the episode list are ready.
      *
      * Two paths (whichever marks MORE episodes wins — they're additive):
-     *  - If status == COMPLETED → mark ALL episodes in the loaded episode list as watched.
+     *  - If status == COMPLETED → mark ALL episodes as watched.
      *  - If progress > 0 → mark episodes 1..progress as watched.
      *
-     * Safe against local-ahead-of-remote: `setUserMarkedWatched` is monotonic —
-     * it only flips episodes TO watched, never FROM watched. Episodes already
-     * watched locally stay watched.
-     *
-     * No-ops if the episode list isn't loaded yet (the keys can't be built).
+     * Safe against local-ahead-of-remote: `setUserMarkedWatched` is monotonic.
      */
     private suspend fun syncLocalProgressFromTracker(
         entry: com.confused.anikuta.core.trackerapi.TrackEntry,
+        episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
     ) {
         val mid = currentMainId ?: return
-        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
-        if (episodes.isNullOrEmpty()) {
-            Logger.w(TAG) { "syncLocalProgressFromTracker — episode list not loaded yet; skipping" }
-            return
-        }
+        if (episodes.isEmpty()) return
 
         val isCompleted = entry.status == com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
         val remoteProgress = entry.progress
