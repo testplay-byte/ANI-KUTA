@@ -250,7 +250,12 @@ class AniListTracker(
                         description = media["description"]?.jsonPrimitive?.content,
                     )
                 }
-                result[status] = mediaEntries
+                // D-242-fix: MERGE instead of overwrite. AniList's MediaListCollection
+                // can return multiple MediaListGroup objects with the SAME status
+                // (e.g. when "Split Completed List" is enabled, or when lists exceed
+                // ~5000 entries and are auto-chunked). The old code overwrote, keeping
+                // only the last chunk — now we merge all chunks for the same status.
+                result[status] = result[status].orEmpty() + mediaEntries
             }
             Logger.i(TAG) { "Fetched ${result.values.sumOf { it.size }} media entries across ${result.size} lists" }
             result

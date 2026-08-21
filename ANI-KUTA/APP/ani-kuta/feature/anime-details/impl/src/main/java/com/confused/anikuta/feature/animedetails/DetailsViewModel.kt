@@ -380,21 +380,21 @@ class DetailsViewModel(
 
         if (!tracker.isLoggedIn()) return
 
-        // Compute the AniList progress (highest watched episode number).
-        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return
-        val watchProgressMap = watchProgress.value
-        val highestWatched = episodes.maxOfOrNull { ep ->
-            val n = ep.episode_number.toInt()
-            val key = "$mid|${String.format("%05d", n)}"
-            if (watchProgressMap[key]?.isWatched == true) n else 0
-        } ?: 0
+        // D-242-fix: query the DB DIRECTLY for the watched count. The StateFlow
+        // `watchProgress.value` is stale here — the DB write in toggleWatched just
+        // committed but the Flow chain (mapToList → map → stateIn) hasn't re-emitted
+        // yet. This was the root cause of "3 marked but 2 shown" — the StateFlow
+        // lagged by one toggle.
+        val watchedCount = watchProgressStore.getWatchedEpisodeCount(mid)
 
-        val totalEps = details.dataEpisodes?.toInt() ?: episodes.size
+        // Also get the episode list to determine totalEps + isFinished.
+        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
+        val totalEps = details.dataEpisodes?.toInt() ?: episodes?.size ?: 0
         val anime = (state.value as? DetailsState.Success)?.anime
         val isFinished = anime?.status == "FINISHED"
-        val newStatus = if (highestWatched >= totalEps && isFinished) {
+        val newStatus = if (watchedCount >= totalEps && totalEps > 0 && isFinished) {
             com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
-        } else if (highestWatched > 0) {
+        } else if (watchedCount > 0) {
             com.confused.anikuta.core.trackerapi.TrackStatus.WATCHING
         } else {
             com.confused.anikuta.core.trackerapi.TrackStatus.PLAN_TO_WATCH
@@ -402,7 +402,7 @@ class DetailsViewModel(
 
         syncMgr.relayWatchEvent(
             contentKey = mid,
-            episodeNumber = highestWatched.toDouble(),
+            episodeNumber = watchedCount.toDouble(),
             status = newStatus,
         )
     }
@@ -1177,6 +1177,11 @@ class DetailsViewModel(
                 _state.value = DetailsState.Error(e.message ?: "Unknown error")
             }
         }
+
+        // D-242-fix: Fetch the AniList track entry + sync its progress into
+        // local watch_progress so the episode list reflects AniList state.
+        // Only fires if the anime has an anilistId + the user is logged in.
+        refreshTracking()
     }
 
     /**
@@ -1414,9 +1419,64 @@ class DetailsViewModel(
                 repo.upsert(entry)
                 _trackEntry.value = entry
                 Logger.i(TAG) { "refreshTracking — fetched from AniList: $entry" }
+
+                // D-242-fix: sync remote progress → local watch_progress so the
+                // episode list shows watched checkmarks for episodes the user has
+                // already completed on AniList.
+                syncLocalProgressFromTracker(entry)
             }
         }.onFailure { e ->
             Logger.w(TAG) { "refreshTracking failed (non-fatal): ${e.message}" }
+        }
+    }
+
+    /**
+     * D-242-fix: Syncs the remote AniList track entry's progress INTO the local
+     * `watch_progress` table. Called after [refreshTracking] fetches the entry.
+     *
+     * Two paths (whichever marks MORE episodes wins — they're additive):
+     *  - If status == COMPLETED → mark ALL episodes in the loaded episode list as watched.
+     *  - If progress > 0 → mark episodes 1..progress as watched.
+     *
+     * Safe against local-ahead-of-remote: `setUserMarkedWatched` is monotonic —
+     * it only flips episodes TO watched, never FROM watched. Episodes already
+     * watched locally stay watched.
+     *
+     * No-ops if the episode list isn't loaded yet (the keys can't be built).
+     */
+    private suspend fun syncLocalProgressFromTracker(
+        entry: com.confused.anikuta.core.trackerapi.TrackEntry,
+    ) {
+        val mid = currentMainId ?: return
+        val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
+        if (episodes.isNullOrEmpty()) {
+            Logger.w(TAG) { "syncLocalProgressFromTracker — episode list not loaded yet; skipping" }
+            return
+        }
+
+        val isCompleted = entry.status == com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
+        val remoteProgress = entry.progress
+
+        val keysToMark: List<String> = if (isCompleted) {
+            episodes.map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+        } else if (remoteProgress > 0) {
+            episodes
+                .filter { it.episode_number.toInt() in 1..remoteProgress }
+                .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+        } else {
+            emptyList()
+        }
+
+        if (keysToMark.isEmpty()) {
+            Logger.d(TAG) { "syncLocalProgressFromTracker — nothing to mark (status=${entry.status}, progress=$remoteProgress)" }
+            return
+        }
+
+        // Monotonic write — only flips TO watched, never downgrades.
+        watchProgressStore.markAllWatched(mid, keysToMark)
+        Logger.i(TAG) {
+            "syncLocalProgressFromTracker — marked ${keysToMark.size} episodes " +
+                "from AniList (status=${entry.status}, progress=$remoteProgress, completed=$isCompleted)"
         }
     }
 
@@ -1588,6 +1648,10 @@ class DetailsViewModel(
                 tryCachedExtensionData(sourceId, animeUrl, title, thumbnailUrl)
             }
         }
+
+        // D-242-fix: Fetch the AniList track entry (if auto-linked) + sync its
+        // progress into local watch_progress so the episode list reflects AniList.
+        refreshTracking()
     }
 
     /**

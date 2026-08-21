@@ -547,6 +547,7 @@ fun LibraryScreen(
                             LibraryList(
                                 entries = s.entries,
                                 listState = listState,
+                                titleLines = titleLines,
                                 isSelectionMode = isSelectionMode,
                                 selectedMainIds = selectedMainIds,
                                 onClickEntry = onEntryClick,
@@ -2093,6 +2094,7 @@ private fun LibraryGridCard(
 private fun LibraryList(
     entries: List<LibraryEntry>,
     listState: LazyListState,
+    titleLines: Int,
     isSelectionMode: Boolean,
     selectedMainIds: Set<String>,
     onClickEntry: (LibraryEntry) -> Unit,
@@ -2116,6 +2118,7 @@ private fun LibraryList(
                 isSelected = item.mainId in selectedMainIds,
                 onClick = onClickEntry,
                 onLongClick = onLongClickEntry,
+                titleLines = titleLines,
             )
         }
     }
@@ -2128,6 +2131,7 @@ private fun LibraryListRow(
     isSelected: Boolean,
     onClick: (LibraryEntry) -> Unit,
     onLongClick: (LibraryEntry) -> Unit,
+    titleLines: Int = 1,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2209,7 +2213,7 @@ private fun LibraryListRow(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 2,
+                maxLines = titleLines,
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))

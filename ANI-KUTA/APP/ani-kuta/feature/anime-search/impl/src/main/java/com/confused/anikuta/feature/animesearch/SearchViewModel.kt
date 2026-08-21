@@ -279,6 +279,11 @@ class SearchViewModel(
                         loadExtensionPopular()
                     }
                 } else {
+                    // D-242-fix: record the search term in history. The debounce +
+                    // distinctUntilChanged upstream ensures one add per distinct term.
+                    // Without this, type-ahead searches were never saved to history
+                    // (only explicit submit via the search icon was saved).
+                    addRecent(q.trim())
                     search(q)
                 }
             }

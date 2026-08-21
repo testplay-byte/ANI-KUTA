@@ -103,6 +103,26 @@ class TrackSyncManager(
                 try {
                     // Fetch the cached entry (to preserve score/dates) or build a new one.
                     val cached = trackEntryRepository.get(contentKey, tracker.type)
+                    val now = System.currentTimeMillis()
+
+                    // D-242-fix: set startedAt on the first watch transition
+                    // (null/PLAN_TO_WATCH → WATCHING/COMPLETED). Preserve once set.
+                    val startedAt = when {
+                        cached?.startedAt != null && cached.startedAt > 0 -> cached.startedAt
+                        status == TrackStatus.WATCHING ||
+                            status == TrackStatus.COMPLETED ||
+                            status == TrackStatus.PAUSED ||
+                            status == TrackStatus.REWATCHING -> now
+                        else -> null
+                    }
+                    // D-242-fix: set completedAt when status becomes COMPLETED.
+                    val completedAt = when {
+                        status == TrackStatus.COMPLETED &&
+                            (cached?.completedAt == null || cached.completedAt <= 0) -> now
+                        status == TrackStatus.COMPLETED -> cached?.completedAt
+                        else -> null
+                    }
+
                     val entry = (cached ?: TrackEntry(
                         contentKey = contentKey,
                         trackerId = anilistId,
@@ -111,7 +131,9 @@ class TrackSyncManager(
                         progress = episodeNumber.toInt(),
                         score = score ?: cached?.score,
                         totalEpisodes = details.dataEpisodes?.toInt() ?: cached?.totalEpisodes,
-                        updatedAt = System.currentTimeMillis(),
+                        startedAt = startedAt,
+                        completedAt = completedAt,
+                        updatedAt = now,
                     )
 
                     val success = tracker.syncEntry(entry)

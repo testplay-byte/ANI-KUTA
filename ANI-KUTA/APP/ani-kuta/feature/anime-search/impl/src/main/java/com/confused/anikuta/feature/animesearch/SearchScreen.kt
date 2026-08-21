@@ -421,7 +421,7 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
             )
@@ -605,7 +605,7 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
             )

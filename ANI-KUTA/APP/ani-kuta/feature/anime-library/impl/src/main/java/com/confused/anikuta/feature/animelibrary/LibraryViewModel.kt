@@ -113,7 +113,8 @@ class LibraryViewModel(
     private val _columns = MutableStateFlow(3)
     val columns: StateFlow<Int> = _columns
 
-    private val _titleLines = MutableStateFlow(2)
+    // D-242-fix: default to 1 line (user can select 2 or 3 in the Customize sheet).
+    private val _titleLines = MutableStateFlow(1)
     val titleLines: StateFlow<Int> = _titleLines
 
     private val _episodeBadgeMode = MutableStateFlow(EpisodeBadgeMode.OFF)
@@ -717,7 +718,7 @@ class LibraryViewModel(
             .getString(KEY_DISPLAY_MODE, LibraryDisplayMode.COMPACT_GRID.name)
             .let { runCatching { LibraryDisplayMode.valueOf(it) }.getOrDefault(LibraryDisplayMode.COMPACT_GRID) }
         _columns.value = preferenceStore.getInt(KEY_COLUMNS, 3).coerceIn(2, 5)
-        _titleLines.value = preferenceStore.getInt(KEY_TITLE_LINES, 2).coerceIn(1, 3)
+        _titleLines.value = preferenceStore.getInt(KEY_TITLE_LINES, 1).coerceIn(1, 3)
 
         _episodeBadgeMode.value = preferenceStore
             .getString(KEY_EPISODE_BADGE_MODE, EpisodeBadgeMode.OFF.name)

@@ -1,15 +1,12 @@
 package com.confused.anikuta.feature.animedetails
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,11 +16,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -31,13 +29,14 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,11 +50,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.trackerapi.TrackEntry
@@ -65,17 +62,18 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * D-242: The TrackSheet — a bottom sheet for managing AniList tracking.
+ * D-242: The TrackSheet — a clean, minimal bottom sheet for AniList tracking.
  *
- * Redesigned for a modern, minimal, beautiful aesthetic:
- *  - Clean header with gradient accent
- *  - Card-based sections (Status, Progress, Score, Dates)
- *  - FlowRow for status chips (wraps naturally)
- *  - Smooth animations on selection
- *  - Remove button at the bottom with confirmation dialog
+ * Design principles (per user feedback):
+ *  - Shows the SERIES NAME as the header (not "AniList Tracking")
+ *  - No drag handle (cleaner look)
+ *  - Status is a dropdown (tap to see options, not all chips at once)
+ *  - Progress is a scrollable LazyRow (select episode number by scrolling)
+ *  - Score is a scrollable LazyRow (select rating by scrolling)
+ *  - Dates are simple rows with date pickers
+ *  - Remove button at the bottom
  *
- * Design language: follows the app's design (lime accent, warm darks,
- * translucent surfaces, rounded corners, per §22).
+ * Follows the app's design language (theme-colored, dark/light mode aware).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,6 +81,7 @@ fun TrackSheet(
     trackEntry: TrackEntry?,
     isLoggedIn: Boolean,
     totalEpisodes: Int?,
+    seriesTitle: String,
     onStatusChange: (TrackStatus) -> Unit,
     onProgressChange: (Int) -> Unit,
     onScoreChange: (Int) -> Unit,
@@ -100,17 +99,7 @@ fun TrackSheet(
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = {
-            // Minimal drag handle — a small pill
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 12.dp)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
-            )
-        },
+        dragHandle = null, // D-242-fix: no drag handle — cleaner look per user request
     ) {
         Column(
             modifier = Modifier
@@ -119,8 +108,29 @@ fun TrackSheet(
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header ──
-            TrackSheetHeader(onDismiss = onDismiss)
+            // ── Header: series name + close button ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    seriesTitle,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontFamily = RobotoFamily,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Spacer(Modifier.height(16.dp))
 
             if (!isLoggedIn) {
@@ -129,55 +139,46 @@ fun TrackSheet(
                 return@ModalBottomSheet
             }
 
-            // ── Status section ──
-            SectionCard(title = "Status") {
-                StatusFlowRow(
-                    currentStatus = trackEntry?.status,
-                    onStatusChange = onStatusChange,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
+            // ── Status (dropdown) ──
+            StatusDropdown(
+                currentStatus = trackEntry?.status,
+                onStatusChange = onStatusChange,
+            )
+            Spacer(Modifier.height(16.dp))
 
-            // ── Progress section ──
-            SectionCard(title = "Progress") {
-                ProgressRow(
+            // ── Progress (scrollable) ──
+            if (totalEpisodes != null) {
+                ProgressScrollable(
                     currentProgress = trackEntry?.progress ?: 0,
                     totalEpisodes = totalEpisodes,
                     onProgressChange = onProgressChange,
                 )
+                Spacer(Modifier.height(16.dp))
             }
-            Spacer(Modifier.height(12.dp))
 
-            // ── Score section ──
-            SectionCard(title = "Score") {
-                ScoreRow(
-                    currentScore = trackEntry?.score,
-                    onScoreChange = onScoreChange,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
+            // ── Score (scrollable) ──
+            ScoreScrollable(
+                currentScore = trackEntry?.score,
+                onScoreChange = onScoreChange,
+            )
+            Spacer(Modifier.height(16.dp))
 
-            // ── Dates section ──
-            SectionCard(title = "Watch Dates") {
-                DateRow(
-                    label = "Started",
-                    dateMillis = trackEntry?.startedAt,
-                    onDateChange = { newStart ->
-                        onDatesChange(newStart, trackEntry?.completedAt)
-                    },
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                )
-                DateRow(
-                    label = "Finished",
-                    dateMillis = trackEntry?.completedAt,
-                    onDateChange = { newFinish ->
-                        onDatesChange(trackEntry?.startedAt, newFinish)
-                    },
-                )
-            }
+            // ── Dates ──
+            DateRow(
+                label = "Started",
+                dateMillis = trackEntry?.startedAt,
+                onDateChange = { newStart ->
+                    onDatesChange(newStart, trackEntry?.completedAt)
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+            DateRow(
+                label = "Finished",
+                dateMillis = trackEntry?.completedAt,
+                onDateChange = { newFinish ->
+                    onDatesChange(trackEntry?.startedAt, newFinish)
+                },
+            )
             Spacer(Modifier.height(20.dp))
 
             // ── Remove button ──
@@ -186,7 +187,7 @@ fun TrackSheet(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .clickable { showRemoveConfirm = true },
-                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
             ) {
                 Row(
                     modifier = Modifier
@@ -214,7 +215,6 @@ fun TrackSheet(
         }
     }
 
-    // ── Remove confirmation dialog ──
     if (showRemoveConfirm) {
         AlertDialog(
             onDismissRequest = { showRemoveConfirm = false },
@@ -241,64 +241,7 @@ fun TrackSheet(
     }
 }
 
-// ── Header ──────────────────────────────────────────────────────────────────
-
-@Composable
-private fun TrackSheetHeader(onDismiss: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // AniList logo — a clean circle with gradient
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF02A9FF), // AniList blue
-                                Color(0xFF0E6BCA),
-                            ),
-                        ),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "A",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(
-                    "AniList Tracking",
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontFamily = RobotoFamily,
-                )
-                Text(
-                    "Sync your progress to AniList",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        IconButton(onClick = onDismiss) {
-            Icon(
-                imageVector = Icons.Filled.Close,
-                contentDescription = "Close",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-// ── Not logged in state ────────────────────────────────────────────────────
+// ── Not logged in ───────────────────────────────────────────────────────────
 
 @Composable
 private fun NotLoggedInState() {
@@ -315,90 +258,73 @@ private fun NotLoggedInState() {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Go to Settings → Trackers to connect your AniList account " +
-                "and start syncing your watch progress.",
+            "Go to Settings → Trackers to connect your AniList account.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
 }
 
-// ── Section card wrapper ───────────────────────────────────────────────────
+// ── Status dropdown ─────────────────────────────────────────────────────────
 
 @Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
-            content()
-        }
-    }
-}
-
-// ── Status flow row ────────────────────────────────────────────────────────
-
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-private fun StatusFlowRow(
+private fun StatusDropdown(
     currentStatus: TrackStatus?,
     onStatusChange: (TrackStatus) -> Unit,
 ) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        TrackStatus.values().forEach { status ->
-            StatusChip(
-                label = status.displayLabel(),
-                isSelected = currentStatus == status,
-                onClick = { onStatusChange(status) },
-            )
-        }
-    }
-}
+    var expanded by remember { mutableStateOf(false) }
+    val status = currentStatus ?: TrackStatus.WATCHING
 
-@Composable
-private fun StatusChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
-    val targetColor = if (isSelected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.surface
-    val animatedColor by animateColorAsState(
-        targetValue = targetColor,
-        animationSpec = tween(200),
-        label = "chipColor",
+    Text(
+        "Status",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp),
     )
-    val targetTextColor = if (isSelected) MaterialTheme.colorScheme.onPrimary
-    else MaterialTheme.colorScheme.onSurfaceVariant
-    val animatedTextColor by animateColorAsState(
-        targetValue = targetTextColor,
-        animationSpec = tween(200),
-        label = "chipTextColor",
-    )
-    Surface(
-        modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .clickable { onClick() },
-        color = animatedColor,
-        shape = RoundedCornerShape(10.dp),
-    ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            color = animatedTextColor,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+    Box {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { expanded = true },
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(12.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    status.displayLabel(),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    "Change",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            TrackStatus.values().forEach { s ->
+                DropdownMenuItem(
+                    text = { Text(s.displayLabel()) },
+                    onClick = {
+                        onStatusChange(s)
+                        expanded = false
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -411,133 +337,115 @@ private fun TrackStatus.displayLabel(): String = when (this) {
     TrackStatus.REWATCHING -> "Rewatching"
 }
 
-// ── Progress row ───────────────────────────────────────────────────────────
+// ── Progress scrollable ─────────────────────────────────────────────────────
 
 @Composable
-private fun ProgressRow(
+private fun ProgressScrollable(
     currentProgress: Int,
-    totalEpisodes: Int?,
+    totalEpisodes: Int,
     onProgressChange: (Int) -> Unit,
 ) {
-    var textProgress by remember(currentProgress) {
-        mutableStateOf(currentProgress.toString())
-    }
-    val max = totalEpisodes ?: 9999
+    val listState = rememberLazyListState()
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // Minus button
-        CircularButton(
-            text = "−",
-            onClick = {
-                val newProgress = (currentProgress - 1).coerceAtLeast(0)
-                onProgressChange(newProgress)
-            },
-        )
-        // Number field
-        OutlinedTextField(
-            value = textProgress,
-            onValueChange = { input ->
-                textProgress = input.filter { it.isDigit() }
-                textProgress.toIntOrNull()?.let { parsed ->
-                    // D-242-fix: cap at totalEpisodes (can't exceed)
-                    onProgressChange(parsed.coerceAtMost(max))
-                }
-            },
-            modifier = Modifier.width(80.dp),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-        )
-        // Plus button
-        CircularButton(
-            text = "+",
-            onClick = {
-                // D-242-fix: cap at totalEpisodes (can't exceed)
-                val newProgress = (currentProgress + 1).coerceAtMost(max)
-                onProgressChange(newProgress)
-            },
-        )
-        // Total
-        if (totalEpisodes != null) {
-            Text(
-                "/ $totalEpisodes",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CircularButton(text: String, onClick: () -> Unit) {
-    val scale by animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = tween(100),
-        label = "btnScale",
+    Text(
+        "Progress: $currentProgress / $totalEpisodes",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp),
     )
-    Surface(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .clickable { onClick() },
-        color = MaterialTheme.colorScheme.surface,
-        shape = CircleShape,
-        tonalElevation = 2.dp,
+    // Scrollable row of episode numbers 0..totalEpisodes
+    LazyRow(
+        state = listState,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface,
+        items(totalEpisodes + 1) { epNum -> // 0..totalEpisodes (0 = "not started")
+            val isSelected = epNum == currentProgress
+            val animatedColor by animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                animationSpec = tween(200),
+                label = "progChip",
             )
+            val animatedTextColor by animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                animationSpec = tween(200),
+                label = "progChipText",
+            )
+            Surface(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable { onProgressChange(epNum) },
+                color = animatedColor,
+                shape = CircleShape,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        if (epNum == 0) "—" else epNum.toString(),
+                        color = animatedTextColor,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
         }
     }
 }
 
-// ── Score row ──────────────────────────────────────────────────────────────
+// ── Score scrollable ────────────────────────────────────────────────────────
 
 @Composable
-private fun ScoreRow(
+private fun ScoreScrollable(
     currentScore: Int?,
     onScoreChange: (Int) -> Unit,
 ) {
     val currentStars = currentScore?.let { (it / 10).coerceIn(0, 10) } ?: 0
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            for (i in 1..10) {
+
+    Text(
+        if (currentScore != null && currentScore > 0)
+            "Score: ${String.format("%.1f", currentScore / 10.0)} / 10"
+        else "Score",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp),
+    ) {
+        items(11) { i -> // 0..10 stars
+            val isSelected = i <= currentStars && i > 0
+            val animatedColor by animateColorAsState(
+                targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                animationSpec = tween(150),
+                label = "starColor",
+            )
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .clickable {
+                        onScoreChange(if (i == currentStars) 0 else i * 10)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
                 Icon(
-                    imageVector = if (i <= currentStars) Icons.Filled.Star else Icons.Filled.StarBorder,
-                    contentDescription = "Rate $i stars",
-                    tint = if (i <= currentStars) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clickable {
-                            if (i == currentStars) onScoreChange(0) else onScoreChange(i * 10)
-                        },
+                    imageVector = if (isSelected) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = "Rate $i",
+                    tint = animatedColor,
+                    modifier = Modifier.size(24.dp),
                 )
             }
-        }
-        if (currentScore != null && currentScore > 0) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                String.format("%.1f / 10", currentScore / 10.0),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
 
-// ── Date row ───────────────────────────────────────────────────────────────
+// ── Date row ────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -564,26 +472,15 @@ private fun DateRow(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .clickable { showDatePicker = true },
-                color = MaterialTheme.colorScheme.surface,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.CalendarMonth,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        dateMillis?.let { dateFormatter.format(Date(it)) } ?: "Not set",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (dateMillis != null) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    dateMillis?.let { dateFormatter.format(Date(it)) } ?: "Not set",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (dateMillis != null) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (dateMillis != null) {
                 TextButton(onClick = { onDateChange(null) }) {
@@ -594,18 +491,14 @@ private fun DateRow(
     }
 
     if (showDatePicker) {
-        val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = dateMillis,
-        )
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dateMillis)
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        datePickerState.selectedDateMillis?.let { onDateChange(it) }
-                        showDatePicker = false
-                    },
-                ) { Text("OK") }
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { onDateChange(it) }
+                    showDatePicker = false
+                }) { Text("OK") }
             },
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
@@ -617,23 +510,18 @@ private fun DateRow(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// D-242: Snackbar-style prompts (bottom-anchored, NOT fullscreen dialogs)
+// D-242: Minimal snackbar-style prompts (bottom-anchored, theme-colored)
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * D-242: A bottom-anchored snackbar-style prompt for "mark all previous episodes
- * as watched".
+ * D-242: A minimal, theme-colored snackbar for "mark all previous episodes".
  *
- * Shows at the bottom of the screen with:
- *  - A message ("Mark episodes 1–N as watched?")
- *  - A 5-second timeout progress bar
- *  - Two action buttons: "Cancel" and "Mark"
+ * Layout:
+ *  - Message on the left
+ *  - Timer below the message (small text + progress bar)
+ *  - Two buttons on the RIGHT side: Cancel (X icon) + Okay (text)
  *
- * If the user doesn't respond in 5 seconds, auto-confirms (calls onConfirm).
- * This replaces the old fullscreen AlertDialog — the user wanted a toast-like
- * notification at the bottom with two options.
- *
- * Render this as an overlay (in a Box with `Modifier.align(Alignment.BottomCenter)`).
+ * Auto-confirms after 5 seconds.
  */
 @Composable
 fun MarkPreviousEpisodesSnackbar(
@@ -651,7 +539,6 @@ fun MarkPreviousEpisodesSnackbar(
             progress = 1f - (i.toFloat() / steps)
             kotlinx.coroutines.delay(stepDelay)
         }
-        // Timeout — auto-confirm.
         onConfirm()
     }
 
@@ -659,62 +546,70 @@ fun MarkPreviousEpisodesSnackbar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .clip(RoundedCornerShape(16.dp)),
-        color = MaterialTheme.colorScheme.inverseSurface,
+            .clip(RoundedCornerShape(14.dp)),
+        color = MaterialTheme.colorScheme.surfaceVariant,
         tonalElevation = 6.dp,
         shadowElevation = 8.dp,
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Mark episodes 1–$episodeNumber as watched?",
-                color = MaterialTheme.colorScheme.inverseOnSurface,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "You marked episode $episodeNumber but previous episodes aren't watched.",
-                color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(10.dp))
-            // Timeout progress bar
-            androidx.compose.material3.LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth(),
+            // Left: message + timer
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Mark episodes 1–$episodeNumber as watched?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(6.dp))
+                // Timer progress bar
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            // Right: Cancel (X) + Okay buttons
+            IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Cancel",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onConfirm() },
                 color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.2f),
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Auto-confirms in ${(progress * 5).toInt() + 1}s",
-                color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.5f),
-                style = MaterialTheme.typography.labelSmall,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                shape = RoundedCornerShape(10.dp),
             ) {
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.7f))
-                }
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onConfirm) {
-                    Text("Mark", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
+                Text(
+                    "Okay",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         }
     }
 }
 
 /**
- * D-242: A bottom-anchored snackbar-style prompt for "mark series as watched".
- *
- * Shows at the bottom of the screen with a message + two action buttons.
- * No timeout (waits for user action).
+ * D-242: A minimal, theme-colored snackbar for "mark series as watched".
+ * No timeout — waits for user action.
  */
 @Composable
 fun MarkSeriesWatchedSnackbar(
@@ -725,38 +620,55 @@ fun MarkSeriesWatchedSnackbar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .clip(RoundedCornerShape(16.dp)),
-        color = MaterialTheme.colorScheme.inverseSurface,
+            .clip(RoundedCornerShape(14.dp)),
+        color = MaterialTheme.colorScheme.surfaceVariant,
         tonalElevation = 6.dp,
         shadowElevation = 8.dp,
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Mark this series as watched?",
-                color = MaterialTheme.colorScheme.inverseOnSurface,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "You've watched all episodes. Mark it as completed on AniList?",
-                color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.7f),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Mark this series as watched?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "All episodes watched. Mark as completed on AniList?",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Cancel",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onConfirm() },
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(10.dp),
             ) {
-                TextButton(onClick = onDismiss) {
-                    Text("Not now", color = MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.7f))
-                }
-                Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onConfirm) {
-                    Text("Mark", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
+                Text(
+                    "Okay",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         }
     }
