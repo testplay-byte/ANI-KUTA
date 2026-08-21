@@ -1248,7 +1248,8 @@ fun DetailsScreen(
         TrackSheet(
             trackEntry = trackEntry,
             isLoggedIn = isTrackerLoggedIn,
-            totalEpisodes = (state as? DetailsState.Success)?.anime?.episodes,
+            totalEpisodes = (state as? DetailsState.Success)?.anime?.episodes
+                ?: (episodeState as? EpisodeState.Loaded)?.episodes?.size,
             seriesTitle = (state as? DetailsState.Success)?.anime?.displayName ?: "Tracking",
             onStatusChange = viewModel::updateTrackStatus,
             onProgressChange = viewModel::updateTrackProgress,

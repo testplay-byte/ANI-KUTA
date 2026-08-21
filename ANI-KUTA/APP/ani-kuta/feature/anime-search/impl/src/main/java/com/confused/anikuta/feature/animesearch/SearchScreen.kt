@@ -114,17 +114,12 @@ fun SearchScreen(
     var showSourcePicker by remember { mutableStateOf(false) }
     val activeFilterCount = pendingFilters.activeCount
 
-    // D-242-fix4: Always load trending on first enter (AniList + no query).
-    // The recents card now renders ABOVE results in all states (collapsed),
-    // so loading trending no longer hides the history.
-    LaunchedEffect(Unit) {
-        if (source == SearchSource.ANILIST &&
-            query.isBlank() &&
-            uiState is SearchUiState.Idle
-        ) {
-            viewModel.onSourceChange(SearchSource.ANILIST)
-        }
-    }
+    // D-242-fix7: Do NOT auto-load trending on screen enter.
+    // The recents card only renders in Idle state — loading trending
+    // transitions to Success which hides the recents. The user wants
+    // to see their search history when they open the search page.
+    // Trending loads when the user clears a query or switches sources.
+    // LaunchedEffect(Unit) intentionally removed.
 
     // D-210: Auto-refresh when the user returns from the Cloudflare WebView.
     // The ViewModel sets pendingWebViewRefresh=true when the user taps "Open in

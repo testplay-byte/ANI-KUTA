@@ -273,17 +273,11 @@ class SearchViewModel(
             .distinctUntilChanged()
             .onEach { q ->
                 if (q.isBlank()) {
-                    // D-242-fix4: always load trending/popular when query is cleared.
-                    // The recents card renders above results (collapsed) in all states,
-                    // so loading trending no longer hides the history.
-                    if (_source.value == SearchSource.ANILIST) {
-                        loadTrending()
-                    } else {
-                        loadExtensionPopular()
-                    }
+                    // D-242-fix7: stay in Idle state so recents are visible.
+                    // Do NOT auto-load trending (it hides the recents card).
+                    _uiState.value = SearchUiState.Idle
                 } else {
-                    // D-242-fix: record the search term in history. The debounce +
-                    // distinctUntilChanged upstream ensures one add per distinct term.
+                    // D-242-fix: record the search term in history.
                     addRecent(q.trim())
                     search(q)
                 }

@@ -139,7 +139,10 @@ fun TrackSheet(
             }
 
             // Top section: always show all 3 cells
-            val effectiveTotal = totalEpisodes ?: (trackEntry?.progress ?: 0).coerceAtLeast(24)
+            // D-242-fix7: when totalEpisodes is null (rare — DetailsScreen now
+            // passes episode list size as fallback), use a large default so the
+            // picker shows enough episodes.
+            val effectiveTotal = totalEpisodes ?: (trackEntry?.progress ?: 0).coerceAtLeast(100)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

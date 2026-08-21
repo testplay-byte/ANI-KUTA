@@ -118,9 +118,10 @@ object EpisodeTitleParser {
      */
     fun formatEpisodeNumber(episodeNumber: Float): String {
         if (episodeNumber <= 0f) return "?"
-        // Unreasonably large — probably a timestamp or ID, not a real episode number.
-        // Real episode numbers are typically 1-100 (up to ~1000 for long-running series).
-        if (episodeNumber > 1000f) return "?"
+        // D-242-fix7: raised threshold from 1000 to 100000.
+        // One Piece has 1174+ episodes; some long-running series exceed 2000.
+        // 100000 is well above any real episode count but filters timestamps/IDs.
+        if (episodeNumber > 100_000f) return "?"
         return if (episodeNumber % 1f == 0f) {
             episodeNumber.toInt().toString()
         } else {

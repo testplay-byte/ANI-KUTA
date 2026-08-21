@@ -148,16 +148,25 @@ class DownloadScanner(
 
                     // D-242: PRESERVE the original episodeKey from .data.json.
                     // The original key = SEpisode.url (set by HttpDownloader at
-                    // download time). Fall back to the derived key ONLY for orphan
-                    // files (no matching .data.json entry — e.g. user manually
-                    // dropped a video file into the folder).
+                    // download time). If no matching .data.json entry exists,
+                    // SKIP the orphan file — don't resurrect it with a derived
+                    // key ("$mainId|$epNumPadded") that won't match runtime lookups.
+                    // D-242-fix7: this was the root cause of .data.json "not updating"
+                    // after deletion — the scanner was re-adding deleted episodes with
+                    // a derived key on the next startup.
                     val existing = existingEpisodesByNum[derivedNumber.toDouble()]
-                    val episodeKey = existing?.episodeKey
-                        ?: deriveEpisodeKey(dataJson.mainId, fileName)
-                        ?: continue
-                    val episodeNumber = existing?.episodeNumber?.toFloat() ?: derivedNumber
-                    val episodeName = existing?.episodeName ?: derivedName
-                    val episodeDescription = existing?.episodeDescription
+                    if (existing == null) {
+                        DownloadLogger.w {
+                            "scan — orphan video file '$fileName' in ${contentDir.name} " +
+                                "has no matching .data.json entry; skipping (would " +
+                                "resurrect with derived key that doesn't match runtime)"
+                        }
+                        continue
+                    }
+                    val episodeKey = existing.episodeKey
+                    val episodeNumber = existing.episodeNumber.toFloat()
+                    val episodeName = existing.episodeName ?: derivedName
+                    val episodeDescription = existing.episodeDescription
 
                     // D-FIX-SUB: re-discover subtitle files for this episode.
                     // Searches the subtitles/ subfolder (new) or the content root (legacy).
