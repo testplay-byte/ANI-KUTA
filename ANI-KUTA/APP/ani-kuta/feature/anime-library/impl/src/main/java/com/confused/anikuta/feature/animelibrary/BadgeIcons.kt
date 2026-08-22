@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  * inside the edge-to-edge cover badges.
  *
  * Only basic path commands (moveTo / horizontalLineTo / verticalLineTo /
- * cubicTo / close) are used — no arcTo — to avoid any parameter-name
+ * curveTo / close) are used — no arcTo — to avoid any parameter-name
  * ambiguity across Compose versions.
  */
 object BadgeIcons {
@@ -123,12 +123,12 @@ object BadgeIcons {
             ) {
                 moveTo(12f, 2f)
                 // Left side of capsule, going down.
-                cubicTo(9.79f, 2f, 8f, 3.79f, 8f, 6f)
+                curveTo(9.79f, 2f, 8f, 3.79f, 8f, 6f)
                 verticalLineTo(10f)
-                cubicTo(8f, 12.21f, 9.79f, 14f, 12f, 14f)
-                cubicTo(14.21f, 14f, 16f, 12.21f, 16f, 10f)
+                curveTo(8f, 12.21f, 9.79f, 14f, 12f, 14f)
+                curveTo(14.21f, 14f, 16f, 12.21f, 16f, 10f)
                 verticalLineTo(6f)
-                cubicTo(16f, 3.79f, 14.21f, 2f, 12f, 2f)
+                curveTo(16f, 3.79f, 14.21f, 2f, 12f, 2f)
                 close()
             }
             // ── Cradle (U-shape connecting body to stand) ──
@@ -136,15 +136,15 @@ object BadgeIcons {
                 // Start at left arm top, go down, arc under, up right arm, close.
                 moveTo(5f, 10f)
                 verticalLineTo(11f)
-                cubicTo(5f, 14.31f, 7.69f, 17f, 11f, 17f)
+                curveTo(5f, 14.31f, 7.69f, 17f, 11f, 17f)
                 horizontalLineTo(13f)
-                cubicTo(16.31f, 17f, 19f, 14.31f, 19f, 11f)
+                curveTo(16.31f, 17f, 19f, 14.31f, 19f, 11f)
                 verticalLineTo(10f)
                 horizontalLineTo(17f)
                 verticalLineTo(11f)
-                cubicTo(17f, 13.21f, 15.21f, 15f, 13f, 15f)
+                curveTo(17f, 13.21f, 15.21f, 15f, 13f, 15f)
                 horizontalLineTo(11f)
-                cubicTo(8.79f, 15f, 7f, 13.21f, 7f, 11f)
+                curveTo(8.79f, 15f, 7f, 13.21f, 7f, 11f)
                 verticalLineTo(10f)
                 close()
             }
