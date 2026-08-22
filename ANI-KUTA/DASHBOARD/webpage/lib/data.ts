@@ -53,6 +53,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Analytics", href: "/analytics/", icon: "analytics", desc: "Module size distribution, build times, docs coverage" },
   { label: "Planning", href: "/planning/", icon: "planning", desc: "Gantt chart, task board, phase checklists" },
   { label: "Test Controller", href: "/test-controller/", icon: "testcontroller", desc: "Autonomous remote UI testing — Cloudflare Workers relay + AccessibilityService (D-198 v4)" },
+  { label: "Key Findings", href: "/key-findings/", icon: "findings", desc: "Live project review — verified metrics, open concerns, doc drift, features remaining, forward direction" },
 ];
 
 /* ---------------------------------------------------------------------------

@@ -1151,3 +1151,21 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Dashboard: `/database-plan/` live at https://testplay-byte.github.io/ANI-KUTA/database-plan/ — updated with v2 content.
 - Plan doc: `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (v2).
 - **This is a PROPOSAL v2 — no schema changes made. Awaiting user approval before implementation.**
+
+---
+
+## Session — Full Project Review + Dashboard Key-Findings Rebuild (2026-08-22, on `main`)
+
+### What was done
+- User instructed: full read-through FIRST (CORE_RULES + all AGENT-CONTEXT + codebase — no changes), then DELETE the stale `/project-review/` page completely + build a FRESH `/key-findings/` dashboard section with all key findings in a simplified, scannable format. Deploy via GitHub Actions. Nothing else on the dashboard may change. Max 5 sub-agents at a time. Do NOT read REFERENCES/.
+- **RESEARCH**: 5 read-only sub-agents — R-1b (Android concerns verification), R-2 (decisions/changelog digest), R-3 (lessons/progress digest), R-4 (dashboard review), R-5 (unmerged-branches analysis). Main agent re-verified every metric against source.
+- **VERIFIED CURRENT STATE (re-derived)**: 47 Gradle modules · 363 .kt files · **23 SQLDelight tables across 15 .sq files** · v0.2.22 · main @ 570c68f4 (D-239). **D-198 restructuring IS implemented** (commit 775876a2 — `main_entry` + `content_details` in content.sq) despite decisions.md still saying "PROPOSAL — not implemented". God classes grew: DetailsScreen 3165 / DetailsViewModel 2852 / LibraryScreen 2504 / WatchScreen 2018.
+- **TOP FINDINGS**: decision log forked 3 ways (main ends D-198 with 41 decisions unlogged; `feature/test-controller-v5` claims D-197..D-202 for different decisions; `functionality/improvements` active at D-240..D-242, 42 commits, v0.2.46, clean merge today); AniList tracker syncEntry stub returns true (fake success, trackerId=0); download system never device-tested end-to-end; 11 of 22 deferred concerns verified RESOLVED on main; dashboard stale in 8+ places (D-186 claims, 26/28-table counts vs real 23, old-schema database page, 6 unreachable routes).
+- **DASHBOARD**: full-stack-dev sub-agent (§19) deleted `app/project-review/page.tsx` (1028 lines) + `lib/projectReview.ts` (761 lines) + Sidebar `review` icon key; created `lib/keyFindings.ts` (670 lines, fully typed) + `app/key-findings/page.tsx` (719 lines, server component, 9 sections per DESIGN.md); added 1 NAV_ITEMS entry + 1 `findings` icon key. NOTHING else on the dashboard changed. `bun run build` PASSED (19 routes + _not-found; /key-findings present, /project-review gone).
+
+### Status
+- Branch: `main` (direct dashboard-only commit — established precedent for dashboard-only changes; zero app-code changes).
+- CI: verified via Actions API after push (Deploy Dashboard run green).
+- Dashboard: `/key-findings/` live at https://testplay-byte.github.io/ANI-KUTA/key-findings/ — TEMPORARY section (removal = 4 files: page, lib, NAV_ITEMS entry, icon key).
+- No D-NNN added (temporary dashboard section — same precedent as prior project-review rebuilds).
+- **Recommended forward direction (full detail on /key-findings/)**: (1) land `functionality/improvements` after its session completes; (2) memory reconciliation pass (backfill D-199..D-239, fix D-198 status, renumber test-controller decisions); (3) download-system device test; then test-controller reintegration, AniList tracker completion, extensions UX, WatchKey registry refactor, god-class splits, dashboard truth-sweep.
