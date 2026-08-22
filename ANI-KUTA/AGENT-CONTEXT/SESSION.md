@@ -69,11 +69,12 @@ ANI-KUTA/                        ← repo root (git)
 ```
 
 ## ❓ Currently Blocked On / Open Items
-- **Database management + quality** (current focus for next session) — user will provide a fresh DB export after a clean-install test run. Agent will analyze for flaws.
+- **Library badge customization system** (D-242, fix9–fix14) — ✅ IMPLEMENTED on `functionality/improvements` (commit `db0535d0`, version 0.2.37). **Awaiting push + CI build + device test.** Advanced RELEASED options (sub/dub/both + unwatched + SVG icons) + scroll-to-minimize header.
+- **Database management + quality** (next focus after library badge testing) — user will provide a fresh DB export after a clean-install test run. Agent will analyze for flaws.
 - **Download system device testing** (Phase DL.0-DL.8 implemented; needs on-device verification).
 - **Download system future-phase gaps** (D-149, D-151) — proxy-churn re-resolve wiring + 2 re-resolve bugs + outer retry loop + DownloadVideoPickerSheet cleanup. All DEFERRED per user. Full plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
 - **Nav3** — ✅ DECIDED (D-150): keep hand-rolled nav; Nav3 fully REMOVED from all build files. R7 (process-death backstack recreation) accepted as known limitation.
-- **Doc-debt sweep** — ✅ DONE this session (all knowledge/*, master.md, SESSION.md, navigation.md, dashboard data updated; code comments cleaned).
+- **Doc-debt sweep** — ✅ DONE (all knowledge/*, master.md, SESSION.md, navigation.md, dashboard data updated; code comments cleaned).
 - See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list.
 
 ---

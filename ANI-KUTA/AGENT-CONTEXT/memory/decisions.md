@@ -1653,3 +1653,32 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Dashboard:** `/database-plan/` live — shows every table, column, query, con, deferred item.
 - **Status:** ⚠️ PROPOSAL v2 — awaiting user approval. NO schema changes made.
 - **Date:** Database restructuring plan v2 session.
+
+---
+
+### D-242 — Library cover badge system + advanced RELEASED options (implemented)
+- **What:** A comprehensive library cover badge system with edge-to-edge design, theme-adaptive colors, and advanced RELEASED episode badge sub-options. Iteratively refined across fix9–fix14 based on user feedback.
+- **Components:**
+  1. **CoverBadgeData** — data class replacing `Pair<String, Pair<Color, Color>>` with `text`, `containerColor`, `contentColor`, optional `icon: ImageVector?`.
+  2. **CoverBadgeRow** — renders multiple badges side-by-side in a single Row at a cover corner. Edge-to-edge (flush with cover corner), 8sp Bold text, dot separators between badges. Each badge can optionally render an icon (8dp) before the text.
+  3. **BadgeIcons** — custom `ImageVector` definitions for `Sub` (subtitle/closed-caption: rectangle frame + 2 horizontal lines) and `Dub` (microphone: capsule body + U-shaped cradle + stand + base). Hand-crafted vector paths using only basic PathBuilder commands (no arcTo for cross-version safety).
+  4. **ReleasedAudioFilter** — enum (BOTH, SUB, DUB) controlling which audio type's released episodes to show when badge mode = RELEASED.
+  5. **LibraryEntry** extensions — `subEpisodeCount`, `dubEpisodeCount` fields + computed `subUnwatchedCount`, `dubUnwatchedCount` properties.
+- **Badge rendering logic (LibraryGridCard):**
+  - OFF: shows audio labels (SUB/DUB) as plain text badges (secondaryContainer).
+  - TOTAL: shows "EP N" + audio labels.
+  - RELEASED + BOTH: shows `[sub-icon] N` (blue) + `[dub-icon] M` (orange) side-by-side. Falls back to "EP N" only when no per-type data exists at all.
+  - RELEASED + SUB: shows `[sub-icon] N` (blue). Falls back to released count.
+  - RELEASED + DUB: shows `[dub-icon] M` (orange). Falls back to released count.
+  - `releasedUnwatchedOnly` toggle: shows unwatched counts (released - watched) instead of total released.
+  - Colors are theme-adaptive: SUB = blue (light: #90CAF9/#0D47A1, dark: #1565C0/#BBDEFB), DUB = orange (light: #FFCC80/#BF360C, dark: #E65100/#FFE0B2).
+- **CustomizeSheet:**
+  - Scroll-to-minimize header animation (like ProfileScreen): pinned header with animated font size (20sp→16sp) + mini tab pill that fades in on scroll. Tab strip as LazyColumn item 0 with `graphicsLayer` alpha/scale. Magnetic snap on scroll end. Collapse threshold = 40dp.
+  - RELEASED sub-options section (conditionally shown when episodeBadgeMode = RELEASED): "Released Audio" label + 3 `ReleasedAudioFilterCard` items (Both/Sub/Dub with icons) + "Show unwatched only" SwitchRow.
+  - BadgePosition selectors REMOVED — positions hardcoded (EP=TOP_END, Score=TOP_START).
+  - DisplayModeCard uses horizontal layout (name LEFT, icon RIGHT).
+- **Why:** User wanted edge-to-edge cover badges with episode count, score, SUB/DUB availability — theme-adaptive, compact, side-by-side. Then requested advanced RELEASED options: sub/dub/both selection with SVG icons (microphone for dub, subtitle for sub), different colors for sub vs dub, and option to show only unwatched episodes.
+- **Review:** 3 sub-agents reviewed fix14 in parallel (data layer, CustomizeSheet UI, badge rendering). All found NO CRITICAL/WARNING issues. One logic bug found (BOTH+unwatched fallback showing "EP N" when user watched everything) — fixed.
+- **Fix history:** fix9 (edge-to-edge + theme-adaptive), fix10 (badge data enrichment), fix11 (horizontal display cards + side-by-side badges), fix12 (remove position selectors + bold text), fix13 (scroll-to-minimize header), fix14 (advanced RELEASED options + SVG icons + unwatched toggle).
+- **Status:** ✅ Implemented. Commit `db0535d0` on `functionality/improvements`. Version 0.2.37 (versionCode 37). Awaiting push + CI build.
+- **Date:** Library badge customization session.

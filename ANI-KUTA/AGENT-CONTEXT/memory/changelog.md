@@ -1151,3 +1151,36 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Dashboard: `/database-plan/` live at https://testplay-byte.github.io/ANI-KUTA/database-plan/ — updated with v2 content.
 - Plan doc: `APP/ani-kuta/DOCUMENTATION/planning/database-restructuring/PLAN.md` (v2).
 - **This is a PROPOSAL v2 — no schema changes made. Awaiting user approval before implementation.**
+
+---
+
+## Session — Library Badge Customization System (commits cb3c6aff → db0535d0, on `functionality/improvements`)
+
+### What was done
+- User requested comprehensive library cover badge improvements across 6 iterative fixes (fix9–fix14):
+  - **fix9**: Edge-to-edge cover badges with theme-adaptive colors (flush with cover corner, 12dp outer radius match).
+  - **fix10**: Badge data enrichment — `LibraryEntry` extended with `releasedEpisodes`, `audioAvailability`, `watchedCount`; `LibraryViewModel.enrichEntriesWithBadgeData()` populates from `DataCacheRepository` + `WatchProgressStore`.
+  - **fix11**: Horizontal `DisplayModeCard` (name LEFT, icon RIGHT); SUB/DUB split into separate badge entries with dot separators (not wide centered text).
+  - **fix12**: Removed `BadgePositionSelector` — positions hardcoded (EP=TOP_END, Score=TOP_START). Badge text made Bold 8sp.
+  - **fix13**: Scroll-to-minimize header animation in `CustomizeSheet` (matches ProfileScreen pattern: pinned header with animated font size, mini tab pill fade-in, magnetic snap, graphicsLayer alpha/scale on tab strip).
+  - **fix14**: Advanced RELEASED badge options — `ReleasedAudioFilter` enum (BOTH/SUB/DUB), `releasedUnwatchedOnly` toggle, custom SVG `ImageVector` icons (subtitle + microphone), theme-adaptive blue (SUB) + orange (DUB) colors, per-type episode counting, `CoverBadgeData` class with optional icon.
+
+### Key decisions
+- **D-242**: Library cover badge system + advanced RELEASED options. Full details in `decisions.md`.
+
+### Files changed (fix14 — the final iteration)
+- **New**: `BadgeIcons.kt` (169 lines) — custom `ImageVector` for Sub (subtitle frame + 2 lines) and Dub (microphone capsule + cradle + base).
+- **Modified**: `LibraryEntry.kt` (+33) — added `subEpisodeCount`, `dubEpisodeCount` + computed `subUnwatchedCount`, `dubUnwatchedCount`.
+- **Modified**: `LibraryViewModel.kt` (+66) — `ReleasedAudioFilter` enum, `releasedAudioFilter` + `releasedUnwatchedOnly` StateFlows + setters + persistence, per-type episode counting in enrichment + DEBUG logging.
+- **Modified**: `LibraryScreen.kt` (+327/-48) — `CoverBadgeData` class, `ReleasedAudioFilterCard` composable, RELEASED sub-options UI, `CoverBadgeRow` updated for icons, `LibraryGridCard` badge rendering rewrite, param threading through `LibraryGrid`.
+- **Modified**: `AndroidConfig.kt` — version 0.2.36 → 0.2.37 (versionCode 36 → 37).
+
+### Review
+- 3 sub-agents reviewed fix14 in parallel (data layer, CustomizeSheet UI, badge rendering). All found NO CRITICAL/WARNING issues.
+- One logic bug found + fixed: BOTH+unwatched fallback incorrectly showed "EP N" when user watched everything. Fixed: fallback now only fires when per-type data is genuinely null (not when counts are 0).
+
+### Status
+- Branch: `functionality/improvements` (1 commit ahead of remote: `db0535d0`).
+- Version: 0.2.37 (versionCode 37).
+- **Awaiting push + CI build** — no GitHub credentials available in build environment. User needs to push manually.
+- Not yet device-tested — user will test after CI builds the APK.

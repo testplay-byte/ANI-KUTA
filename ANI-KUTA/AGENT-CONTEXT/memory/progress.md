@@ -926,3 +926,41 @@ The cross-source dedup failure was because `linkSource()` (called when linking a
   5. `DownloadScanner` set `subtitleUris = emptyList()` on reinstall → subtitles lost. Fixed: `findSubtitleUrisForEpisode` re-discovers them.
 - **Sub-agent reviewed (SUB-REVIEW):** COMPILES. Reviewer caught a header-format logic bug (JSON vs MPV-comma) — fixed.
 - **Awaiting device verification** (checklist section C, esp. C5 reinstall test).
+
+---
+
+### Library Badge Customization System (fix9–fix14, on `functionality/improvements`)
+
+**Commits:**
+- `cb3c6aff` (fix9): edge-to-edge cover badges + theme-adaptive colors.
+- `81b35fbc` (fix10): badge data enrichment (releasedEpisodes, audioAvailability, watchedCount).
+- `cbecc964` (fix11): horizontal DisplayModeCard + side-by-side SUB/DUB badges.
+- `df842e27` (fix12): remove BadgePositionSelector + bold text + fix SUB/DUB rendering.
+- `e518f135` (fix13): scroll-to-minimize header animation in CustomizeSheet.
+- `db0535d0` (fix14): advanced RELEASED options (sub/dub/both + unwatched + SVG icons).
+
+**Delivered:**
+- `BadgeIcons.kt`: custom ImageVectors for Sub (subtitle/closed-caption) and Dub (microphone).
+- `CoverBadgeData`: data class with text + containerColor + contentColor + optional icon.
+- `CoverBadgeRow`: edge-to-edge, side-by-side badges with dot separators, 8sp Bold, optional icons.
+- `ReleasedAudioFilter` enum (BOTH/SUB/DUB) + `releasedUnwatchedOnly` toggle with persistence.
+- `LibraryEntry` extensions: `subEpisodeCount`, `dubEpisodeCount`, `subUnwatchedCount`, `dubUnwatchedCount`.
+- `LibraryViewModel.enrichEntriesWithBadgeData`: per-audio-type episode counting + DEBUG logging.
+- `LibraryGridCard` badge rendering: RELEASED+BOTH shows `[sub-icon] N` (blue) + `[dub-icon] M` (orange); SUB/DUB modes show single badge; unwatched mode shows unwatched counts.
+- `CustomizeSheet`: scroll-to-minimize header (40dp threshold, magnetic snap), RELEASED sub-options section with `ReleasedAudioFilterCard` + unwatched toggle.
+
+**Review:**
+- 3 sub-agents (data layer, CustomizeSheet UI, badge rendering) — all NO CRITICAL/WARNING issues.
+- 1 logic bug found + fixed (BOTH+unwatched fallback).
+
+### Status
+- Branch: `functionality/improvements` (1 commit ahead of remote).
+- Version: 0.2.37 (versionCode 37).
+- **Awaiting push + CI build** — no GitHub credentials in build environment.
+- Not yet device-tested.
+
+### What's next
+1. Push `db0535d0` to remote to trigger CI APK build.
+2. Download APK artifact from GitHub Actions.
+3. Device test: scroll-to-minimize animation, RELEASED sub-options (Both/Sub/Dub), unwatched toggle, badge colors + icons.
+4. Merge `functionality/improvements` → `main` after user approval.
