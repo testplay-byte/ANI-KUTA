@@ -82,6 +82,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -1326,7 +1327,9 @@ private fun CustomizeSheet(
     // LazyListScope lambdas which are not @Composable).
     val sheetIsDark = isSystemInDarkTheme()
 
-    var activeTab by remember { mutableIntStateOf(0) }
+    // D-242-fix20: Use rememberSaveable so the active tab persists across
+    // open/close of the CustomizeSheet (user returns to the section they left).
+    var activeTab by rememberSaveable { mutableIntStateOf(0) }
     // D-242-fix17: Renamed 'Display & Badges' to 'Display', added 'UI' tab.
     val tabs = listOf("Sort", "Display", "UI")
 
@@ -2523,249 +2526,311 @@ private fun LibraryGridCard(
         Modifier
     }
 
-    Box(
-        modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale; alpha = cardAlpha }
-            .clip(RoundedCornerShape(12.dp))
-            .then(borderModifier)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = { onClick(anime) },
-                onLongClick = { onLongClick(anime) },
-            ),
-    ) {
-        // Cover image — 2:3 aspect ratio
-        AsyncImage(
-            model = anime.coverUrl,
-            contentDescription = anime.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp)),
+    // D-242-fix20: COMFORTABLE_GRID uses a Column layout (cover on top, title
+    // below). All other grid modes use Box layout (title overlaid on cover).
+    val isComfortable = displayMode == LibraryDisplayMode.COMFORTABLE_GRID
+
+    val cardModifier = Modifier
+        .graphicsLayer { scaleX = scale; scaleY = scale; alpha = cardAlpha }
+        .clip(RoundedCornerShape(12.dp))
+        .then(borderModifier)
+        .combinedClickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = { onClick(anime) },
+            onLongClick = { onLongClick(anime) },
         )
 
-        // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
-        // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
-        //
-        // Changes from fix14:
-        // - OFF mode: NO audio tags (clean, minimal — per user feedback).
-        // - TOTAL mode: NO audio tags (just "EP N" — per user feedback).
-        // - RELEASED+BOTH: merged into SINGLE compound badge with split background
-        //   + 45° diagonal separator (not two separate tags).
-        // - Colors: theme-adaptive via rememberBadgeColorScheme() (derived from
-        //   primary saturation, bright, dark/light adapted).
-        // - Score badge: bright gold (from BadgeColorScheme).
-        if (!isSelectionMode) {
-            val badgeColors = rememberBadgeColorScheme()
-            val topStartBadges = mutableListOf<CoverBadgeData>()
-            val topEndBadges = mutableListOf<CoverBadgeData>()
-
-            // D-242-fix19: Compute "All Caught Up" status first. When true,
-            // episode count badges are HIDDEN (only the All Caught Up tag shows).
-            val isAllCaughtUp = showAllCaughtUpTag &&
-                anime.releasedEpisodes != null && anime.releasedEpisodes > 0 &&
-                anime.watchedCount != null && anime.watchedCount > 0 &&
-                (anime.unwatchedCount == null || anime.unwatchedCount == 0)
-
-            // D-242-fix15: Build episode badges based on mode + filter.
-            // D-242-fix19: Skip episode badges when All Caught Up is showing.
-            if (!isAllCaughtUp) {
-                when (episodeBadgeMode) {
-                EpisodeBadgeMode.OFF -> {
-                    // D-242-fix15: No episode badge, no audio tags. Clean + minimal.
-                }
-                EpisodeBadgeMode.TOTAL -> {
-                    // D-242-fix18: Use Total (film-strip) icon + number + GREEN color.
-                    // Green shade matches the SUB=blue, DUB=orange, Total=green convention.
-                    (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
-                        topEndBadges.add(CoverBadgeData(
-                            text = "$ep",
-                            containerColor = badgeColors.totalContainer,
-                            contentColor = badgeColors.totalContent,
-                            icon = BadgeIcons.Total,
-                        ))
-                    }
-                }
-                EpisodeBadgeMode.RELEASED -> {
-                    // D-242-fix15: Advanced RELEASED — audio filter + unwatched.
-                    when (releasedAudioFilter) {
-                        ReleasedAudioFilter.BOTH -> {
-                            // Merge SUB + DUB into a SINGLE compound badge with
-                            // split background + 45° diagonal separator.
-                            val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
-                            val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
-                            if (subCount != null && subCount > 0 && dubCount != null && dubCount > 0) {
-                                // Both counts available → compound badge.
-                                topEndBadges.add(
-                                    CoverBadgeData(
-                                        text = "$subCount",
-                                        containerColor = badgeColors.subContainer,
-                                        contentColor = badgeColors.subContent,
-                                        icon = BadgeIcons.Sub,
-                                        secondary = BadgeSegment(
-                                            text = "$dubCount",
-                                            containerColor = badgeColors.dubContainer,
-                                            contentColor = badgeColors.dubContent,
-                                            icon = BadgeIcons.Dub,
-                                        ),
-                                    ),
-                                )
-                            } else if (subCount != null && subCount > 0) {
-                                // Only sub available.
-                                topEndBadges.add(CoverBadgeData("$subCount", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
-                            } else if (dubCount != null && dubCount > 0) {
-                                // Only dub available.
-                                topEndBadges.add(CoverBadgeData("$dubCount", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
-                            } else {
-                                // Fallback: no per-type data → show released count.
-                                val hasPerTypeData = if (releasedUnwatchedOnly) {
-                                    anime.subUnwatchedCount != null || anime.dubUnwatchedCount != null
-                                } else {
-                                    anime.subEpisodeCount != null || anime.dubEpisodeCount != null
-                                }
-                                if (!hasPerTypeData) {
-                                    // D-242-fix18: Use Total icon + green color for the
-                                    // fallback (not old "EP N" text). Consistent with TOTAL mode.
-                                    val fallbackCount = if (releasedUnwatchedOnly) {
-                                        anime.unwatchedCount ?: anime.releasedEpisodes
-                                    } else {
-                                        anime.releasedEpisodes
-                                    }
-                                    fallbackCount?.let { ep ->
-                                        topEndBadges.add(CoverBadgeData(
-                                            text = "$ep",
-                                            containerColor = badgeColors.totalContainer,
-                                            contentColor = badgeColors.totalContent,
-                                            icon = BadgeIcons.Total,
-                                        ))
-                                    }
-                                }
-                            }
-                        }
-                        ReleasedAudioFilter.SUB -> {
-                            val count = if (releasedUnwatchedOnly) {
-                                anime.subUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes
-                            } else {
-                                anime.subEpisodeCount ?: anime.releasedEpisodes
-                            }
-                            if (count != null && count > 0) {
-                                topEndBadges.add(CoverBadgeData("$count", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
-                            }
-                        }
-                        ReleasedAudioFilter.DUB -> {
-                            val count = if (releasedUnwatchedOnly) {
-                                anime.dubUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes
-                            } else {
-                                anime.dubEpisodeCount ?: anime.releasedEpisodes
-                            }
-                            if (count != null && count > 0) {
-                                topEndBadges.add(CoverBadgeData("$count", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
-                            }
-                        }
-                    }
-                }
-            }
-            } // end if (!isAllCaughtUp)
-
-            // D-242-fix19: All Caught Up tag — shows a red badge for series
-            // with 0 unwatched episodes. Uses the pre-computed isAllCaughtUp.
-            // Episode count badges are hidden when this is showing.
-            if (isAllCaughtUp) {
-                topEndBadges.add(CoverBadgeData(
-                    text = "All Caught Up",
-                    containerColor = badgeColors.allCaughtUpContainer,
-                    contentColor = badgeColors.allCaughtUpContent,
-                ))
-            }
-
-            // D-242-fix15: Score badge — bright gold from BadgeColorScheme.
-            if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
-                topStartBadges.add(CoverBadgeData("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
-            }
-
-            if (topStartBadges.isNotEmpty()) {
-                CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
-            }
-            if (topEndBadges.isNotEmpty()) {
-                CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
-            }
-        }
-
-        // Title overlay at bottom with gradient (compact grid style)
-        // D-242-fix17: Hide title for COVER_ONLY mode (per user request).
-        if (displayMode != LibraryDisplayMode.COVER_ONLY) {
+    if (isComfortable) {
+        // ── COMFORTABLE GRID: Column layout (cover + title below) ──
+        Column(modifier = cardModifier) {
+            // Cover image with badges — in a Box so badges can overlay.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f),
-                contentAlignment = Alignment.BottomStart,
             ) {
+                AsyncImage(
+                    model = anime.coverUrl,
+                    contentDescription = anime.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+
+                // Cover badges (same as compact grid).
+                if (!isSelectionMode) {
+                    val badgeColors = rememberBadgeColorScheme()
+                    val topStartBadges = mutableListOf<CoverBadgeData>()
+                    val topEndBadges = mutableListOf<CoverBadgeData>()
+
+                    val isAllCaughtUp = showAllCaughtUpTag &&
+                        anime.releasedEpisodes != null && anime.releasedEpisodes > 0 &&
+                        anime.watchedCount != null && anime.watchedCount > 0 &&
+                        (anime.unwatchedCount == null || anime.unwatchedCount == 0)
+
+                    if (!isAllCaughtUp) {
+                        when (episodeBadgeMode) {
+                            EpisodeBadgeMode.OFF -> {}
+                            EpisodeBadgeMode.TOTAL -> {
+                                (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
+                                    topEndBadges.add(CoverBadgeData(
+                                        text = "$ep",
+                                        containerColor = badgeColors.totalContainer,
+                                        contentColor = badgeColors.totalContent,
+                                        icon = BadgeIcons.Total,
+                                    ))
+                                }
+                            }
+                            EpisodeBadgeMode.RELEASED -> {
+                                when (releasedAudioFilter) {
+                                    ReleasedAudioFilter.BOTH -> {
+                                        val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
+                                        val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
+                                        if (subCount != null && subCount > 0 && dubCount != null && dubCount > 0) {
+                                            topEndBadges.add(CoverBadgeData("$subCount", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub, BadgeSegment("$dubCount", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub)))
+                                        } else if (subCount != null && subCount > 0) {
+                                            topEndBadges.add(CoverBadgeData("$subCount", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
+                                        } else if (dubCount != null && dubCount > 0) {
+                                            topEndBadges.add(CoverBadgeData("$dubCount", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
+                                        } else {
+                                            val hasPerTypeData = if (releasedUnwatchedOnly) anime.subUnwatchedCount != null || anime.dubUnwatchedCount != null else anime.subEpisodeCount != null || anime.dubEpisodeCount != null
+                                            if (!hasPerTypeData) {
+                                                val fallbackCount = if (releasedUnwatchedOnly) anime.unwatchedCount ?: anime.releasedEpisodes else anime.releasedEpisodes
+                                                fallbackCount?.let { ep ->
+                                                    topEndBadges.add(CoverBadgeData("$ep", badgeColors.totalContainer, badgeColors.totalContent, BadgeIcons.Total))
+                                                }
+                                            }
+                                        }
+                                    }
+                                    ReleasedAudioFilter.SUB -> {
+                                        val count = if (releasedUnwatchedOnly) anime.subUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes else anime.subEpisodeCount ?: anime.releasedEpisodes
+                                        if (count != null && count > 0) {
+                                            topEndBadges.add(CoverBadgeData("$count", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
+                                        }
+                                    }
+                                    ReleasedAudioFilter.DUB -> {
+                                        val count = if (releasedUnwatchedOnly) anime.dubUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes else anime.dubEpisodeCount ?: anime.releasedEpisodes
+                                        if (count != null && count > 0) {
+                                            topEndBadges.add(CoverBadgeData("$count", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (isAllCaughtUp) {
+                        topEndBadges.add(CoverBadgeData("All Caught Up", badgeColors.allCaughtUpContainer, badgeColors.allCaughtUpContent))
+                    }
+
+                    if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
+                        topStartBadges.add(CoverBadgeData("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
+                    }
+
+                    if (topStartBadges.isNotEmpty()) {
+                        CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
+                    }
+                    if (topEndBadges.isNotEmpty()) {
+                        CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
+                    }
+                }
+
+                // Selection badge in selection mode.
+                if (isSelectionMode) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isSelected) {
+                            Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+
+            // Title BELOW the cover (no gradient overlay — clean text on surface).
+            Text(
+                text = anime.title,
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = titleLines,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            )
+        }
+    } else {
+        // ── COMPACT_GRID / COVER_ONLY: Box layout (title overlaid on cover) ──
+        Box(
+            modifier = cardModifier,
+        ) {
+            // Cover image — 2:3 aspect ratio
+            AsyncImage(
+                model = anime.coverUrl,
+                contentDescription = anime.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(12.dp)),
+            )
+
+            // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
+            // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
+            if (!isSelectionMode) {
+                val badgeColors = rememberBadgeColorScheme()
+                val topStartBadges = mutableListOf<CoverBadgeData>()
+                val topEndBadges = mutableListOf<CoverBadgeData>()
+
+                val isAllCaughtUp = showAllCaughtUpTag &&
+                    anime.releasedEpisodes != null && anime.releasedEpisodes > 0 &&
+                    anime.watchedCount != null && anime.watchedCount > 0 &&
+                    (anime.unwatchedCount == null || anime.unwatchedCount == 0)
+
+                if (!isAllCaughtUp) {
+                    when (episodeBadgeMode) {
+                        EpisodeBadgeMode.OFF -> {}
+                        EpisodeBadgeMode.TOTAL -> {
+                            (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
+                                topEndBadges.add(CoverBadgeData("$ep", badgeColors.totalContainer, badgeColors.totalContent, BadgeIcons.Total))
+                            }
+                        }
+                        EpisodeBadgeMode.RELEASED -> {
+                            when (releasedAudioFilter) {
+                                ReleasedAudioFilter.BOTH -> {
+                                    val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
+                                    val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
+                                    if (subCount != null && subCount > 0 && dubCount != null && dubCount > 0) {
+                                        topEndBadges.add(CoverBadgeData("$subCount", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub, BadgeSegment("$dubCount", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub)))
+                                    } else if (subCount != null && subCount > 0) {
+                                        topEndBadges.add(CoverBadgeData("$subCount", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
+                                    } else if (dubCount != null && dubCount > 0) {
+                                        topEndBadges.add(CoverBadgeData("$dubCount", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
+                                    } else {
+                                        val hasPerTypeData = if (releasedUnwatchedOnly) anime.subUnwatchedCount != null || anime.dubUnwatchedCount != null else anime.subEpisodeCount != null || anime.dubEpisodeCount != null
+                                        if (!hasPerTypeData) {
+                                            val fallbackCount = if (releasedUnwatchedOnly) anime.unwatchedCount ?: anime.releasedEpisodes else anime.releasedEpisodes
+                                            fallbackCount?.let { ep ->
+                                                topEndBadges.add(CoverBadgeData("$ep", badgeColors.totalContainer, badgeColors.totalContent, BadgeIcons.Total))
+                                            }
+                                        }
+                                    }
+                                }
+                                ReleasedAudioFilter.SUB -> {
+                                    val count = if (releasedUnwatchedOnly) anime.subUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes else anime.subEpisodeCount ?: anime.releasedEpisodes
+                                    if (count != null && count > 0) {
+                                        topEndBadges.add(CoverBadgeData("$count", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
+                                    }
+                                }
+                                ReleasedAudioFilter.DUB -> {
+                                    val count = if (releasedUnwatchedOnly) anime.dubUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes else anime.dubEpisodeCount ?: anime.releasedEpisodes
+                                    if (count != null && count > 0) {
+                                        topEndBadges.add(CoverBadgeData("$count", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isAllCaughtUp) {
+                    topEndBadges.add(CoverBadgeData("All Caught Up", badgeColors.allCaughtUpContainer, badgeColors.allCaughtUpContent))
+                }
+
+                if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
+                    topStartBadges.add(CoverBadgeData("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
+                }
+
+                if (topStartBadges.isNotEmpty()) {
+                    CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
+                }
+                if (topEndBadges.isNotEmpty()) {
+                    CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
+                }
+            }
+
+            // Title overlay at bottom with gradient (compact grid style)
+            // D-242-fix17: Hide title for COVER_ONLY mode (per user request).
+            if (displayMode != LibraryDisplayMode.COVER_ONLY) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                    MaterialTheme.colorScheme.surface,
+                        .aspectRatio(2f / 3f),
+                    contentAlignment = Alignment.BottomStart,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                        MaterialTheme.colorScheme.surface,
+                                    ),
                                 ),
                             ),
+                    )
+                    Text(
+                        text = anime.title,
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = titleLines,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                }
+            }
+
+            // ── D-141: Selection border overlay (drawn on top of content) ──
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .border(
+                            width = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(12.dp),
                         ),
                 )
-                Text(
-                    text = anime.title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = titleLines,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                )
             }
-        }
 
-        // ── D-141: Selection border overlay (drawn on top of content) ──
-        if (isSelected) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .border(
-                        width = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        shape = RoundedCornerShape(12.dp),
-                    ),
-            )
-        }
-
-        // ── D-141: Selection checkbox badge (top-right, in selection mode) ──
-        // Filled primary circle with a check icon when selected; semi-transparent
-        // surface circle (empty) when not selected — so the user can see that
-        // tapping will select.
-        if (isSelectionMode) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isSelected) {
-                    Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = "Selected",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(14.dp),
-                    )
+            // ── D-141: Selection checkbox badge (top-right, in selection mode) ──
+            // Filled primary circle with a check icon when selected; semi-transparent
+            // surface circle (empty) when not selected — so the user can see that
+            // tapping will select.
+            if (isSelectionMode) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Selected",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
                 }
             }
         }
@@ -3005,9 +3070,15 @@ private fun LibraryListRow(
 
         // Info column — title position controls whether title is first or last.
         // D-242-fix19: Text size scales with density.
-        Column(modifier = Modifier.weight(1f)) {
+        // D-242-fix20: BOTTOM position now truly aligns to the bottom of the
+        // cover height (uses Spacer.weight(1f) to push title down).
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .height(listDensity.coverHeight.dp),
+        ) {
             if (listTitlePosition == ListTitlePosition.TOP) {
-                // Title first, then detail tags.
+                // Title first, then detail tags below.
                 Text(
                     anime.title,
                     fontFamily = RobotoFamily,
@@ -3022,11 +3093,12 @@ private fun LibraryListRow(
                     DetailTagRow(detailTags)
                 }
             } else {
-                // BOTTOM: detail tags first, then title.
+                // BOTTOM: detail tags at top, title pushed to the very bottom
+                // of the cover height via Spacer.weight(1f).
                 if (detailTags.isNotEmpty()) {
                     DetailTagRow(detailTags)
-                    Spacer(Modifier.height(4.dp))
                 }
+                Spacer(Modifier.weight(1f))
                 Text(
                     anime.title,
                     fontFamily = RobotoFamily,
@@ -3042,11 +3114,36 @@ private fun LibraryListRow(
 }
 
 /**
- * D-242-fix19: Renders detail tags as a horizontal scrollable row of compact pills.
- * Used in list mode to show year, score, episode counts, etc.
+ * D-242-fix20: Custom detail tag — matches DetailsScreen pill style.
  *
- * D-242-fix19: Reduced vertical padding (2dp → 1dp) + smaller corner radius
- * (6dp → 4dp) for a tighter, more beautiful look. Text size 9sp (was 10sp).
+ * Fully rounded pill (RoundedCornerShape(50)), tight padding, no extra
+ * Box/Row wrapping. The Surface wraps ONLY the Text so there's no empty
+ * space above/below the text (per user feedback).
+ *
+ * This is the same pattern used in DetailsScreen for genre pills, audio
+ * pills, and source selector pills.
+ */
+@Composable
+private fun DetailTagPill(tag: ListDetailTag) {
+    Surface(
+        color = tag.container,
+        shape = RoundedCornerShape(50),
+    ) {
+        Text(
+            text = tag.text,
+            fontFamily = RobotoFamily,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = tag.content,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * D-242-fix20: Renders detail tags as a horizontal scrollable row of custom
+ * pill tags. Uses [DetailTagPill] for each tag — no empty space, tight fit.
  */
 @Composable
 private fun DetailTagRow(tags: List<ListDetailTag>) {
@@ -3055,20 +3152,7 @@ private fun DetailTagRow(tags: List<ListDetailTag>) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         items(tags) { tag ->
-            Surface(
-                color = tag.container,
-                shape = RoundedCornerShape(4.dp),
-            ) {
-                Text(
-                    text = tag.text,
-                    fontFamily = RobotoFamily,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = tag.content,
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                    maxLines = 1,
-                )
-            }
+            DetailTagPill(tag)
         }
     }
 }

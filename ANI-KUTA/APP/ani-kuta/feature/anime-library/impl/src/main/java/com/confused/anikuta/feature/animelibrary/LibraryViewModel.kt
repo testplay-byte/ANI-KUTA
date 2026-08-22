@@ -1034,18 +1034,18 @@ enum class CoverBorderColor(val hex: Long, val displayName: String) {
 }
 
 /**
- * D-242-fix19: List mode density options.
+ * D-242-fix20: List mode density options.
  *
  * Controls the size of list entries in LIST display mode. Text size also
  * scales with density (bigger density = bigger text).
  * - COMPACT: 48×68dp cover, 12sp text.
- * - NORMAL: 60×86dp cover, 14sp text.
- * - COMFORTABLE: 80×115dp cover, 16sp text.
+ * - NORMAL: 60×86dp cover, 15sp text.
+ * - COMFORTABLE: 80×115dp cover, 18sp text.
  */
 enum class ListDensity(val coverWidth: Int, val coverHeight: Int, val titleFontSize: Int, val displayName: String) {
     COMPACT(48, 68, 12, "Compact"),
-    NORMAL(60, 86, 14, "Normal"),
-    COMFORTABLE(80, 115, 16, "Comfortable"),
+    NORMAL(60, 86, 15, "Normal"),
+    COMFORTABLE(80, 115, 18, "Comfortable"),
 }
 
 /**
