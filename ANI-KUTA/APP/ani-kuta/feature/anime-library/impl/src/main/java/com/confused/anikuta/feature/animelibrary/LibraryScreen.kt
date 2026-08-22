@@ -2028,31 +2028,62 @@ private fun LibraryGridCard(
                 .clip(RoundedCornerShape(12.dp)),
         )
 
-        // D-242-fix9: Cover badges — edge-to-edge, theme-adaptive colors.
-        // Episode badge: primaryContainer (complements primary)
-        if (!isSelectionMode && episodeBadgeMode != EpisodeBadgeMode.OFF && anime.episodes != null) {
+        // D-242-fix10: Cover badges — edge-to-edge, side-by-side (no overlap).
+        // Badges at the same corner are rendered in a Row so they don't overlap.
+        // Episode badge uses releasedEpisodes (actual aired) or episodes (planned total).
+        // Score badge uses averageScore.
+        // Audio badge uses audioAvailability (SUB/DUB/HSUB).
+        if (!isSelectionMode) {
+            // Top-start badges
+            val topStartBadges = mutableListOf<Pair<String, Pair<Color, Color>>>()
+            // Top-end badges
+            val topEndBadges = mutableListOf<Pair<String, Pair<Color, Color>>>()
+
+            // Build episode badge text
             val epText = when (episodeBadgeMode) {
-                EpisodeBadgeMode.TOTAL -> "EP ${anime.episodes}"
-                EpisodeBadgeMode.RELEASED -> "EP ${anime.episodes}"
-                EpisodeBadgeMode.OFF -> ""
+                EpisodeBadgeMode.TOTAL -> anime.episodes?.let { "EP $it" }
+                EpisodeBadgeMode.RELEASED -> (anime.releasedEpisodes ?: anime.episodes)?.let { "EP $it" }
+                EpisodeBadgeMode.OFF -> null
             }
-            if (epText.isNotBlank()) {
-                CoverBadge(
-                    text = epText,
-                    position = episodeBadgePosition,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            if (epText != null) {
+                val colors = MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+                if (episodeBadgePosition == BadgePosition.TOP_START) topStartBadges.add(epText to colors)
+                else if (episodeBadgePosition == BadgePosition.TOP_END) topEndBadges.add(epText to colors)
+            }
+            // Score badge
+            if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
+                val scoreText = "★ ${anime.averageScore}"
+                val colors = MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+                if (scoreBadgePosition == BadgePosition.TOP_START) topStartBadges.add(scoreText to colors)
+                else if (scoreBadgePosition == BadgePosition.TOP_END) topEndBadges.add(scoreText to colors)
+            }
+            // Audio badge (SUB/DUB)
+            val audio = anime.audioAvailability
+            if (audio != null && audio.hasAny) {
+                val audioText = audio.labels.joinToString("·")
+                val colors = MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+                // Audio badge goes to whichever corner has fewer badges (or TOP_END by default)
+                if (topStartBadges.size <= topEndBadges.size) {
+                    topStartBadges.add(audioText to colors)
+                } else {
+                    topEndBadges.add(audioText to colors)
+                }
+            }
+
+            // Render top-start badges (side-by-side in a Row)
+            if (topStartBadges.isNotEmpty()) {
+                CoverBadgeRow(
+                    badges = topStartBadges,
+                    position = BadgePosition.TOP_START,
                 )
             }
-        }
-        // Score badge: tertiaryContainer (warm complement to primary)
-        if (!isSelectionMode && showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
-            CoverBadge(
-                text = "★ ${anime.averageScore}",
-                position = scoreBadgePosition,
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
+            // Render top-end badges (side-by-side in a Row)
+            if (topEndBadges.isNotEmpty()) {
+                CoverBadgeRow(
+                    badges = topEndBadges,
+                    position = BadgePosition.TOP_END,
+                )
+            }
         }
 
         // Title overlay at bottom with gradient (compact grid style)
@@ -2548,6 +2579,54 @@ private fun DeleteSelectedDialog(
             }
         },
     )
+}
+
+/**
+ * D-242-fix10: Renders multiple badges side-by-side in a single Row at a corner.
+ * Edge-to-edge — sits flush with the cover corner.
+ * Each badge has its own color (containerColor, contentColor).
+ * Compact: 8sp font, 1dp vertical padding.
+ */
+@Composable
+private fun BoxScope.CoverBadgeRow(
+    badges: List<Pair<String, Pair<Color, Color>>>,
+    position: BadgePosition,
+) {
+    val alignment = when (position) {
+        BadgePosition.TOP_START -> Alignment.TopStart
+        BadgePosition.TOP_END -> Alignment.TopEnd
+        BadgePosition.BOTTOM_START -> Alignment.BottomStart
+        BadgePosition.BOTTOM_END -> Alignment.BottomEnd
+    }
+    val shape = when (position) {
+        BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 6.dp)
+        BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 6.dp, bottomEnd = 0.dp)
+        BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 6.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
+        BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 6.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
+    }
+    Surface(
+        modifier = Modifier.align(alignment),
+        color = Color.Transparent,  // transparent container — each badge has its own color
+        shape = shape,
+    ) {
+        Row {
+            badges.forEach { (text, colors) ->
+                Surface(
+                    color = colors.first,
+                    shape = RoundedCornerShape(0.dp),  // square between badges
+                ) {
+                    Text(
+                        text = text,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.second,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**

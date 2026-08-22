@@ -1,18 +1,16 @@
 package com.confused.anikuta.feature.animelibrary
 
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.common.AudioAvailability
 
 /**
  * A library entry — carries both display data + navigation info.
  *
- * D-140: The old approach used `AniListAnime.id` (anilistId) as the LazyGrid key
- * + navigation parameter. This crashed when multiple extension-only entries
- * existed (all had anilistId=0 → duplicate key "0" crash). It also caused 404
- * errors when opening extension-only entries from the library (tried to fetch
- * AniList ID 0).
- *
- * The fix: use `mainId` (stable UUID) as the key. For navigation, check if
- * anilistId is available → navigate via AniList. If not → navigate via Extension.
+ * D-242-fix10: Added fields for badge data:
+ *  - [releasedEpisodes]: actual count of episodes that have aired (from cache).
+ *    Different from [episodes] which is AniList's planned total.
+ *  - [audioAvailability]: aggregated SUB/DUB/HSUB availability across all episodes.
+ *  - [watchedCount]: how many episodes the user has watched.
  */
 data class LibraryEntry(
     val mainId: String,
@@ -22,15 +20,22 @@ data class LibraryEntry(
     val title: String,
     val coverUrl: String?,
     val averageScore: Int?,
-    val episodes: Int?,
+    val episodes: Int?,       // AniList planned total
     val seasonYear: Int?,
     val status: String?,
+    // D-242-fix10: badge data
+    val releasedEpisodes: Int? = null,      // actual aired count (from cache)
+    val audioAvailability: AudioAvailability? = null,  // SUB/DUB/HSUB
+    val watchedCount: Int? = null,          // user's watched episode count
 ) {
     /** Whether this entry can be opened via AniList (has a valid anilistId). */
     val hasAniListId: Boolean get() = anilistId != null && anilistId > 0
 
     /** Whether this entry can be opened via an extension source. */
     val hasExtensionSource: Boolean get() = sourceId != null && animeUrl != null
+
+    /** Unwatched count = released - watched (null if either is null). */
+    val unwatchedCount: Int? get() = releasedEpisodes?.let { r -> watchedCount?.let { w -> (r - w).coerceAtLeast(0) } }
 
     companion object {
         /** Create from an AniListAnime (for AniList-linked entries). */

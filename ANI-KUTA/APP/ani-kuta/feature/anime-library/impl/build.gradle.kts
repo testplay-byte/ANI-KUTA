@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:content"))
     implementation(project(":core:data-cache"))
+    implementation(project(":core:watch-progress"))  // D-242-fix10: for unwatched episode count badges
     implementation(project(":core:navigation-api"))
     implementation(project(":core:database"))
     implementation(project(":core:preferences"))

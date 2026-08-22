@@ -31,6 +31,8 @@ class LibraryViewModel(
     private val contentRepository: ContentRepository,
     private val preferenceStore: PreferenceStore,
     private val dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
+    // D-242-fix10: injected for unwatched episode count badges
+    private val watchProgressStore: com.confused.anikuta.core.watchprogress.WatchProgressStore? = null,
 ) : ViewModel() {
 
     companion object {
@@ -308,6 +310,8 @@ class LibraryViewModel(
             if (entries.isEmpty()) {
                 _state.value = LibraryState.Empty
             } else {
+                // D-242-fix10: enrich entries with badge data (released count, audio, watched)
+                enrichEntriesWithBadgeData(entries)
                 _state.value = LibraryState.Success(entries)
                 applyFilters()
             }
@@ -394,6 +398,8 @@ class LibraryViewModel(
                 if (entries.isEmpty()) {
                     _state.value = LibraryState.Empty
                 } else {
+                    // D-242-fix10: enrich entries with badge data
+                    enrichEntriesWithBadgeData(entries)
                     _state.value = LibraryState.Success(entries)
                     applyFilters()
                 }
@@ -709,6 +715,49 @@ class LibraryViewModel(
     fun setShowCategoryCounts(value: Boolean) {
         _showCategoryCounts.value = value
         preferenceStore.putBoolean(KEY_SHOW_CATEGORY_COUNTS, value)
+    }
+
+    /**
+     * D-242-fix10: Enriches LibraryEntry list with badge data:
+     * - releasedEpisodes: count of cached episodes (actual aired count)
+     * - audioAvailability: aggregated SUB/DUB/HSUB across all cached episodes
+     * - watchedCount: how many episodes the user has watched
+     */
+    private suspend fun enrichEntriesWithBadgeData(entries: MutableList<LibraryEntry>) {
+        for (i in entries.indices) {
+            val entry = entries[i]
+            try {
+                val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(entry.mainId)
+                val releasedCount = cachedEpisodes.size.takeIf { it > 0 }
+
+                // Aggregate audio availability across all episodes.
+                var hasSub = false
+                var hasDub = false
+                var hasHsub = false
+                for (ep in cachedEpisodes) {
+                    val audio = com.confused.anikuta.core.common.parseAudioAvailability(
+                        ep.scanlator,
+                        ep.sourceName ?: ep.title ?: "",
+                    )
+                    if (audio.hasSub) hasSub = true
+                    if (audio.hasDub) hasDub = true
+                    if (audio.hasHsub) hasHsub = true
+                }
+                val audioAvail = if (hasSub || hasDub || hasHsub) {
+                    com.confused.anikuta.core.common.AudioAvailability(hasSub, hasDub, hasHsub)
+                } else null
+
+                val watched = watchProgressStore?.getWatchedEpisodeCount(entry.mainId)?.takeIf { it > 0 }
+
+                entries[i] = entry.copy(
+                    releasedEpisodes = releasedCount,
+                    audioAvailability = audioAvail,
+                    watchedCount = watched,
+                )
+            } catch (e: Exception) {
+                Logger.w(TAG) { "enrichEntriesWithBadgeData — failed for ${entry.mainId}: ${e.message}" }
+            }
+        }
     }
 
     // ── Persistence ──
