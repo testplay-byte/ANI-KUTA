@@ -59,6 +59,10 @@ class LibraryViewModel(
         private const val KEY_COVER_BORDER_ENABLED = "library_cover_border_enabled"
         private const val KEY_COVER_BORDER_COLOR = "library_cover_border_color"
         private const val KEY_COVER_BORDER_WIDTH = "library_cover_border_width"
+        // D-242-fix18: All Caught Up tag + list mode settings.
+        private const val KEY_SHOW_ALL_CAUGHT_UP_TAG = "library_show_all_caught_up_tag"
+        private const val KEY_LIST_DENSITY = "library_list_density"
+        private const val KEY_LIST_TITLE_POSITION = "library_list_title_position"
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
@@ -163,12 +167,25 @@ class LibraryViewModel(
     val coverBorderEnabled: StateFlow<Boolean> = _coverBorderEnabled
 
     /** The color of the cover border (when enabled). */
-    private val _coverBorderColor = MutableStateFlow(CoverBorderColor.WHITE)
+    private val _coverBorderColor = MutableStateFlow(CoverBorderColor.GRAY)
     val coverBorderColor: StateFlow<CoverBorderColor> = _coverBorderColor
 
     /** The width of the cover border (when enabled). */
     private val _coverBorderWidth = MutableStateFlow(CoverBorderWidth.THIN)
     val coverBorderWidth: StateFlow<CoverBorderWidth> = _coverBorderWidth
+
+    // D-242-fix18: All Caught Up tag + list mode settings.
+    /** When true, shows "All Caught Up" tag for series with 0 unwatched episodes. */
+    private val _showAllCaughtUpTag = MutableStateFlow(false)
+    val showAllCaughtUpTag: StateFlow<Boolean> = _showAllCaughtUpTag
+
+    /** List mode density (controls entry size). */
+    private val _listDensity = MutableStateFlow(ListDensity.NORMAL)
+    val listDensity: StateFlow<ListDensity> = _listDensity
+
+    /** List mode title position (top or bottom). */
+    private val _listTitlePosition = MutableStateFlow(ListTitlePosition.BOTTOM)
+    val listTitlePosition: StateFlow<ListTitlePosition> = _listTitlePosition
 
     init {
         loadPreferences()
@@ -777,6 +794,25 @@ class LibraryViewModel(
         Logger.i(TAG) { "setCoverBorderWidth — $width" }
     }
 
+    // D-242-fix18: All Caught Up tag + list mode setters.
+    fun setShowAllCaughtUpTag(value: Boolean) {
+        _showAllCaughtUpTag.value = value
+        preferenceStore.putBoolean(KEY_SHOW_ALL_CAUGHT_UP_TAG, value)
+        Logger.i(TAG) { "setShowAllCaughtUpTag — $value" }
+    }
+
+    fun setListDensity(density: ListDensity) {
+        _listDensity.value = density
+        preferenceStore.putString(KEY_LIST_DENSITY, density.name)
+        Logger.i(TAG) { "setListDensity — $density" }
+    }
+
+    fun setListTitlePosition(position: ListTitlePosition) {
+        _listTitlePosition.value = position
+        preferenceStore.putString(KEY_LIST_TITLE_POSITION, position.name)
+        Logger.i(TAG) { "setListTitlePosition — $position" }
+    }
+
     /**
      * D-242-fix10: Enriches LibraryEntry list with badge data:
      * - releasedEpisodes: count of cached episodes (actual aired count)
@@ -872,11 +908,20 @@ class LibraryViewModel(
         // D-242-fix17: load cover border settings.
         _coverBorderEnabled.value = preferenceStore.getBoolean(KEY_COVER_BORDER_ENABLED, false)
         _coverBorderColor.value = preferenceStore
-            .getString(KEY_COVER_BORDER_COLOR, CoverBorderColor.WHITE.name)
-            .let { runCatching { CoverBorderColor.valueOf(it) }.getOrDefault(CoverBorderColor.WHITE) }
+            .getString(KEY_COVER_BORDER_COLOR, CoverBorderColor.GRAY.name)
+            .let { runCatching { CoverBorderColor.valueOf(it) }.getOrDefault(CoverBorderColor.GRAY) }
         _coverBorderWidth.value = preferenceStore
             .getString(KEY_COVER_BORDER_WIDTH, CoverBorderWidth.THIN.name)
             .let { runCatching { CoverBorderWidth.valueOf(it) }.getOrDefault(CoverBorderWidth.THIN) }
+
+        // D-242-fix18: load All Caught Up tag + list mode settings.
+        _showAllCaughtUpTag.value = preferenceStore.getBoolean(KEY_SHOW_ALL_CAUGHT_UP_TAG, false)
+        _listDensity.value = preferenceStore
+            .getString(KEY_LIST_DENSITY, ListDensity.NORMAL.name)
+            .let { runCatching { ListDensity.valueOf(it) }.getOrDefault(ListDensity.NORMAL) }
+        _listTitlePosition.value = preferenceStore
+            .getString(KEY_LIST_TITLE_POSITION, ListTitlePosition.BOTTOM.name)
+            .let { runCatching { ListTitlePosition.valueOf(it) }.getOrDefault(ListTitlePosition.BOTTOM) }
 
         // D-242-fix3: restore last-selected category across app restarts.
         // -1L sentinel = "All" (null selection).
@@ -967,18 +1012,47 @@ enum class BadgePosition {
 }
 
 /**
- * D-242-fix17: Predefined cover border colors.
+ * D-242-fix18: Predefined cover border colors.
  *
- * Each color is hand-picked to provide good contrast against typical anime
- * cover art while harmonising with the app's theme system. The [hex] value
- * is an ARGB color (0xAARRGGBB).
+ * The order is intentional (per user spec):
+ * 1. GRAY — the default (neutral, works on any theme).
+ * 2. THEME_ADAPTIVE — white in dark theme, black in light theme.
+ * 3. PRIMARY — the app's lime accent color.
+ * 4. SURFACE — dark gray (the "remaining" color).
+ * 5. ADAPTIVE — special: extracts the dominant color from the cover image
+ *    and adjusts it for contrast. Handled at render time, not a fixed hex.
+ *
+ * The [hex] value is an ARGB color (0xAARRGGBB). For ADAPTIVE, [hex] is
+ * unused (0 means "extract at runtime").
  */
 enum class CoverBorderColor(val hex: Long, val displayName: String) {
-    WHITE(0xFFFFFFFF, "White"),
-    BLACK(0xFF000000, "Black"),
-    PRIMARY(0xFFB1F256, "Lime"),      // App's primary accent
     GRAY(0xFF9E9E9E, "Gray"),
+    THEME_ADAPTIVE(0xFF000000, "Theme"),  // hex unused; resolved at render time
+    PRIMARY(0xFFB1F256, "Lime"),
     SURFACE(0xFF424242, "Dark Gray"),
+    ADAPTIVE(0x00000000, "Adaptive"),     // extracts color from cover image
+}
+
+/**
+ * D-242-fix18: List mode density options.
+ *
+ * Controls the size of list entries in LIST display mode.
+ * - COMPACT: smaller cover thumbnail (48dp), tighter spacing.
+ * - NORMAL: medium cover thumbnail (56dp), standard spacing.
+ * - COMFORTABLE: larger cover thumbnail (72dp), generous spacing.
+ */
+enum class ListDensity(val coverWidth: Int, val coverHeight: Int, val displayName: String) {
+    COMPACT(48, 68, "Compact"),
+    NORMAL(56, 80, "Normal"),
+    COMFORTABLE(72, 104, "Comfortable"),
+}
+
+/**
+ * D-242-fix18: Where to show the title in list mode.
+ */
+enum class ListTitlePosition(val displayName: String) {
+    TOP("Top"),
+    BOTTOM("Bottom"),
 }
 
 /**

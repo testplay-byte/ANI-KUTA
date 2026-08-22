@@ -192,6 +192,10 @@ fun LibraryScreen(
     val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
     val coverBorderColor by viewModel.coverBorderColor.collectAsState()
     val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
+    // D-242-fix18: All Caught Up tag + list mode settings.
+    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
+    val listDensity by viewModel.listDensity.collectAsState()
+    val listTitlePosition by viewModel.listTitlePosition.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
     // D.5: refresh state for pull-to-refresh.
@@ -567,6 +571,7 @@ fun LibraryScreen(
                                 coverBorderColor = coverBorderColor,
                                 coverBorderWidth = coverBorderWidth,
                                 displayMode = displayMode,
+                                showAllCaughtUpTag = showAllCaughtUpTag,
                             )
                         } else {
                             LibraryList(
@@ -577,6 +582,16 @@ fun LibraryScreen(
                                 selectedMainIds = selectedMainIds,
                                 onClickEntry = onEntryClick,
                                 onLongClickEntry = onEntryLongClick,
+                                episodeBadgeMode = episodeBadgeMode,
+                                showScoreBadge = showScoreBadge,
+                                releasedAudioFilter = releasedAudioFilter,
+                                releasedUnwatchedOnly = releasedUnwatchedOnly,
+                                showAllCaughtUpTag = showAllCaughtUpTag,
+                                coverBorderEnabled = coverBorderEnabled,
+                                coverBorderColor = coverBorderColor,
+                                coverBorderWidth = coverBorderWidth,
+                                listDensity = listDensity,
+                                listTitlePosition = listTitlePosition,
                             )
                         }
                     }
@@ -634,6 +649,9 @@ fun LibraryScreen(
                 coverBorderEnabled = coverBorderEnabled,
                 coverBorderColor = coverBorderColor,
                 coverBorderWidth = coverBorderWidth,
+                showAllCaughtUpTag = showAllCaughtUpTag,
+                listDensity = listDensity,
+                listTitlePosition = listTitlePosition,
                 onDisplayModeChange = viewModel::setDisplayMode,
                 onColumnsChange = viewModel::setColumns,
                 onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
@@ -648,6 +666,9 @@ fun LibraryScreen(
                 onCoverBorderEnabledChange = viewModel::setCoverBorderEnabled,
                 onCoverBorderColorChange = viewModel::setCoverBorderColor,
                 onCoverBorderWidthChange = viewModel::setCoverBorderWidth,
+                onShowAllCaughtUpTagChange = viewModel::setShowAllCaughtUpTag,
+                onListDensityChange = viewModel::setListDensity,
+                onListTitlePositionChange = viewModel::setListTitlePosition,
                 onDismiss = { showSettingsSheet = false },
             )
         }
@@ -1276,6 +1297,9 @@ private fun CustomizeSheet(
     coverBorderEnabled: Boolean,
     coverBorderColor: CoverBorderColor,
     coverBorderWidth: CoverBorderWidth,
+    showAllCaughtUpTag: Boolean,
+    listDensity: ListDensity,
+    listTitlePosition: ListTitlePosition,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onEpisodeBadgeModeChange: (EpisodeBadgeMode) -> Unit,
@@ -1290,6 +1314,9 @@ private fun CustomizeSheet(
     onCoverBorderEnabledChange: (Boolean) -> Unit,
     onCoverBorderColorChange: (CoverBorderColor) -> Unit,
     onCoverBorderWidthChange: (CoverBorderWidth) -> Unit,
+    onShowAllCaughtUpTagChange: (Boolean) -> Unit,
+    onListDensityChange: (ListDensity) -> Unit,
+    onListTitlePositionChange: (ListTitlePosition) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1384,7 +1411,9 @@ private fun CustomizeSheet(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
+                    // D-242-fix18: Added bottom padding so the last items (buttons,
+                    // toggles) are not cut off by the bottom of the sheet.
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 0.dp, bottom = 40.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                 // Item 0: tab strip — shrinks + fades on scroll.
@@ -1457,6 +1486,9 @@ private fun CustomizeSheet(
                         showCategoryCounts = showCategoryCounts,
                         releasedAudioFilter = releasedAudioFilter,
                         releasedUnwatchedOnly = releasedUnwatchedOnly,
+                        showAllCaughtUpTag = showAllCaughtUpTag,
+                        listDensity = listDensity,
+                        listTitlePosition = listTitlePosition,
                         onDisplayModeChange = onDisplayModeChange,
                         onColumnsChange = onColumnsChange,
                         onTitleLinesChange = onTitleLinesChange,
@@ -1467,14 +1499,22 @@ private fun CustomizeSheet(
                         onShowCategoryCountsChange = onShowCategoryCountsChange,
                         onReleasedAudioFilterChange = onReleasedAudioFilterChange,
                         onReleasedUnwatchedOnlyChange = onReleasedUnwatchedOnlyChange,
+                        onShowAllCaughtUpTagChange = onShowAllCaughtUpTagChange,
+                        onListDensityChange = onListDensityChange,
+                        onListTitlePositionChange = onListTitlePositionChange,
                     )
                     2 -> uiTab(
                         coverBorderEnabled = coverBorderEnabled,
                         coverBorderColor = coverBorderColor,
                         coverBorderWidth = coverBorderWidth,
+                        displayMode = displayMode,
+                        listDensity = listDensity,
+                        listTitlePosition = listTitlePosition,
                         onCoverBorderEnabledChange = onCoverBorderEnabledChange,
                         onCoverBorderColorChange = onCoverBorderColorChange,
                         onCoverBorderWidthChange = onCoverBorderWidthChange,
+                        onListDensityChange = onListDensityChange,
+                        onListTitlePositionChange = onListTitlePositionChange,
                     )
                 }
             }
@@ -1593,6 +1633,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     showCategoryCounts: Boolean,
     releasedAudioFilter: ReleasedAudioFilter,
     releasedUnwatchedOnly: Boolean,
+    showAllCaughtUpTag: Boolean,
+    listDensity: ListDensity,
+    listTitlePosition: ListTitlePosition,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
@@ -1603,6 +1646,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     onShowCategoryCountsChange: (Boolean) -> Unit,
     onReleasedAudioFilterChange: (ReleasedAudioFilter) -> Unit,
     onReleasedUnwatchedOnlyChange: (Boolean) -> Unit,
+    onShowAllCaughtUpTagChange: (Boolean) -> Unit,
+    onListDensityChange: (ListDensity) -> Unit,
+    onListTitlePositionChange: (ListTitlePosition) -> Unit,
 ) {
     // ═══════════════════════════════════════════════════════════════════════
     // SECTION 1: DISPLAY (Display Mode, Columns, Title lines)
@@ -1783,6 +1829,85 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                 rightLabel = "Unwatched",
             )
         }
+        // D-242-fix18: All Caught Up tag toggle — shows "All Caught Up" badge
+        // for series with 0 unwatched episodes.
+        item {
+            Spacer(Modifier.height(12.dp))
+            TwoWayButton(
+                label = "All Caught Up Tag",
+                selected = showAllCaughtUpTag,
+                onChange = onShowAllCaughtUpTagChange,
+                leftLabel = "Off",
+                rightLabel = "On",
+            )
+        }
+    }
+
+    // D-242-fix18: List mode specific settings (density + title position).
+    // Only shown when displayMode == LIST.
+    if (displayMode == LibraryDisplayMode.LIST) {
+        item {
+            Spacer(Modifier.height(16.dp))
+            OptionLabel("List Density")
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ListDensity.entries.forEach { density ->
+                    val isSelected = listDensity == density
+                    Surface(
+                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).clickable { onListDensityChange(density) },
+                    ) {
+                        Text(
+                            text = density.displayName,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            Spacer(Modifier.height(12.dp))
+            OptionLabel("Title Position")
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ListTitlePosition.entries.forEach { pos ->
+                    val isSelected = listTitlePosition == pos
+                    Surface(
+                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).clickable { onListTitlePositionChange(pos) },
+                    ) {
+                        Text(
+                            text = pos.displayName,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // ── Score badge (two-way button, replaces toggle) ──
@@ -1831,10 +1956,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
     coverBorderEnabled: Boolean,
     coverBorderColor: CoverBorderColor,
     coverBorderWidth: CoverBorderWidth,
+    displayMode: LibraryDisplayMode,
+    listDensity: ListDensity,
+    listTitlePosition: ListTitlePosition,
     onCoverBorderEnabledChange: (Boolean) -> Unit,
     onCoverBorderColorChange: (CoverBorderColor) -> Unit,
     onCoverBorderWidthChange: (CoverBorderWidth) -> Unit,
+    onListDensityChange: (ListDensity) -> Unit,
+    onListTitlePositionChange: (ListTitlePosition) -> Unit,
 ) {
+    val isDark = isSystemInDarkTheme()
+
     // ═══════════════════════════════════════════════════════════════════════
     // SECTION 1: COVER BORDERS
     // ═══════════════════════════════════════════════════════════════════════
@@ -1852,6 +1984,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
     }
 
     // ── Border color (only shown when enabled) ──
+    // D-242-fix18: Colors reordered per user spec:
+    //   1. GRAY (default), 2. THEME_ADAPTIVE (white/black), 3. PRIMARY,
+    //   4. SURFACE, 5. ADAPTIVE (extracts from cover image).
     if (coverBorderEnabled) {
         item {
             Spacer(Modifier.height(16.dp))
@@ -1864,8 +1999,18 @@ private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
             ) {
                 CoverBorderColor.entries.forEach { color ->
                     val isSelected = coverBorderColor == color
+                    // Resolve the display color:
+                    // - GRAY/PRIMARY/SURFACE → use hex directly.
+                    // - THEME_ADAPTIVE → white in dark theme, black in light theme.
+                    // - ADAPTIVE → show a gradient (placeholder; actual color
+                    //   extracted per-cover at render time).
+                    val displayColor = when (color) {
+                        CoverBorderColor.THEME_ADAPTIVE -> if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
+                        CoverBorderColor.ADAPTIVE -> Color(0xFF808080) // placeholder gray
+                        else -> Color(color.hex)
+                    }
                     Surface(
-                        color = Color(color.hex),
+                        color = displayColor,
                         shape = CircleShape,
                         border = BorderStroke(
                             width = if (isSelected) 2.dp else 0.5.dp,
@@ -1877,7 +2022,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
                             .size(36.dp)
                             .clip(CircleShape)
                             .clickable { onCoverBorderColorChange(color) },
-                    ) {}
+                    ) {
+                        // ADAPTIVE gets a small "A" label to indicate it's special.
+                        if (color == CoverBorderColor.ADAPTIVE) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    "A",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2260,9 +2417,10 @@ private fun LibraryGrid(
     releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
     releasedUnwatchedOnly: Boolean = false,
     coverBorderEnabled: Boolean = false,
-    coverBorderColor: CoverBorderColor = CoverBorderColor.WHITE,
+    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
     coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
+    showAllCaughtUpTag: Boolean = false,
 ) {
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyVerticalGrid(
@@ -2295,6 +2453,7 @@ private fun LibraryGrid(
                 coverBorderColor = coverBorderColor,
                 coverBorderWidth = coverBorderWidth,
                 displayMode = displayMode,
+                showAllCaughtUpTag = showAllCaughtUpTag,
             )
         }
     }
@@ -2315,9 +2474,10 @@ private fun LibraryGridCard(
     releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
     releasedUnwatchedOnly: Boolean = false,
     coverBorderEnabled: Boolean = false,
-    coverBorderColor: CoverBorderColor = CoverBorderColor.WHITE,
+    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
     coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
+    showAllCaughtUpTag: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2335,12 +2495,21 @@ private fun LibraryGridCard(
         label = "cardAlpha",
     )
 
-    // D-242-fix17: Cover border — configurable width + color. Applied to the
+    // D-242-fix18: Cover border — configurable width + color. Applied to the
     // card Box so it wraps the cover image + title overlay + badges.
+    // THEME_ADAPTIVE resolves to white (dark theme) or black (light theme).
+    // ADAPTIVE uses a neutral gray as fallback (true per-cover extraction
+    // requires async image loading — deferred to a future iteration).
+    val isDark = isSystemInDarkTheme()
+    val resolvedBorderColor = when (coverBorderColor) {
+        CoverBorderColor.THEME_ADAPTIVE -> if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
+        CoverBorderColor.ADAPTIVE -> MaterialTheme.colorScheme.outline // adaptive fallback
+        else -> Color(coverBorderColor.hex)
+    }
     val borderModifier = if (coverBorderEnabled) {
         Modifier.border(
             width = coverBorderWidth.widthDp.dp,
-            color = Color(coverBorderColor.hex),
+            color = resolvedBorderColor,
             shape = RoundedCornerShape(12.dp),
         )
     } else {
@@ -2392,14 +2561,13 @@ private fun LibraryGridCard(
                     // D-242-fix15: No episode badge, no audio tags. Clean + minimal.
                 }
                 EpisodeBadgeMode.TOTAL -> {
-                    // D-242-fix17: Use Total (film-strip) icon + number (not "EP N" text).
-                    // Uses a warm amber color from BadgeColorScheme for a clean,
-                    // distinctive look (not the old primaryContainer green).
+                    // D-242-fix18: Use Total (film-strip) icon + number + GREEN color.
+                    // Green shade matches the SUB=blue, DUB=orange, Total=green convention.
                     (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
                         topEndBadges.add(CoverBadgeData(
                             text = "$ep",
-                            containerColor = badgeColors.scoreContainer,
-                            contentColor = badgeColors.scoreContent,
+                            containerColor = badgeColors.totalContainer,
+                            contentColor = badgeColors.totalContent,
                             icon = BadgeIcons.Total,
                         ))
                     }
@@ -2442,13 +2610,20 @@ private fun LibraryGridCard(
                                     anime.subEpisodeCount != null || anime.dubEpisodeCount != null
                                 }
                                 if (!hasPerTypeData) {
+                                    // D-242-fix18: Use Total icon + green color for the
+                                    // fallback (not old "EP N" text). Consistent with TOTAL mode.
                                     val fallbackCount = if (releasedUnwatchedOnly) {
                                         anime.unwatchedCount ?: anime.releasedEpisodes
                                     } else {
                                         anime.releasedEpisodes
                                     }
                                     fallbackCount?.let { ep ->
-                                        topEndBadges.add(CoverBadgeData("EP $ep", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer))
+                                        topEndBadges.add(CoverBadgeData(
+                                            text = "$ep",
+                                            containerColor = badgeColors.totalContainer,
+                                            contentColor = badgeColors.totalContent,
+                                            icon = BadgeIcons.Total,
+                                        ))
                                     }
                                 }
                             }
@@ -2474,6 +2649,24 @@ private fun LibraryGridCard(
                             }
                         }
                     }
+                }
+            }
+
+            // D-242-fix18: All Caught Up tag — shows a red badge for series
+            // with 0 unwatched episodes (when the toggle is on).
+            if (showAllCaughtUpTag) {
+                val unwatched = anime.unwatchedCount
+                val released = anime.releasedEpisodes
+                val watched = anime.watchedCount
+                // Show "All Caught Up" only when there are released episodes
+                // AND the user has watched all of them (unwatched == 0).
+                if (released != null && released > 0 && watched != null && watched > 0 &&
+                    (unwatched == null || unwatched == 0)) {
+                    topEndBadges.add(CoverBadgeData(
+                        text = "All Caught Up",
+                        containerColor = badgeColors.allCaughtUpContainer,
+                        contentColor = badgeColors.allCaughtUpContent,
+                    ))
                 }
             }
 
@@ -2571,6 +2764,11 @@ private fun LibraryGridCard(
 
 // ── List view ──
 
+/**
+ * D-242-fix18: A detail tag pill for list mode (year, score, episode count, etc.).
+ */
+private data class ListDetailTag(val text: String, val container: Color, val content: Color)
+
 @Composable
 private fun LibraryList(
     entries: List<LibraryEntry>,
@@ -2580,6 +2778,16 @@ private fun LibraryList(
     selectedMainIds: Set<String>,
     onClickEntry: (LibraryEntry) -> Unit,
     onLongClickEntry: (LibraryEntry) -> Unit,
+    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
+    showScoreBadge: Boolean = false,
+    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
+    releasedUnwatchedOnly: Boolean = false,
+    showAllCaughtUpTag: Boolean = false,
+    coverBorderEnabled: Boolean = false,
+    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
+    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
+    listDensity: ListDensity = ListDensity.NORMAL,
+    listTitlePosition: ListTitlePosition = ListTitlePosition.BOTTOM,
 ) {
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyColumn(
@@ -2600,11 +2808,29 @@ private fun LibraryList(
                 onClick = onClickEntry,
                 onLongClick = onLongClickEntry,
                 titleLines = titleLines,
+                episodeBadgeMode = episodeBadgeMode,
+                showScoreBadge = showScoreBadge,
+                releasedAudioFilter = releasedAudioFilter,
+                releasedUnwatchedOnly = releasedUnwatchedOnly,
+                showAllCaughtUpTag = showAllCaughtUpTag,
+                coverBorderEnabled = coverBorderEnabled,
+                coverBorderColor = coverBorderColor,
+                coverBorderWidth = coverBorderWidth,
+                listDensity = listDensity,
+                listTitlePosition = listTitlePosition,
             )
         }
     }
 }
 
+/**
+ * D-242-fix18: Redesigned list row with:
+ * - Configurable border on the WHOLE entry (not just the cover).
+ * - Title position (top or bottom) via [listTitlePosition].
+ * - Details (year, score, episode tags) shown in a tagged pill format.
+ * - Density-controlled cover size via [listDensity].
+ * - Episode badge + score badge + All Caught Up tag support.
+ */
 @Composable
 private fun LibraryListRow(
     anime: LibraryEntry,
@@ -2613,6 +2839,16 @@ private fun LibraryListRow(
     onClick: (LibraryEntry) -> Unit,
     onLongClick: (LibraryEntry) -> Unit,
     titleLines: Int = 1,
+    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
+    showScoreBadge: Boolean = false,
+    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
+    releasedUnwatchedOnly: Boolean = false,
+    showAllCaughtUpTag: Boolean = false,
+    coverBorderEnabled: Boolean = false,
+    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
+    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
+    listDensity: ListDensity = ListDensity.NORMAL,
+    listTitlePosition: ListTitlePosition = ListTitlePosition.BOTTOM,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2621,20 +2857,86 @@ private fun LibraryListRow(
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "rowScale",
     )
-
-    // Fade unselected rows to 40% opacity while selection mode is active (mirrors
-    // the grid card behaviour for visual consistency).
     val rowAlpha by animateFloatAsState(
         targetValue = if (isSelectionMode && !isSelected) 0.4f else 1f,
         animationSpec = tween(Motion.DurationStandard, easing = FastOutSlowInEasing),
         label = "rowAlpha",
     )
 
+    // D-242-fix18: Resolve border color (same logic as grid card).
+    val isDark = isSystemInDarkTheme()
+    val resolvedBorderColor = when (coverBorderColor) {
+        CoverBorderColor.THEME_ADAPTIVE -> if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
+        CoverBorderColor.ADAPTIVE -> MaterialTheme.colorScheme.outline
+        else -> Color(coverBorderColor.hex)
+    }
+    val borderModifier = if (coverBorderEnabled) {
+        Modifier.border(
+            width = coverBorderWidth.widthDp.dp,
+            color = resolvedBorderColor,
+            shape = RoundedCornerShape(12.dp),
+        )
+    } else {
+        Modifier
+    }
+
+    val badgeColors = rememberBadgeColorScheme()
+
+    // D-242-fix18: Build detail tags (year, score, episode info, all caught up).
+    val detailTags = mutableListOf<ListDetailTag>()
+
+    // Episode badge tag.
+    when (episodeBadgeMode) {
+        EpisodeBadgeMode.OFF -> {}
+        EpisodeBadgeMode.TOTAL -> {
+            (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
+                detailTags.add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+            }
+        }
+        EpisodeBadgeMode.RELEASED -> {
+            val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
+            val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
+            if (subCount != null && subCount > 0) {
+                detailTags.add(ListDetailTag("SUB $subCount", badgeColors.subContainer, badgeColors.subContent))
+            }
+            if (dubCount != null && dubCount > 0) {
+                detailTags.add(ListDetailTag("DUB $dubCount", badgeColors.dubContainer, badgeColors.dubContent))
+            }
+            if (detailTags.isEmpty()) {
+                anime.releasedEpisodes?.let { ep ->
+                    detailTags.add(ListDetailTag("EP $ep", badgeColors.totalContainer, badgeColors.totalContent))
+                }
+            }
+        }
+    }
+
+    // All Caught Up tag.
+    if (showAllCaughtUpTag) {
+        val unwatched = anime.unwatchedCount
+        val released = anime.releasedEpisodes
+        val watched = anime.watchedCount
+        if (released != null && released > 0 && watched != null && watched > 0 &&
+            (unwatched == null || unwatched == 0)) {
+            detailTags.add(ListDetailTag("All Caught Up", badgeColors.allCaughtUpContainer, badgeColors.allCaughtUpContent))
+        }
+    }
+
+    // Score tag.
+    if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
+        detailTags.add(ListDetailTag("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
+    }
+
+    // Year tag (always shown if available).
+    anime.seasonYear?.let { year ->
+        detailTags.add(ListDetailTag("$year", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant))
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = rowAlpha }
             .clip(RoundedCornerShape(12.dp))
+            .then(borderModifier)
             .then(
                 if (isSelected) Modifier.background(
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
@@ -2657,8 +2959,8 @@ private fun LibraryListRow(
                 contentDescription = anime.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .width(56.dp)
-                    .height(80.dp)
+                    .width(listDensity.coverWidth.dp)
+                    .height(listDensity.coverHeight.dp)
                     .clip(RoundedCornerShape(8.dp)),
             )
             if (isSelectionMode) {
@@ -2686,34 +2988,67 @@ private fun LibraryListRow(
             }
         }
 
-        // Info
+        // Info column — title position controls whether title is first or last.
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                anime.title,
-                fontFamily = RobotoFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = titleLines,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            anime.seasonYear?.let { year ->
+            if (listTitlePosition == ListTitlePosition.TOP) {
+                // Title first, then detail tags.
                 Text(
-                    "$year",
+                    anime.title,
                     fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = titleLines,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (detailTags.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    DetailTagRow(detailTags)
+                }
+            } else {
+                // BOTTOM: detail tags first, then title.
+                if (detailTags.isNotEmpty()) {
+                    DetailTagRow(detailTags)
+                    Spacer(Modifier.height(4.dp))
+                }
+                Text(
+                    anime.title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = titleLines,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            anime.averageScore?.let { score ->
+        }
+    }
+}
+
+/**
+ * D-242-fix18: Renders detail tags as a horizontal scrollable row of pills.
+ * Used in list mode to show year, score, episode counts, etc. in a clean
+ * tagged format.
+ */
+@Composable
+private fun DetailTagRow(tags: List<ListDetailTag>) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        items(tags) { tag ->
+            Surface(
+                color = tag.container,
+                shape = RoundedCornerShape(6.dp),
+            ) {
                 Text(
-                    "★ $score",
+                    text = tag.text,
                     fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = tag.content,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    maxLines = 1,
                 )
             }
         }
@@ -3182,14 +3517,14 @@ private fun BoxScope.CoverBadgeRow(
                                     imageVector = badge.icon,
                                     contentDescription = null,
                                     tint = badge.contentColor,
-                                    modifier = Modifier.size(8.dp),
+                                    modifier = Modifier.size(9.dp), // D-242-fix18: slightly bigger
                                 )
                             }
                             Spacer(Modifier.width(1.dp))
                             Text(
                                 text = badge.text,
-                                fontSize = 8.sp,
-                                lineHeight = 10.sp,
+                                fontSize = 9.sp, // D-242-fix18: slightly bigger
+                                lineHeight = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = badge.contentColor,
                                 maxLines = 1,
@@ -3204,14 +3539,14 @@ private fun BoxScope.CoverBadgeRow(
                                     imageVector = sec.icon,
                                     contentDescription = null,
                                     tint = sec.contentColor,
-                                    modifier = Modifier.size(8.dp),
+                                    modifier = Modifier.size(9.dp), // D-242-fix18: slightly bigger
                                 )
                             }
                             Spacer(Modifier.width(1.dp))
                             Text(
                                 text = sec.text,
-                                fontSize = 8.sp,
-                                lineHeight = 10.sp,
+                                fontSize = 9.sp, // D-242-fix18: slightly bigger
+                                lineHeight = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = sec.contentColor,
                                 maxLines = 1,
@@ -3235,13 +3570,13 @@ private fun BoxScope.CoverBadgeRow(
                                     imageVector = badge.icon,
                                     contentDescription = null,
                                     tint = badge.contentColor,
-                                    modifier = Modifier.size(8.dp),
+                                    modifier = Modifier.size(9.dp), // D-242-fix18: slightly bigger
                                 )
                             }
                             Text(
                                 text = badge.text,
-                                fontSize = 8.sp,
-                                lineHeight = 10.sp,
+                                fontSize = 9.sp, // D-242-fix18: slightly bigger
+                                lineHeight = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = badge.contentColor,
                                 maxLines = 1,
