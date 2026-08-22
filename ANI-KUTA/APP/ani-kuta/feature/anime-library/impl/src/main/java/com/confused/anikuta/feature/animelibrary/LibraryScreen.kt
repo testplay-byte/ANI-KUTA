@@ -78,7 +78,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,8 +87,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -1286,7 +1288,6 @@ private fun CustomizeSheet(
                   else listState.firstVisibleItemScrollOffset.toFloat()
         (raw / collapseThresholdPx).coerceIn(0f, 1f)
     }
-    val collapsed by remember { derivedStateOf { scrollFraction() > 0.5f } }
 
     // Magnetic snap — animate to fully-collapsed or fully-expanded on scroll end.
     LaunchedEffect(listState) {
@@ -1313,9 +1314,8 @@ private fun CustomizeSheet(
                 .heightIn(max = maxSheetHeight)
                 .navigationBarsPadding(),
         ) {
-            // ── Collapsing header (pinned, shrinks on scroll) ──
-            val targetFontSize = if (collapsed) 16f else 20f
-            val fontSize by animateFloatAsState(targetFontSize, tween(300, easing = FastOutSlowInEasing), label = "headerFont")
+            // ── Pinned header (fixed size, does NOT shrink on scroll) ──
+            // D-242-fix15: "Library Settings" text stays at fixed 20sp (per user feedback).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1326,31 +1326,52 @@ private fun CustomizeSheet(
                 Text(
                     text = "Library Settings",
                     fontFamily = RobotoFamily,
-                    fontSize = fontSize.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                 )
-                // Mini tab pill — fades IN as the full tab strip scrolls away.
+                // D-242-fix15: Mini tab pill — interactive (clickable to switch tabs).
+                // Fades IN as the full tab strip scrolls away. Two clickable segments
+                // so the user can switch tabs even when collapsed.
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.graphicsLayer { alpha = scrollFraction() },
                 ) {
-                    Text(
-                        text = tabs[activeTab],
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    )
+                    Row(modifier = Modifier.padding(2.dp)) {
+                        tabs.forEachIndexed { idx, label ->
+                            val isActive = idx == activeTab
+                            Surface(
+                                color = if (isActive) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                shape = RoundedCornerShape(6.dp),
+                                // D-242-fix15: Only clickable when the mini pill is visible
+                                // (scrollFraction > 0.5) to prevent invisible tab switches.
+                                modifier = Modifier.clickable(
+                                    enabled = scrollFraction() > 0.5f,
+                                ) { activeTab = idx },
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
+                                    color = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
             // ── LazyColumn with tab strip as item 0 (scrolls + shrinks) ──
+            // D-242-fix15: Added contentPadding horizontal=20dp so ALL items have
+            // consistent side padding (fixes "no padding on right and left sides").
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 // Item 0: tab strip — shrinks + fades on scroll.
@@ -1358,7 +1379,6 @@ private fun CustomizeSheet(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp)
                             .graphicsLayer {
                                 val f = scrollFraction()
                                 alpha = (1f - f).coerceIn(0f, 1f)
@@ -1401,7 +1421,7 @@ private fun CustomizeSheet(
                 // Divider after tab strip.
                 item {
                     HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(vertical = 4.dp),
                         thickness = 0.5.dp,
                         color = MaterialTheme.colorScheme.outlineVariant,
                     )
@@ -2116,63 +2136,65 @@ private fun LibraryGridCard(
                 .clip(RoundedCornerShape(12.dp)),
         )
 
-        // D-242-fix14: Cover badges — positions hardcoded (no user-selectable position).
+        // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
         // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
-        // RELEASED mode uses audio-filter-specific badges with SVG icons + colors:
-        //   SUB = blue (subtitle icon), DUB = orange (microphone icon).
+        //
+        // Changes from fix14:
+        // - OFF mode: NO audio tags (clean, minimal — per user feedback).
+        // - TOTAL mode: NO audio tags (just "EP N" — per user feedback).
+        // - RELEASED+BOTH: merged into SINGLE compound badge with split background
+        //   + 45° diagonal separator (not two separate tags).
+        // - Colors: theme-adaptive via rememberBadgeColorScheme() (derived from
+        //   primary saturation, bright, dark/light adapted).
+        // - Score badge: bright gold (from BadgeColorScheme).
         if (!isSelectionMode) {
+            val badgeColors = rememberBadgeColorScheme()
             val topStartBadges = mutableListOf<CoverBadgeData>()
             val topEndBadges = mutableListOf<CoverBadgeData>()
 
-            // D-242-fix14: Build episode/audio badges based on mode + filter.
+            // D-242-fix15: Build episode badges based on mode + filter.
             when (episodeBadgeMode) {
                 EpisodeBadgeMode.OFF -> {
-                    // No episode badge. Still show audio labels (SUB/DUB).
-                    val audio = anime.audioAvailability
-                    if (audio != null && audio.hasAny) {
-                        val cc = MaterialTheme.colorScheme.secondaryContainer
-                        val oc = MaterialTheme.colorScheme.onSecondaryContainer
-                        if (audio.hasSub) topEndBadges.add(CoverBadgeData("SUB", cc, oc))
-                        if (audio.hasDub) topEndBadges.add(CoverBadgeData("DUB", cc, oc))
-                    }
+                    // D-242-fix15: No episode badge, no audio tags. Clean + minimal.
                 }
                 EpisodeBadgeMode.TOTAL -> {
-                    // "EP N" badge + audio labels.
+                    // D-242-fix15: "EP N" only — no audio tags (per user feedback).
                     (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
                         topEndBadges.add(CoverBadgeData("EP $ep", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer))
                     }
-                    val audio = anime.audioAvailability
-                    if (audio != null && audio.hasAny) {
-                        val cc = MaterialTheme.colorScheme.secondaryContainer
-                        val oc = MaterialTheme.colorScheme.onSecondaryContainer
-                        if (audio.hasSub) topEndBadges.add(CoverBadgeData("SUB", cc, oc))
-                        if (audio.hasDub) topEndBadges.add(CoverBadgeData("DUB", cc, oc))
-                    }
                 }
                 EpisodeBadgeMode.RELEASED -> {
-                    // D-242-fix14: Advanced RELEASED — audio filter + unwatched.
-                    val isDark = isSystemInDarkTheme()
-                    val subContainer = if (isDark) Color(0xFF1565C0) else Color(0xFF90CAF9)
-                    val subContent = if (isDark) Color(0xFFBBDEFB) else Color(0xFF0D47A1)
-                    val dubContainer = if (isDark) Color(0xFFE65100) else Color(0xFFFFCC80)
-                    val dubContent = if (isDark) Color(0xFFFFE0B2) else Color(0xFFBF360C)
-
+                    // D-242-fix15: Advanced RELEASED — audio filter + unwatched.
                     when (releasedAudioFilter) {
                         ReleasedAudioFilter.BOTH -> {
-                            // Show both SUB and DUB counts with icons.
+                            // Merge SUB + DUB into a SINGLE compound badge with
+                            // split background + 45° diagonal separator.
                             val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
                             val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
-                            if (subCount != null && subCount > 0) {
-                                topEndBadges.add(CoverBadgeData("$subCount", subContainer, subContent, BadgeIcons.Sub))
-                            }
-                            if (dubCount != null && dubCount > 0) {
-                                topEndBadges.add(CoverBadgeData("$dubCount", dubContainer, dubContent, BadgeIcons.Dub))
-                            }
-                            // Fallback: only when there is genuinely NO per-type data
-                            // (both null). If both are 0 (user watched everything),
-                            // we correctly show nothing — don't fall back to "EP N"
-                            // which would contradict the "unwatched only" preference.
-                            if (topEndBadges.isEmpty()) {
+                            if (subCount != null && subCount > 0 && dubCount != null && dubCount > 0) {
+                                // Both counts available → compound badge.
+                                topEndBadges.add(
+                                    CoverBadgeData(
+                                        text = "$subCount",
+                                        containerColor = badgeColors.subContainer,
+                                        contentColor = badgeColors.subContent,
+                                        icon = BadgeIcons.Sub,
+                                        secondary = BadgeSegment(
+                                            text = "$dubCount",
+                                            containerColor = badgeColors.dubContainer,
+                                            contentColor = badgeColors.dubContent,
+                                            icon = BadgeIcons.Dub,
+                                        ),
+                                    ),
+                                )
+                            } else if (subCount != null && subCount > 0) {
+                                // Only sub available.
+                                topEndBadges.add(CoverBadgeData("$subCount", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
+                            } else if (dubCount != null && dubCount > 0) {
+                                // Only dub available.
+                                topEndBadges.add(CoverBadgeData("$dubCount", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
+                            } else {
+                                // Fallback: no per-type data → show released count.
                                 val hasPerTypeData = if (releasedUnwatchedOnly) {
                                     anime.subUnwatchedCount != null || anime.dubUnwatchedCount != null
                                 } else {
@@ -2191,36 +2213,32 @@ private fun LibraryGridCard(
                             }
                         }
                         ReleasedAudioFilter.SUB -> {
-                            // Show SUB count with subtitle icon (blue). Falls back to
-                            // released/unwatched count if per-type data unavailable.
                             val count = if (releasedUnwatchedOnly) {
                                 anime.subUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes
                             } else {
                                 anime.subEpisodeCount ?: anime.releasedEpisodes
                             }
                             if (count != null && count > 0) {
-                                topEndBadges.add(CoverBadgeData("$count", subContainer, subContent, BadgeIcons.Sub))
+                                topEndBadges.add(CoverBadgeData("$count", badgeColors.subContainer, badgeColors.subContent, BadgeIcons.Sub))
                             }
                         }
                         ReleasedAudioFilter.DUB -> {
-                            // Show DUB count with microphone icon (orange). Falls back to
-                            // released/unwatched count if per-type data unavailable.
                             val count = if (releasedUnwatchedOnly) {
                                 anime.dubUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes
                             } else {
                                 anime.dubEpisodeCount ?: anime.releasedEpisodes
                             }
                             if (count != null && count > 0) {
-                                topEndBadges.add(CoverBadgeData("$count", dubContainer, dubContent, BadgeIcons.Dub))
+                                topEndBadges.add(CoverBadgeData("$count", badgeColors.dubContainer, badgeColors.dubContent, BadgeIcons.Dub))
                             }
                         }
                     }
                 }
             }
 
-            // D-242-fix12: Score badge always TOP_START (unaffected by episode badge mode).
+            // D-242-fix15: Score badge — bright gold from BadgeColorScheme.
             if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
-                topStartBadges.add(CoverBadgeData("★ ${anime.averageScore}", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer))
+                topStartBadges.add(CoverBadgeData("★ ${anime.averageScore}", badgeColors.scoreContainer, badgeColors.scoreContent))
             }
 
             if (topStartBadges.isNotEmpty()) {
@@ -2727,13 +2745,32 @@ private fun DeleteSelectedDialog(
 }
 
 /**
- * D-242-fix14: Data for a single cover badge — text + colors + optional icon.
+ * D-242-fix15: Data for a single cover badge — text + colors + optional icon.
  *
  * When [icon] is non-null, the badge renders [icon] before [text] (e.g. a
  * subtitle icon before a SUB episode count). The icon uses [contentColor]
  * as its tint.
+ *
+ * D-242-fix15: Added [secondary] for compound badges (e.g. RELEASED+BOTH
+ * shows SUB and DUB in a SINGLE badge with a split background + 45°
+ * diagonal separator). When [secondary] is non-null, the badge renders
+ * both segments inside one Surface — left half uses [containerColor]/
+ * [contentColor], right half uses [secondary.containerColor]/
+ * [secondary.contentColor], with a 45° diagonal line between them.
  */
 private data class CoverBadgeData(
+    val text: String,
+    val containerColor: Color,
+    val contentColor: Color,
+    val icon: ImageVector? = null,
+    val secondary: BadgeSegment? = null,
+)
+
+/**
+ * D-242-fix15: The secondary segment of a compound [CoverBadgeData].
+ * Used when RELEASED+BOTH merges SUB and DUB into a single badge.
+ */
+private data class BadgeSegment(
     val text: String,
     val containerColor: Color,
     val contentColor: Color,
@@ -2800,12 +2837,17 @@ private fun ReleasedAudioFilterCard(
 /**
  * D-242-fix11: Renders multiple badges side-by-side in a single Row at a corner.
  * Edge-to-edge — sits flush with the cover corner.
- * Compact: matches DetailsScreen audio pill style (8sp, 1dp vertical, Bold).
- * Each badge has its own theme-adaptive color with dot separators between them.
+ * Compact: 8sp, 1dp vertical, Bold.
  *
- * D-242-fix14: Now accepts [CoverBadgeData] (with optional icon) instead of
- * Pair<String, Pair<Color, Color>>. When a badge has an icon, it renders
- * [icon] (8dp) before [text] with a 2dp gap.
+ * D-242-fix15: Now supports compound badges (via [CoverBadgeData.secondary]).
+ * When a badge has a secondary segment, it renders as a SINGLE badge with:
+ * - Left half: [containerColor] background, [icon] + [text] in [contentColor]
+ * - 45° diagonal separator line (semi-transparent white)
+ * - Right half: [secondary.containerColor] background, [secondary.icon] +
+ *   [secondary.text] in [secondary.contentColor]
+ *
+ * This merges SUB+DUB into one compact badge instead of two separate tags,
+ * saving space and looking cleaner (per user feedback D-242-fix15).
  */
 @Composable
 private fun BoxScope.CoverBadgeRow(
@@ -2835,7 +2877,7 @@ private fun BoxScope.CoverBadgeRow(
         ) {
             badges.forEachIndexed { idx, badge ->
                 if (idx > 0) {
-                    // Dot separator between badges (matches DetailsScreen style).
+                    // Dot separator between separate badges.
                     Box(
                         modifier = Modifier
                             .size(2.dp)
@@ -2843,32 +2885,122 @@ private fun BoxScope.CoverBadgeRow(
                             .background(badge.contentColor.copy(alpha = 0.5f)),
                     )
                 }
-                Surface(
-                    color = badge.containerColor,
-                    shape = RoundedCornerShape(0.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+
+                if (badge.secondary != null) {
+                    // ── Compound badge: single Surface with split background ──
+                    // Left half = subContainer, right half = dubContainer,
+                    // separated by a 45° diagonal line.
+                    val sec = badge.secondary
+                    Surface(
+                        color = Color.Transparent,
+                        shape = RoundedCornerShape(0.dp),
+                        modifier = Modifier.drawBehind {
+                            val w = size.width
+                            val h = size.height
+                            // The diagonal is at the horizontal center, tilted
+                            // by half the badge height on each side → ~45° angle.
+                            val centerX = w * 0.5f
+                            val tilt = h * 0.5f
+
+                            // Left half (sub color) — fill entire background first.
+                            drawRect(badge.containerColor)
+
+                            // Right half (dub color) — drawn as a path with
+                            // a diagonal left edge.
+                            val rightPath = Path().apply {
+                                moveTo(centerX + tilt, 0f)
+                                lineTo(w, 0f)
+                                lineTo(w, h)
+                                lineTo(centerX - tilt, h)
+                                close()
+                            }
+                            drawPath(rightPath, sec.containerColor)
+
+                            // 45° diagonal separator line (white, semi-transparent
+                            // for a subtle visual divide).
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.4f),
+                                start = Offset(centerX + tilt, 0f),
+                                end = Offset(centerX - tilt, h),
+                                strokeWidth = 1.dp.toPx(),
+                            )
+                        },
                     ) {
-                        if (badge.icon != null) {
-                            Icon(
-                                imageVector = badge.icon,
-                                contentDescription = null,
-                                tint = badge.contentColor,
-                                modifier = Modifier.size(8.dp),
+                        Row(
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // ── Left segment (SUB) ──
+                            if (badge.icon != null) {
+                                Icon(
+                                    imageVector = badge.icon,
+                                    contentDescription = null,
+                                    tint = badge.contentColor,
+                                    modifier = Modifier.size(8.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = badge.text,
+                                fontSize = 8.sp,
+                                lineHeight = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = badge.contentColor,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            // Spacer for the diagonal line area.
+                            Spacer(Modifier.width(6.dp))
+                            // ── Right segment (DUB) ──
+                            if (sec.icon != null) {
+                                Icon(
+                                    imageVector = sec.icon,
+                                    contentDescription = null,
+                                    tint = sec.contentColor,
+                                    modifier = Modifier.size(8.dp),
+                                )
+                            }
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = sec.text,
+                                fontSize = 8.sp,
+                                lineHeight = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = sec.contentColor,
+                                maxLines = 1,
+                                softWrap = false,
                             )
                         }
-                        Text(
-                            text = badge.text,
-                            fontSize = 8.sp,
-                            lineHeight = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = badge.contentColor,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
+                    }
+                } else {
+                    // ── Simple badge (no secondary) ──
+                    Surface(
+                        color = badge.containerColor,
+                        shape = RoundedCornerShape(0.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            if (badge.icon != null) {
+                                Icon(
+                                    imageVector = badge.icon,
+                                    contentDescription = null,
+                                    tint = badge.contentColor,
+                                    modifier = Modifier.size(8.dp),
+                                )
+                            }
+                            Text(
+                                text = badge.text,
+                                fontSize = 8.sp,
+                                lineHeight = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = badge.contentColor,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        }
                     }
                 }
             }
