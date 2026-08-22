@@ -2028,8 +2028,8 @@ private fun LibraryGridCard(
                 .clip(RoundedCornerShape(12.dp)),
         )
 
-        // D-242-fix7: Cover badges (leaf-shaped, color-coded)
-        // Episode badge — color: secondary (teal/amber complement to primary)
+        // D-242-fix9: Cover badges — edge-to-edge, theme-adaptive colors.
+        // Episode badge: primaryContainer (complements primary)
         if (!isSelectionMode && episodeBadgeMode != EpisodeBadgeMode.OFF && anime.episodes != null) {
             val epText = when (episodeBadgeMode) {
                 EpisodeBadgeMode.TOTAL -> "EP ${anime.episodes}"
@@ -2040,16 +2040,18 @@ private fun LibraryGridCard(
                 CoverBadge(
                     text = epText,
                     position = episodeBadgePosition,
-                    color = Color(0xFF4CAF50).copy(alpha = 0.85f), // green — complementing primary
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
         }
-        // Score badge — color: amber (warm complement to primary)
+        // Score badge: tertiaryContainer (warm complement to primary)
         if (!isSelectionMode && showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
             CoverBadge(
                 text = "★ ${anime.averageScore}",
                 position = scoreBadgePosition,
-                color = Color(0xFFFFA726).copy(alpha = 0.85f), // amber — warm complement
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
             )
         }
 
@@ -2549,16 +2551,18 @@ private fun DeleteSelectedDialog(
 }
 
 /**
- * D-242-fix7: A leaf-shaped cover badge — small, color-coded, positioned at a corner.
- * The shape has one rounded corner (pointing away from the cover edge) + one flat side
- * (hugging the cover edge). Color is semi-transparent for blend with the cover.
+ * D-242-fix9: Edge-to-edge cover badge — sits flush with the cover corner.
+ * Matches the cover's 12dp corner radius on the outer corner; flat on the inner side.
+ * Theme-adaptive: uses colorScheme container/content colors (not hardcoded).
+ * Compact: minimal padding to avoid taking more height than needed.
  * NOTE: Must be called inside a BoxScope (the parent Box provides the alignment).
  */
 @Composable
 private fun BoxScope.CoverBadge(
     text: String,
     position: BadgePosition,
-    color: Color,
+    containerColor: Color,
+    contentColor: Color,
 ) {
     val alignment = when (position) {
         BadgePosition.TOP_START -> Alignment.TopStart
@@ -2566,26 +2570,25 @@ private fun BoxScope.CoverBadge(
         BadgePosition.BOTTOM_START -> Alignment.BottomStart
         BadgePosition.BOTTOM_END -> Alignment.BottomEnd
     }
-    Box(
-        modifier = Modifier
-            .align(alignment)
-            .padding(4.dp)
-            .clip(
-                when (position) {
-                    BadgePosition.TOP_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 10.dp, bottomStart = 0.dp, bottomEnd = 10.dp)
-                    BadgePosition.TOP_END -> RoundedCornerShape(topStart = 10.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 0.dp)
-                    BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 10.dp, bottomStart = 0.dp, bottomEnd = 10.dp)
-                    BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 10.dp, topEnd = 0.dp, bottomStart = 10.dp, bottomEnd = 0.dp)
-                }
-            )
-            .background(color)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+    // Edge-to-edge: NO padding from the corner. The badge clips to match the
+    // cover's 12dp rounded corner on the outer side, flat on the inner side.
+    Surface(
+        modifier = Modifier.align(alignment),
+        color = containerColor,
+        shape = when (position) {
+            BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 8.dp)
+            BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 8.dp, bottomEnd = 0.dp)
+            BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 8.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
+            BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 8.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
+        },
     ) {
         Text(
             text = text,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.White,
+            color = contentColor,
+            maxLines = 1,
         )
     }
 }
