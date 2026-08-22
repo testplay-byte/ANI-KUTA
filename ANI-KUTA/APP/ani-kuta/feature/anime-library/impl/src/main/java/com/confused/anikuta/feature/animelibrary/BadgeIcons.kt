@@ -14,6 +14,8 @@ import androidx.compose.ui.unit.dp
  *   horizontal lines inside). Used for SUB episode badges.
  * - [Dub]: A microphone icon (capsule body + cradle + base). Used for DUB
  *   episode badges.
+ * - [Total]: A film-strip / stack icon (rectangle with perforations on
+ *   the sides). Used for TOTAL episode count badges.
  *
  * These are hand-crafted vector paths (not from material-icons-extended) so
  * they are always available regardless of which icon artifacts are on the
@@ -162,6 +164,90 @@ object BadgeIcons {
                 horizontalLineTo(16f)
                 verticalLineTo(21.8f)
                 horizontalLineTo(8f)
+                close()
+            }
+        }.build()
+    }
+
+    /**
+     * Film-strip / total episodes icon.
+     *
+     * Shape: a vertical rectangle (representing a film frame) with small
+     * perforation squares on the left and right edges (like a film strip).
+     * Used for TOTAL episode count badges to represent the complete series.
+     *
+     * Designed to be legible at 8dp and visually distinct from the Sub
+     * (subtitle) and Dub (microphone) icons.
+     */
+    val Total: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "BadgeTotal",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            // ── Main film frame (center rectangle) ──
+            path(
+                fill = SolidColor(Color.Black),
+                stroke = null,
+                strokeLineWidth = 0f,
+                pathFillType = PathFillType.NonZero,
+            ) {
+                moveTo(6f, 4f)
+                horizontalLineTo(18f)
+                verticalLineTo(20f)
+                horizontalLineTo(6f)
+                close()
+            }
+            // ── Perforations (small squares on left edge) ──
+            // Top-left perforation.
+            path(fill = SolidColor(Color.White)) {
+                moveTo(3f, 6f)
+                horizontalLineTo(5f)
+                verticalLineTo(8f)
+                horizontalLineTo(3f)
+                close()
+            }
+            // Middle-left perforation.
+            path(fill = SolidColor(Color.White)) {
+                moveTo(3f, 11f)
+                horizontalLineTo(5f)
+                verticalLineTo(13f)
+                horizontalLineTo(3f)
+                close()
+            }
+            // Bottom-left perforation.
+            path(fill = SolidColor(Color.White)) {
+                moveTo(3f, 16f)
+                horizontalLineTo(5f)
+                verticalLineTo(18f)
+                horizontalLineTo(3f)
+                close()
+            }
+            // ── Perforations (small squares on right edge) ──
+            // Top-right perforation.
+            path(fill = SolidColor(Color.White)) {
+                moveTo(19f, 6f)
+                horizontalLineTo(21f)
+                verticalLineTo(8f)
+                horizontalLineTo(19f)
+                close()
+            }
+            // Middle-right perforation.
+            path(fill = SolidColor(Color.White)) {
+                moveTo(19f, 11f)
+                horizontalLineTo(21f)
+                verticalLineTo(13f)
+                horizontalLineTo(19f)
+                close()
+            }
+            // Bottom-right perforation.
+            path(fill = SolidColor(Color.White)) {
+                moveTo(19f, 16f)
+                horizontalLineTo(21f)
+                verticalLineTo(18f)
+                horizontalLineTo(19f)
                 close()
             }
         }.build()

@@ -188,6 +188,10 @@ fun LibraryScreen(
     // D-242-fix14: advanced RELEASED badge sub-options.
     val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
     val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
+    // D-242-fix17: cover border settings.
+    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
+    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
+    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
     // D.5: refresh state for pull-to-refresh.
@@ -559,6 +563,10 @@ fun LibraryScreen(
                                 scoreBadgePosition = scoreBadgePosition,
                                 releasedAudioFilter = releasedAudioFilter,
                                 releasedUnwatchedOnly = releasedUnwatchedOnly,
+                                coverBorderEnabled = coverBorderEnabled,
+                                coverBorderColor = coverBorderColor,
+                                coverBorderWidth = coverBorderWidth,
+                                displayMode = displayMode,
                             )
                         } else {
                             LibraryList(
@@ -623,6 +631,9 @@ fun LibraryScreen(
                 sortAscending = sortAscending,
                 releasedAudioFilter = releasedAudioFilter,
                 releasedUnwatchedOnly = releasedUnwatchedOnly,
+                coverBorderEnabled = coverBorderEnabled,
+                coverBorderColor = coverBorderColor,
+                coverBorderWidth = coverBorderWidth,
                 onDisplayModeChange = viewModel::setDisplayMode,
                 onColumnsChange = viewModel::setColumns,
                 onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
@@ -634,6 +645,9 @@ fun LibraryScreen(
                 onSortChange = viewModel::setSort,
                 onReleasedAudioFilterChange = viewModel::setReleasedAudioFilter,
                 onReleasedUnwatchedOnlyChange = viewModel::setReleasedUnwatchedOnly,
+                onCoverBorderEnabledChange = viewModel::setCoverBorderEnabled,
+                onCoverBorderColorChange = viewModel::setCoverBorderColor,
+                onCoverBorderWidthChange = viewModel::setCoverBorderWidth,
                 onDismiss = { showSettingsSheet = false },
             )
         }
@@ -1259,6 +1273,9 @@ private fun CustomizeSheet(
     sortAscending: Boolean,
     releasedAudioFilter: ReleasedAudioFilter,
     releasedUnwatchedOnly: Boolean,
+    coverBorderEnabled: Boolean,
+    coverBorderColor: CoverBorderColor,
+    coverBorderWidth: CoverBorderWidth,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onEpisodeBadgeModeChange: (EpisodeBadgeMode) -> Unit,
@@ -1270,6 +1287,9 @@ private fun CustomizeSheet(
     onSortChange: (LibrarySortType, Boolean) -> Unit,
     onReleasedAudioFilterChange: (ReleasedAudioFilter) -> Unit,
     onReleasedUnwatchedOnlyChange: (Boolean) -> Unit,
+    onCoverBorderEnabledChange: (Boolean) -> Unit,
+    onCoverBorderColorChange: (CoverBorderColor) -> Unit,
+    onCoverBorderWidthChange: (CoverBorderWidth) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1277,7 +1297,8 @@ private fun CustomizeSheet(
     val maxSheetHeight = screenHeight * 0.70f
 
     var activeTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Sort", "Display & Badges")
+    // D-242-fix17: Renamed 'Display & Badges' to 'Display', added 'UI' tab.
+    val tabs = listOf("Sort", "Display", "UI")
 
     // D-242-fix13: scroll-to-minimize (like profile page).
     val listState = rememberLazyListState()
@@ -1446,6 +1467,14 @@ private fun CustomizeSheet(
                         onShowCategoryCountsChange = onShowCategoryCountsChange,
                         onReleasedAudioFilterChange = onReleasedAudioFilterChange,
                         onReleasedUnwatchedOnlyChange = onReleasedUnwatchedOnlyChange,
+                    )
+                    2 -> uiTab(
+                        coverBorderEnabled = coverBorderEnabled,
+                        coverBorderColor = coverBorderColor,
+                        coverBorderWidth = coverBorderWidth,
+                        onCoverBorderEnabledChange = onCoverBorderEnabledChange,
+                        onCoverBorderColorChange = onCoverBorderColorChange,
+                        onCoverBorderWidthChange = onCoverBorderWidthChange,
                     )
                 }
             }
@@ -1640,17 +1669,20 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
         }
     }
 
-    // ── Title lines ──
-    item {
-        Spacer(Modifier.height(16.dp))
-        OptionLabel("Title lines")
-    }
-    item {
-        SegmentedButtons(
-            options = listOf("1" to 1, "2" to 2, "3" to 3),
-            selected = titleLines,
-            onSelect = onTitleLinesChange,
-        )
+    // ── Title lines (hidden for COVER_ONLY — no titles in that mode) ──
+    // D-242-fix17: Smoothly disappears when COVER_ONLY is selected.
+    if (displayMode != LibraryDisplayMode.COVER_ONLY) {
+        item {
+            Spacer(Modifier.height(16.dp))
+            OptionLabel("Title lines")
+        }
+        item {
+            SegmentedButtons(
+                options = listOf("1" to 1, "2" to 2, "3" to 3),
+                selected = titleLines,
+                onSelect = onTitleLinesChange,
+            )
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1739,13 +1771,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                 )
             }
         }
-        // ── Show: All / Unwatched (two-way button, replaces toggle) ──
+        // ── Show: All / Unwatched (two-way button with custom labels) ──
+        // D-242-fix17: Clearer labels — "All" vs "Unwatched" (not Off/On).
         item {
             Spacer(Modifier.height(12.dp))
             TwoWayButton(
                 label = "Show",
                 selected = releasedUnwatchedOnly,
                 onChange = onReleasedUnwatchedOnlyChange,
+                leftLabel = "All",
+                rightLabel = "Unwatched",
             )
         }
     }
@@ -1787,6 +1822,98 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
             selected = showCategoryCounts,
             onChange = onShowCategoryCountsChange,
         )
+    }
+}
+
+// ── UI tab (cover borders) ──
+
+private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
+    coverBorderEnabled: Boolean,
+    coverBorderColor: CoverBorderColor,
+    coverBorderWidth: CoverBorderWidth,
+    onCoverBorderEnabledChange: (Boolean) -> Unit,
+    onCoverBorderColorChange: (CoverBorderColor) -> Unit,
+    onCoverBorderWidthChange: (CoverBorderWidth) -> Unit,
+) {
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECTION 1: COVER BORDERS
+    // ═══════════════════════════════════════════════════════════════════════
+    item { OptionLabel("Cover Borders") }
+
+    // ── Enable/Disable border ──
+    item {
+        TwoWayButton(
+            label = "Card Borders",
+            selected = coverBorderEnabled,
+            onChange = onCoverBorderEnabledChange,
+            leftLabel = "Off",
+            rightLabel = "On",
+        )
+    }
+
+    // ── Border color (only shown when enabled) ──
+    if (coverBorderEnabled) {
+        item {
+            Spacer(Modifier.height(16.dp))
+            OptionLabel("Border Color")
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                CoverBorderColor.entries.forEach { color ->
+                    val isSelected = coverBorderColor == color
+                    Surface(
+                        color = Color(color.hex),
+                        shape = CircleShape,
+                        border = BorderStroke(
+                            width = if (isSelected) 2.dp else 0.5.dp,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .clickable { onCoverBorderColorChange(color) },
+                    ) {}
+                }
+            }
+        }
+
+        // ── Border width ──
+        item {
+            Spacer(Modifier.height(16.dp))
+            OptionLabel("Border Width")
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CoverBorderWidth.entries.forEach { width ->
+                    val isSelected = coverBorderWidth == width
+                    Surface(
+                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).clickable { onCoverBorderWidthChange(width) },
+                    ) {
+                        Text(
+                            text = width.displayName,
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2043,8 +2170,12 @@ private fun SwitchRow(
 /**
  * D-242-fix16: A two-way segmented button selector (replaces SwitchRow).
  *
- * Shows a label on the left + two buttons (Off / On) on the right. The
- * selected button is filled with primary color; the other is muted.
+ * Shows a label on the left + two buttons on the right. The selected button
+ * is filled with primary color; the other is muted.
+ *
+ * D-242-fix17: Added [leftLabel] and [rightLabel] params so the buttons can
+ * say "All"/"Unwatched" instead of just "Off"/"On" — makes it clearer what
+ * each option does (per user feedback about the "Show" button).
  *
  * This matches the Episode Badge Off/Released/Total button style —
  * consistent visual language throughout the Customize sheet.
@@ -2054,6 +2185,8 @@ private fun TwoWayButton(
     label: String,
     selected: Boolean,
     onChange: (Boolean) -> Unit,
+    leftLabel: String = "Off",
+    rightLabel: String = "On",
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -2070,7 +2203,7 @@ private fun TwoWayButton(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf("Off" to false, "On" to true).forEach { (btnLabel, value) ->
+            listOf(leftLabel to false, rightLabel to true).forEach { (btnLabel, value) ->
                 val isSelected = selected == value
                 Surface(
                     color = if (isSelected) MaterialTheme.colorScheme.primary
@@ -2126,6 +2259,10 @@ private fun LibraryGrid(
     scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
     releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
     releasedUnwatchedOnly: Boolean = false,
+    coverBorderEnabled: Boolean = false,
+    coverBorderColor: CoverBorderColor = CoverBorderColor.WHITE,
+    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
+    displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
 ) {
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyVerticalGrid(
@@ -2154,6 +2291,10 @@ private fun LibraryGrid(
                 scoreBadgePosition = scoreBadgePosition,
                 releasedAudioFilter = releasedAudioFilter,
                 releasedUnwatchedOnly = releasedUnwatchedOnly,
+                coverBorderEnabled = coverBorderEnabled,
+                coverBorderColor = coverBorderColor,
+                coverBorderWidth = coverBorderWidth,
+                displayMode = displayMode,
             )
         }
     }
@@ -2173,6 +2314,10 @@ private fun LibraryGridCard(
     scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
     releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
     releasedUnwatchedOnly: Boolean = false,
+    coverBorderEnabled: Boolean = false,
+    coverBorderColor: CoverBorderColor = CoverBorderColor.WHITE,
+    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
+    displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2190,10 +2335,23 @@ private fun LibraryGridCard(
         label = "cardAlpha",
     )
 
+    // D-242-fix17: Cover border — configurable width + color. Applied to the
+    // card Box so it wraps the cover image + title overlay + badges.
+    val borderModifier = if (coverBorderEnabled) {
+        Modifier.border(
+            width = coverBorderWidth.dp,
+            color = Color(coverBorderColor.hex),
+            shape = RoundedCornerShape(12.dp),
+        )
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = Modifier
             .graphicsLayer { scaleX = scale; scaleY = scale; alpha = cardAlpha }
             .clip(RoundedCornerShape(12.dp))
+            .then(borderModifier)
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -2234,9 +2392,16 @@ private fun LibraryGridCard(
                     // D-242-fix15: No episode badge, no audio tags. Clean + minimal.
                 }
                 EpisodeBadgeMode.TOTAL -> {
-                    // D-242-fix15: "EP N" only — no audio tags (per user feedback).
+                    // D-242-fix17: Use Total (film-strip) icon + number (not "EP N" text).
+                    // Uses a warm amber color from BadgeColorScheme for a clean,
+                    // distinctive look (not the old primaryContainer green).
                     (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
-                        topEndBadges.add(CoverBadgeData("EP $ep", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer))
+                        topEndBadges.add(CoverBadgeData(
+                            text = "$ep",
+                            containerColor = badgeColors.scoreContainer,
+                            contentColor = badgeColors.scoreContent,
+                            icon = BadgeIcons.Total,
+                        ))
                     }
                 }
                 EpisodeBadgeMode.RELEASED -> {
@@ -2326,36 +2491,39 @@ private fun LibraryGridCard(
         }
 
         // Title overlay at bottom with gradient (compact grid style)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(2f / 3f),
-            contentAlignment = Alignment.BottomStart,
-        ) {
+        // D-242-fix17: Hide title for COVER_ONLY mode (per user request).
+        if (displayMode != LibraryDisplayMode.COVER_ONLY) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                MaterialTheme.colorScheme.surface,
+                    .aspectRatio(2f / 3f),
+                contentAlignment = Alignment.BottomStart,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                    MaterialTheme.colorScheme.surface,
+                                ),
                             ),
                         ),
-                    ),
-            )
-            Text(
-                text = anime.title,
-                fontFamily = RobotoFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = titleLines,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-            )
+                )
+                Text(
+                    text = anime.title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = titleLines,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
         }
 
         // ── D-141: Selection border overlay (drawn on top of content) ──

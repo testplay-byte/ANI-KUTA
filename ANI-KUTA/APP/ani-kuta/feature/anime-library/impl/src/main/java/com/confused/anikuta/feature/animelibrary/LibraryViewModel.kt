@@ -55,6 +55,10 @@ class LibraryViewModel(
         // D-242-fix14: advanced RELEASED badge sub-options.
         private const val KEY_RELEASED_AUDIO_FILTER = "library_released_audio_filter"
         private const val KEY_RELEASED_UNWATCHED_ONLY = "library_released_unwatched_only"
+        // D-242-fix17: cover border settings.
+        private const val KEY_COVER_BORDER_ENABLED = "library_cover_border_enabled"
+        private const val KEY_COVER_BORDER_COLOR = "library_cover_border_color"
+        private const val KEY_COVER_BORDER_WIDTH = "library_cover_border_width"
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
@@ -152,6 +156,19 @@ class LibraryViewModel(
     /** When true + badge mode = RELEASED, show unwatched counts instead of total released. */
     private val _releasedUnwatchedOnly = MutableStateFlow(false)
     val releasedUnwatchedOnly: StateFlow<Boolean> = _releasedUnwatchedOnly
+
+    // D-242-fix17: Cover border settings.
+    /** Whether cover borders are enabled. */
+    private val _coverBorderEnabled = MutableStateFlow(false)
+    val coverBorderEnabled: StateFlow<Boolean> = _coverBorderEnabled
+
+    /** The color of the cover border (when enabled). */
+    private val _coverBorderColor = MutableStateFlow(CoverBorderColor.WHITE)
+    val coverBorderColor: StateFlow<CoverBorderColor> = _coverBorderColor
+
+    /** The width of the cover border (when enabled). */
+    private val _coverBorderWidth = MutableStateFlow(CoverBorderWidth.THIN)
+    val coverBorderWidth: StateFlow<CoverBorderWidth> = _coverBorderWidth
 
     init {
         loadPreferences()
@@ -741,6 +758,25 @@ class LibraryViewModel(
         Logger.i(TAG) { "setReleasedUnwatchedOnly — $value" }
     }
 
+    // D-242-fix17: Cover border setters.
+    fun setCoverBorderEnabled(value: Boolean) {
+        _coverBorderEnabled.value = value
+        preferenceStore.putBoolean(KEY_COVER_BORDER_ENABLED, value)
+        Logger.i(TAG) { "setCoverBorderEnabled — $value" }
+    }
+
+    fun setCoverBorderColor(color: CoverBorderColor) {
+        _coverBorderColor.value = color
+        preferenceStore.putString(KEY_COVER_BORDER_COLOR, color.name)
+        Logger.i(TAG) { "setCoverBorderColor — $color" }
+    }
+
+    fun setCoverBorderWidth(width: CoverBorderWidth) {
+        _coverBorderWidth.value = width
+        preferenceStore.putString(KEY_COVER_BORDER_WIDTH, width.name)
+        Logger.i(TAG) { "setCoverBorderWidth — $width" }
+    }
+
     /**
      * D-242-fix10: Enriches LibraryEntry list with badge data:
      * - releasedEpisodes: count of cached episodes (actual aired count)
@@ -833,6 +869,15 @@ class LibraryViewModel(
             .let { runCatching { ReleasedAudioFilter.valueOf(it) }.getOrDefault(ReleasedAudioFilter.BOTH) }
         _releasedUnwatchedOnly.value = preferenceStore.getBoolean(KEY_RELEASED_UNWATCHED_ONLY, false)
 
+        // D-242-fix17: load cover border settings.
+        _coverBorderEnabled.value = preferenceStore.getBoolean(KEY_COVER_BORDER_ENABLED, false)
+        _coverBorderColor.value = preferenceStore
+            .getString(KEY_COVER_BORDER_COLOR, CoverBorderColor.WHITE.name)
+            .let { runCatching { CoverBorderColor.valueOf(it) }.getOrDefault(CoverBorderColor.WHITE) }
+        _coverBorderWidth.value = preferenceStore
+            .getString(KEY_COVER_BORDER_WIDTH, CoverBorderWidth.THIN.name)
+            .let { runCatching { CoverBorderWidth.valueOf(it) }.getOrDefault(CoverBorderWidth.THIN) }
+
         // D-242-fix3: restore last-selected category across app restarts.
         // -1L sentinel = "All" (null selection).
         val savedCatId = preferenceStore.getLong(KEY_SELECTED_CATEGORY, -1L)
@@ -919,4 +964,28 @@ enum class BadgePosition {
     TOP_END,
     BOTTOM_START,
     BOTTOM_END,
+}
+
+/**
+ * D-242-fix17: Predefined cover border colors.
+ *
+ * Each color is hand-picked to provide good contrast against typical anime
+ * cover art while harmonising with the app's theme system. The [hex] value
+ * is an ARGB color (0xAARRGGBB).
+ */
+enum class CoverBorderColor(val hex: Long, val displayName: String) {
+    WHITE(0xFFFFFFFF, "White"),
+    BLACK(0xFF000000, "Black"),
+    PRIMARY(0xFFB1F256, "Lime"),      // App's primary accent
+    GRAY(0xFF9E9E9E, "Gray"),
+    SURFACE(0xFF424242, "Dark Gray"),
+}
+
+/**
+ * D-242-fix17: Cover border width options (in dp).
+ */
+enum class CoverBorderWidth(val dp: Int, val displayName: String) {
+    THIN(1, "Thin"),
+    MEDIUM(2, "Medium"),
+    THICK(3, "Thick"),
 }
