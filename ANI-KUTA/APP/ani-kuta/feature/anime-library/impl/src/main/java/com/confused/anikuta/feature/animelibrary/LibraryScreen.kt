@@ -1322,6 +1322,9 @@ private fun CustomizeSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
+    // D-242-fix18: Compute isDark once at the @Composable level (not inside
+    // LazyListScope lambdas which are not @Composable).
+    val sheetIsDark = isSystemInDarkTheme()
 
     var activeTab by remember { mutableIntStateOf(0) }
     // D-242-fix17: Renamed 'Display & Badges' to 'Display', added 'UI' tab.
@@ -1510,6 +1513,7 @@ private fun CustomizeSheet(
                         displayMode = displayMode,
                         listDensity = listDensity,
                         listTitlePosition = listTitlePosition,
+                        isDark = sheetIsDark,
                         onCoverBorderEnabledChange = onCoverBorderEnabledChange,
                         onCoverBorderColorChange = onCoverBorderColorChange,
                         onCoverBorderWidthChange = onCoverBorderWidthChange,
@@ -1959,14 +1963,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
     displayMode: LibraryDisplayMode,
     listDensity: ListDensity,
     listTitlePosition: ListTitlePosition,
+    isDark: Boolean,
     onCoverBorderEnabledChange: (Boolean) -> Unit,
     onCoverBorderColorChange: (CoverBorderColor) -> Unit,
     onCoverBorderWidthChange: (CoverBorderWidth) -> Unit,
     onListDensityChange: (ListDensity) -> Unit,
     onListTitlePositionChange: (ListTitlePosition) -> Unit,
 ) {
-    val isDark = isSystemInDarkTheme()
-
     // ═══════════════════════════════════════════════════════════════════════
     // SECTION 1: COVER BORDERS
     // ═══════════════════════════════════════════════════════════════════════
