@@ -1606,20 +1606,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
         }
     }
 
-    // ── Episode badge position (compact grid = top only) ──
-    if (episodeBadgeMode != EpisodeBadgeMode.OFF) {
-        item {
-            Spacer(Modifier.height(12.dp))
-            OptionLabel("Episode Badge Position")
-        }
-        item {
-            BadgePositionSelector(
-                selected = episodeBadgePosition,
-                compactMode = displayMode == LibraryDisplayMode.COMPACT_GRID,
-                onSelect = onEpisodeBadgePositionChange,
-            )
-        }
-    }
+    // D-242-fix12: Removed BadgePositionSelector — positions are hardcoded.
+    // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
 
     // ── Score badge ──
     item {
@@ -1636,20 +1624,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
         )
     }
 
-    // ── Score badge position (compact grid = top only) ──
-    if (showScoreBadge) {
-        item {
-            Spacer(Modifier.height(12.dp))
-            OptionLabel("Score Badge Position")
-        }
-        item {
-            BadgePositionSelector(
-                selected = scoreBadgePosition,
-                compactMode = displayMode == LibraryDisplayMode.COMPACT_GRID,
-                onSelect = onScoreBadgePositionChange,
-            )
-        }
-    }
+    // D-242-fix12: Removed Score BadgePositionSelector — position hardcoded to TOP_START.
 
     // ── Toggles ──
     item {
@@ -2029,15 +2004,11 @@ private fun LibraryGridCard(
                 .clip(RoundedCornerShape(12.dp)),
         )
 
-        // D-242-fix10: Cover badges — edge-to-edge, side-by-side (no overlap).
-        // Badges at the same corner are rendered in a Row so they don't overlap.
-        // Episode badge uses releasedEpisodes (actual aired) or episodes (planned total).
-        // Score badge uses averageScore.
-        // Audio badge uses audioAvailability (SUB/DUB/HSUB).
+        // D-242-fix12: Cover badges — positions hardcoded (no user-selectable position).
+        // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
+        // Audio badge = TOP_END (after episode badge, same corner, side-by-side).
         if (!isSelectionMode) {
-            // Top-start badges
             val topStartBadges = mutableListOf<Pair<String, Pair<Color, Color>>>()
-            // Top-end badges
             val topEndBadges = mutableListOf<Pair<String, Pair<Color, Color>>>()
 
             // Build episode badge text
@@ -2048,44 +2019,29 @@ private fun LibraryGridCard(
                 EpisodeBadgeMode.RELEASED -> (anime.releasedEpisodes ?: anime.episodes)?.let { "EP $it" }
                 EpisodeBadgeMode.OFF -> null
             }
+            // D-242-fix12: Episode badge always TOP_END.
             if (epText != null) {
-                val colors = MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
-                if (episodeBadgePosition == BadgePosition.TOP_START) topStartBadges.add(epText to colors)
-                else if (episodeBadgePosition == BadgePosition.TOP_END) topEndBadges.add(epText to colors)
+                topEndBadges.add(epText to (MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer))
             }
-            // Score badge
+            // D-242-fix12: Score badge always TOP_START.
             if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
-                val scoreText = "★ ${anime.averageScore}"
-                val colors = MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
-                if (scoreBadgePosition == BadgePosition.TOP_START) topStartBadges.add(scoreText to colors)
-                else if (scoreBadgePosition == BadgePosition.TOP_END) topEndBadges.add(scoreText to colors)
+                topStartBadges.add("★ ${anime.averageScore}" to (MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer))
             }
-            // Audio badge (SUB/DUB)
+            // D-242-fix12: Audio badge (SUB/DUB) — always TOP_END (after episode badge).
+            // Split into separate entries so CoverBadgeRow renders them as individual
+            // badges with dot separators (not one wide "SUB·DUB" text).
             val audio = anime.audioAvailability
             if (audio != null && audio.hasAny) {
-                val audioText = audio.labels.joinToString("·")
-                val colors = MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
-                // Audio badge goes to whichever corner has fewer badges (or TOP_END by default)
-                if (topStartBadges.size <= topEndBadges.size) {
-                    topStartBadges.add(audioText to colors)
-                } else {
-                    topEndBadges.add(audioText to colors)
-                }
+                val audioColors = MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+                if (audio.hasSub) topEndBadges.add("SUB" to audioColors)
+                if (audio.hasDub) topEndBadges.add("DUB" to audioColors)
             }
 
-            // Render top-start badges (side-by-side in a Row)
             if (topStartBadges.isNotEmpty()) {
-                CoverBadgeRow(
-                    badges = topStartBadges,
-                    position = BadgePosition.TOP_START,
-                )
+                CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
             }
-            // Render top-end badges (side-by-side in a Row)
             if (topEndBadges.isNotEmpty()) {
-                CoverBadgeRow(
-                    badges = topEndBadges,
-                    position = BadgePosition.TOP_END,
-                )
+                CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
             }
         }
 
@@ -2635,7 +2591,7 @@ private fun BoxScope.CoverBadgeRow(
                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                         fontSize = 8.sp,
                         lineHeight = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         color = colors.second,
                         maxLines = 1,
                         softWrap = false,
