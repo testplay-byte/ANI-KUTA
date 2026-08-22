@@ -77,11 +77,13 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -92,6 +94,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -106,6 +109,8 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SearchField
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
@@ -602,9 +607,7 @@ fun LibraryScreen(
                 columns = columns,
                 titleLines = titleLines,
                 episodeBadgeMode = episodeBadgeMode,
-                episodeBadgePosition = episodeBadgePosition,
                 showScoreBadge = showScoreBadge,
-                scoreBadgePosition = scoreBadgePosition,
                 showContinueWatching = showContinueWatching,
                 showTotalEntries = showTotalEntries,
                 showCategoryCounts = showCategoryCounts,
@@ -613,9 +616,7 @@ fun LibraryScreen(
                 onDisplayModeChange = viewModel::setDisplayMode,
                 onColumnsChange = viewModel::setColumns,
                 onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
-                onEpisodeBadgePositionChange = viewModel::setEpisodeBadgePosition,
                 onShowScoreBadgeChange = viewModel::setShowScoreBadge,
-                onScoreBadgePositionChange = viewModel::setScoreBadgePosition,
                 onShowContinueWatchingChange = viewModel::setShowContinueWatching,
                 onShowTotalEntriesChange = viewModel::setShowTotalEntries,
                 onShowCategoryCountsChange = viewModel::setShowCategoryCounts,
@@ -1238,9 +1239,7 @@ private fun CustomizeSheet(
     columns: Int,
     titleLines: Int,
     episodeBadgeMode: EpisodeBadgeMode,
-    episodeBadgePosition: BadgePosition,
     showScoreBadge: Boolean,
-    scoreBadgePosition: BadgePosition,
     showContinueWatching: Boolean,
     showTotalEntries: Boolean,
     showCategoryCounts: Boolean,
@@ -1249,9 +1248,7 @@ private fun CustomizeSheet(
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onEpisodeBadgeModeChange: (EpisodeBadgeMode) -> Unit,
-    onEpisodeBadgePositionChange: (BadgePosition) -> Unit,
     onShowScoreBadgeChange: (Boolean) -> Unit,
-    onScoreBadgePositionChange: (BadgePosition) -> Unit,
     onShowContinueWatchingChange: (Boolean) -> Unit,
     onShowTotalEntriesChange: (Boolean) -> Unit,
     onShowCategoryCountsChange: (Boolean) -> Unit,
@@ -1260,100 +1257,142 @@ private fun CustomizeSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // CORE_RULES §22 + user spec: bottom-up sheets cap at 70% of the device's
-    // full screen height. LocalConfiguration.screenHeightDp is the actual device
-    // height (window insets excluded by edge-to-edge), so this adapts per-device.
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
 
     var activeTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Sort", "Display & Badges")
 
+    // D-242-fix13: scroll-to-minimize (like profile page).
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val collapseThresholdPx = with(density) { 48.dp.toPx() } // tab strip height
+    val scrollFraction: () -> Float = {
+        val raw = if (listState.firstVisibleItemIndex > 0) collapseThresholdPx
+                  else listState.firstVisibleItemScrollOffset.toFloat()
+        (raw / collapseThresholdPx).coerceIn(0f, 1f)
+    }
+    val collapsed by remember { derivedStateOf { scrollFraction() > 0.5f } }
+
+    // Magnetic snap — animate to fully-collapsed or fully-expanded on scroll end.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .filter { !it }
+            .collect {
+                if (listState.firstVisibleItemIndex == 0) {
+                    if (scrollFraction() > 0.5f) listState.animateScrollToItem(1, 0)
+                    else listState.animateScrollToItem(0, 0)
+                }
+            }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = null, // ── No drag handle per spec ──
+        dragHandle = null,
     ) {
-        // FIX: cap the WHOLE sheet content (header + tabs + divider + list) at
-        // 70% screen height. Previously heightIn was on the LazyColumn only, so
-        // the sheet grew to list(70%) + header/tabs/divider(~120dp) and exceeded
-        // the limit. With the cap on the Column, the LazyColumn is constrained by
-        // its parent's remaining space → wraps when short, scrolls when tall.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxSheetHeight)
-                .padding(horizontal = 20.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header ──
-            Text(
-                text = "Library Settings",
-                fontFamily = RobotoFamily,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(bottom = 12.dp, top = 16.dp),
-            )
-
-            // ── Tab strip — 2 tabs in a shared centered background ──
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth(),
+            // ── Collapsing header (pinned, shrinks on scroll) ──
+            val targetFontSize = if (collapsed) 16f else 20f
+            val fontSize by animateFloatAsState(targetFontSize, tween(300, easing = FastOutSlowInEasing), label = "headerFont")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.Center,
+                Text(
+                    text = "Library Settings",
+                    fontFamily = RobotoFamily,
+                    fontSize = fontSize.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+                // Mini tab pill — fades IN as the full tab strip scrolls away.
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.graphicsLayer { alpha = scrollFraction() },
                 ) {
-                    tabs.forEachIndexed { index, label ->
-                        val isActive = index == activeTab
-                        Surface(
-                            color = if (isActive) MaterialTheme.colorScheme.primary
-                                    else Color.Transparent,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { activeTab = index },
-                        ) {
-                            Text(
-                                text = label,
-                                fontFamily = RobotoFamily,
-                                fontSize = 13.sp,
-                                fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
-                                color = if (isActive) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                        }
-                    }
+                    Text(
+                        text = tabs[activeTab],
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
                 }
             }
 
-            // ── Separator below the tabs ──
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 0.dp),
-                thickness = 0.5.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-            )
-            Spacer(Modifier.height(8.dp))
-
-            // ── Tab content ──
-            // No heightIn here — the parent Column's heightIn(max) constrains
-            // this LazyColumn to the remaining space, so it scrolls when the
-            // tab's content exceeds the 70% cap (Display & Badges) and wraps
-            // when it's short (Sort).
+            // ── LazyColumn with tab strip as item 0 (scrolls + shrinks) ──
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth(),
+                state = listState,
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                // Item 0: tab strip — shrinks + fades on scroll.
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp)
+                            .graphicsLayer {
+                                val f = scrollFraction()
+                                alpha = (1f - f).coerceIn(0f, 1f)
+                                val s = 1f - f * 0.25f
+                                scaleX = s
+                                scaleY = s
+                            },
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(4.dp),
+                                horizontalArrangement = Arrangement.Center,
+                            ) {
+                                tabs.forEachIndexed { index, label ->
+                                    val isActive = index == activeTab
+                                    Surface(
+                                        color = if (isActive) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable { activeTab = index },
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
+                                            color = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Divider after tab strip.
+                item {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
+                // Tab content.
                 when (activeTab) {
                     0 -> sortTab(
                         sortType = sortType,
@@ -1365,9 +1404,7 @@ private fun CustomizeSheet(
                         columns = columns,
                         titleLines = titleLines,
                         episodeBadgeMode = episodeBadgeMode,
-                        episodeBadgePosition = episodeBadgePosition,
                         showScoreBadge = showScoreBadge,
-                        scoreBadgePosition = scoreBadgePosition,
                         showContinueWatching = showContinueWatching,
                         showTotalEntries = showTotalEntries,
                         showCategoryCounts = showCategoryCounts,
@@ -1375,9 +1412,7 @@ private fun CustomizeSheet(
                         onColumnsChange = onColumnsChange,
                         onTitleLinesChange = onTitleLinesChange,
                         onEpisodeBadgeModeChange = onEpisodeBadgeModeChange,
-                        onEpisodeBadgePositionChange = onEpisodeBadgePositionChange,
                         onShowScoreBadgeChange = onShowScoreBadgeChange,
-                        onScoreBadgePositionChange = onScoreBadgePositionChange,
                         onShowContinueWatchingChange = onShowContinueWatchingChange,
                         onShowTotalEntriesChange = onShowTotalEntriesChange,
                         onShowCategoryCountsChange = onShowCategoryCountsChange,
@@ -1464,9 +1499,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     columns: Int,
     titleLines: Int,
     episodeBadgeMode: EpisodeBadgeMode,
-    episodeBadgePosition: BadgePosition,
     showScoreBadge: Boolean,
-    scoreBadgePosition: BadgePosition,
     showContinueWatching: Boolean,
     showTotalEntries: Boolean,
     showCategoryCounts: Boolean,
@@ -1474,9 +1507,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     onColumnsChange: (Int) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
     onEpisodeBadgeModeChange: (EpisodeBadgeMode) -> Unit,
-    onEpisodeBadgePositionChange: (BadgePosition) -> Unit,
     onShowScoreBadgeChange: (Boolean) -> Unit,
-    onScoreBadgePositionChange: (BadgePosition) -> Unit,
     onShowContinueWatchingChange: (Boolean) -> Unit,
     onShowTotalEntriesChange: (Boolean) -> Unit,
     onShowCategoryCountsChange: (Boolean) -> Unit,
