@@ -1316,6 +1316,7 @@ private fun CustomizeSheet(
         ) {
             // ── Pinned header (fixed size, does NOT shrink on scroll) ──
             // D-242-fix15: "Library Settings" text stays at fixed 20sp (per user feedback).
+            // D-242-fix16: Mini pill shows ONLY "Display & Badges" (Sort removed per user request).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1331,49 +1332,40 @@ private fun CustomizeSheet(
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                 )
-                // D-242-fix15: Mini tab pill — interactive (clickable to switch tabs).
-                // Fades IN as the full tab strip scrolls away. Two clickable segments
-                // so the user can switch tabs even when collapsed.
+                // D-242-fix16: Mini pill — single "Display & Badges" label (no Sort).
+                // Clicking it switches to the Display & Badges tab (index 1).
+                // Fades IN as the full tab strip scrolls away.
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.graphicsLayer { alpha = scrollFraction() },
+                    modifier = Modifier
+                        .graphicsLayer { alpha = scrollFraction() }
+                        .clickable(
+                            enabled = scrollFraction() > 0.5f,
+                        ) { activeTab = 1 }, // Switch to "Display & Badges"
                 ) {
-                    Row(modifier = Modifier.padding(2.dp)) {
-                        tabs.forEachIndexed { idx, label ->
-                            val isActive = idx == activeTab
-                            Surface(
-                                color = if (isActive) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                shape = RoundedCornerShape(6.dp),
-                                // D-242-fix15: Only clickable when the mini pill is visible
-                                // (scrollFraction > 0.5) to prevent invisible tab switches.
-                                modifier = Modifier.clickable(
-                                    enabled = scrollFraction() > 0.5f,
-                                ) { activeTab = idx },
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Medium,
-                                    color = if (isActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        text = tabs[1], // Always "Display & Badges"
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        maxLines = 1,
+                    )
                 }
             }
 
-            // ── LazyColumn with tab strip as item 0 (scrolls + shrinks) ──
-            // D-242-fix15: Added contentPadding horizontal=20dp so ALL items have
-            // consistent side padding (fixes "no padding on right and left sides").
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
+            // ── LazyColumn + gradient blur scrim ──
+            // D-242-fix16: Gradient blur effect at the top edge — content scrolling
+            // under the header fades into it (like ProfileScreen's pattern).
+            val sheetBgColor = MaterialTheme.colorScheme.surface
+            Box(modifier = Modifier.fillMaxWidth()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
                 // Item 0: tab strip — shrinks + fades on scroll.
                 item {
                     Box(
@@ -1456,6 +1448,35 @@ private fun CustomizeSheet(
                         onReleasedUnwatchedOnlyChange = onReleasedUnwatchedOnlyChange,
                     )
                 }
+            }
+
+                // D-242-fix16: Gradient blur scrim at the top edge — fades in when
+                // content scrolls under the header so it appears to blur into it.
+                // Uses smoothstep for a natural fade (same pattern as ProfileScreen).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp)
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer {
+                            val f = scrollFraction()
+                            alpha = (f * f * (3 - 2 * f)) // smoothstep
+                        }
+                        .drawBehind {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        sheetBgColor,
+                                        sheetBgColor.copy(alpha = 0.85f),
+                                        sheetBgColor.copy(alpha = 0.4f),
+                                        sheetBgColor.copy(alpha = 0.0f),
+                                    ),
+                                    startY = 0f,
+                                    endY = size.height,
+                                ),
+                            )
+                        },
+                )
             }
         }
     }
@@ -1554,8 +1575,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     onReleasedAudioFilterChange: (ReleasedAudioFilter) -> Unit,
     onReleasedUnwatchedOnlyChange: (Boolean) -> Unit,
 ) {
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECTION 1: DISPLAY (Display Mode, Columns, Title lines)
+    // ═══════════════════════════════════════════════════════════════════════
+    item { OptionLabel("Display") }
+
     // ── Display mode (4-grid of visual cards) ──
-    item { OptionLabel("Display Mode") }
     item {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1603,7 +1628,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     // ── Columns (grid modes only) ──
     if (displayMode != LibraryDisplayMode.LIST) {
         item {
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
             OptionLabel("Columns per row")
         }
         item {
@@ -1618,8 +1643,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     // ── Title lines ──
     item {
         Spacer(Modifier.height(16.dp))
-        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-        Spacer(Modifier.height(12.dp))
         OptionLabel("Title lines")
     }
     item {
@@ -1630,14 +1653,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
         )
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECTION 2: BADGES (Episode Badge, Released Audio, Show, Score Badge)
+    // ═══════════════════════════════════════════════════════════════════════
+    item { SectionSeparator("Badges") }
+
     // ── Episode badge ──
-    // Off uses red theme when selected; Released + Total use primary (green).
-    item {
-        Spacer(Modifier.height(16.dp))
-        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-        Spacer(Modifier.height(12.dp))
-        OptionLabel("Episode Badge")
-    }
+    item { OptionLabel("Episode Badge") }
     item {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1679,11 +1701,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
         }
     }
 
-    // D-242-fix12: Removed BadgePositionSelector — positions are hardcoded.
-    // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
-
-    // D-242-fix14: Advanced RELEASED sub-options — only shown when RELEASED is selected.
-    // Shows audio filter (Both/Sub/Dub with icons) + unwatched-only toggle.
+    // D-242-fix16: Advanced RELEASED sub-options — only when RELEASED is selected.
     if (episodeBadgeMode == EpisodeBadgeMode.RELEASED) {
         // ── Released Audio filter ──
         item {
@@ -1698,7 +1716,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Both — shows both icons side-by-side.
                 ReleasedAudioFilterCard(
                     label = "Both",
                     icons = listOf(BadgeIcons.Sub to subColor, BadgeIcons.Dub to dubColor),
@@ -1706,7 +1723,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                     onClick = { onReleasedAudioFilterChange(ReleasedAudioFilter.BOTH) },
                     modifier = Modifier.weight(1f),
                 )
-                // Sub — subtitle icon, blue.
                 ReleasedAudioFilterCard(
                     label = "Sub",
                     icons = listOf(BadgeIcons.Sub to subColor),
@@ -1714,7 +1730,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                     onClick = { onReleasedAudioFilterChange(ReleasedAudioFilter.SUB) },
                     modifier = Modifier.weight(1f),
                 )
-                // Dub — microphone icon, orange.
                 ReleasedAudioFilterCard(
                     label = "Dub",
                     icons = listOf(BadgeIcons.Dub to dubColor),
@@ -1724,59 +1739,52 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                 )
             }
         }
-        // ── Show unwatched only ──
+        // ── Show: All / Unwatched (two-way button, replaces toggle) ──
         item {
             Spacer(Modifier.height(12.dp))
-            SwitchRow(
-                label = "Show unwatched only",
-                checked = releasedUnwatchedOnly,
+            TwoWayButton(
+                label = "Show",
+                selected = releasedUnwatchedOnly,
                 onChange = onReleasedUnwatchedOnlyChange,
             )
         }
     }
 
-    // ── Score badge ──
+    // ── Score badge (two-way button, replaces toggle) ──
     item {
         Spacer(Modifier.height(16.dp))
-        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-        Spacer(Modifier.height(12.dp))
-        OptionLabel("Score Badge")
-    }
-    item {
-        SwitchRow(
-            label = "Show score badge",
-            checked = showScoreBadge,
+        TwoWayButton(
+            label = "Score Badge",
+            selected = showScoreBadge,
             onChange = onShowScoreBadgeChange,
         )
     }
 
-    // D-242-fix12: Removed Score BadgePositionSelector — position hardcoded to TOP_START.
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECTION 3: OPTIONS (Continue watching, Total entries, Category counts)
+    // ═══════════════════════════════════════════════════════════════════════
+    item { SectionSeparator("Options") }
 
-    // ── Toggles ──
     item {
-        Spacer(Modifier.height(16.dp))
-        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-        Spacer(Modifier.height(12.dp))
-        OptionLabel("Toggles")
-    }
-    item {
-        SwitchRow(
-            label = "Show continue watching",
-            checked = showContinueWatching,
+        TwoWayButton(
+            label = "Continue watching",
+            selected = showContinueWatching,
             onChange = onShowContinueWatchingChange,
         )
     }
     item {
-        SwitchRow(
-            label = "Show total entries in header",
-            checked = showTotalEntries,
+        Spacer(Modifier.height(12.dp))
+        TwoWayButton(
+            label = "Total entries in header",
+            selected = showTotalEntries,
             onChange = onShowTotalEntriesChange,
         )
     }
     item {
-        SwitchRow(
-            label = "Show category counts on tabs",
-            checked = showCategoryCounts,
+        Spacer(Modifier.height(12.dp))
+        TwoWayButton(
+            label = "Category counts on tabs",
+            selected = showCategoryCounts,
             onChange = onShowCategoryCountsChange,
         )
     }
@@ -2030,6 +2038,74 @@ private fun SwitchRow(
         )
         Switch(checked = checked, onCheckedChange = onChange)
     }
+}
+
+/**
+ * D-242-fix16: A two-way segmented button selector (replaces SwitchRow).
+ *
+ * Shows a label on the left + two buttons (Off / On) on the right. The
+ * selected button is filled with primary color; the other is muted.
+ *
+ * This matches the Episode Badge Off/Released/Total button style —
+ * consistent visual language throughout the Customize sheet.
+ */
+@Composable
+private fun TwoWayButton(
+    label: String,
+    selected: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf("Off" to false, "On" to true).forEach { (btnLabel, value) ->
+                val isSelected = selected == value
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f).clickable { onChange(value) },
+                ) {
+                    Text(
+                        text = btnLabel,
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * D-242-fix16: A visual section separator for the Customize sheet.
+ *
+ * Renders a section title with a divider above it, creating clear visual
+ * separation between the 3 sections (Display, Badges, Options).
+ */
+@Composable
+private fun SectionSeparator(title: String) {
+    Spacer(Modifier.height(20.dp))
+    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+    Spacer(Modifier.height(12.dp))
+    OptionLabel(title)
 }
 
 // ── Grid view ──
@@ -2890,6 +2966,8 @@ private fun BoxScope.CoverBadgeRow(
                     // ── Compound badge: single Surface with split background ──
                     // Left half = subContainer, right half = dubContainer,
                     // separated by a 45° diagonal line.
+                    // D-242-fix16: Tightened spacing — segments are closer together
+                    // to feel like a single cohesive badge (not two separate parts).
                     val sec = badge.secondary
                     Surface(
                         color = Color.Transparent,
@@ -2919,15 +2997,15 @@ private fun BoxScope.CoverBadgeRow(
                             // 45° diagonal separator line (white, semi-transparent
                             // for a subtle visual divide).
                             drawLine(
-                                color = Color.White.copy(alpha = 0.4f),
+                                color = Color.White.copy(alpha = 0.5f),
                                 start = Offset(centerX + tilt, 0f),
                                 end = Offset(centerX - tilt, h),
-                                strokeWidth = 1.dp.toPx(),
+                                strokeWidth = 0.8.dp.toPx(),
                             )
                         },
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // ── Left segment (SUB) ──
@@ -2939,7 +3017,7 @@ private fun BoxScope.CoverBadgeRow(
                                     modifier = Modifier.size(8.dp),
                                 )
                             }
-                            Spacer(Modifier.width(2.dp))
+                            Spacer(Modifier.width(1.dp))
                             Text(
                                 text = badge.text,
                                 fontSize = 8.sp,
@@ -2949,8 +3027,9 @@ private fun BoxScope.CoverBadgeRow(
                                 maxLines = 1,
                                 softWrap = false,
                             )
-                            // Spacer for the diagonal line area.
-                            Spacer(Modifier.width(6.dp))
+                            // D-242-fix16: Reduced from 6dp to 3dp — tighter,
+                            // feels like one badge not two.
+                            Spacer(Modifier.width(3.dp))
                             // ── Right segment (DUB) ──
                             if (sec.icon != null) {
                                 Icon(
@@ -2960,7 +3039,7 @@ private fun BoxScope.CoverBadgeRow(
                                     modifier = Modifier.size(8.dp),
                                 )
                             }
-                            Spacer(Modifier.width(2.dp))
+                            Spacer(Modifier.width(1.dp))
                             Text(
                                 text = sec.text,
                                 fontSize = 8.sp,
