@@ -2339,7 +2339,7 @@ private fun LibraryGridCard(
     // card Box so it wraps the cover image + title overlay + badges.
     val borderModifier = if (coverBorderEnabled) {
         Modifier.border(
-            width = coverBorderWidth.dp,
+            width = coverBorderWidth.widthDp.dp,
             color = Color(coverBorderColor.hex),
             shape = RoundedCornerShape(12.dp),
         )

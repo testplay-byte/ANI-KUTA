@@ -983,8 +983,11 @@ enum class CoverBorderColor(val hex: Long, val displayName: String) {
 
 /**
  * D-242-fix17: Cover border width options (in dp).
+ *
+ * The [widthDp] property holds the integer dp value. Call `.widthDp.dp` to
+ * convert to a Compose [androidx.compose.ui.unit.Dp].
  */
-enum class CoverBorderWidth(val dp: Int, val displayName: String) {
+enum class CoverBorderWidth(val widthDp: Int, val displayName: String) {
     THIN(1, "Thin"),
     MEDIUM(2, "Medium"),
     THICK(3, "Thick"),
