@@ -1184,3 +1184,16 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Version: 0.2.37 (versionCode 37).
 - **Awaiting push + CI build** — no GitHub credentials available in build environment. User needs to push manually.
 - Not yet device-tested — user will test after CI builds the APK.
+
+### CI Build Fix (commit b4c75ba3)
+- First CI run (32587888021) FAILED: `Unresolved reference 'cubicTo'` in BadgeIcons.kt — Compose's `PathBuilder` uses `curveTo` (not `cubicTo`, which is on `AndroidPath`).
+- Found the correct API name via `REFERENCES/animiru/ANIMIRU/app/src/main/baseline-prof.txt`: `PathBuilder;->curveTo(FFFFFF)V`.
+- Fixed: replaced all 8 `cubicTo` calls with `curveTo` in BadgeIcons.kt.
+- Second CI run (32588139111) PASSED: all 6 steps green, APK artifact created (55.3 MB).
+- Version bumped: 0.2.37 → 0.2.38 (versionCode 37 → 38).
+
+### Status
+- Branch: `functionality/improvements` (pushed to remote, CI green).
+- APK artifact: `anikuta-apk` (55.3 MB, artifact ID 9479636335).
+- Download: https://github.com/testplay-byte/ANI-KUTA/actions/runs/32588139111 (Artifacts section).
+- Ready for device testing.

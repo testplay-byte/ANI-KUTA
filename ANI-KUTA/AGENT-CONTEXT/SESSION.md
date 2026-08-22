@@ -69,7 +69,7 @@ ANI-KUTA/                        ← repo root (git)
 ```
 
 ## ❓ Currently Blocked On / Open Items
-- **Library badge customization system** (D-242, fix9–fix14) — ✅ IMPLEMENTED on `functionality/improvements` (commit `db0535d0`, version 0.2.37). **Awaiting push + CI build + device test.** Advanced RELEASED options (sub/dub/both + unwatched + SVG icons) + scroll-to-minimize header.
+- **Library badge customization system** (D-242, fix9–fix14) — ✅ IMPLEMENTED + CI GREEN on `functionality/improvements` (commit `b4c75ba3`, version 0.2.38). APK artifact built (55.3 MB). **Ready for device testing.** Advanced RELEASED options (sub/dub/both + unwatched + SVG icons) + scroll-to-minimize header.
 - **Database management + quality** (next focus after library badge testing) — user will provide a fresh DB export after a clean-install test run. Agent will analyze for flaws.
 - **Download system device testing** (Phase DL.0-DL.8 implemented; needs on-device verification).
 - **Download system future-phase gaps** (D-149, D-151) — proxy-churn re-resolve wiring + 2 re-resolve bugs + outer retry loop + DownloadVideoPickerSheet cleanup. All DEFERRED per user. Full plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
