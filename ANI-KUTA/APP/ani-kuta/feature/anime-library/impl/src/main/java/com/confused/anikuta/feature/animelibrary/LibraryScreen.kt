@@ -37,6 +37,10 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -197,6 +201,8 @@ fun LibraryScreen(
     val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
     val listDensity by viewModel.listDensity.collectAsState()
     val listTitlePosition by viewModel.listTitlePosition.collectAsState()
+    // D-242-fix21: Comfortable border mode.
+    val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
     // D.5: refresh state for pull-to-refresh.
@@ -235,6 +241,10 @@ fun LibraryScreen(
 
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    // D-242-fix21: Hoisted activeTab to LibraryScreen so it persists across
+    // CustomizeSheet open/close (the sheet leaves composition when dismissed,
+    // which would reset rememberSaveable inside it).
+    var customizeSheetActiveTab by rememberSaveable { mutableIntStateOf(0) }
 
     // Pull-to-refresh state — official Material 3 PullToRefreshBox.
     // Cooperates with the inner LazyVerticalGrid / LazyColumn via its own
@@ -573,6 +583,7 @@ fun LibraryScreen(
                                 coverBorderWidth = coverBorderWidth,
                                 displayMode = displayMode,
                                 showAllCaughtUpTag = showAllCaughtUpTag,
+                                comfortableBorderMode = comfortableBorderMode,
                             )
                         } else {
                             LibraryList(
@@ -670,6 +681,10 @@ fun LibraryScreen(
                 onShowAllCaughtUpTagChange = viewModel::setShowAllCaughtUpTag,
                 onListDensityChange = viewModel::setListDensity,
                 onListTitlePositionChange = viewModel::setListTitlePosition,
+                activeTab = customizeSheetActiveTab,
+                onActiveTabChange = { customizeSheetActiveTab = it },
+                comfortableBorderMode = comfortableBorderMode,
+                onComfortableBorderModeChange = viewModel::setComfortableBorderMode,
                 onDismiss = { showSettingsSheet = false },
             )
         }
@@ -1318,6 +1333,11 @@ private fun CustomizeSheet(
     onShowAllCaughtUpTagChange: (Boolean) -> Unit,
     onListDensityChange: (ListDensity) -> Unit,
     onListTitlePositionChange: (ListTitlePosition) -> Unit,
+    // D-242-fix21: Hoisted from parent so tab persists across sheet open/close.
+    activeTab: Int,
+    onActiveTabChange: (Int) -> Unit,
+    comfortableBorderMode: ComfortableBorderMode,
+    onComfortableBorderModeChange: (ComfortableBorderMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1327,9 +1347,8 @@ private fun CustomizeSheet(
     // LazyListScope lambdas which are not @Composable).
     val sheetIsDark = isSystemInDarkTheme()
 
-    // D-242-fix20: Use rememberSaveable so the active tab persists across
-    // open/close of the CustomizeSheet (user returns to the section they left).
-    var activeTab by rememberSaveable { mutableIntStateOf(0) }
+    // D-242-fix21: activeTab is now hoisted from the parent (persists across
+    // sheet open/close). No local state needed.
     // D-242-fix17: Renamed 'Display & Badges' to 'Display', added 'UI' tab.
     val tabs = listOf("Sort", "Display", "UI")
 
@@ -1396,7 +1415,7 @@ private fun CustomizeSheet(
                         .graphicsLayer { alpha = scrollFraction() }
                         .clickable(
                             enabled = scrollFraction() > 0.5f,
-                        ) { activeTab = 1 }, // Switch to "Display & Badges"
+                        ) { onActiveTabChange(1) }, // Switch to "Display"
                 ) {
                     Text(
                         text = tabs[1], // Always "Display & Badges"
@@ -1449,7 +1468,7 @@ private fun CustomizeSheet(
                                     Surface(
                                         color = if (isActive) MaterialTheme.colorScheme.primary else Color.Transparent,
                                         shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable { activeTab = index },
+                                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable { onActiveTabChange(index) },
                                     ) {
                                         Text(
                                             text = label,
@@ -1517,11 +1536,13 @@ private fun CustomizeSheet(
                         listDensity = listDensity,
                         listTitlePosition = listTitlePosition,
                         isDark = sheetIsDark,
+                        comfortableBorderMode = comfortableBorderMode,
                         onCoverBorderEnabledChange = onCoverBorderEnabledChange,
                         onCoverBorderColorChange = onCoverBorderColorChange,
                         onCoverBorderWidthChange = onCoverBorderWidthChange,
                         onListDensityChange = onListDensityChange,
                         onListTitlePositionChange = onListTitlePositionChange,
+                        onComfortableBorderModeChange = onComfortableBorderModeChange,
                     )
                 }
             }
@@ -1970,11 +1991,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
     listDensity: ListDensity,
     listTitlePosition: ListTitlePosition,
     isDark: Boolean,
+    comfortableBorderMode: ComfortableBorderMode,
     onCoverBorderEnabledChange: (Boolean) -> Unit,
     onCoverBorderColorChange: (CoverBorderColor) -> Unit,
     onCoverBorderWidthChange: (CoverBorderWidth) -> Unit,
     onListDensityChange: (ListDensity) -> Unit,
     onListTitlePositionChange: (ListTitlePosition) -> Unit,
+    onComfortableBorderModeChange: (ComfortableBorderMode) -> Unit,
 ) {
     // ═══════════════════════════════════════════════════════════════════════
     // SECTION 1: COVER BORDERS
@@ -2076,6 +2099,42 @@ private fun androidx.compose.foundation.lazy.LazyListScope.uiTab(
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(vertical = 8.dp),
                         )
+                    }
+                }
+            }
+        }
+
+        // D-242-fix21: Comfortable border mode — only shown when COMFORTABLE_GRID.
+        // Lets user choose: border around cover only, or around cover + title.
+        if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
+            item {
+                Spacer(Modifier.height(16.dp))
+                OptionLabel("Border Scope")
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ComfortableBorderMode.entries.forEach { mode ->
+                        val isSelected = comfortableBorderMode == mode
+                        Surface(
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).clickable { onComfortableBorderModeChange(mode) },
+                        ) {
+                            Text(
+                                text = mode.displayName,
+                                fontFamily = RobotoFamily,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -2430,40 +2489,85 @@ private fun LibraryGrid(
     coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
     showAllCaughtUpTag: Boolean = false,
+    comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
 ) {
-    // D-141: in selection mode, reserve extra bottom space for the action bar.
-    LazyVerticalGrid(
-        state = gridState,
-        columns = GridCells.Fixed(columns.coerceIn(2, 5)),
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
-            top = 4.dp,
-            bottom = if (isSelectionMode) 160.dp else 90.dp,
-        ),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(entries, key = { it.mainId }) { item ->
-            LibraryGridCard(
-                anime = item,
-                titleLines = titleLines,
-                isSelectionMode = isSelectionMode,
-                isSelected = item.mainId in selectedMainIds,
-                onClick = onClickEntry,
-                onLongClick = onLongClickEntry,
-                episodeBadgeMode = episodeBadgeMode,
-                episodeBadgePosition = episodeBadgePosition,
-                showScoreBadge = showScoreBadge,
-                scoreBadgePosition = scoreBadgePosition,
-                releasedAudioFilter = releasedAudioFilter,
-                releasedUnwatchedOnly = releasedUnwatchedOnly,
-                coverBorderEnabled = coverBorderEnabled,
-                coverBorderColor = coverBorderColor,
-                coverBorderWidth = coverBorderWidth,
-                displayMode = displayMode,
-                showAllCaughtUpTag = showAllCaughtUpTag,
-            )
+    // D-242-fix21: Comfortable grid uses LazyVerticalStaggeredGrid (masonry
+    // layout) so items in a column can have different heights (shorter items
+    // don't force taller items to have gaps). All other modes use LazyVerticalGrid.
+    if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
+        val staggeredState = rememberLazyStaggeredGridState()
+        LazyVerticalStaggeredGrid(
+            columns = StaggeredGridCells.Fixed(columns.coerceIn(2, 5)),
+            state = staggeredState,
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = 4.dp,
+                bottom = if (isSelectionMode) 160.dp else 90.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalItemSpacing = 8.dp,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            staggeredItems(entries, key = { it.mainId }) { item ->
+                LibraryGridCard(
+                    anime = item,
+                    titleLines = titleLines,
+                    isSelectionMode = isSelectionMode,
+                    isSelected = item.mainId in selectedMainIds,
+                    onClick = onClickEntry,
+                    onLongClick = onLongClickEntry,
+                    episodeBadgeMode = episodeBadgeMode,
+                    episodeBadgePosition = episodeBadgePosition,
+                    showScoreBadge = showScoreBadge,
+                    scoreBadgePosition = scoreBadgePosition,
+                    releasedAudioFilter = releasedAudioFilter,
+                    releasedUnwatchedOnly = releasedUnwatchedOnly,
+                    coverBorderEnabled = coverBorderEnabled,
+                    coverBorderColor = coverBorderColor,
+                    coverBorderWidth = coverBorderWidth,
+                    displayMode = displayMode,
+                    showAllCaughtUpTag = showAllCaughtUpTag,
+                    comfortableBorderMode = comfortableBorderMode,
+                )
+            }
+        }
+    } else {
+        // D-141: in selection mode, reserve extra bottom space for the action bar.
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Fixed(columns.coerceIn(2, 5)),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = 4.dp,
+                bottom = if (isSelectionMode) 160.dp else 90.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(entries, key = { it.mainId }) { item ->
+                LibraryGridCard(
+                    anime = item,
+                    titleLines = titleLines,
+                    isSelectionMode = isSelectionMode,
+                    isSelected = item.mainId in selectedMainIds,
+                    onClick = onClickEntry,
+                    onLongClick = onLongClickEntry,
+                    episodeBadgeMode = episodeBadgeMode,
+                    episodeBadgePosition = episodeBadgePosition,
+                    showScoreBadge = showScoreBadge,
+                    scoreBadgePosition = scoreBadgePosition,
+                    releasedAudioFilter = releasedAudioFilter,
+                    releasedUnwatchedOnly = releasedUnwatchedOnly,
+                    coverBorderEnabled = coverBorderEnabled,
+                    coverBorderColor = coverBorderColor,
+                    coverBorderWidth = coverBorderWidth,
+                    displayMode = displayMode,
+                    showAllCaughtUpTag = showAllCaughtUpTag,
+                    comfortableBorderMode = comfortableBorderMode,
+                )
+            }
         }
     }
 }
@@ -2487,6 +2591,7 @@ private fun LibraryGridCard(
     coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
     showAllCaughtUpTag: Boolean = false,
+    comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2509,6 +2614,9 @@ private fun LibraryGridCard(
     // THEME_ADAPTIVE resolves to white (dark theme) or black (light theme).
     // ADAPTIVE extracts the dominant color from the cover image itself,
     // adjusted for contrast against both cover and background.
+    // D-242-fix21: In COMFORTABLE_GRID + COVER_ONLY mode, border goes on the
+    // cover Box (not the outer card). In all other cases, border wraps the
+    // entire card.
     val isDark = isSystemInDarkTheme()
     val adaptiveColor = rememberCoverAccentColor(anime.coverUrl)
     val resolvedBorderColor = when (coverBorderColor) {
@@ -2516,7 +2624,19 @@ private fun LibraryGridCard(
         CoverBorderColor.ADAPTIVE -> adaptiveColor ?: MaterialTheme.colorScheme.outline
         else -> Color(coverBorderColor.hex)
     }
-    val borderModifier = if (coverBorderEnabled) {
+    val isComfortable = displayMode == LibraryDisplayMode.COMFORTABLE_GRID
+    val borderOnCoverOnly = isComfortable && comfortableBorderMode == ComfortableBorderMode.COVER_ONLY
+
+    val outerBorderModifier = if (coverBorderEnabled && !borderOnCoverOnly) {
+        Modifier.border(
+            width = coverBorderWidth.widthDp.dp,
+            color = resolvedBorderColor,
+            shape = RoundedCornerShape(12.dp),
+        )
+    } else {
+        Modifier
+    }
+    val coverBorderModifier = if (coverBorderEnabled && borderOnCoverOnly) {
         Modifier.border(
             width = coverBorderWidth.widthDp.dp,
             color = resolvedBorderColor,
@@ -2528,12 +2648,11 @@ private fun LibraryGridCard(
 
     // D-242-fix20: COMFORTABLE_GRID uses a Column layout (cover on top, title
     // below). All other grid modes use Box layout (title overlaid on cover).
-    val isComfortable = displayMode == LibraryDisplayMode.COMFORTABLE_GRID
 
     val cardModifier = Modifier
         .graphicsLayer { scaleX = scale; scaleY = scale; alpha = cardAlpha }
         .clip(RoundedCornerShape(12.dp))
-        .then(borderModifier)
+        .then(outerBorderModifier)
         .combinedClickable(
             interactionSource = interactionSource,
             indication = null,
@@ -2545,10 +2664,12 @@ private fun LibraryGridCard(
         // ── COMFORTABLE GRID: Column layout (cover + title below) ──
         Column(modifier = cardModifier) {
             // Cover image with badges — in a Box so badges can overlay.
+            // D-242-fix21: When borderOnCoverOnly, border is applied here.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(2f / 3f),
+                    .aspectRatio(2f / 3f)
+                    .then(coverBorderModifier),
             ) {
                 AsyncImage(
                     model = anime.coverUrl,
@@ -2656,10 +2777,12 @@ private fun LibraryGridCard(
             }
 
             // Title BELOW the cover (no gradient overlay — clean text on surface).
+            // D-242-fix21: Explicit lineHeight to reduce gap between title lines.
             Text(
                 text = anime.title,
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
+                lineHeight = 12.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = titleLines,
@@ -2784,6 +2907,7 @@ private fun LibraryGridCard(
                         text = anime.title,
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
+                        lineHeight = 12.sp, // D-242-fix21: reduce gap between title lines
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = titleLines,
@@ -3079,10 +3203,12 @@ private fun LibraryListRow(
         ) {
             if (listTitlePosition == ListTitlePosition.TOP) {
                 // Title first, then detail tags below.
+                // D-242-fix21: Explicit lineHeight to reduce gap between lines.
                 Text(
                     anime.title,
                     fontFamily = RobotoFamily,
                     fontSize = listDensity.titleFontSize.sp,
+                    lineHeight = (listDensity.titleFontSize + 1).sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = titleLines,
@@ -3103,6 +3229,7 @@ private fun LibraryListRow(
                     anime.title,
                     fontFamily = RobotoFamily,
                     fontSize = listDensity.titleFontSize.sp,
+                    lineHeight = (listDensity.titleFontSize + 1).sp, // D-242-fix21
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onBackground,
                     maxLines = titleLines,
@@ -3114,20 +3241,20 @@ private fun LibraryListRow(
 }
 
 /**
- * D-242-fix20: Custom detail tag — matches DetailsScreen pill style.
+ * D-242-fix21: Custom detail tag — rectangular shape, minimal height.
  *
- * Fully rounded pill (RoundedCornerShape(50)), tight padding, no extra
- * Box/Row wrapping. The Surface wraps ONLY the Text so there's no empty
- * space above/below the text (per user feedback).
+ * Reverted from pill (RoundedCornerShape(50)) back to the original
+ * rectangular shape (RoundedCornerShape(4.dp)) per user feedback.
+ * The ONLY change from the original is reduced vertical padding (2dp → 1dp)
+ * to make the tag height smaller without affecting text size.
  *
- * This is the same pattern used in DetailsScreen for genre pills, audio
- * pills, and source selector pills.
+ * The Surface wraps ONLY the Text so there's no extra Box/Row adding height.
  */
 @Composable
 private fun DetailTagPill(tag: ListDetailTag) {
     Surface(
         color = tag.container,
-        shape = RoundedCornerShape(50),
+        shape = RoundedCornerShape(4.dp),
     ) {
         Text(
             text = tag.text,
@@ -3135,7 +3262,7 @@ private fun DetailTagPill(tag: ListDetailTag) {
             fontSize = 9.sp,
             fontWeight = FontWeight.ExtraBold,
             color = tag.content,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
             maxLines = 1,
         )
     }

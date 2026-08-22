@@ -63,6 +63,8 @@ class LibraryViewModel(
         private const val KEY_SHOW_ALL_CAUGHT_UP_TAG = "library_show_all_caught_up_tag"
         private const val KEY_LIST_DENSITY = "library_list_density"
         private const val KEY_LIST_TITLE_POSITION = "library_list_title_position"
+        // D-242-fix21: Comfortable border mode.
+        private const val KEY_COMFORTABLE_BORDER_MODE = "library_comfortable_border_mode"
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
@@ -186,6 +188,10 @@ class LibraryViewModel(
     /** List mode title position (top or bottom). */
     private val _listTitlePosition = MutableStateFlow(ListTitlePosition.BOTTOM)
     val listTitlePosition: StateFlow<ListTitlePosition> = _listTitlePosition
+
+    // D-242-fix21: Comfortable border mode (cover-only vs full).
+    private val _comfortableBorderMode = MutableStateFlow(ComfortableBorderMode.COVER_AND_TITLE)
+    val comfortableBorderMode: StateFlow<ComfortableBorderMode> = _comfortableBorderMode
 
     init {
         loadPreferences()
@@ -813,6 +819,13 @@ class LibraryViewModel(
         Logger.i(TAG) { "setListTitlePosition — $position" }
     }
 
+    // D-242-fix21: Comfortable border mode setter.
+    fun setComfortableBorderMode(mode: ComfortableBorderMode) {
+        _comfortableBorderMode.value = mode
+        preferenceStore.putString(KEY_COMFORTABLE_BORDER_MODE, mode.name)
+        Logger.i(TAG) { "setComfortableBorderMode — $mode" }
+    }
+
     /**
      * D-242-fix10: Enriches LibraryEntry list with badge data:
      * - releasedEpisodes: count of cached episodes (actual aired count)
@@ -922,6 +935,11 @@ class LibraryViewModel(
         _listTitlePosition.value = preferenceStore
             .getString(KEY_LIST_TITLE_POSITION, ListTitlePosition.BOTTOM.name)
             .let { runCatching { ListTitlePosition.valueOf(it) }.getOrDefault(ListTitlePosition.BOTTOM) }
+
+        // D-242-fix21: load comfortable border mode.
+        _comfortableBorderMode.value = preferenceStore
+            .getString(KEY_COMFORTABLE_BORDER_MODE, ComfortableBorderMode.COVER_AND_TITLE.name)
+            .let { runCatching { ComfortableBorderMode.valueOf(it) }.getOrDefault(ComfortableBorderMode.COVER_AND_TITLE) }
 
         // D-242-fix3: restore last-selected category across app restarts.
         // -1L sentinel = "All" (null selection).
@@ -1054,6 +1072,17 @@ enum class ListDensity(val coverWidth: Int, val coverHeight: Int, val titleFontS
 enum class ListTitlePosition(val displayName: String) {
     TOP("Top"),
     BOTTOM("Bottom"),
+}
+
+/**
+ * D-242-fix21: Border mode for comfortable grid view.
+ *
+ * - [COVER_ONLY]: border wraps only the cover image (not the title below it).
+ * - [COVER_AND_TITLE]: border wraps the entire card (cover + title).
+ */
+enum class ComfortableBorderMode(val displayName: String) {
+    COVER_ONLY("Cover Only"),
+    COVER_AND_TITLE("Full"),
 }
 
 /**
