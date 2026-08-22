@@ -1767,6 +1767,7 @@ private fun DisplayModeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // D-242-fix11: name on LEFT, icon on RIGHT (horizontal layout).
     Surface(
         color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -1780,28 +1781,28 @@ private fun DisplayModeCard(
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = if (isSelected) MaterialTheme.colorScheme.primary
                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
-            )
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                color = if (isSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -2040,8 +2041,10 @@ private fun LibraryGridCard(
             val topEndBadges = mutableListOf<Pair<String, Pair<Color, Color>>>()
 
             // Build episode badge text
+            // D-242-fix11: TOTAL = planned total (fallback to released if null).
+            //              RELEASED = actual aired count from cache (fallback to total if null).
             val epText = when (episodeBadgeMode) {
-                EpisodeBadgeMode.TOTAL -> anime.episodes?.let { "EP $it" }
+                EpisodeBadgeMode.TOTAL -> (anime.episodes ?: anime.releasedEpisodes)?.let { "EP $it" }
                 EpisodeBadgeMode.RELEASED -> (anime.releasedEpisodes ?: anime.episodes)?.let { "EP $it" }
                 EpisodeBadgeMode.OFF -> null
             }
@@ -2582,10 +2585,10 @@ private fun DeleteSelectedDialog(
 }
 
 /**
- * D-242-fix10: Renders multiple badges side-by-side in a single Row at a corner.
+ * D-242-fix11: Renders multiple badges side-by-side in a single Row at a corner.
  * Edge-to-edge — sits flush with the cover corner.
- * Each badge has its own color (containerColor, contentColor).
- * Compact: 8sp font, 1dp vertical padding.
+ * Compact: matches DetailsScreen audio pill style (8sp, 1dp vertical, SemiBold).
+ * Each badge has its own theme-adaptive color with dot separators between them.
  */
 @Composable
 private fun BoxScope.CoverBadgeRow(
@@ -2598,30 +2601,44 @@ private fun BoxScope.CoverBadgeRow(
         BadgePosition.BOTTOM_START -> Alignment.BottomStart
         BadgePosition.BOTTOM_END -> Alignment.BottomEnd
     }
-    val shape = when (position) {
-        BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 6.dp)
-        BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 6.dp, bottomEnd = 0.dp)
-        BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 6.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
-        BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 6.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
+    // Outer shape matches the cover's 12dp corner on the outer side.
+    val outerShape = when (position) {
+        BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 4.dp)
+        BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 0.dp)
+        BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 4.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
+        BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 4.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
     }
     Surface(
         modifier = Modifier.align(alignment),
-        color = Color.Transparent,  // transparent container — each badge has its own color
-        shape = shape,
+        color = Color.Transparent,
+        shape = outerShape,
     ) {
-        Row {
-            badges.forEach { (text, colors) ->
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            badges.forEachIndexed { idx, (text, colors) ->
+                if (idx > 0) {
+                    // Dot separator between badges (matches DetailsScreen style).
+                    Box(
+                        modifier = Modifier
+                            .size(2.dp)
+                            .clip(CircleShape)
+                            .background(colors.second.copy(alpha = 0.5f)),
+                    )
+                }
                 Surface(
                     color = colors.first,
-                    shape = RoundedCornerShape(0.dp),  // square between badges
+                    shape = RoundedCornerShape(0.dp),
                 ) {
                     Text(
                         text = text,
                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                         fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
+                        lineHeight = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
                         color = colors.second,
                         maxLines = 1,
+                        softWrap = false,
                     )
                 }
             }
