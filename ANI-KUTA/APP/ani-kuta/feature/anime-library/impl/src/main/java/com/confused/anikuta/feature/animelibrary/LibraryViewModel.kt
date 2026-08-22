@@ -52,6 +52,9 @@ class LibraryViewModel(
         private const val KEY_SORT_TYPE = "library_sort_type"
         private const val KEY_SORT_ASCENDING = "library_sort_ascending"
         private const val KEY_SELECTED_CATEGORY = "library_selected_category_id"
+        // D-242-fix14: advanced RELEASED badge sub-options.
+        private const val KEY_RELEASED_AUDIO_FILTER = "library_released_audio_filter"
+        private const val KEY_RELEASED_UNWATCHED_ONLY = "library_released_unwatched_only"
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
@@ -138,9 +141,17 @@ class LibraryViewModel(
     private val _showTotalEntries = MutableStateFlow(true)
     val showTotalEntries: StateFlow<Boolean> = _showTotalEntries
 
-    /** D-140: Show item count next to each category tab. */
     private val _showCategoryCounts = MutableStateFlow(false)
     val showCategoryCounts: StateFlow<Boolean> = _showCategoryCounts
+
+    // D-242-fix14: Advanced RELEASED badge sub-options.
+    /** Which audio type's released episodes to show when badge mode = RELEASED. */
+    private val _releasedAudioFilter = MutableStateFlow(ReleasedAudioFilter.BOTH)
+    val releasedAudioFilter: StateFlow<ReleasedAudioFilter> = _releasedAudioFilter
+
+    /** When true + badge mode = RELEASED, show unwatched counts instead of total released. */
+    private val _releasedUnwatchedOnly = MutableStateFlow(false)
+    val releasedUnwatchedOnly: StateFlow<Boolean> = _releasedUnwatchedOnly
 
     init {
         loadPreferences()
@@ -717,11 +728,28 @@ class LibraryViewModel(
         preferenceStore.putBoolean(KEY_SHOW_CATEGORY_COUNTS, value)
     }
 
+    // D-242-fix14: Advanced RELEASED badge sub-option setters.
+    fun setReleasedAudioFilter(filter: ReleasedAudioFilter) {
+        _releasedAudioFilter.value = filter
+        preferenceStore.putString(KEY_RELEASED_AUDIO_FILTER, filter.name)
+        Logger.i(TAG) { "setReleasedAudioFilter — $filter" }
+    }
+
+    fun setReleasedUnwatchedOnly(value: Boolean) {
+        _releasedUnwatchedOnly.value = value
+        preferenceStore.putBoolean(KEY_RELEASED_UNWATCHED_ONLY, value)
+        Logger.i(TAG) { "setReleasedUnwatchedOnly — $value" }
+    }
+
     /**
      * D-242-fix10: Enriches LibraryEntry list with badge data:
      * - releasedEpisodes: count of cached episodes (actual aired count)
      * - audioAvailability: aggregated SUB/DUB/HSUB across all cached episodes
      * - watchedCount: how many episodes the user has watched
+     *
+     * D-242-fix14: Also counts per-audio-type episode counts (subEpisodeCount,
+     * dubEpisodeCount) for the advanced RELEASED badge sub-options. Logs the
+     * enrichment result for each entry at DEBUG level.
      */
     private suspend fun enrichEntriesWithBadgeData(entries: MutableList<LibraryEntry>) {
         for (i in entries.indices) {
@@ -730,17 +758,19 @@ class LibraryViewModel(
                 val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(entry.mainId)
                 val releasedCount = cachedEpisodes.size.takeIf { it > 0 }
 
-                // Aggregate audio availability across all episodes.
+                // Aggregate audio availability across all episodes + count per type.
                 var hasSub = false
                 var hasDub = false
                 var hasHsub = false
+                var subCount = 0
+                var dubCount = 0
                 for (ep in cachedEpisodes) {
                     val audio = com.confused.anikuta.core.common.parseAudioAvailability(
                         ep.scanlator,
                         ep.sourceName ?: ep.title ?: "",
                     )
-                    if (audio.hasSub) hasSub = true
-                    if (audio.hasDub) hasDub = true
+                    if (audio.hasSub) { hasSub = true; subCount++ }
+                    if (audio.hasDub) { hasDub = true; dubCount++ }
                     if (audio.hasHsub) hasHsub = true
                 }
                 val audioAvail = if (hasSub || hasDub || hasHsub) {
@@ -753,7 +783,15 @@ class LibraryViewModel(
                     releasedEpisodes = releasedCount,
                     audioAvailability = audioAvail,
                     watchedCount = watched,
+                    subEpisodeCount = subCount.takeIf { it > 0 },
+                    dubEpisodeCount = dubCount.takeIf { it > 0 },
                 )
+
+                Logger.d(TAG) {
+                    "enrichEntriesWithBadgeData — ${entry.title}: " +
+                    "released=$releasedCount, sub=$subCount, dub=$dubCount, " +
+                    "watched=$watched, audio=$audioAvail"
+                }
             } catch (e: Exception) {
                 Logger.w(TAG) { "enrichEntriesWithBadgeData — failed for ${entry.mainId}: ${e.message}" }
             }
@@ -788,6 +826,12 @@ class LibraryViewModel(
         _showContinueWatching.value = preferenceStore.getBoolean(KEY_SHOW_CONTINUE_WATCHING, true)
         _showTotalEntries.value = preferenceStore.getBoolean(KEY_SHOW_TOTAL_ENTRIES, true)
         _showCategoryCounts.value = preferenceStore.getBoolean(KEY_SHOW_CATEGORY_COUNTS, false)
+
+        // D-242-fix14: load advanced RELEASED badge sub-options.
+        _releasedAudioFilter.value = preferenceStore
+            .getString(KEY_RELEASED_AUDIO_FILTER, ReleasedAudioFilter.BOTH.name)
+            .let { runCatching { ReleasedAudioFilter.valueOf(it) }.getOrDefault(ReleasedAudioFilter.BOTH) }
+        _releasedUnwatchedOnly.value = preferenceStore.getBoolean(KEY_RELEASED_UNWATCHED_ONLY, false)
 
         // D-242-fix3: restore last-selected category across app restarts.
         // -1L sentinel = "All" (null selection).
@@ -854,6 +898,20 @@ enum class EpisodeBadgeMode {
     OFF,
     RELEASED,
     TOTAL,
+}
+
+/**
+ * D-242-fix14: Which audio type's released episodes to show when the episode
+ * badge mode is [EpisodeBadgeMode.RELEASED].
+ *
+ * - [BOTH]: show separate SUB and DUB badges side-by-side.
+ * - [SUB]: show only the SUB released count (blue badge, subtitle icon).
+ * - [DUB]: show only the DUB released count (orange badge, microphone icon).
+ */
+enum class ReleasedAudioFilter {
+    BOTH,
+    SUB,
+    DUB,
 }
 
 enum class BadgePosition {

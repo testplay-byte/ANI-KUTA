@@ -11,6 +11,13 @@ import com.confused.anikuta.core.common.AudioAvailability
  *    Different from [episodes] which is AniList's planned total.
  *  - [audioAvailability]: aggregated SUB/DUB/HSUB availability across all episodes.
  *  - [watchedCount]: how many episodes the user has watched.
+ *
+ * D-242-fix14: Added per-audio-type episode counts for advanced RELEASED badges:
+ *  - [subEpisodeCount]: how many cached episodes have SUB audio.
+ *  - [dubEpisodeCount]: how many cached episodes have DUB audio.
+ *  These enable the "Show sub / dub / both released episodes" sub-options in
+ *  the Customize sheet, and the per-type unwatched count when "only unwatched"
+ *  is toggled on.
  */
 data class LibraryEntry(
     val mainId: String,
@@ -27,6 +34,9 @@ data class LibraryEntry(
     val releasedEpisodes: Int? = null,      // actual aired count (from cache)
     val audioAvailability: AudioAvailability? = null,  // SUB/DUB/HSUB
     val watchedCount: Int? = null,          // user's watched episode count
+    // D-242-fix14: per-audio-type episode counts (for advanced RELEASED badges).
+    val subEpisodeCount: Int? = null,       // # of cached episodes with SUB audio
+    val dubEpisodeCount: Int? = null,       // # of cached episodes with DUB audio
 ) {
     /** Whether this entry can be opened via AniList (has a valid anilistId). */
     val hasAniListId: Boolean get() = anilistId != null && anilistId > 0
@@ -36,6 +46,29 @@ data class LibraryEntry(
 
     /** Unwatched count = released - watched (null if either is null). */
     val unwatchedCount: Int? get() = releasedEpisodes?.let { r -> watchedCount?.let { w -> (r - w).coerceAtLeast(0) } }
+
+    /**
+     * D-242-fix14: Best-effort unwatched count for SUB episodes.
+     *
+     * = subEpisodeCount - watchedCount (clamped to 0).
+     *
+     * This is an approximation — we don't track which audio type the user
+     * watched. If the user watched N episodes (presumably subs), this assumes
+     * those N were subtitled, so subUnwatched = max(0, subCount - N).
+     */
+    val subUnwatchedCount: Int? get() =
+        subEpisodeCount?.let { s -> watchedCount?.let { w -> (s - w).coerceAtLeast(0) } }
+
+    /**
+     * D-242-fix14: Best-effort unwatched count for DUB episodes.
+     *
+     * = dubEpisodeCount - watchedCount (clamped to 0).
+     *
+     * If the user watched N episodes (presumably subs), all dubs are still
+     * unwatched, so dubUnwatched = dubCount (unless N > dubCount, then 0).
+     */
+    val dubUnwatchedCount: Int? get() =
+        dubEpisodeCount?.let { d -> watchedCount?.let { w -> (d - w).coerceAtLeast(0) } }
 
     companion object {
         /** Create from an AniListAnime (for AniList-linked entries). */

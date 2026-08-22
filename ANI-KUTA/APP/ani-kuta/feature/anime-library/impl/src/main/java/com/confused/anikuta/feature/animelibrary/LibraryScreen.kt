@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -182,6 +183,9 @@ fun LibraryScreen(
     // D-140: per-category item counts + show-counts toggle.
     val categoryCounts by viewModel.categoryCounts.collectAsState()
     val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
+    // D-242-fix14: advanced RELEASED badge sub-options.
+    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
+    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
     // D.5: refresh state for pull-to-refresh.
@@ -551,6 +555,8 @@ fun LibraryScreen(
                                 episodeBadgePosition = episodeBadgePosition,
                                 showScoreBadge = showScoreBadge,
                                 scoreBadgePosition = scoreBadgePosition,
+                                releasedAudioFilter = releasedAudioFilter,
+                                releasedUnwatchedOnly = releasedUnwatchedOnly,
                             )
                         } else {
                             LibraryList(
@@ -613,6 +619,8 @@ fun LibraryScreen(
                 showCategoryCounts = showCategoryCounts,
                 sortType = sortType,
                 sortAscending = sortAscending,
+                releasedAudioFilter = releasedAudioFilter,
+                releasedUnwatchedOnly = releasedUnwatchedOnly,
                 onDisplayModeChange = viewModel::setDisplayMode,
                 onColumnsChange = viewModel::setColumns,
                 onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
@@ -622,6 +630,8 @@ fun LibraryScreen(
                 onShowCategoryCountsChange = viewModel::setShowCategoryCounts,
                 onTitleLinesChange = viewModel::setTitleLines,
                 onSortChange = viewModel::setSort,
+                onReleasedAudioFilterChange = viewModel::setReleasedAudioFilter,
+                onReleasedUnwatchedOnlyChange = viewModel::setReleasedUnwatchedOnly,
                 onDismiss = { showSettingsSheet = false },
             )
         }
@@ -1245,6 +1255,8 @@ private fun CustomizeSheet(
     showCategoryCounts: Boolean,
     sortType: LibrarySortType,
     sortAscending: Boolean,
+    releasedAudioFilter: ReleasedAudioFilter,
+    releasedUnwatchedOnly: Boolean,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onEpisodeBadgeModeChange: (EpisodeBadgeMode) -> Unit,
@@ -1254,6 +1266,8 @@ private fun CustomizeSheet(
     onShowCategoryCountsChange: (Boolean) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
     onSortChange: (LibrarySortType, Boolean) -> Unit,
+    onReleasedAudioFilterChange: (ReleasedAudioFilter) -> Unit,
+    onReleasedUnwatchedOnlyChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1266,7 +1280,7 @@ private fun CustomizeSheet(
     // D-242-fix13: scroll-to-minimize (like profile page).
     val listState = rememberLazyListState()
     val density = LocalDensity.current
-    val collapseThresholdPx = with(density) { 48.dp.toPx() } // tab strip height
+    val collapseThresholdPx = with(density) { 40.dp.toPx() } // tab strip height
     val scrollFraction: () -> Float = {
         val raw = if (listState.firstVisibleItemIndex > 0) collapseThresholdPx
                   else listState.firstVisibleItemScrollOffset.toFloat()
@@ -1408,6 +1422,8 @@ private fun CustomizeSheet(
                         showContinueWatching = showContinueWatching,
                         showTotalEntries = showTotalEntries,
                         showCategoryCounts = showCategoryCounts,
+                        releasedAudioFilter = releasedAudioFilter,
+                        releasedUnwatchedOnly = releasedUnwatchedOnly,
                         onDisplayModeChange = onDisplayModeChange,
                         onColumnsChange = onColumnsChange,
                         onTitleLinesChange = onTitleLinesChange,
@@ -1416,6 +1432,8 @@ private fun CustomizeSheet(
                         onShowContinueWatchingChange = onShowContinueWatchingChange,
                         onShowTotalEntriesChange = onShowTotalEntriesChange,
                         onShowCategoryCountsChange = onShowCategoryCountsChange,
+                        onReleasedAudioFilterChange = onReleasedAudioFilterChange,
+                        onReleasedUnwatchedOnlyChange = onReleasedUnwatchedOnlyChange,
                     )
                 }
             }
@@ -1503,6 +1521,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     showContinueWatching: Boolean,
     showTotalEntries: Boolean,
     showCategoryCounts: Boolean,
+    releasedAudioFilter: ReleasedAudioFilter,
+    releasedUnwatchedOnly: Boolean,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
@@ -1511,6 +1531,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     onShowContinueWatchingChange: (Boolean) -> Unit,
     onShowTotalEntriesChange: (Boolean) -> Unit,
     onShowCategoryCountsChange: (Boolean) -> Unit,
+    onReleasedAudioFilterChange: (ReleasedAudioFilter) -> Unit,
+    onReleasedUnwatchedOnlyChange: (Boolean) -> Unit,
 ) {
     // ── Display mode (4-grid of visual cards) ──
     item { OptionLabel("Display Mode") }
@@ -1639,6 +1661,59 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
 
     // D-242-fix12: Removed BadgePositionSelector — positions are hardcoded.
     // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
+
+    // D-242-fix14: Advanced RELEASED sub-options — only shown when RELEASED is selected.
+    // Shows audio filter (Both/Sub/Dub with icons) + unwatched-only toggle.
+    if (episodeBadgeMode == EpisodeBadgeMode.RELEASED) {
+        // ── Released Audio filter ──
+        item {
+            Spacer(Modifier.height(12.dp))
+            OptionLabel("Released Audio")
+        }
+        item {
+            val isDark = isSystemInDarkTheme()
+            val subColor = if (isDark) Color(0xFF64B5F6) else Color(0xFF1976D2)
+            val dubColor = if (isDark) Color(0xFFFFB74D) else Color(0xFFF57C00)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Both — shows both icons side-by-side.
+                ReleasedAudioFilterCard(
+                    label = "Both",
+                    icons = listOf(BadgeIcons.Sub to subColor, BadgeIcons.Dub to dubColor),
+                    isSelected = releasedAudioFilter == ReleasedAudioFilter.BOTH,
+                    onClick = { onReleasedAudioFilterChange(ReleasedAudioFilter.BOTH) },
+                    modifier = Modifier.weight(1f),
+                )
+                // Sub — subtitle icon, blue.
+                ReleasedAudioFilterCard(
+                    label = "Sub",
+                    icons = listOf(BadgeIcons.Sub to subColor),
+                    isSelected = releasedAudioFilter == ReleasedAudioFilter.SUB,
+                    onClick = { onReleasedAudioFilterChange(ReleasedAudioFilter.SUB) },
+                    modifier = Modifier.weight(1f),
+                )
+                // Dub — microphone icon, orange.
+                ReleasedAudioFilterCard(
+                    label = "Dub",
+                    icons = listOf(BadgeIcons.Dub to dubColor),
+                    isSelected = releasedAudioFilter == ReleasedAudioFilter.DUB,
+                    onClick = { onReleasedAudioFilterChange(ReleasedAudioFilter.DUB) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        // ── Show unwatched only ──
+        item {
+            Spacer(Modifier.height(12.dp))
+            SwitchRow(
+                label = "Show unwatched only",
+                checked = releasedUnwatchedOnly,
+                onChange = onReleasedUnwatchedOnlyChange,
+            )
+        }
+    }
 
     // ── Score badge ──
     item {
@@ -1953,6 +2028,8 @@ private fun LibraryGrid(
     episodeBadgePosition: BadgePosition = BadgePosition.TOP_END,
     showScoreBadge: Boolean = false,
     scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
+    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
+    releasedUnwatchedOnly: Boolean = false,
 ) {
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyVerticalGrid(
@@ -1979,6 +2056,8 @@ private fun LibraryGrid(
                 episodeBadgePosition = episodeBadgePosition,
                 showScoreBadge = showScoreBadge,
                 scoreBadgePosition = scoreBadgePosition,
+                releasedAudioFilter = releasedAudioFilter,
+                releasedUnwatchedOnly = releasedUnwatchedOnly,
             )
         }
     }
@@ -1996,6 +2075,8 @@ private fun LibraryGridCard(
     episodeBadgePosition: BadgePosition = BadgePosition.TOP_END,
     showScoreBadge: Boolean = false,
     scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
+    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
+    releasedUnwatchedOnly: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2035,37 +2116,111 @@ private fun LibraryGridCard(
                 .clip(RoundedCornerShape(12.dp)),
         )
 
-        // D-242-fix12: Cover badges — positions hardcoded (no user-selectable position).
+        // D-242-fix14: Cover badges — positions hardcoded (no user-selectable position).
         // Episode badge = TOP_END (top-right), Score badge = TOP_START (top-left).
-        // Audio badge = TOP_END (after episode badge, same corner, side-by-side).
+        // RELEASED mode uses audio-filter-specific badges with SVG icons + colors:
+        //   SUB = blue (subtitle icon), DUB = orange (microphone icon).
         if (!isSelectionMode) {
-            val topStartBadges = mutableListOf<Pair<String, Pair<Color, Color>>>()
-            val topEndBadges = mutableListOf<Pair<String, Pair<Color, Color>>>()
+            val topStartBadges = mutableListOf<CoverBadgeData>()
+            val topEndBadges = mutableListOf<CoverBadgeData>()
 
-            // Build episode badge text
-            // D-242-fix11: TOTAL = planned total (fallback to released if null).
-            //              RELEASED = actual aired count from cache (fallback to total if null).
-            val epText = when (episodeBadgeMode) {
-                EpisodeBadgeMode.TOTAL -> (anime.episodes ?: anime.releasedEpisodes)?.let { "EP $it" }
-                EpisodeBadgeMode.RELEASED -> (anime.releasedEpisodes ?: anime.episodes)?.let { "EP $it" }
-                EpisodeBadgeMode.OFF -> null
+            // D-242-fix14: Build episode/audio badges based on mode + filter.
+            when (episodeBadgeMode) {
+                EpisodeBadgeMode.OFF -> {
+                    // No episode badge. Still show audio labels (SUB/DUB).
+                    val audio = anime.audioAvailability
+                    if (audio != null && audio.hasAny) {
+                        val cc = MaterialTheme.colorScheme.secondaryContainer
+                        val oc = MaterialTheme.colorScheme.onSecondaryContainer
+                        if (audio.hasSub) topEndBadges.add(CoverBadgeData("SUB", cc, oc))
+                        if (audio.hasDub) topEndBadges.add(CoverBadgeData("DUB", cc, oc))
+                    }
+                }
+                EpisodeBadgeMode.TOTAL -> {
+                    // "EP N" badge + audio labels.
+                    (anime.episodes ?: anime.releasedEpisodes)?.let { ep ->
+                        topEndBadges.add(CoverBadgeData("EP $ep", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer))
+                    }
+                    val audio = anime.audioAvailability
+                    if (audio != null && audio.hasAny) {
+                        val cc = MaterialTheme.colorScheme.secondaryContainer
+                        val oc = MaterialTheme.colorScheme.onSecondaryContainer
+                        if (audio.hasSub) topEndBadges.add(CoverBadgeData("SUB", cc, oc))
+                        if (audio.hasDub) topEndBadges.add(CoverBadgeData("DUB", cc, oc))
+                    }
+                }
+                EpisodeBadgeMode.RELEASED -> {
+                    // D-242-fix14: Advanced RELEASED — audio filter + unwatched.
+                    val isDark = isSystemInDarkTheme()
+                    val subContainer = if (isDark) Color(0xFF1565C0) else Color(0xFF90CAF9)
+                    val subContent = if (isDark) Color(0xFFBBDEFB) else Color(0xFF0D47A1)
+                    val dubContainer = if (isDark) Color(0xFFE65100) else Color(0xFFFFCC80)
+                    val dubContent = if (isDark) Color(0xFFFFE0B2) else Color(0xFFBF360C)
+
+                    when (releasedAudioFilter) {
+                        ReleasedAudioFilter.BOTH -> {
+                            // Show both SUB and DUB counts with icons.
+                            val subCount = if (releasedUnwatchedOnly) anime.subUnwatchedCount else anime.subEpisodeCount
+                            val dubCount = if (releasedUnwatchedOnly) anime.dubUnwatchedCount else anime.dubEpisodeCount
+                            if (subCount != null && subCount > 0) {
+                                topEndBadges.add(CoverBadgeData("$subCount", subContainer, subContent, BadgeIcons.Sub))
+                            }
+                            if (dubCount != null && dubCount > 0) {
+                                topEndBadges.add(CoverBadgeData("$dubCount", dubContainer, dubContent, BadgeIcons.Dub))
+                            }
+                            // Fallback: only when there is genuinely NO per-type data
+                            // (both null). If both are 0 (user watched everything),
+                            // we correctly show nothing — don't fall back to "EP N"
+                            // which would contradict the "unwatched only" preference.
+                            if (topEndBadges.isEmpty()) {
+                                val hasPerTypeData = if (releasedUnwatchedOnly) {
+                                    anime.subUnwatchedCount != null || anime.dubUnwatchedCount != null
+                                } else {
+                                    anime.subEpisodeCount != null || anime.dubEpisodeCount != null
+                                }
+                                if (!hasPerTypeData) {
+                                    val fallbackCount = if (releasedUnwatchedOnly) {
+                                        anime.unwatchedCount ?: anime.releasedEpisodes
+                                    } else {
+                                        anime.releasedEpisodes
+                                    }
+                                    fallbackCount?.let { ep ->
+                                        topEndBadges.add(CoverBadgeData("EP $ep", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer))
+                                    }
+                                }
+                            }
+                        }
+                        ReleasedAudioFilter.SUB -> {
+                            // Show SUB count with subtitle icon (blue). Falls back to
+                            // released/unwatched count if per-type data unavailable.
+                            val count = if (releasedUnwatchedOnly) {
+                                anime.subUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes
+                            } else {
+                                anime.subEpisodeCount ?: anime.releasedEpisodes
+                            }
+                            if (count != null && count > 0) {
+                                topEndBadges.add(CoverBadgeData("$count", subContainer, subContent, BadgeIcons.Sub))
+                            }
+                        }
+                        ReleasedAudioFilter.DUB -> {
+                            // Show DUB count with microphone icon (orange). Falls back to
+                            // released/unwatched count if per-type data unavailable.
+                            val count = if (releasedUnwatchedOnly) {
+                                anime.dubUnwatchedCount ?: anime.unwatchedCount ?: anime.releasedEpisodes
+                            } else {
+                                anime.dubEpisodeCount ?: anime.releasedEpisodes
+                            }
+                            if (count != null && count > 0) {
+                                topEndBadges.add(CoverBadgeData("$count", dubContainer, dubContent, BadgeIcons.Dub))
+                            }
+                        }
+                    }
+                }
             }
-            // D-242-fix12: Episode badge always TOP_END.
-            if (epText != null) {
-                topEndBadges.add(epText to (MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer))
-            }
-            // D-242-fix12: Score badge always TOP_START.
+
+            // D-242-fix12: Score badge always TOP_START (unaffected by episode badge mode).
             if (showScoreBadge && anime.averageScore != null && anime.averageScore > 0) {
-                topStartBadges.add("★ ${anime.averageScore}" to (MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer))
-            }
-            // D-242-fix12: Audio badge (SUB/DUB) — always TOP_END (after episode badge).
-            // Split into separate entries so CoverBadgeRow renders them as individual
-            // badges with dot separators (not one wide "SUB·DUB" text).
-            val audio = anime.audioAvailability
-            if (audio != null && audio.hasAny) {
-                val audioColors = MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
-                if (audio.hasSub) topEndBadges.add("SUB" to audioColors)
-                if (audio.hasDub) topEndBadges.add("DUB" to audioColors)
+                topStartBadges.add(CoverBadgeData("★ ${anime.averageScore}", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer))
             }
 
             if (topStartBadges.isNotEmpty()) {
@@ -2572,14 +2727,89 @@ private fun DeleteSelectedDialog(
 }
 
 /**
+ * D-242-fix14: Data for a single cover badge — text + colors + optional icon.
+ *
+ * When [icon] is non-null, the badge renders [icon] before [text] (e.g. a
+ * subtitle icon before a SUB episode count). The icon uses [contentColor]
+ * as its tint.
+ */
+private data class CoverBadgeData(
+    val text: String,
+    val containerColor: Color,
+    val contentColor: Color,
+    val icon: ImageVector? = null,
+)
+
+/**
+ * D-242-fix14: A selection card for the "Released Audio" sub-option in the
+ * Customize sheet. Shows one or more icons + a label. Selected = primary
+ * border + tinted background (matches DisplayModeCard style).
+ *
+ * @param icons List of (icon, tint) pairs to render before the label. The
+ *   "Both" option passes two icons (Sub + Dub); "Sub"/"Dub" pass one.
+ */
+@Composable
+private fun ReleasedAudioFilterCard(
+    label: String,
+    icons: List<Pair<ImageVector, Color>>,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(
+            width = if (isSelected) 1.5.dp else 0.5.dp,
+            color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outlineVariant,
+        ),
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
+        ) {
+            icons.forEach { (icon, tint) ->
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            // Label — spacedBy(3.dp) handles the gap between icons and text.
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
  * D-242-fix11: Renders multiple badges side-by-side in a single Row at a corner.
  * Edge-to-edge — sits flush with the cover corner.
- * Compact: matches DetailsScreen audio pill style (8sp, 1dp vertical, SemiBold).
+ * Compact: matches DetailsScreen audio pill style (8sp, 1dp vertical, Bold).
  * Each badge has its own theme-adaptive color with dot separators between them.
+ *
+ * D-242-fix14: Now accepts [CoverBadgeData] (with optional icon) instead of
+ * Pair<String, Pair<Color, Color>>. When a badge has an icon, it renders
+ * [icon] (8dp) before [text] with a 2dp gap.
  */
 @Composable
 private fun BoxScope.CoverBadgeRow(
-    badges: List<Pair<String, Pair<Color, Color>>>,
+    badges: List<CoverBadgeData>,
     position: BadgePosition,
 ) {
     val alignment = when (position) {
@@ -2603,30 +2833,43 @@ private fun BoxScope.CoverBadgeRow(
         Row(
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            badges.forEachIndexed { idx, (text, colors) ->
+            badges.forEachIndexed { idx, badge ->
                 if (idx > 0) {
                     // Dot separator between badges (matches DetailsScreen style).
                     Box(
                         modifier = Modifier
                             .size(2.dp)
                             .clip(CircleShape)
-                            .background(colors.second.copy(alpha = 0.5f)),
+                            .background(badge.contentColor.copy(alpha = 0.5f)),
                     )
                 }
                 Surface(
-                    color = colors.first,
+                    color = badge.containerColor,
                     shape = RoundedCornerShape(0.dp),
                 ) {
-                    Text(
-                        text = text,
+                    Row(
                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                        fontSize = 8.sp,
-                        lineHeight = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.second,
-                        maxLines = 1,
-                        softWrap = false,
-                    )
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        if (badge.icon != null) {
+                            Icon(
+                                imageVector = badge.icon,
+                                contentDescription = null,
+                                tint = badge.contentColor,
+                                modifier = Modifier.size(8.dp),
+                            )
+                        }
+                        Text(
+                            text = badge.text,
+                            fontSize = 8.sp,
+                            lineHeight = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = badge.contentColor,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
                 }
             }
         }
