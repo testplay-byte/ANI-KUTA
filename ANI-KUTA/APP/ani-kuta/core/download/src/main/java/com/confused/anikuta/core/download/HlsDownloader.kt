@@ -191,6 +191,13 @@ class HlsDownloader(
         val spillDir = File(tempFile.parentFile, "segments")
         spillDir.mkdirs()
         val workerCount = effectiveWorkerCount()
+        // D-246: per-invocation call registry — instant teardown on pause/cancel
+        // (coroutine cancellation alone can't interrupt a blocked segment read).
+        val callRegistry = CallRegistry()
+        kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+            ?.invokeOnCompletion { cause ->
+                if (cause is kotlinx.coroutines.CancellationException) callRegistry.cancelAll()
+            }
         // Bound: fetched-but-not-yet-appended segments ≤ workers + 4 (head-of-line
         // write stalls must not accumulate a full episode of spills → 2× disk).
         val spillBound = Semaphore(workerCount + 4)
@@ -270,6 +277,7 @@ class HlsDownloader(
                                         keyBytes = keyBytes,
                                         fixedIv = key?.iv,
                                         seq = mediaSequence + idx,
+                                        registry = callRegistry,
                                     )
                                     val spill = File(spillDir, "$idx.ts")
                                     spill.writeBytes(bytes)
@@ -363,12 +371,13 @@ class HlsDownloader(
         fixedIv: ByteArray?,
         seq: Long,
         forInit: Boolean = false,
+        registry: CallRegistry? = null,
     ): ByteArray {
         var lastError: Exception? = null
         for (attempt in 1..MAX_SEG_RETRIES) {
             try {
                 val buffer = ByteArrayOutputStream()
-                downloadSegment(segUrl, headers, buffer)
+                downloadSegment(segUrl, headers, buffer, registry)
                 var bytes = stripPngHeaderIfPresent(buffer.toByteArray())
                 if (keyBytes != null && !forInit) {
                     bytes = decryptAes128(bytes, keyBytes, fixedIv, seq)
@@ -659,14 +668,35 @@ class HlsDownloader(
         )
     }
 
-    /** Downloads a single segment to [buffer] (no retry). */
-    private fun downloadSegment(segUrl: String, headers: String?, buffer: ByteArrayOutputStream) {
+    /** Downloads a single segment to [buffer] (no retry). [registry] is optional —
+     * registered calls are cancelled instantly on coroutine cancellation (D-246). */
+    private fun downloadSegment(
+        segUrl: String,
+        headers: String?,
+        buffer: ByteArrayOutputStream,
+        registry: CallRegistry? = null,
+    ) {
         val request = buildRequest(segUrl, headers)
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw HttpException(response.code, "HTTP ${response.code} for HLS segment: $segUrl")
+        val call = client.newCall(request)
+        if (registry != null) {
+            registry.register(call)
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw HttpException(response.code, "HTTP ${response.code} for HLS segment: $segUrl")
+                    }
+                    response.body?.byteStream()?.use { it.copyTo(buffer) }
+                }
+            } finally {
+                registry.unregister(call)
             }
-            response.body?.byteStream()?.use { it.copyTo(buffer) }
+        } else {
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw HttpException(response.code, "HTTP ${response.code} for HLS segment: $segUrl")
+                }
+                response.body?.byteStream()?.use { it.copyTo(buffer) }
+            }
         }
     }
 

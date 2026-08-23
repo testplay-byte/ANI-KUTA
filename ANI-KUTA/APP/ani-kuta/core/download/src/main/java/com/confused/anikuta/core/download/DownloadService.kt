@@ -121,6 +121,20 @@ class DownloadService : Service(), KoinComponent {
                         it.status == DownloadStatus.RETRYING
                 }
                 if (active.isEmpty()) {
+                    // D-246: tasks auto-paused by network loss keep the service ALIVE —
+                    // its NetworkCallback is what fires the auto-resume when connectivity
+                    // returns. (The old code stopped the service once everything was
+                    // paused, which killed the callback → downloads never restarted
+                    // after the internet came back.)
+                    if (queue.hasNetworkPausedTasks()) {
+                        DownloadLogger.i {
+                            "Queue has no active tasks but network-paused download(s) exist — " +
+                                "staying alive to auto-resume when connectivity returns"
+                        }
+                        // Keep the foreground notification (placeholder) visible so the
+                        // user knows downloads are waiting for the network.
+                        return@collect
+                    }
                     // Queue emptied — gracefully leave foreground + stop.
                     withContext(Dispatchers.Main) {
                         if (isForeground) {

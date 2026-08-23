@@ -2,6 +2,7 @@ package com.confused.anikuta.core.download
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -20,6 +21,22 @@ import java.nio.channels.FileChannel
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
+
+/**
+ * Per-fetch OkHttp call registry (singleton fetchers — state MUST be per-invocation).
+ * Top-level + internal: shared by ParallelHttpFetcher AND HlsDownloader's parallel
+ * mode (D-246 instant-teardown on coroutine cancellation).
+ */
+internal class CallRegistry {
+    private val calls: MutableSet<Call> = Collections.synchronizedSet(mutableSetOf<Call>())
+    fun register(call: Call) { calls.add(call) }
+    fun unregister(call: Call) { calls.remove(call) }
+    fun cancelAll() {
+        synchronized(calls) {
+            calls.forEach { runCatching { it.cancel() } }
+        }
+    }
+}
 
 /**
  * The parallel byte-range download engine (test-feature branch — Parallel Download
@@ -67,18 +84,6 @@ class ParallelHttpFetcher(
     private class Chunk(val start: Long, val end: Long, @Volatile var pos: Long) {
         val size: Long get() = end - start + 1
         val isComplete: Boolean get() = pos > end
-    }
-
-    /** Per-fetch OkHttp call registry (singleton fetcher — state MUST be per-invocation). */
-    private class CallRegistry {
-        private val calls: MutableSet<Call> = Collections.synchronizedSet(mutableSetOf<Call>())
-        fun register(call: Call) { calls.add(call) }
-        fun unregister(call: Call) { calls.remove(call) }
-        fun cancelAll() {
-            synchronized(calls) {
-                calls.forEach { runCatching { it.cancel() } }
-            }
-        }
     }
 
     @Serializable
@@ -132,6 +137,15 @@ class ParallelHttpFetcher(
         var currentHeaders = headers
         var reResolves = 0
         val registry = CallRegistry()
+        // D-246: instant teardown on pause/cancel. Coroutine cancellation alone can't
+        // interrupt a worker blocked in a socket read (it waits out the 60s read
+        // timeout); cancelling the registered OkHttp calls unblocks them immediately,
+        // so a network-loss pause stops all connections the moment it happens.
+        // (No dispose needed: the handler fires once when the owning job completes,
+        // and the job object becomes garbage right after.)
+        coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) registry.cancelAll()
+        }
 
         while (true) {
             // The probe sits INSIDE the try so a probe-stage IOException (dead

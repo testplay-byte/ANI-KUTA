@@ -109,6 +109,16 @@ listEntriesForEviction:
 SELECT * FROM playback_cache_entry
 ORDER BY last_accessed_at ASC;
 
+-- D-246: cross-session identity recovery — after process death the in-memory
+-- ResolvedVideosRegistry is empty, so WatchScreen can't rebuild the cache identity
+-- from a ResolverVideo. This lookup finds prior entries for the same content+
+-- episode+source so the manager can decide whether a SAFE identity reuse is
+-- possible (single matching entry + matching quality).
+findEntriesByIdentity:
+SELECT * FROM playback_cache_entry
+WHERE main_id = :main_id AND episode_number = :episode_number AND source_id = :source_id
+ORDER BY last_accessed_at DESC;
+
 totalCachedBytes:
 SELECT COALESCE(SUM(cached_bytes), 0) FROM playback_cache_entry;
 

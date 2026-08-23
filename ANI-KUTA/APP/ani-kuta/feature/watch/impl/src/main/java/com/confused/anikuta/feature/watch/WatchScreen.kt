@@ -489,7 +489,14 @@ fun WatchScreen(
     // sites. CRITICAL: episode data comes from the LIVE episode state or the new
     // episode at switch time — NEVER from the frozen watchKey (otherwise ep N+1's
     // bytes would be filed under ep N's cache key = wrong-content replay corruption).
-    // Null (no ResolverVideo available) → caching skipped, playback goes direct.
+    // Null (no stable identity derivable) → caching skipped, playback goes direct.
+    //
+    // D-246 registry-miss fix: after process death the in-memory ResolvedVideosRegistry
+    // is empty (initialPickedVideo == null) — the old code gave up here, silently
+    // BYPASSING the cache on every replay in a new session (the user-reported "cached
+    // videos still load from the network"). FALLBACK: recover the identity from a
+    // prior cache entry (conservative: single matching-quality entry only — see
+    // PlaybackCacheManager.knownIdentityFor).
     var currentCacheId by remember {
         mutableStateOf(
             initialPickedVideo?.let { pv ->
@@ -501,6 +508,22 @@ fun WatchScreen(
                     sourceId = watchKey.sourceId,
                     videoTitle = pv.videoTitle,
                 )
+            } ?: run {
+                // Registry miss (new app session / process death) — try the persisted identity.
+                val recovered = if (watchKey.mainId.isNotBlank()) {
+                    playbackCacheManager.knownIdentityFor(
+                        mainId = watchKey.mainId,
+                        episodeNumber = watchKey.episodeNumber,
+                        sourceId = watchKey.sourceId,
+                        quality = watchKey.quality,
+                    )
+                } else null
+                if (recovered != null) {
+                    Logger.i(TAG) {
+                        "Cache identity recovered from a prior entry — replay will serve from cache"
+                    }
+                }
+                recovered
             }
         )
     }

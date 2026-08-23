@@ -156,6 +156,11 @@ class PlaybackCacheStore(private val database: AnikutaDatabase) {
     fun listForEvictionSync(): List<Entry> =
         queries.listEntriesForEviction().executeAsList().map { it.toDomain() }
 
+    /** D-246: prior entries for the same content+episode+source (cross-session
+     * identity recovery — most recently accessed first). */
+    fun findByIdentitySync(mainId: String, episodeNumber: Double, sourceId: Long): List<Entry> =
+        queries.findEntriesByIdentity(mainId, episodeNumber, sourceId).executeAsList().map { it.toDomain() }
+
     /** Synchronous total (eviction check on the proxy thread). */
     fun totalBytesSync(): Long =
         queries.totalCachedBytes().executeAsOne()

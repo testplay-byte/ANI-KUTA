@@ -175,6 +175,66 @@ class PlaybackCacheManager(
     fun upstreamUrlFor(key: String): String? =
         descriptors[key]?.url ?: store.getSync(key)?.upstreamUrl
 
+    /**
+     * D-246: cross-session identity recovery. After process death the in-memory
+     * ResolvedVideosRegistry is EMPTY, so WatchScreen can't rebuild the cache identity
+     * from a ResolverVideo — the cache was silently BYPASSED on every replay in a new
+     * session (the user-reported "cached videos still load from the network"). This
+     * reconstructs the identity from a PRIOR cache entry for the same content+episode+
+     * source.
+     *
+     * SAFETY RULE (conservative — wrong-identity reuse files one video's bytes under
+     * another entry = wrong-content replay corruption, PR-A F3 class):
+     * reuse ONLY when there is exactly ONE prior entry for this identity AND its
+     * quality label matches the requested one. Multiple entries (e.g. SUB + DUB of
+     * the same quality, or different qualities) are ambiguous — the auto-pick's
+     * server/audio can't be known without the registry → skip caching (direct play).
+     */
+    fun knownIdentityFor(
+        mainId: String,
+        episodeNumber: Float,
+        sourceId: Long,
+        quality: String,
+    ): PlaybackVideoId? {
+        if (mainId.isBlank()) return null
+        return try {
+            val priors = store.findByIdentitySync(mainId, episodeNumber.toDouble(), sourceId)
+            when {
+                priors.isEmpty() -> {
+                    Logger.i(TAG) { "identity[${mainId.take(8)}]: no prior cache entry — no cross-session identity (direct playback)" }
+                    null
+                }
+                priors.size == 1 && priors[0].quality == quality -> {
+                    val prior = priors[0]
+                    Logger.i(TAG) {
+                        "identity[${mainId.take(8)}]: recovered from prior entry " +
+                            "'${prior.serverKey}' (${prior.cachedBytes}B cached, complete=${prior.complete})"
+                    }
+                    PlaybackVideoId(
+                        mainId = prior.mainId,
+                        animeTitle = prior.animeTitle,
+                        episodeNumber = prior.episodeNumber.toFloat(),
+                        episodeTitle = prior.episodeTitle,
+                        sourceId = prior.sourceId,
+                        serverKey = prior.serverKey,
+                        quality = prior.quality,
+                    )
+                }
+                else -> {
+                    Logger.i(TAG) {
+                        "identity[${mainId.take(8)}]: ${priors.size} prior entries " +
+                            "(qualities=${priors.map { it.quality }}) — ambiguous, skipping cache " +
+                            "(direct playback; wrong-identity reuse could corrupt an entry)"
+                    }
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Logger.w(TAG) { "identity[${mainId.take(8)}]: lookup failed: ${e.message} — direct playback" }
+            null
+        }
+    }
+
     /** Reactive list for the settings screen. */
     fun observeEntries() = store.observeEntries()
 
