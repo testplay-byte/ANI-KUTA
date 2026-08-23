@@ -16,8 +16,8 @@ import kotlinx.coroutines.withContext
  * All access is suspend + Dispatchers.IO from coroutines, OR direct synchronous
  * calls from the proxy server's NanoHTTPD worker threads (SQLite/AndroidSqliteDriver
  * is thread-safe; the extension HttpServer precedent in :core:source-api proves
- * the pairing). The proxy wraps its calls in runCatching (SQLITE_BUSY under
- * contention degrades to a fail-open redirect, never a crash).
+ * the pairing). The proxy wraps its calls in runCatching (SQLite contention
+ * degrades to a fail-open redirect, never a crash).
  */
 class PlaybackCacheStore(private val database: AnikutaDatabase) {
 
@@ -42,29 +42,16 @@ class PlaybackCacheStore(private val database: AnikutaDatabase) {
         val complete: Boolean,
         val createdAt: Long,
         val lastAccessedAt: Long,
-    )
-
-    suspend fun insert(entry: Entry) = withContext(Dispatchers.IO) {
-        queries.insertEntry(
-            cache_key = entry.cacheKey,
-            main_id = entry.mainId,
-            anime_title = entry.animeTitle,
-            episode_number = entry.episodeNumber,
-            episode_title = entry.episodeTitle,
-            source_id = entry.sourceId,
-            server_key = entry.serverKey,
-            quality = entry.quality,
-            content_type = entry.contentType,
-            upstream_url = entry.upstreamUrl,
-            upstream_headers = entry.upstreamHeaders,
-            content_length = entry.contentLength,
-            cached_bytes = entry.cachedBytes,
-            cached_ranges = CacheRanges.serialize(entry.cachedRanges),
-            complete = if (entry.complete) 1L else 0L,
-            created_at = entry.createdAt,
-            last_accessed_at = entry.lastAccessedAt,
-        )
+        val segmentTotal: Int,
+        val segmentsCached: Int,
+        val subtitleTracks: String,
+        val audioTracks: String,
+    ) {
+        /** True when this entry is an HLS stream cached as per-segment files. */
+        val isHls: Boolean get() = segmentTotal > 0
     }
+
+    suspend fun insert(entry: Entry) = withContext(Dispatchers.IO) { insertSync(entry) }
 
     /** Synchronous variant for the proxy server's worker threads. */
     fun insertSync(entry: Entry) {
@@ -86,21 +73,31 @@ class PlaybackCacheStore(private val database: AnikutaDatabase) {
             complete = if (entry.complete) 1L else 0L,
             created_at = entry.createdAt,
             last_accessed_at = entry.lastAccessedAt,
+            segment_total = entry.segmentTotal.toLong(),
+            segments_cached = entry.segmentsCached.toLong(),
+            subtitle_tracks = entry.subtitleTracks,
+            audio_tracks = entry.audioTracks,
         )
     }
 
-    suspend fun get(cacheKey: String): Entry? = withContext(Dispatchers.IO) {
-        queries.getEntry(cacheKey).executeAsOneOrNull()?.toDomain()
-    }
+    suspend fun get(cacheKey: String): Entry? = withContext(Dispatchers.IO) { getSync(cacheKey) }
 
     fun getSync(cacheKey: String): Entry? =
         queries.getEntry(cacheKey).executeAsOneOrNull()?.toDomain()
 
-    /** Refresh upstream URL/headers (they change every resolve) + LRU touch. Synchronous (proxy thread). */
-    fun updateUpstreamSync(cacheKey: String, url: String, headers: String) {
+    /** Refresh upstream URL/headers + track lists (they change every resolve) + LRU touch. Synchronous (proxy thread). */
+    fun updateUpstreamSync(
+        cacheKey: String,
+        url: String,
+        headers: String,
+        subtitleTracks: String,
+        audioTracks: String,
+    ) {
         queries.updateUpstream(
             upstream_url = url,
             upstream_headers = headers,
+            subtitle_tracks = subtitleTracks,
+            audio_tracks = audioTracks,
             last_accessed_at = System.currentTimeMillis(),
             cache_key = cacheKey,
         )
@@ -125,9 +122,18 @@ class PlaybackCacheStore(private val database: AnikutaDatabase) {
         )
     }
 
-    suspend fun delete(cacheKey: String) = withContext(Dispatchers.IO) {
-        queries.deleteEntry(cacheKey)
+    /** HLS segment stats flush (cachedBytes = sum of segment file sizes). */
+    fun updateSegmentStatsSync(cacheKey: String, segmentTotal: Int, segmentsCached: Int, cachedBytes: Long, complete: Boolean) {
+        queries.updateSegmentStats(
+            segments_cached = segmentsCached.toLong(),
+            cached_bytes = cachedBytes,
+            segment_total = segmentTotal.toLong(),
+            complete = if (complete) 1L else 0L,
+            cache_key = cacheKey,
+        )
     }
+
+    suspend fun delete(cacheKey: String) = withContext(Dispatchers.IO) { deleteSync(cacheKey) }
 
     /** Synchronous delete (proxy/eviction threads — mirrors insertSync/getSync). */
     fun deleteSync(cacheKey: String) {
@@ -172,5 +178,9 @@ class PlaybackCacheStore(private val database: AnikutaDatabase) {
         complete = complete == 1L,
         createdAt = created_at,
         lastAccessedAt = last_accessed_at,
+        segmentTotal = segment_total.toInt(),
+        segmentsCached = segments_cached.toInt(),
+        subtitleTracks = subtitle_tracks,
+        audioTracks = audio_tracks,
     )
 }

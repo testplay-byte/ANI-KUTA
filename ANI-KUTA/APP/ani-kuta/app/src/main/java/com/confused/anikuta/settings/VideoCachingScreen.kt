@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -51,23 +52,27 @@ import com.confused.anikuta.core.playbackcache.PlaybackCacheStore
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Video caching settings screen (Video Caching plan — PLAN.md Part A).
+ * Video caching settings screen (Video Caching plan — PLAN.md Part A + Session-2 addendum).
  *
  * Reached from SettingsScreen → "Video caching" (Player section).
  *
  * Sections:
- * 1. **General** — master toggle (default ON) + storage-limit slider (100 MB..2 GB,
- *    100 MB steps).
+ * 1. **General** — master toggle (default ON) + storage-limit slider (100 MB..2 GB).
  * 2. **Storage** — usage summary (used / limit · episode count) + "Clear cache".
  * 3. **Cached episodes** — the reactive list of cached entries: anime, episode,
- *    server·quality, the point up to which the episode is cached (+ % + extra
- *    fragmented segments), and the size on disk. Per-entry delete.
+ *    server·quality, the cached point (contiguous prefix % or segment count), and
+ *    the size on disk. **Tapping a row plays that episode directly** — same
+ *    server/quality/resolution (guaranteed by the cache identity), resuming from
+ *    watch progress. Per-entry delete remains available.
  *
  * @param onBack Pops this screen.
+ * @param onPlayEntry Launches playback for a cached entry (wired in MainActivity to
+ *   a WatchKey built from the entry — resume position comes from watch progress).
  */
 @Composable
 fun VideoCachingScreen(
     onBack: () -> Unit,
+    onPlayEntry: (PlaybackCacheStore.Entry) -> Unit,
     viewModel: VideoCachingViewModel = koinViewModel(),
 ) {
     val enabled by viewModel.enabled.collectAsStateWithLifecycle()
@@ -175,7 +180,7 @@ fun VideoCachingScreen(
                     } else {
                         item {
                             Text(
-                                text = "Cached episodes",
+                                text = "Cached episodes — tap to play",
                                 fontFamily = RobotoFamily,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.ExtraBold,
@@ -186,6 +191,7 @@ fun VideoCachingScreen(
                         items(entries, key = { it.cacheKey }) { entry ->
                             CachedEpisodeRow(
                                 entry = entry,
+                                onPlay = { onPlayEntry(entry) },
                                 onDelete = { viewModel.removeEntry(entry.cacheKey) },
                             )
                         }
@@ -227,18 +233,32 @@ fun VideoCachingScreen(
 // ── Rows ──
 
 @Composable
-private fun CachedEpisodeRow(entry: PlaybackCacheStore.Entry, onDelete: () -> Unit) {
+private fun CachedEpisodeRow(
+    entry: PlaybackCacheStore.Entry,
+    onPlay: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clickable(onClick = onPlay),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Play affordance — the whole row is clickable; the icon reinforces it.
+            Icon(
+                imageVector = Icons.Filled.PlayCircleOutline,
+                contentDescription = "Play cached episode",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(32.dp)
+                    .padding(end = 4.dp),
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = entry.animeTitle.ifBlank { "Unknown anime" },
@@ -295,10 +315,18 @@ private fun CachedEpisodeRow(entry: PlaybackCacheStore.Entry, onDelete: () -> Un
 }
 
 /**
- * "From which point the episode was cached": the contiguous cached prefix +
- * percent of total (+ extra fragmented segments when the cache has holes).
+ * "From which point the episode was cached": HLS entries show the segment count;
+ * progressive entries show the contiguous cached prefix + percent of total
+ * (+ extra fragmented segments when the cache has holes).
  */
 private fun buildCachedPointText(entry: PlaybackCacheStore.Entry): String {
+    if (entry.isHls) {
+        return if (entry.complete) {
+            "Cached: full episode (${entry.segmentTotal} segments)"
+        } else {
+            "Cached: ${entry.segmentsCached}/${entry.segmentTotal} segments"
+        }
+    }
     val prefixEnd = CacheRanges.contiguousPrefixEnd(entry.cachedRanges)
     val total = entry.contentLength
     return when {
@@ -312,7 +340,7 @@ private fun buildCachedPointText(entry: PlaybackCacheStore.Entry): String {
                 if (extraSegments > 0) append(" · +$extraSegments segment${if (extraSegments == 1) "" else "s"}")
             }
         }
-        else -> "Cached: ${formatBytes(entry.cachedBytes)}"
+        else -> "Cached: ${formatBytes(entry.cachedBytes)} (unknown total)"
     }
 }
 

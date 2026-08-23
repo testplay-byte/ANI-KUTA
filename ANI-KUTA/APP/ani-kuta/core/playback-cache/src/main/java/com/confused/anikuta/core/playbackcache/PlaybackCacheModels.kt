@@ -180,3 +180,23 @@ object MpvHeaderParser {
             }
     }
 }
+
+/**
+ * Serializes external track lists into the WatchKey wire format: one
+ * "url\u001Flang" pair per line. Stored on the cache entry so tap-to-play can
+ * rebuild a full WatchKey (external subs/audio survive cache-origin playback).
+ */
+fun serializeTracks(tracks: List<Pair<String, String>>): String =
+    tracks.joinToString("\n") { "${it.first}\u001F${it.second}" }
+
+/** Parses the [serializeTracks] format back into pairs. */
+fun deserializeTracks(serialized: String): List<Pair<String, String>> {
+    if (serialized.isBlank()) return emptyList()
+    return serialized.lines().mapNotNull { line ->
+        val idx = line.indexOf('\u001F')
+        if (idx <= 0) return@mapNotNull null
+        val url = line.substring(0, idx)
+        val lang = line.substring(idx + 1)
+        if (url.isBlank()) null else url to lang
+    }
+}

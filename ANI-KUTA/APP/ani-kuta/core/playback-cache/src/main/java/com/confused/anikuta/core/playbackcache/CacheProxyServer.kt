@@ -8,16 +8,21 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * The local HTTP cache proxy between MPV and the upstream video URL.
  *
+ * Routes (session-2 rewrite — see PLAN.md "Session 2" addendum):
+ *  - `/v/<cacheKey>`   — the entry root: the progressive video bytes (range-aware
+ *     disk slices + upstream gap fetches tee'd into the .bin) OR the REWRITTEN
+ *     HLS playlist when the entry is an HLS stream.
+ *  - `/p/<cacheKey>/<i>` — HLS variant playlist #i (the master's variant URIs are
+ *     rewritten to this route so MPV still does its own quality selection).
+ *  - `/s/<cacheKey>/<i|init>` — HLS segment #i (or the EXT-X-MAP init segment),
+ *     served from the per-segment cache file or fetched + cached on first touch.
+ *
  * - Binds 127.0.0.1 ONLY (never wildcard — the cache serves app-private video
  *   bytes; the HttpServer.kt precedent binds 0.0.0.0 and must NOT be copied).
- * - Serves HTTP Range requests (MPV seeks by issuing ranged requests):
- *   cached sub-ranges come from the .bin file, gaps are fetched from upstream
- *   (with the stored upstream headers) and tee'd into the file while streaming.
- * - Fully-cached entries serve from disk only — the "instant replay" fast path.
- * - FAIL-OPEN (hard requirement, PLAN.md A.5.1): a pre-body internal error
- *   responds 302 Found → upstream URL. ffmpeg follows redirects and re-sends
- *   the globally-set MPV headers (D-199), so playback continues exactly as it
- *   would without the cache. Mid-stream failures just close the connection.
+ * - FAIL-OPEN (hard requirement): a pre-body internal error responds 301
+ *   redirect → upstream URL. ffmpeg follows redirects and re-sends the
+ *   globally-set MPV headers (D-199), so playback continues exactly as it would
+ *   without the cache. Mid-stream failures just close the connection.
  *   The cache must NEVER permanently break playback.
  */
 class CacheProxyServer(
@@ -34,26 +39,45 @@ class CacheProxyServer(
         if (method != Method.GET && method != Method.HEAD) {
             return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
         }
-        // Path shape: /v/<cacheKey>
-        val key = session.uri.removePrefix("/v/").substringBefore('/')
-        if (key.isBlank()) {
-            return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
-        }
+        val headOnly = method == Method.HEAD
+        val path = session.uri ?: "/"
         val rangeHeader = session.headers["range"]
+
         return try {
-            manager.serve(this, key, rangeHeader, headOnly = method == Method.HEAD)
-        } catch (e: Exception) {
-            // FAIL-OPEN: pre-body internal error → redirect to the upstream URL.
-            // Whatever we know about the upstream comes from the manager; if even
-            // that fails, fall through to 404 (nothing better exists).
-            val upstream = runCatching { manager.upstreamUrlFor(key) }.getOrNull()
-            if (upstream != null) {
-                redirectResponse(upstream)
-            } else {
-                notFoundResponse()
+            when {
+                path.startsWith("/v/") -> {
+                    val key = path.removePrefix("/v/").substringBefore('/')
+                    if (key.isBlank()) notFoundResponse()
+                    else manager.serveEntryRoot(this, key, rangeHeader, headOnly)
+                }
+                path.startsWith("/p/") -> {
+                    val rest = path.removePrefix("/p/")
+                    val key = rest.substringBefore('/')
+                    val variantIdx = rest.substringAfter('/').toIntOrNull()
+                    if (key.isBlank() || variantIdx == null) notFoundResponse()
+                    else manager.serveVariantPlaylist(this, key, variantIdx, headOnly)
+                }
+                path.startsWith("/s/") -> {
+                    val rest = path.removePrefix("/s/")
+                    val key = rest.substringBefore('/')
+                    val segId = rest.substringAfter('/')
+                    if (key.isBlank() || segId.isBlank()) notFoundResponse()
+                    else manager.serveSegment(this, key, segId, headOnly)
+                }
+                else -> notFoundResponse()
             }
+        } catch (e: Exception) {
+            // FAIL-OPEN: pre-body internal error → redirect to the upstream URL when
+            // we know it; else 404. ALWAYS logged with the cause (CORE_RULES §20 —
+            // the user debugs via logcat).
+            com.confused.anikuta.core.common.Logger.e(TAG, e) { "serve: internal error on $path — fail-open" }
+            val upstream = runCatching { manager.upstreamUrlFor(keyOf(path)) }.getOrNull()
+            if (upstream != null) redirectResponse(upstream) else notFoundResponse()
         }
     }
+
+    private fun keyOf(path: String): String =
+        path.removePrefix("/v/").removePrefix("/p/").removePrefix("/s/").substringBefore('/')
 
     // ── Response builders ──
 
@@ -66,6 +90,38 @@ class CacheProxyServer(
         contentRange: String?,
     ): Response {
         val response = newFixedLengthResponse(status, contentType, stream, length)
+        response.addHeader("Accept-Ranges", "bytes")
+        if (contentRange != null) response.addHeader("Content-Range", contentRange)
+        return response
+    }
+
+    /**
+     * A streaming chunked response (unknown Content-Length — the passthrough path
+     * still tees into the cache; completion is learned on EOF).
+     */
+    fun chunkedResponse(
+        status: Response.Status,
+        contentType: String,
+        stream: InputStream,
+    ): Response {
+        val response = newChunkedResponse(status, contentType, stream)
+        response.addHeader("Accept-Ranges", "none")
+        return response
+    }
+
+    /** A small in-memory response (playlists, segments, redirects). */
+    fun bytesResponse(
+        status: Response.Status,
+        contentType: String,
+        bytes: ByteArray,
+        contentRange: String? = null,
+    ): Response {
+        val response = newFixedLengthResponse(
+            status,
+            contentType,
+            ByteArrayInputStream(bytes),
+            bytes.size.toLong(),
+        )
         response.addHeader("Accept-Ranges", "bytes")
         if (contentRange != null) response.addHeader("Content-Range", contentRange)
         return response
@@ -107,67 +163,6 @@ class CacheProxyServer(
 
     companion object {
         private const val TAG = "Anikuta:Core:PlaybackCache"
-    }
-}
-
-/**
- * A composite InputStream that serves a requested span in order, alternating
- * between cached disk slices and upstream gap fetches. Upstream bytes are
- * tee'd into the cache file (positional writes — thread-safe) as they stream
- * through. Opening the next source is LAZY (happens on first read of that
- * part) so NanoHTTPD's worker thread does the blocking IO while streaming.
- *
- * The whole thing is fail-safe at the read level: an upstream IOException
- * propagates out of read() → NanoHTTPD closes the client connection → MPV
- * reconnects (and hits the pre-body fail-open path if the entry is broken).
- */
-internal class SpanInputStream(
-    private val parts: List<SpanPart>,
-    private val openDisk: (Long, Long) -> InputStream,
-    private val openUpstream: (Long, Long) -> InputStream,
-) : InputStream() {
-
-    private var partIndex = 0
-    private var current: InputStream? = null
-    private var remainingInPart = 0L
-
-    override fun read(): Int {
-        val buf = ByteArray(1)
-        val n = read(buf, 0, 1)
-        return if (n <= 0) -1 else buf[0].toInt() and 0xFF
-    }
-
-    override fun read(b: ByteArray, off: Int, len: Int): Int {
-        if (len <= 0) return 0
-        var cur = current
-        if (cur == null || remainingInPart <= 0L) {
-            closeCurrent()
-            if (partIndex >= parts.size) return -1
-            val part = parts[partIndex++]
-            remainingInPart = part.length
-            cur = if (part.cached) openDisk(part.start, part.endInclusive)
-            else openUpstream(part.start, part.endInclusive)
-            current = cur
-        }
-        val toRead = minOf(len.toLong(), remainingInPart).toInt()
-        val n = cur.read(b, off, toRead)
-        if (n <= 0) {
-            // Source ended before the part was fully consumed — treat as EOF of
-            // the whole span (upstream abort / disk truncation).
-            return -1
-        }
-        remainingInPart -= n
-        return n
-    }
-
-    override fun close() {
-        runCatching { current?.close() }
-        current = null
-    }
-
-    private fun closeCurrent() {
-        runCatching { current?.close() }
-        current = null
     }
 }
 

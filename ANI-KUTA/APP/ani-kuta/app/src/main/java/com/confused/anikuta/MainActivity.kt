@@ -762,6 +762,17 @@ fun AppRoot() {
             )
             is VideoCachingKey -> VideoCachingScreen(
                 onBack = pop,
+                // Tap-to-play (session-2): build a WatchKey from the cache entry — the
+                // exact same server/quality/resolution (guaranteed by the cache identity)
+                // + the stored external track lists; the resume position comes from the
+                // watch progress store (WP-B3 lookup on FILE_LOADED).
+                onPlayEntry = { entry ->
+                    Logger.i("Anikuta:Settings:VideoCaching") {
+                        "play-entry: launching '${entry.animeTitle}' EP ${entry.episodeNumber} " +
+                            "from cache (hls=${entry.isHls}, ${entry.cachedBytes}B, complete=${entry.complete})"
+                    }
+                    backstack.add(buildWatchKeyFromCacheEntry(entry))
+                },
             )
             is ProfileKey -> com.confused.anikuta.profile.ProfileScreen(
                 onBack = pop,
@@ -1542,4 +1553,40 @@ private suspend fun scanSubtitleFilesOnDisk(mainId: String, episodeNumber: Int):
     }
 
     return results
+}
+
+/**
+ * Tap-to-play from the Video Caching settings screen (session-2):
+ * builds a [WatchKey] from a cache entry so playback uses the EXACT same
+ * server/quality/resolution (guaranteed — the cache identity is
+ * mainId+episode+sourceId+serverKey) and resumes from the stored watch
+ * progress (WP-B3 store lookup on FILE_LOADED).
+ *
+ * Limitations (by design, v1): episode switching inside the watch screen is not
+ * available from a cache-origin launch (no episode list is stored on the entry —
+ * open the anime from Details for the full experience), and the QualitySheet has
+ * no server list (no registry key). The stale upstream URL is refreshed by the
+ * cache manager on first serve; if it's dead, playback fails like any dead link —
+ * reopen the episode from Details to re-resolve.
+ */
+private fun buildWatchKeyFromCacheEntry(
+    entry: com.confused.anikuta.core.playbackcache.PlaybackCacheStore.Entry,
+): WatchKey {
+    return WatchKey(
+        videoUrl = entry.upstreamUrl,
+        animeTitle = entry.animeTitle,
+        quality = entry.quality,
+        episodeUrl = "",
+        episodeNumber = entry.episodeNumber.toFloat(),
+        episodeTitle = entry.episodeTitle,
+        episodeListSerialized = "",
+        videoHeaders = entry.upstreamHeaders,
+        resolvedVideosKey = "",
+        sourceId = entry.sourceId,
+        mainId = entry.mainId,
+        subtitleTracksSerialized = entry.subtitleTracks,
+        audioTracksSerialized = entry.audioTracks,
+        episodeMetadataSerialized = "",
+        startPosition = 0L, // WP-B3 falls back to the watch-progress store lookup.
+    )
 }

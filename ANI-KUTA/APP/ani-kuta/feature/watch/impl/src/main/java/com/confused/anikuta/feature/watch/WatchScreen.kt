@@ -86,6 +86,7 @@ import com.confused.anikuta.core.player.PlayerStateHolder
 import com.confused.anikuta.core.player.controls.EpisodeSwitchingOverlay
 import com.confused.anikuta.core.playbackcache.PlaybackCacheManager
 import com.confused.anikuta.core.playbackcache.PlaybackVideoId
+import com.confused.anikuta.core.playbackcache.serializeTracks
 import com.confused.anikuta.core.playbackcache.serverKeyFromVideoTitle
 import com.confused.anikuta.core.videoresolver.ResolverVideo
 import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
@@ -504,9 +505,22 @@ fun WatchScreen(
         )
     }
 
-    /** Wraps a video URL through the cache proxy (fail-open — returns the original URL on any issue). */
+    /**
+     * Wraps a video URL through the cache proxy (fail-open — returns the original URL on any
+     * issue). Carries the current video's external track lists so cache entries can rebuild
+     * a full WatchKey for tap-to-play from the settings screen.
+     */
+    var currentSubTracksSerialized by remember { mutableStateOf(watchKey.subtitleTracksSerialized) }
+    var currentAudioTracksSerialized by remember { mutableStateOf(watchKey.audioTracksSerialized) }
+
     fun cachedUrl(url: String, headers: String): String =
-        playbackCacheManager.playbackUrlFor(currentCacheId, url, headers)
+        playbackCacheManager.playbackUrlFor(
+            id = currentCacheId,
+            upstreamUrl = url,
+            headers = headers,
+            subtitleTracksSerialized = currentSubTracksSerialized,
+            audioTracksSerialized = currentAudioTracksSerialized,
+        )
 
     // ── Auto-retry on error (non-switching errors only) ──
     // When an error occurs (NOT during switching — switching errors are real
@@ -820,6 +834,9 @@ fun WatchScreen(
             sourceId = watchKey.sourceId,
             videoTitle = video.videoTitle,
         )
+        // Video caching: carry the new video's external tracks (for tap-to-play replay).
+        currentSubTracksSerialized = serializeTracks(video.subtitleTracks.map { it.url to it.lang })
+        currentAudioTracksSerialized = serializeTracks(video.audioTracks.map { it.url to it.lang })
         try {
             // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
@@ -1056,6 +1073,13 @@ fun WatchScreen(
                                         sourceId = watchKey.sourceId,
                                         videoTitle = pickedResolverVideo?.videoTitle ?: "",
                                     )
+                                    // Video caching: carry the new episode's external tracks (for tap-to-play replay).
+                                    currentSubTracksSerialized = pickedResolverVideo?.let { pv ->
+                                        serializeTracks(pv.subtitleTracks.map { it.url to it.lang })
+                                    } ?: ""
+                                    currentAudioTracksSerialized = pickedResolverVideo?.let { pv ->
+                                        serializeTracks(pv.audioTracks.map { it.url to it.lang })
+                                    } ?: ""
 
                                     // Set headers + loadfile.
                                     // CRITICAL: For localhost proxy URLs (AniKotoS),
