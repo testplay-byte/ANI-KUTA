@@ -1646,8 +1646,21 @@ private suspend fun buildWatchKeyForContinueWatching(
     // Source: the card's sourceId, else the linked source from content_details.
     val sourceId = item.sourceId.takeIf { it > 0 }
         ?: contentRepository.getContentDetails(item.mainId)?.sourceId ?: return null
-    val source = extensionManager.getSource(sourceId)
-        as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource ?: return null
+
+    // D-249 FIX (user-reported: first tap after cold start still opened Details):
+    // ExtensionManager is a LAZY Koin singleton — this helper may be the FIRST thing
+    // that resolves it, and its loadAll() populates the source map ASYNC. Querying
+    // getSource() immediately returned null (empty map) → instant fallback. Fix:
+    // await the sources map (it emits on completion of loadAll; already-loaded =
+    // immediate) with a bounded timeout, THEN look up.
+    val source = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+        extensionManager.sources.first { it.containsKey(sourceId) }[sourceId]
+    } as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource ?: run {
+        Logger.w("Anikuta:MainActivity") {
+            "continue-watching: source $sourceId not loaded (extension missing or load timed out)"
+        }
+        return null
+    }
 
     // Episode metadata: the cached list for this content (has the extension's
     // episode URLs + titles — the same source the Details episode list uses).

@@ -16,11 +16,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -28,14 +25,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * ViewModel for the Browse screen (Phase D.2).
+ * ViewModel for the Browse screen (D-249 multi-section redesign).
  *
  * Local-first: reads from browse_cache first → displays instantly.
- * If cache is expired (6 hours) → fetches from network in background → updates cache.
- * If no cache → fetches from network → caches the result.
- *
- * Pull-to-refresh: force-fetches from network + updates cache.
- * 6-hour auto-update: checked on init. Only on the homepage (not other pages).
+ * Sections: Trending (with banners for the hero), Popular, Top Rated.
+ * Each section cached independently (6h TTL) in the multi-section browse_cache table.
  *
  * CORE_RULES §20: Logged with tag "Anikuta:Feature:Browse".
  * CORE_RULES §23: Reactive state (StateFlow).
@@ -50,6 +44,8 @@ class BrowseViewModel(
     companion object {
         private const val TAG = "Anikuta:Feature:Browse"
         private const val SECTION_TRENDING = "trending"
+        private const val SECTION_POPULAR = "popular"
+        private const val SECTION_TOP_RATED = "top_rated"
     }
 
     private val _state = MutableStateFlow<BrowseState>(BrowseState.Loading)
@@ -59,22 +55,31 @@ class BrowseViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    /** D-249: Popular + Top Rated sections (fetched independently, cached independently). */
+    private val _popular = MutableStateFlow<List<AniListAnime>>(emptyList())
+    val popular: StateFlow<List<AniListAnime>> = _popular.asStateFlow()
+
+    private val _topRated = MutableStateFlow<List<AniListAnime>>(emptyList())
+    val topRated: StateFlow<List<AniListAnime>> = _topRated.asStateFlow()
+
+    /** D-249: the hero item — the first trending anime with a banner image. */
+    val hero: StateFlow<AniListAnime?> = _state
+        .map { state ->
+            (state as? BrowseState.Success)?.anime
+                ?.firstOrNull { !it.bannerImage.isNullOrBlank() }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     // ── Phase 3: Continue Watching carousel ──────────────────────────────────
-    // Reactive list of in-progress episodes (completed=0, not suppressed, position>0).
-    // Enriched with content metadata (title, cover URL) for display.
-    // This is a TEMPORARY implementation for testing — easy to remove later when
-    // the Browse page is redesigned. See BrowseScreen.ContinueWatchingCarousel.
     val continueWatching: StateFlow<List<ContinueWatchingItem>> =
         watchProgressStore.observeContinueWatching(10)
             .map { progressList ->
                 progressList.mapNotNull { progress ->
                     val mid = progress.mainId ?: return@mapNotNull null
                     val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
-                    // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
                     val details = contentRepository.getContentDetails(mid)
                     val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
                     val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
-                    // Phase 3: look up episode thumbnail (fallback to cover).
                     val epMeta = dataCacheRepository.getEpisodeMetadata(mid)
                         .find { it.episodeNumber == episodeNumber.toFloat() }
                     val thumbnailUrl = epMeta?.thumbnailUrl ?: coverUrl
@@ -99,60 +104,54 @@ class BrowseViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        loadTrending()
+        loadAll()
+    }
+
+    /** Loads all sections (trending + popular + top-rated), cache-first. */
+    private fun loadAll() {
+        loadSection(SECTION_TRENDING, "TRENDING_DESC") { anime ->
+            _state.value = BrowseState.Success(anime)
+        }
+        loadSection(SECTION_POPULAR, "POPULARITY_DESC") { anime ->
+            _popular.value = anime
+        }
+        loadSection(SECTION_TOP_RATED, "SCORE_DESC") { anime ->
+            _topRated.value = anime
+        }
     }
 
     /**
-     * Load trending anime. D.2: Cache-first approach.
-     * 1. Check browse_cache → if cached, display instantly.
-     * 2. If cache is expired (6h) → fetch from network in background → update cache.
-     * 3. If no cache → fetch from network → cache the result.
+     * Loads a section: cache-first (instant display) → fetch from network when expired.
+     * D-249: uses fetchBrowseSection (includes bannerImage + genres for the hero).
      */
-    fun loadTrending() {
+    private fun loadSection(sectionKey: String, sort: String, onResult: (List<AniListAnime>) -> Unit) {
         viewModelScope.launch {
-            // D.2: Check cache first.
-            val cached = dataCacheRepository.getBrowseCache(SECTION_TRENDING)
+            val cached = dataCacheRepository.getBrowseCache(sectionKey)
             if (cached != null) {
-                // Display cached data instantly.
                 val cachedAnime = parseBrowseCache(cached.dataJson)
                 if (cachedAnime.isNotEmpty()) {
-                    Logger.i(TAG) { "Loaded ${cachedAnime.size} trending from cache (age=${(System.currentTimeMillis() - cached.fetchedAt) / 3600000}h)" }
-                    _state.value = BrowseState.Success(cachedAnime)
+                    Logger.i(TAG) { "Loaded ${cachedAnime.size} $sectionKey from cache" }
+                    onResult(cachedAnime)
                 }
             }
-
-            // Check if cache is expired (or missing) → fetch from network.
-            if (cached == null || dataCacheRepository.isBrowseCacheExpired(SECTION_TRENDING)) {
-                fetchFromNetwork()
+            if (cached == null || dataCacheRepository.isBrowseCacheExpired(sectionKey)) {
+                fetchSection(sectionKey, sort, onResult)
             }
         }
     }
 
-    /**
-     * Force-refresh from network. Called by pull-to-refresh.
-     * Clears the "isRefreshing" indicator when done.
-     */
-    fun refresh() {
-        viewModelScope.launch {
-            fetchFromNetwork()
-        }
-    }
-
-    private suspend fun fetchFromNetwork() {
+    private suspend fun fetchSection(sectionKey: String, sort: String, onResult: (List<AniListAnime>) -> Unit) {
         _isRefreshing.value = true
         try {
-            val anime = anilistApi.fetchTrending()
-            Logger.i(TAG) { "Fetched ${anime.size} trending from network" }
-            _state.value = BrowseState.Success(anime)
-
-            // D.2: Cache the result.
+            val anime = anilistApi.fetchBrowseSection(sort)
+            Logger.i(TAG) { "Fetched ${anime.size} $sectionKey from network" }
+            onResult(anime)
             val json = serializeBrowseCache(anime)
-            dataCacheRepository.upsertBrowseCache(SECTION_TRENDING, json)
-            Logger.i(TAG) { "Cached ${anime.size} trending anime" }
+            dataCacheRepository.upsertBrowseCache(sectionKey, json)
+            Logger.i(TAG) { "Cached ${anime.size} $sectionKey anime" }
         } catch (e: Exception) {
-            Logger.e(TAG, e) { "Failed to fetch trending: ${e.message}" }
-            // Only show error if we don't have cached data.
-            if (_state.value !is BrowseState.Success) {
+            Logger.e(TAG, e) { "Failed to fetch $sectionKey: ${e.message}" }
+            if (_state.value !is BrowseState.Success && sectionKey == SECTION_TRENDING) {
                 _state.value = BrowseState.Error(e.message ?: "Unknown error")
             }
         } finally {
@@ -160,8 +159,17 @@ class BrowseViewModel(
         }
     }
 
+    /** Force-refresh all sections from network. Called by pull-to-refresh. */
+    fun refresh() {
+        viewModelScope.launch {
+            fetchSection(SECTION_TRENDING, "TRENDING_DESC") { _state.value = BrowseState.Success(it) }
+            fetchSection(SECTION_POPULAR, "POPULARITY_DESC") { _popular.value = it }
+            fetchSection(SECTION_TOP_RATED, "SCORE_DESC") { _topRated.value = it }
+        }
+    }
+
     // ── Cache serialization ────────────────────────────────────────────────
-    // Simple JSON format: [{ "id": 1, "title": "...", "cover": "...", "score": 82, "episodes": 24, "year": 2023 }]
+    // D-249: extended with bannerImage + genres + status (for the hero + card meta).
 
     private fun serializeBrowseCache(anime: List<AniListAnime>): String {
         val array = buildJsonArray {
@@ -173,6 +181,9 @@ class BrowseViewModel(
                     a.averageScore?.let { put("score", it) }
                     a.episodes?.let { put("episodes", it) }
                     a.seasonYear?.let { put("year", it) }
+                    a.bannerImage?.let { put("banner", it) }
+                    a.genres?.takeIf { it.isNotEmpty() }?.let { put("genres", it.joinToString(",")) }
+                    a.status?.let { put("status", it) }
                 })
             }
         }
@@ -197,6 +208,10 @@ class BrowseViewModel(
                     averageScore = obj["score"]?.jsonPrimitive?.intOrNull,
                     episodes = obj["episodes"]?.jsonPrimitive?.intOrNull,
                     seasonYear = obj["year"]?.jsonPrimitive?.intOrNull,
+                    bannerImage = obj["banner"]?.jsonPrimitive?.toString()?.trim('"')?.takeIf { it != "null" },
+                    genres = obj["genres"]?.jsonPrimitive?.toString()?.trim('"')
+                        ?.takeIf { it != "null" && it.isNotBlank() }?.split(","),
+                    status = obj["status"]?.jsonPrimitive?.toString()?.trim('"')?.takeIf { it != "null" },
                 )
             }
         } catch (e: Exception) {
@@ -214,12 +229,6 @@ sealed interface BrowseState {
 
 /**
  * Phase 3: A continue-watching carousel item (TEMPORARY — for testing).
- *
- * Enriched from [com.confused.anikuta.core.watchprogress.WatchProgress] with
- * content metadata (title, cover URL) for display in the Browse carousel.
- *
- * @param anilistId Non-null if the content is linked to AniList (navigate via
- *   AnimeDetailsKey.AniList). Null = extension-only (navigate via Extension).
  */
 data class ContinueWatchingItem(
     val mainId: String,

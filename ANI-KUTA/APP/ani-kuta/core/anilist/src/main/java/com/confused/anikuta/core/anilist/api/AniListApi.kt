@@ -51,6 +51,40 @@ class AniListApi(
             json.decodeFromString<TrendingResponse>(response).data.Page.media
         }
 
+    /**
+     * D-249: Browse-section fetch — sorted anime WITHOUT a search term (browsing).
+     * Same shape as fetchTrending but parameterized by sort + banner field for the
+     * hero. Used for "Popular" (POPULARITY_DESC) and "Top Rated" (SCORE_DESC).
+     */
+    suspend fun fetchBrowseSection(
+        sort: String,
+        page: Int = 1,
+        perPage: Int = 20,
+    ): List<AniListAnime> = withContext(dispatchers.io) {
+        val query = """
+            {
+                Page(page: $page, perPage: $perPage) {
+                    media(type: ANIME, sort: $sort) {
+                        id
+                        title { romaji english }
+                        coverImage { large extraLarge }
+                        bannerImage
+                        averageScore
+                        episodes
+                        seasonYear
+                        genres
+                        status
+                    }
+                }
+            }
+        """.trimIndent()
+
+        Logger.d("Anikuta:Core:AniList") { "fetchBrowseSection(sort=$sort, page=$page)" }
+
+        val response = executeQuery(query)
+        json.decodeFromString<TrendingResponse>(response).data.Page.media
+    }
+
     suspend fun fetchAnimeDetails(id: Int): AniListAnime =
         withContext(dispatchers.io) {
             val query = """

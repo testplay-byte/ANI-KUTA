@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,23 +20,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +42,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -62,21 +63,18 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Browse screen — the home tab.
+ * Browse screen — the home tab (D-249 UI overhaul).
  *
- * Cache-first: reads from browse_cache → displays instantly, then background-
- * fetches if the 6-hour TTL expired. Pull-to-refresh forces a network fetch
- * regardless of cache state.
+ * Layout: CollapsingHeader → pull-to-refresh → scrollable LazyColumn containing:
+ *  1. Hero banner (top trending anime with banner image, gradient overlay, meta)
+ *  2. Continue Watching carousel (if in-progress episodes exist)
+ *  3. Trending Now (horizontal card carousel)
+ *  4. Popular (horizontal card carousel)
+ *  5. Top Rated (horizontal card carousel)
  *
- * Pull-to-refresh uses the official Material 3 [PullToRefreshBox], which
- * installs its own [androidx.compose.ui.input.nestedscroll.NestedScrollConnection].
- * This cooperates with the inner [LazyVerticalGrid]'s scroll: the pull gesture
- * ONLY activates when the grid has reached the top AND the user continues
- * dragging down. No spinner on normal upward scroll, no fling jank.
- *
- * Haptic feedback fires once when the pull crosses the refresh threshold
- * (distanceFraction >= 1f) via [HapticHelper.stageCross] — no
- * [android.os.Vibrator] / VIBRATE-permission-dependent code path.
+ * Each section loads cache-first (6h TTL) + fetches independently from AniList.
+ * Cards feature press-scale animation, score badge overlays, and clean typography
+ * per the app design language (lime accent, warm darks, Roboto, translucent surfaces).
  *
  * CORE_RULES §22: smooth animations. §23: reactive state.
  */
@@ -84,22 +82,24 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun BrowseScreen(
     onNavigate: (NavKey) -> Unit,
-    // D-248: direct-to-player launch for continue-watching cards (same experience as
-    // the Video Caching tap-to-play) — resolves the episode + opens the Watch screen
-    // with resume position; the caller falls back to the Details page when null.
+    // D-248: direct-to-player launch for continue-watching cards.
     onPlayContinueWatching: ((ContinueWatchingItem) -> Unit)? = null,
     viewModel: BrowseViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val continueWatching by viewModel.continueWatching.collectAsState()
-    val gridState = rememberLazyGridState()
-    val collapsed = gridState.firstVisibleItemIndex > 0 ||
-        gridState.firstVisibleItemScrollOffset > 20
+    val popular by viewModel.popular.collectAsState()
+    val topRated by viewModel.topRated.collectAsState()
+    val hero by viewModel.hero.collectAsState()
+
+    val listState = rememberLazyListState()
+    val collapsed = listState.firstVisibleItemIndex > 0 ||
+        listState.firstVisibleItemScrollOffset > 20
 
     // DB-7: provide debug context for the Current Screen tab.
     val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
-    val browseCtx = remember(state) {
+    val browseCtx = remember(state, popular.size, topRated.size) {
         val animeCount = when (state) {
             is BrowseState.Success -> (state as BrowseState.Success).anime.size
             else -> 0
@@ -109,23 +109,19 @@ fun BrowseScreen(
             screenData = mapOf(
                 "state" to (state::class.simpleName ?: "Unknown"),
                 "animeCount" to animeCount.toString(),
+                "popularCount" to popular.size.toString(),
+                "topRatedCount" to topRated.size.toString(),
                 "isRefreshing" to isRefreshing.toString(),
             ),
         )
     }
-    androidx.compose.runtime.LaunchedEffect(browseCtx) { updateDebugContext(browseCtx) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
+    LaunchedEffect(browseCtx) { updateDebugContext(browseCtx) }
+    DisposableEffect(Unit) {
         onDispose { updateDebugContext(null) }
     }
-
     val ptrState = rememberPullToRefreshState()
     val context = LocalContext.current
 
-    // Fire a haptic exactly once when the pull first crosses the refresh
-    // threshold (distanceFraction >= 1f). The LaunchedEffect re-runs only on
-    // the false → true transition, so it never buzzes continuously.
-    // Uses HapticHelper (Vibrator service) for reliability across devices +
-    // battery-saver modes (performHapticFeedback can be silenced by OEMs).
     val thresholdCrossed = ptrState.distanceFraction >= 1f
     LaunchedEffect(thresholdCrossed) {
         if (thresholdCrossed) {
@@ -137,20 +133,6 @@ fun BrowseScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(title = "Browse", collapsed = collapsed)
 
-            // Phase 3: Continue Watching carousel (TEMPORARY — easy to remove later).
-            // Single horizontal row at the top of Browse. Shows cover thumbnail,
-            // title, episode number, and a progress bar. D-248: tapping launches the
-            // player DIRECTLY (same server auto-pick + resume as the episode-switch
-            // path) via onPlayContinueWatching; falls back to Details when the
-            // resolver can't build a playable key.
-            if (continueWatching.isNotEmpty()) {
-                ContinueWatchingCarousel(
-                    items = continueWatching,
-                    onNavigate = onNavigate,
-                    onPlay = onPlayContinueWatching,
-                )
-            }
-
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = { viewModel.refresh() },
@@ -159,18 +141,72 @@ fun BrowseScreen(
             ) {
                 when (val s = state) {
                     is BrowseState.Loading -> LoadingScreen()
-                    is BrowseState.Error -> ErrorScreen(s.message, viewModel::loadTrending)
-                    is BrowseState.Success -> AnimeGrid(s.anime, gridState) { anime ->
-                        onNavigate(AnimeDetailsKey.AniList(anime.id))
+                    is BrowseState.Error -> ErrorScreen(s.message)
+                    is BrowseState.Success -> {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 90.dp),
+                        ) {
+                            // ── Hero Banner ──
+                            if (hero != null) {
+                                item(key = "hero") {
+                                    HeroBanner(
+                                        anime = hero!!,
+                                        onClick = { onNavigate(AnimeDetailsKey.AniList(hero!!.id)) },
+                                    )
+                                }
+                            }
+
+                            // ── Continue Watching ──
+                            if (continueWatching.isNotEmpty()) {
+                                item(key = "cw_header") { SectionHeader("Continue Watching") }
+                                item(key = "cw_carousel") {
+                                    ContinueWatchingCarousel(
+                                        items = continueWatching,
+                                        onNavigate = onNavigate,
+                                        onPlay = onPlayContinueWatching,
+                                    )
+                                }
+                            }
+
+                            // ── Trending Now ──
+                            if (s.anime.isNotEmpty()) {
+                                item(key = "trending_header") { SectionHeader("Trending Now") }
+                                item(key = "trending_carousel") {
+                                    AnimeCarousel(
+                                        anime = s.anime,
+                                    ) { anime -> onNavigate(AnimeDetailsKey.AniList(anime.id)) }
+                                }
+                            }
+
+                            // ── Popular ──
+                            if (popular.isNotEmpty()) {
+                                item(key = "popular_header") { SectionHeader("Popular") }
+                                item(key = "popular_carousel") {
+                                    AnimeCarousel(
+                                        anime = popular,
+                                    ) { anime -> onNavigate(AnimeDetailsKey.AniList(anime.id)) }
+                                }
+                            }
+
+                            // ── Top Rated ──
+                            if (topRated.isNotEmpty()) {
+                                item(key = "top_rated_header") { SectionHeader("Top Rated") }
+                                item(key = "top_rated_carousel") {
+                                    AnimeCarousel(
+                                        anime = topRated,
+                                    ) { anime -> onNavigate(AnimeDetailsKey.AniList(anime.id)) }
+                                }
+                            }
+                        }
                     }
                 }
 
-                // Scroll-blur overlay stays as a child of the box content — drawn
-                // UNDER the M3 indicator (which PullToRefreshBox paints on top).
                 ScrollBlurOverlay(
                     scrollOffset = {
-                        if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
-                        else gridState.firstVisibleItemScrollOffset.toFloat()
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
                     },
                     backgroundColor = MaterialTheme.colorScheme.background,
                     modifier = Modifier.align(Alignment.TopCenter),
@@ -180,33 +216,157 @@ fun BrowseScreen(
     }
 }
 
+// ── Hero Banner ─────────────────────────────────────────────────────────────────
+
 @Composable
-private fun AnimeGrid(
+private fun HeroBanner(anime: AniListAnime, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .height(200.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+    ) {
+        // Banner image (fallback to cover).
+        AsyncImage(
+            model = anime.bannerImage ?: anime.coverUrl,
+            contentDescription = anime.displayName,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // Gradient scrim (bottom-heavy, like DetailsScreen's banner).
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Transparent,
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.75f),
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.95f),
+                        ),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY,
+                    ),
+                ),
+        )
+        // Content overlay (bottom-aligned).
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            // "Trending #1" badge.
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primary,
+            ) {
+                Text(
+                    text = "🔥 #1 TRENDING",
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            // Title (large, bold, 1 line).
+            Text(
+                text = anime.displayName,
+                fontFamily = RobotoFamily,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            // Meta row: score · episodes · year · genres.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                anime.averageScore?.let { score ->
+                    Text(
+                        text = "★ ${(score / 10.0).let { if (it % 1.0 == 0.0) it.toInt().toString() else String.format("%.1f", it) }}",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                anime.episodes?.let { eps ->
+                    Text(
+                        text = "· $eps eps",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                anime.seasonYear?.let { year ->
+                    Text(
+                        text = "· $year",
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // First 2 genres as subtle pills.
+                anime.genres?.take(2)?.forEach { genre ->
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    ) {
+                        Text(
+                            text = genre,
+                            fontFamily = RobotoFamily,
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Section header ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        fontFamily = RobotoFamily,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.ExtraBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp),
+    )
+}
+
+// ── Anime carousel (horizontal card row) ───────────────────────────────────────
+
+@Composable
+private fun AnimeCarousel(
     anime: List<AniListAnime>,
-    gridState: LazyGridState,
     onClick: (AniListAnime) -> Unit,
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        state = gridState,
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
-            top = 12.dp,
-            bottom = 90.dp,
-        ),
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize(),
     ) {
         items(anime, key = { it.id }) { item ->
-            AnimeCard(item, onClick)
+            AnimeCarouselCard(item, onClick)
         }
     }
 }
 
 @Composable
-private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
+private fun AnimeCarouselCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -217,47 +377,73 @@ private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
 
     Column(
         modifier = Modifier
+            .width(130.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(16.dp))
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = { onClick(anime) },
             ),
     ) {
-        AsyncImage(
-            model = anime.coverUrl,
-            contentDescription = anime.displayName,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(16.dp)),
-        )
-
+        // Cover with score badge overlay.
+        Box {
+            AsyncImage(
+                model = anime.coverUrl,
+                contentDescription = anime.displayName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.7f)
+                    .clip(RoundedCornerShape(14.dp)),
+            )
+            // Score badge (bottom-start, translucent dark pill).
+            anime.averageScore?.let { score ->
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.Black.copy(alpha = 0.65f),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
+                ) {
+                    Text(
+                        text = "★ ${(score / 10.0).let { if (it % 1.0 == 0.0) it.toInt().toString() else String.format("%.1f", it) }}",
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        // Title (1 line).
         Text(
             text = anime.displayName,
-            style = MaterialTheme.typography.bodyMedium,
             fontFamily = RobotoFamily,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
         )
-
-        anime.averageScore?.let { score ->
+        // Subtitle: year · status.
+        val subtitle = listOfNotNull(
+            anime.seasonYear?.toString(),
+            anime.status?.lowercase()?.replaceFirstChar { it.uppercase() },
+        ).joinToString(" · ")
+        if (subtitle.isNotBlank()) {
             Text(
-                text = "★ ${score}",
-                style = MaterialTheme.typography.labelSmall,
+                text = subtitle,
                 fontFamily = RobotoFamily,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 2.dp, top = 2.dp),
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
+
+// ── Loading / Error ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun LoadingScreen() {
@@ -267,7 +453,7 @@ private fun LoadingScreen() {
 }
 
 @Composable
-private fun ErrorScreen(message: String, onRetry: () -> Unit) {
+private fun ErrorScreen(message: String) {
     Box(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         contentAlignment = Alignment.Center,
@@ -289,30 +475,20 @@ private fun ErrorScreen(message: String, onRetry: () -> Unit) {
     }
 }
 
-// ── Phase 3: Continue Watching carousel (TEMPORARY — for testing) ──────────────
-// Single horizontal LazyRow at the top of Browse. Each item: cover image (or
-// placeholder), title, episode number, progress bar. Tapping navigates to the
-// Details page (the WP-B3 resume feature handles seeking on play).
-// EASY TO REMOVE: delete this composable + the call site in BrowseScreen +
-// the continueWatching StateFlow in BrowseViewModel + the 2 deps in build.gradle.kts.
+// ── Continue Watching carousel (D-248 direct-play) ─────────────────────────────
 
 @Composable
 private fun ContinueWatchingCarousel(
     items: List<ContinueWatchingItem>,
     onNavigate: (NavKey) -> Unit,
-    // D-248: direct-to-player launch (null = legacy Details navigation).
     onPlay: ((ContinueWatchingItem) -> Unit)? = null,
 ) {
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         items(items, key = { "${it.mainId}|${it.episodeNumber}" }) { item ->
             ContinueWatchingCard(item = item, onClick = {
-                // D-248: launch the player DIRECTLY (Video-Caching tap-to-play
-                // experience): same source/server auto-pick as the watch screen's
-                // episode-switch path + startPosition resume. MainActivity falls
-                // back to this Details route when the resolve fails.
                 if (onPlay != null) {
                     onPlay(item)
                 } else if (item.anilistId != null) {
@@ -339,7 +515,6 @@ private fun ContinueWatchingCard(
                 onClick = onClick,
             ),
     ) {
-        // Phase 3: landscape thumbnail (160x90dp) — episode thumbnail with cover fallback.
         Box(
             modifier = Modifier
                 .size(width = 160.dp, height = 90.dp)
@@ -355,7 +530,6 @@ private fun ContinueWatchingCard(
                     contentScale = ContentScale.Crop,
                 )
             } else {
-                // Placeholder: show the first letter of the title centered.
                 Text(
                     text = item.title.firstOrNull()?.uppercase() ?: "?",
                     fontFamily = RobotoFamily,
@@ -365,7 +539,6 @@ private fun ContinueWatchingCard(
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
-            // EP number badge (top-left, like the episode row).
             Surface(
                 shape = RoundedCornerShape(6.dp),
                 color = MaterialTheme.colorScheme.primary,
@@ -382,7 +555,6 @@ private fun ContinueWatchingCard(
                     softWrap = false,
                 )
             }
-            // Progress bar at the bottom (like YouTube).
             if (item.progressFraction > 0f) {
                 LinearProgressIndicator(
                     progress = { item.progressFraction },
@@ -396,7 +568,6 @@ private fun ContinueWatchingCard(
             }
         }
         Spacer(Modifier.height(4.dp))
-        // Title (1 line, truncated).
         Text(
             text = item.title,
             fontFamily = RobotoFamily,

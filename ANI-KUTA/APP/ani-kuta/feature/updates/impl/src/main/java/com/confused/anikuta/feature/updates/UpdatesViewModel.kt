@@ -141,6 +141,14 @@ class UpdatesViewModel(
         }
     }
 
+    /** D-249: Clear ALL updates (the "Clear" button — deletes every row). */
+    fun clearAllUpdates() {
+        viewModelScope.launch {
+            updateStore.deleteAllUpdates()
+            Logger.i(TAG) { "clearAllUpdates: all updates cleared" }
+        }
+    }
+
     private fun enrichUpdate(update: com.confused.anikuta.core.updates.EpisodeUpdate): UpdateDisplay? {
         val content = contentRepository.getMainEntryByMainId(update.mainId) ?: return null
         // D-198: getAniListDetail + getExtensionDetail → getContentDetails.
