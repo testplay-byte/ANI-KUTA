@@ -1765,3 +1765,14 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **CI fix en route**: cross-module smart-cast (`item.anilistId` from :feature:anime-browse:impl in :app) — captured to a local val. (CR-F's probe compiled the HELPER verbatim but the fallback branch slipped; the smart-cast rule is now a known lesson.)
 - **Status:** ✅ Implemented, CI green. NOT merged to main — awaiting user device verification.
 - **Date:** UX-improvements session (2026-08-23).
+
+---
+
+### D-249 — Continue-watching lazy-init fix, Updates UI overhaul, Browse page redesign
+- **What (user feedback session; commits 222c0b2e + e6f9f0e4 + 552e06de, CI green 32660716135):**
+  1. **Continue-watching direct-play fix** (user: "still opened Details"): ROOT CAUSE = ExtensionManager is a LAZY Koin singleton; the helper was its FIRST resolver on cold start → loadAll()'s async source-map population hadn't finished → getSource() returned null → instant fallback. Fix: `extensionManager.sources.first { it.containsKey(sourceId) }` wrapped in `withTimeoutOrNull(10s)` — awaits the StateFlow emission (already-loaded = immediate).
+  2. **Updates UI overhaul** (user: "arrangement needs work, too tall, title should be 1 line"): compact HistoryRow-style anatomy — right column height-locked to the cover (80dp, SpaceBetween), title 1-line only (was 2-line), EP + SUB/DUB pill inline + time-ago on a clean bottom band (was 4 stacked elements). + NEW Clear-all button (deleteAllUpdates query + UpdateStore + VM + broom icon in the header, visible only when the Updates tab has content).
+  3. **Browse page complete redesign** (user: "way too basic, ugly, bad"): NEW AniListApi.fetchBrowseSection(sort) (sorted browse WITHOUT search — returns bannerImage + genres + seasonYear + status); multi-section BrowseViewModel (Trending + Popular + Top Rated, each cached independently in browse_cache); NEW layout: Hero banner (top trending — banner image, gradient scrim, #1 TRENDING badge, score/eps/year/genre pills, tap→Details) → Continue Watching carousel → Trending Now → Popular → Top Rated (horizontal card carousels with score-badge overlays, press-scale, 1-line titles, year·status subtitles).
+- **CI fixes en route:** missing `kotlinx.serialization.json.int` import + missing `kotlinx.coroutines.flow.first` import (the StateFlow predicate await).
+- **Status:** ✅ Implemented, CI green. NOT merged — awaiting user device verification.
+- **Date:** UX-fixes session (2026-08-23).
