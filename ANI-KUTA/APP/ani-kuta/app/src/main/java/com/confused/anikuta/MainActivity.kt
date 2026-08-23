@@ -513,8 +513,10 @@ fun AppRoot() {
                                 "continue-watching: could not build a playable key for '${item.title}' " +
                                     "EP ${item.episodeNumber} — falling back to Details"
                             }
-                            if (item.anilistId != null) {
-                                backstack.add(AnimeDetailsKey.AniList(item.anilistId, autoPlayEpisode = item.episodeNumber))
+                            // Cross-module property — no smart cast; capture locally.
+                            val anilistId = item.anilistId
+                            if (anilistId != null) {
+                                backstack.add(AnimeDetailsKey.AniList(anilistId, autoPlayEpisode = item.episodeNumber))
                             } else if (item.sourceId > 0 && item.animeUrl.isNotBlank()) {
                                 backstack.add(AnimeDetailsKey.Extension(item.sourceId, item.animeUrl, item.title, null, autoPlayEpisode = item.episodeNumber))
                             }
