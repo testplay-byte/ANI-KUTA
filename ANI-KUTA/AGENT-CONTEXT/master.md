@@ -51,6 +51,7 @@ ANI-KUTA/                        ← repo root (git)
 - Building UI → `APP/ani-kuta/DESIGN-LANGUAGE.md` (canonical ~140 lines)
 - Dashboard work → `knowledge/dashboard.md` + `DASHBOARD/webpage/DESIGN.md`
 - Download system → `download-research/` (17 research docs + 5 reviews + REVIEW-D0 + FUTURE-PHASE-DL-GAPS) + `download-research/13-implementation-plan.md` (status table at top)
+- **Testing on the sandbox emulator → `knowledge/emulator-testing.md`** (setup from scratch, the sandbox rules — double-fork detach, timeout-wrapped adb, input-text limits, 4GB memory cgroup — daily workflow commands, app testing tricks, troubleshooting). Read it BEFORE touching adb.
 - Writing docs → `CORE_RULES.md` §21 (documentation folder organization — CRITICAL)
 - Anything else → `navigation.md` (full file index)
 

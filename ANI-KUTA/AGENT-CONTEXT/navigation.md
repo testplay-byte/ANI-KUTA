@@ -34,6 +34,7 @@
 | `knowledge/ui-customization.md` | How UI customization works (theme tokens, component variants, layout, behavior toggles, subtitle settings). |
 | `knowledge/dashboard.md` | Dashboard approach: 14 pages, data files, deployment, update process, sub-agent rules. |
 | `knowledge/old-vs-new.md` | Old project (REFERENCES/old-kuta/) vs new project comparison + migration notes. |
+| `knowledge/emulator-testing.md` | **The sandbox Android emulator environment**: setup from scratch, sandbox rules (double-fork detach, timeout-wrapped adb, input-text limits, 4GB cgroup), daily workflow commands, app testing tricks (prefs injection, extension repo injection), smoke-test checklist, troubleshooting table. Read BEFORE any emulator work. |
 
 ## 📁 REFERENCES/ (read-only references)
 | Path | Purpose |
@@ -74,4 +75,5 @@
 4. `memory/progress.md` (live status)
 5. `workflow.md` (when starting a task)
 6. The specific `knowledge/` or `skills/` file relevant to the task.
-7. (Optional) `/home/z/my-project/worklog.md` for sub-agent execution detail.
+7. `knowledge/emulator-testing.md` (when testing on the sandbox emulator — BEFORE touching adb).
+8. (Optional) `/home/z/my-project/worklog.md` for sub-agent execution detail.

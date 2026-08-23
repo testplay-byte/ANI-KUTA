@@ -1265,3 +1265,17 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Branch: `test-feature/video-cache-new-download` @ cf4a8a6f+. CI green ×2 (runs 32619494659 + 32631607584).
 - NOT merged to main — awaiting user device verification.
 - Docs: D-246 (decisions.md), CORE_RULES §8 amendment, progress.md session block, this entry. Emulator env reusable by future sessions (see progress.md for the exact quirks + commands).
+
+---
+
+## Session — Emulator-testing documentation + session lessons (2026-08-23, on `test-feature/video-cache-new-download`)
+
+### What was done
+- User request: full-fledged documentation of everything learned (the emulator environment + all key testing knowledge), properly backed up to GitHub.
+- **NEW `knowledge/emulator-testing.md`** (~460 lines): the complete sandbox Android-emulator guide — verified capabilities/limits (Cloudflare blocks playback testing from datacenter IPs), environment facts + why each choice (x86_64 TCG, AOSP image, 1024MB guest RAM — all alternatives documented with their failure modes), setup-from-scratch (~15 min, exact commands incl. the manual system-image install that works around sdkmanager's spurious no-space failures), the 5 sandbox rules (double-fork detach, timeout-wrapped adb, input-text truncation, 4GB cgroup ceiling, TCG slowness/ANR norms), the full daily workflow (boot-poll, install, launch, UI dump+parse, screenshots, logs, interaction pacing), app-specific tricks (appops install grant, battery whitelist, first-run prefs injection — the Skip-button bug is documented as the workaround's reason — extension-repo prefs injection, install+trust flow, working extension sources), the E2E smoke checklist with the verified commit, a 13-row troubleshooting table, and the logcat filter reference.
+- Facts re-verified before writing: AOSP image has NO ARM translation (strings-scanned system+vendor imgs); smoke test ran the x86_64 APK from commit cf4a8a6f (run 32631607584).
+- **lessons-learned.md**: +12 entries (163→175... actual count 183 incl. prior) — the process reaper/double-fork, adb discipline, input-text limits, ARM-image impossibility, the 4GB ceiling, TCG ANR norms, pause-needs-resume-path architecture pattern, in-memory-identity cache bypass, response.use{} stream-closing, stale-estimate size inversion, cooperative-cancellation limits + CallRegistry, standalone-jar compile probes.
+- **navigation.md / master.md / SESSION.md**: emulator-testing.md added to all three (knowledge index, on-demand reading list, and a dedicated "Testing on the Emulator" pointer section).
+
+### Status
+- Docs-only commit on the branch; pushed; CI verified green (docs-only build). Emulator environment knowledge now survives sandbox clears (source of truth = the repo, not /home/z).

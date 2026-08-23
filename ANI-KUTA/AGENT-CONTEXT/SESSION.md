@@ -57,6 +57,13 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (R
 - [ ] ntfy.sh notification sent (topic `TASKISDONE`).
 - [ ] Short formatted summary given to the user.
 
+## 🧪 Testing on the Emulator
+The sandbox can run the app on an Android emulator (user-authorized, CORE_RULES §8
+exceptions) — install/launch/AniList/extensions/trust/search all verified E2E.
+**Before ANY emulator/adb work, read `knowledge/emulator-testing.md`** — it has the
+sandbox rules that will otherwise cost hours (double-fork detach, timeout-wrapped
+adb, input-text limits, the 4GB memory ceiling) + full setup + workflow + tricks.
+
 ## 📦 Project Folders
 ```
 ANI-KUTA/                        ← repo root (git)
