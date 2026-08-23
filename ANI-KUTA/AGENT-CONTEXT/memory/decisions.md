@@ -1682,3 +1682,33 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Fix history:** fix9 (edge-to-edge + theme-adaptive), fix10 (badge data enrichment), fix11 (horizontal display cards + side-by-side badges), fix12 (remove position selectors + bold text), fix13 (scroll-to-minimize header), fix14 (advanced RELEASED options + SVG icons + unwatched toggle).
 - **Status:** ✅ Implemented. Commit `db0535d0` on `functionality/improvements`. Version 0.2.37 (versionCode 37). Awaiting push + CI build.
 - **Date:** Library badge customization session.
+
+---
+
+### D-243 — Video playback caching (local HTTP proxy + stable identity)
+- **What:** A new `:core:playback-cache` module caches streamed video bytes locally so replays of the SAME video (same server + audio + resolution) start instantly from disk with zero network round-trips. Architecture: a NanoHTTPD proxy on 127.0.0.1 (ephemeral port, pre-started at app startup) sits between MPV and the upstream URL — MPV gets `http://127.0.0.1:PORT/v/<cacheKey>`, the proxy serves cached byte-ranges from `<filesDir>/playback-cache/<key>.bin` and fetches missing ranges upstream (tee'ing into the file, positional FileChannel writes). New `playback_cache_entry` SQLDelight table (23→24 tables) with reactive queries + driver-factory guard for upgrade installs.
+- **CRITICAL design points:**
+  - **Stable identity, NOT URLs**: extension localhost proxy URLs change every resolve (D-066) — cache key = sha256(mainId + episodeNumber + sourceId + "server|audio|quality" from ResolverVideo.videoTitle minus the volatile urlHash). videoTitle is the codebase's documented stable-identity string.
+  - **Live episode state**: the identity's episodeNumber comes from PlayerStateHolder/the new episode at switch time — NEVER the frozen watchKey.episodeNumber (wrong-episode cache corruption).
+  - **Fail-open everywhere**: pre-loadfile errors → original URL; proxy pre-body errors → 301/302 redirect to upstream (ffmpeg follows; D-199 global headers keep working); mid-stream → connection close. The cache can never permanently break playback.
+  - `Accept-Encoding: identity` on ALL upstream fetches (byte-offset integrity); header-setting code in WatchScreen untouched (D-199/D-095); fd:///content:// bypass; free-disk guard.
+  - LRU eviction (limit 100 MB..2 GB, default 512 MB, active-stream-safe via atomic DELETING state + deferred delete); stale-file verification (missing/truncated .bin, content-length mismatch → reset).
+- **Settings:** dedicated "Video caching" screen (Settings → Player section): master toggle (default ON), storage-limit slider, usage summary, cached-episodes list with per-entry "Cached: start → X · N% of total (+k segments)" display + delete + clear-all.
+- **Why:** User request (test-feature branch): replaying the same episode/server/resolution should "load up the cached one first and start playing directly... without any processing".
+- **Plan:** `APP/ani-kuta/DOCUMENTATION/planning/video-cache-parallel-downloads/PLAN.md` (Part A) — reviewed 2 rounds by 5 sub-agents (PR-A/PR-B/PR-C + PR-2A/PR-2B); compile review CR-A (3 compiler-caught errors fixed).
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 95909b12, CI green). Awaiting user device verification — NOT merged to main.
+- **Date:** Video caching + parallel download session.
+
+---
+
+### D-244 — Parallel download engine (MPV-inspired multi-connection downloads)
+- **What:** A new multi-connection download method wired to the previously-DEAD "Advanced downloader" settings prefs (`advancedDownloader`/`advancedThreads`/`advancedMaxRetries` existed with UI but zero engine references). HttpDownloader becomes the FACADE (routing/validation/publish/.data.json unchanged); a new `VideoFetcher` seam makes only the "bytes → temp File" stage pluggable:
+  - `SingleConnectionFetcher` — today's downloadNormal extracted verbatim (Range-resume, re-resolve recursion, HttpException mapping).
+  - `ParallelHttpFetcher` — Range probe (bytes=0-1 GET), N chunk workers (advancedThreads, connection-budget-capped ≤16 per queue), positional writes into a pre-allocated sparse temp file, per-chunk exponential backoff (2^n capped 30s), premature-EOF/range-mismatch/50KB-s-stall handling, active-call registry (Call.cancel teardown), re-resolve on ANY HttpException for localhost (incl. 403 — the primary proxy-churn case), chunk sidecar (`video.<ext>.chunks`) for pause/resume, single-stream fallback for Range-ignoring servers, dedicated 250ms progress-reporter coroutine (DownloadQueue's onProgress lambda mutates non-thread-safe state — workers only touch an AtomicLong).
+  - `HlsDownloader` parallel mode — concurrent segment workers + ordered writer (spill files, semaphore-bounded), **in-memory AES-128-CBC decryption** (EXT-X-KEY + EXT-X-MEDIA-SEQUENCE default-IV derivation, 16-byte alignment validation, rotating-key rejection, PNG-strip BEFORE decrypt), append-state sidecar (`video.ts.hls-state.json`) with playlist-stability validation, and the variant-URL base fix (pre-existing relative-URI bug). Legacy mode preserved byte-for-byte.
+  - Engine-switch safety: both directions detect foreign sidecars → restart clean (sparse files never published with holes).
+- **Settings:** the existing Downloads → Advanced section (toggle + threads + retries sliders) — default flipped ON (the engine is the point; easy off-switch back to legacy).
+- **Why:** User request (test-feature branch): an MPV-inspired high-performance download method per the shared article (connection pooling, parallel ranges, concurrent HLS, in-memory decryption, adaptive buffers, exponential backoff) — adapted to OkHttp (pooling/keep-alive/HTTP-2 come free).
+- **Plan:** `APP/ani-kuta/DOCUMENTATION/planning/video-cache-parallel-downloads/PLAN.md` (Part B); compile review CR-B (compiler-verified: 4 compile errors + a Semaphore double-release runtime crash + probe-outside-re-resolve + sidecar cleanup — all fixed pre-push).
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 5cedad58). Awaiting CI + user device verification — NOT merged to main.
+- **Date:** Video caching + parallel download session.
