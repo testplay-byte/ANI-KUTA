@@ -1279,3 +1279,18 @@ Fixed all 14 issues identified in the audit + re-verification:
 
 ### Status
 - Docs-only commit on the branch; pushed; CI verified green (docs-only build). Emulator environment knowledge now survives sandbox clears (source of truth = the repo, not /home/z).
+
+---
+
+## Session — D-247 progress-window caching + extension compat testing (2026-08-23, on `test-feature/video-cache-new-download`)
+
+### What was done
+- User report: the cache fetched the WHOLE episode (all segments) — wanted [pos−2min, pos+2min] only, never more, plus a smooth fallback when cache playback fails, + extension APKs saved to the repo, + emulator testing with them.
+- **D-247 implemented (commits 88abfe34 + 1d82693d, CI green ×2)**: window-bounded tee (ceiling pos+120s per request), tick-based window fill (behind-first, self-paced), EXACT HLS window mapping via EXTINF parsing, beyond-window segments served-not-cached, 32MB pre-playback fallback cap (found via emulator test), cache-failure → direct-retry fallback in WatchScreen, phantom-range fix (register-after-write-success). CR-E compile probe caught the Int/Float breaker.
+- **Emulator verification with the real Anikoto v14.4 extension (full E2E)**: extension installed + trusted + searched (30 results) + details + resolve (4 videos, 20 subtitle tracks) + PLAYBACK through the cache proxy: window 0..11 engaged (12 segments / 23MB cached), segments #12→#50+ "BEYOND window — served, NOT cached" — MPV read-ahead fully bounded, playback unaffected. AniKoto180 v16.9 also installs + loads + trusts + appears in the source picker.
+- **Extension APKs saved to the repo**: USER-UPLOADS/extensions/ (per user request) + README with install instructions.
+- **Env hygiene**: app cache cleared + emulator stopped + artifact zips deleted after testing; preview server restarted.
+- Docs: PLAN.md Session-3 addendum (design + the interpretation note + the future preloading idea), D-247 decision, 4 new lessons, this changelog entry.
+
+### Status
+- Branch: `test-feature/video-cache-new-download` @ 1d82693d+. CI green. NOT merged — awaiting user device verification (esp. the window behavior + the v16 extension on device).
