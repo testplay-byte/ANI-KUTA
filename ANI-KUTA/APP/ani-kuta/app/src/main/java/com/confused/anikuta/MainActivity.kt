@@ -99,6 +99,7 @@ import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
 import com.confused.anikuta.updates.UpdateBottomSheet
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
