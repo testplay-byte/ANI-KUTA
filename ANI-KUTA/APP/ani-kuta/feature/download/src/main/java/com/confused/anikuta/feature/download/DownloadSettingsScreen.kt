@@ -308,7 +308,9 @@ fun DownloadSettingsScreen(
                 SectionContainer("Advanced") {
                     ToggleRow(
                         title = "Advanced downloader",
-                        subtitle = "Multi-threaded downloads for faster speeds",
+                        // test-feature branch: now wired to the real parallel engine
+                        // (byte-range workers + concurrent HLS + AES-128 support).
+                        subtitle = "Parallel connections, faster downloads, HLS + AES-128 support",
                         checked = advancedEnabled,
                         onCheckedChange = { preferences.advancedDownloader.set(it) },
                     )

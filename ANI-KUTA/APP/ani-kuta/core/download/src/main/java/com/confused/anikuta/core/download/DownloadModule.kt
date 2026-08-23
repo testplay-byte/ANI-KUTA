@@ -78,6 +78,26 @@ val downloadModule = module {
             preferences = get(),
         )
     }
+    // test-feature branch (Parallel Download Engine): the byte-transfer strategies.
+    // HttpDownloader stays the FACADE (routing/validation/publish/.data.json) —
+    // only the "bytes → temp File" stage is pluggable (PLAN.md B.3).
+    single {
+        SingleConnectionFetcher(
+            client = get<OkHttpClient>(HttpClientFactory.DOWNLOAD),
+            hlsDownloader = get(),
+            store = get(),
+            reResolver = getOrNull<HttpDownloader.ReResolver>(),
+        )
+    }
+    single {
+        ParallelHttpFetcher(
+            client = get<OkHttpClient>(HttpClientFactory.DOWNLOAD),
+            preferences = get(),
+            hlsDownloader = get(),
+            store = get(),
+            reResolver = getOrNull<HttpDownloader.ReResolver>(),
+        )
+    }
     single {
         HttpDownloader(
             client = get<OkHttpClient>(HttpClientFactory.DOWNLOAD),
@@ -86,6 +106,8 @@ val downloadModule = module {
             hlsDownloader = get(),
             store = get(),
             preferences = get(),
+            singleConnectionFetcher = get(),
+            parallelFetcher = get(),
             // D-242: re-fetches canonical content metadata before writing .data.json
             // (fixes null FK fields — description, anilistId, sourceId, etc.).
             contentRepository = get(),

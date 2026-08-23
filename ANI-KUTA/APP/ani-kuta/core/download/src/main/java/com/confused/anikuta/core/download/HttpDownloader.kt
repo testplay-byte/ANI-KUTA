@@ -1,47 +1,29 @@
 package com.confused.anikuta.core.download
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import kotlin.coroutines.coroutineContext
 
 /**
- * The HTTP downloader — handles direct video URLs (mp4/mkv/webm/m4v/mov/avi/ts).
+ * The HTTP downloader — the download FACADE (test-feature branch: routing, validation,
+ * subtitles, publish, .data.json upsert, completion shape all live here — PLAN.md B.3).
+ *
  * Routes HLS URLs (.m3u8 / Content-Type: application/vnd.apple.mpegurl) to
- * [HlsDownloader].
+ * [HlsDownloader]. Direct video URLs route through a pluggable [VideoFetcher]
+ * byte-transfer strategy, selected per-task by the `advancedDownloader` preference:
+ *  - ON → [ParallelHttpFetcher] (the new multi-connection Range engine).
+ *  - OFF → [SingleConnectionFetcher] (the legacy downloadNormal, extracted verbatim).
  *
- * D.1.5 + 05-downloaders.md §11.3: the HTTP engine is the router. It inspects the
- * URL + Content-Type + dispatches to itself (Normal method) OR delegates to
- * [HlsDownloader]. The Advanced method (multi-threaded Range + resume) is deferred
- * to D.1.5.
- *
- * REVIEW-5 M15 (CRITICAL): [downloadNormal] has a `reResolveAttempts: Int = 0`
- * parameter + caps at [MAX_RE_RESOLVE_ATTEMPTS] (= 1). On `IOException` for a
- * localhost URL, it calls [ReResolver.reResolve] + retries with the fresh URL.
- * The recursive call passes `reResolveAttempts + 1`. When the cap is exceeded,
- * throws [DownloadException] with a clear proxy-churn message.
- *
- * REVIEW-5 M49: HTTP errors (4xx/5xx) throw [HttpException] (NOT generic
- * `DownloadException`) so [RetryPolicy.forException] can match on `e is HttpException`
- * + read `e.code`.
- *
- * REVIEW-5 M35: emits intermediate `onProgress` ticks at 96/97/98/99% during the
- * validation / subtitle / cover / publish phases (so the bar moves smoothly past
- * the 95% download cap instead of jumping 95→100).
- *
- * REVIEW-5 M37: the catch blocks distinguish [CancellationException] (preserve
- * resume metadata — calls `cleanupTask(preserveForResume = true)`) from
- * completion/error (delete everything — `cleanupTask(preserveForResume = false)`).
- *
- * Range requests: when the temp file already exists (from a preserved-for-resume
- * pause), sends `Range: bytes=<existingLen>-` + appends on 206 Partial Content.
- * On 200 OK, restarts from scratch (overwrites the temp file).
+ * REVIEW-5 M15: the proxy-churn re-resolve lives in the fetchers now (localhost +
+ * HttpException/IOException + ReResolver, capped at 1 attempt).
+ * REVIEW-5 M49: HTTP errors throw [HttpException] so [RetryPolicy.forException]
+ * can match on type + code.
+ * REVIEW-5 M35: intermediate onProgress ticks at 96/97/98/99% during the
+ * validation / subtitle / cover / publish phases.
+ * REVIEW-5 M37: CancellationException preserves resume metadata; completion/error
+ * delete temp state.
  */
 class HttpDownloader(
     private val client: OkHttpClient,
@@ -50,6 +32,10 @@ class HttpDownloader(
     private val hlsDownloader: HlsDownloader,
     private val store: DownloadStore,
     private val preferences: DownloadPreferences,
+    /** The legacy single-connection byte-transfer strategy (downloadNormal, extracted). */
+    private val singleConnectionFetcher: SingleConnectionFetcher,
+    /** The parallel byte-range engine (multi-connection, per-chunk retry + backoff). */
+    private val parallelFetcher: ParallelHttpFetcher,
     /**
      * D-242: The content repository — used to re-fetch the canonical content
      * metadata (FK fields, description, anilistId, etc.) before writing
@@ -241,9 +227,10 @@ class HttpDownloader(
     // ── Routing ──────────────────────────────────────────────────────────────
 
     /**
-     * Routes to the right sub-pipeline based on URL inspection.
-     *  - HLS URL (.m3u8) → [HlsDownloader.downloadToCache].
-     *  - Otherwise → [downloadNormal].
+     * Routes to the right sub-pipeline based on URL inspection + the engine toggle.
+     *  - HLS URL (.m3u8) → [HlsDownloader.downloadToCache] (parallel mode + AES
+     *    decryption gated by the same `advancedDownloader` preference, internally).
+     *  - Otherwise → the selected [VideoFetcher] (parallel vs single-connection).
      */
     private suspend fun downloadVideoToCache(
         url: String,
@@ -256,187 +243,19 @@ class HttpDownloader(
         if (VideoTypeDetector.detect(url) == VideoTypeDetector.VideoType.HLS) {
             return hlsDownloader.downloadToCache(url, headers, tempFile, taskId, onProgress)
         }
-        return downloadNormal(
+        val fetcher = if (preferences.advancedDownloader.get()) {
+            parallelFetcher
+        } else {
+            singleConnectionFetcher
+        }
+        return fetcher.fetch(
             url = url,
             headers = headers,
             tempFile = tempFile,
             taskId = taskId,
             resolveContextJson = resolveContextJson,
             onProgress = onProgress,
-            reResolveAttempts = 0,
         )
-    }
-
-    // ── The single-threaded Normal method ────────────────────────────────────
-
-    /**
-     * The single-threaded Normal method. Range-based resume when the temp file
-     * already has bytes (from a preserved-for-resume pause).
-     *
-     * REVIEW-5 M15: the [reResolveAttempts] counter bounds the proxy-churn
-     * re-resolve recursion at [MAX_RE_RESOLVE_ATTEMPTS]. The public default is 0;
-     * only the recursive call in the catch block passes a non-zero value.
-     */
-    private suspend fun downloadNormal(
-        url: String,
-        headers: String?,
-        tempFile: File,
-        taskId: Long,
-        resolveContextJson: String?,
-        onProgress: (Long, Long) -> Unit,
-        reResolveAttempts: Int = 0,
-    ): Long {
-        val resumeFrom = if (tempFile.exists()) tempFile.length() else 0L
-        val request = buildRequest(url, headers, resumeFrom)
-
-        return try {
-            client.newCall(request).execute().use { response ->
-                // REVIEW-5 M49: throw HttpException on non-2xx so RetryPolicy can match.
-                if (!response.isSuccessful) {
-                    throw HttpException(response.code, "HTTP ${response.code} for video URL")
-                }
-
-                // HLS detection via Content-Type (URL-based detection happened in the router).
-                val videoType = VideoTypeDetector.detect(url, response.contentType())
-                if (videoType == VideoTypeDetector.VideoType.HLS) {
-                    return@use hlsDownloader.downloadToCache(url, headers, tempFile, taskId, onProgress)
-                }
-
-                // Determine the effective resume offset (0 if server ignored Range).
-                val isPartial = response.code == 206
-                val effectiveResumeFrom = if (isPartial) resumeFrom else 0L
-                val total = if (isPartial) {
-                    // Content-Range: bytes <start>-<end>/<total>
-                    response.header("Content-Range")?.substringAfterLast('/')?.toLongOrNull() ?: -1L
-                } else {
-                    response.body?.contentLength()?.takeIf { it > 0 } ?: -1L
-                }
-
-                val appendMode = isPartial && effectiveResumeFrom > 0L
-                FileOutputStream(tempFile, appendMode).use { os ->
-                    response.body?.byteStream()?.use { input ->
-                        val buffer = ByteArray(BUFFER_SIZE)
-                        var downloaded = effectiveResumeFrom
-                        while (true) {
-                            coroutineContext.ensureActive() // cooperative cancellation
-                            val read = input.read(buffer)
-                            if (read == -1) break
-                            os.write(buffer, 0, read)
-                            downloaded += read
-                            onProgress(downloaded, total)
-                        }
-                        os.flush()
-                    }
-                }
-                tempFile.length()
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: HttpException) {
-            // D-207 FIX: on HTTP errors (esp. 403) for localhost proxy URLs, attempt
-            // re-resolve BEFORE re-throwing. The extension's proxy URL contains a
-            // token (e.g. `aga9ccf3c37f8e0e599c935e3ad122239c4h`) that may be:
-            //  - IP-bound (if the device's IP changed between resolve + download)
-            //  - session-bound (if the proxy churned the session)
-            //  - expired (if the user took time to pick a quality/server)
-            // Re-resolving gets a fresh token from the extension → retry.
-            val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
-            if (isLocalhost && resolveContextJson != null && reResolver != null
-                && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
-            ) {
-                DownloadLogger.w {
-                    "HttpException ${e.code} on localhost URL — attempting re-resolve " +
-                        "(attempt ${reResolveAttempts + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${e.message}"
-                }
-                val fresh = reResolver.reResolve(resolveContextJson)
-                if (fresh != null) {
-                    store.updateDownloadVideoUrl(taskId, fresh.url)
-                    FileOutputStream(tempFile).use { /* truncate to 0 */ }
-                    return downloadNormal(
-                        url = fresh.url,
-                        headers = fresh.headers,
-                        tempFile = tempFile,
-                        taskId = taskId,
-                        resolveContextJson = resolveContextJson,
-                        onProgress = onProgress,
-                        reResolveAttempts = reResolveAttempts + 1,
-                    )
-                }
-            }
-            // HttpException IS a DownloadException — re-throw as-is so RetryPolicy
-            // can match on its type + read e.code.
-            throw e
-        } catch (e: DownloadException) {
-            throw e
-        } catch (e: IOException) {
-            // ── Proxy-churn fix (REVIEW-5 M15) ──
-            // D-149-fix: also guard on http://127.0.0.1 (some extensions use this
-            // instead of localhost — see lessons-learned D-092).
-            val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
-            if (isLocalhost && resolveContextJson != null && reResolver != null
-                && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
-            ) {
-                DownloadLogger.w {
-                    "IOException on localhost URL — attempting re-resolve " +
-                        "(attempt ${reResolveAttempts + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${e.message}"
-                }
-                val fresh = reResolver.reResolve(resolveContextJson)
-                if (fresh != null) {
-                    // D-149-fix: update video_url (the source URL), NOT video_uri (the
-                    // content:// result URI). The old code called updateResult which
-                    // writes video_uri — wrong column for a re-resolve.
-                    store.updateDownloadVideoUrl(taskId, fresh.url)
-                    // Truncate the temp file (the new proxy may not support Range).
-                    FileOutputStream(tempFile).use { /* truncate to 0 */ }
-                    return downloadNormal(
-                        url = fresh.url,
-                        headers = fresh.headers,
-                        tempFile = tempFile,
-                        taskId = taskId,
-                        resolveContextJson = resolveContextJson,
-                        onProgress = onProgress,
-                        reResolveAttempts = reResolveAttempts + 1, // M15 — recursive cap
-                    )
-                }
-            }
-            if (isLocalhost && reResolveAttempts >= MAX_RE_RESOLVE_ATTEMPTS) {
-                throw DownloadException(
-                    "Proxy URL died after $MAX_RE_RESOLVE_ATTEMPTS re-resolve attempt(s) — " +
-                        "the extension's proxy server is being churned by another playback. " +
-                        "Original cause: ${e.message ?: e.javaClass.simpleName}",
-                    e,
-                )
-            }
-            throw DownloadException("Video download failed: ${e.message ?: e.javaClass.simpleName}", e)
-        } catch (e: Exception) {
-            throw DownloadException("Video download failed: ${e.message ?: e.javaClass.simpleName}", e)
-        }
-    }
-
-    /** Builds the OkHttp [Request] with optional Range header for resume. */
-    private fun buildRequest(url: String, headers: String?, resumeFrom: Long): Request {
-        return Request.Builder().url(url).apply {
-            if (resumeFrom > 0) header("Range", "bytes=$resumeFrom-")
-            // D-207 FIX: re-add Accept-Encoding: identity for localhost proxy URLs ONLY.
-            // The proxy (NanoHTTPD in the extension) forwards inbound headers upstream.
-            // Some CDNs reject "accept-encoding: gzip" on m3u8 playlist/segment requests
-            // → 403. Sending "identity" tells the CDN "don't compress" → plain-text m3u8.
-            // For DIRECT CDN URLs (non-localhost), we do NOT send identity (D-200 reasoning:
-            // real browsers never send it, and CDNs might flag it as a bot signal).
-            if (url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")) {
-                header("Accept-Encoding", "identity")
-            }
-            // D-207 FIX: use the smart parser (DownloadHeaderParser) instead of
-            // split('\n'). The videoHeaders string is comma-separated (MPV format:
-            // "Key1: Value1,Key2: Value2") — split('\n') produced ONE element with
-            // ALL headers concatenated into the first header's value → only User-Agent
-            // was added (with Referer/Origin swallowed into its value) → CDN 403.
-            // The smart parser also handles commas INSIDE values (e.g. User-Agent's
-            // "(KHTML, like Gecko)" comma).
-            DownloadHeaderParser.parse(headers).forEach { (name, value) ->
-                addHeader(name, value)
-            }
-        }.build()
     }
 
     // ── Validation ───────────────────────────────────────────────────────────
@@ -648,25 +467,10 @@ class HttpDownloader(
     )
 
     companion object {
-        /** 8 KB I/O buffer for the byte-stream download. */
-        private const val BUFFER_SIZE = 8 * 1024
-
         /** 500 KB minimum — a real video episode is at least hundreds of KB. */
         private const val MIN_VALID_VIDEO_BYTES = 500L * 1024
 
         /** If the downloaded file is smaller than this AND starts with #EXTM3U → HLS. */
         private const val HLS_REDETECT_THRESHOLD = 500L * 1024
-
-        /**
-         * REVIEW-5 M15 + M18: cap the inner re-resolve at 1 attempt (= 2 total download
-         * attempts: 1 initial + 1 re-resolve). The outer retry loop (16-quality-of-life.md
-         * §1.2) caps at 3 attempts. Total = 3 outer × 2 inner = 6 download attempts max
-         * before the task goes to ERROR.
-         */
-        private const val MAX_RE_RESOLVE_ATTEMPTS = 1
     }
 }
-
-/** Extension to read the Content-Type from an OkHttp [Response] (null-safe). */
-private fun Response.contentType(): String? =
-    body?.contentType()?.toString()
