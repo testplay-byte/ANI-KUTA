@@ -58,14 +58,25 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
-      - name: Verify ABIs (only arm64-v8a + armeabi-v7a allowed)
+      # D-246 (user-authorized emulator-testing support): ALSO produce a TEST-ONLY
+      # native-x86_64 APK for the CI-emulator test environment. It goes to a SEPARATE
+      # artifact and never ships — the main APK above stays arm-only (CORE_RULES §8
+      # exception documented in the rule file + AndroidConfig.kt).
+      - name: Build emulator-test APK (x86_64, test-only)
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk /tmp/app-debug-arm.apk
+          ./gradlew assembleDebug -PemulatorX64Build=true
+          mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug-x86_64-emulator.apk
+          cp /tmp/app-debug-arm.apk app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Verify ABIs (only arm64-v8a + armeabi-v7a allowed in SHIPPED APKs)
         working-directory: .
         run: |
           set -e
           echo "Checking APK lib/ folders..."
           found_bad=0
           shopt -s nullglob globstar
-          for apk in ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/**/*.apk; do
+          for apk in ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/**/app-debug.apk; do
             [ -f "$apk" ] || continue
             echo "Inspecting: $apk"
             bad=$(unzip -Z1 "$apk" | grep -E '^lib/[^/]+/' || true)
@@ -77,6 +88,15 @@ jobs:
               esac
             done
           done
+          # The emulator-test APK must contain ONLY x86_64 (sanity check both ways).
+          emu=ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/debug/app-debug-x86_64-emulator.apk
+          if [ -f "$emu" ]; then
+            emu_abis=$(unzip -Z1 "$emu" | grep -E '^lib/[^/]+/' | cut -d'/' -f2 | sort -u | tr '\n' ' ')
+            echo "Emulator APK ABIs: $emu_abis"
+            if [ "$emu_abis" != "x86_64 " ]; then
+              echo "::error::Emulator APK has unexpected ABIs: $emu_abis"; found_bad=1
+            fi
+          fi
           exit $found_bad
 
       - name: Upload APK artifacts
