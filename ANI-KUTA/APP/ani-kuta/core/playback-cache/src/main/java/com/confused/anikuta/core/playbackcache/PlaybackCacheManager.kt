@@ -93,12 +93,26 @@ class PlaybackCacheManager(
         @Volatile var isHls: Boolean = false
         @Volatile var hlsVariants: List<String> = emptyList()
         @Volatile var hlsSegments: List<String> = emptyList()
+        /** D-247: cumulative start-time (seconds) of each segment — exact window mapping. */
+        @Volatile var hlsSegmentStarts: List<Double> = emptyList()
+        /** D.247: total playlist duration (seconds, sum of EXTINF); -1 = unknown. */
+        @Volatile var hlsTotalDuration: Double = -1.0
         @Volatile var hlsInitUri: String? = null
         @Volatile var hlsVod: Boolean = false
         @Volatile var hlsByterange: Boolean = false
         @Volatile var segmentTotal: Int = 0
         @Volatile var segmentsCached: Int = 0
         @Volatile var segmentBytes: Long = 0L
+
+        // ── D-247: playback progress (pushed by WatchScreen ~1 Hz) ──
+        /** Current playback position in seconds; -1 = unknown (window disabled). */
+        @Volatile var playbackPosSec: Float = -1f
+        /** Total duration in seconds; -1 = unknown. */
+        @Volatile var playbackDurSec: Float = -1f
+        /** Wall-clock of the last progress push — the fill's idle-exit signal. */
+        @Volatile var lastProgressAt: Long = 0L
+        /** Last position that triggered a fill start (re-trigger throttle). */
+        @Volatile var lastFillTriggerPos: Float = -1f
     }
 
     private val descriptors = ConcurrentHashMap<String, PlayDescriptor>()
@@ -174,6 +188,93 @@ class PlaybackCacheManager(
     /** Upstream URL for a key (fail-open redirect path). Null when unknown. */
     fun upstreamUrlFor(key: String): String? =
         descriptors[key]?.url ?: store.getSync(key)?.upstreamUrl
+
+    /**
+     * D-247: playback progress push (called ~1 Hz from WatchScreen's position/duration
+     * state). Drives the progress-window policy: the tee writes only below the window
+     * ceiling (pos + AHEAD) and the background fill fetches only within [pos − BEHIND,
+     * pos + AHEAD]. Cheap on the caller thread (volatile writes + a throttled fill
+     * re-trigger every FILL_RETRIGGER_S seconds of movement).
+     */
+    fun onPlaybackProgress(cacheKey: String?, positionSec: Float, durationSec: Float) {
+        if (cacheKey == null || positionSec < 0f) return
+        val state = liveStates[cacheKey] ?: return
+        state.playbackPosSec = positionSec
+        if (durationSec > 0f) state.playbackDurSec = durationSec
+        state.lastProgressAt = System.currentTimeMillis()
+        if (kotlin.math.abs(positionSec - state.lastFillTriggerPos) >= FILL_RETRIGGER_S) {
+            state.lastFillTriggerPos = positionSec
+            descriptors[cacheKey]?.let { maybeStartFill(state, it) }
+        }
+    }
+
+    /**
+     * D-247: the byte ceiling for tee writes — the exclusive upper bound below which
+     * streamed bytes are cached. Window-aware: pos + AHEAD mapped to bytes; when the
+     * duration is still unknown (early playback) a bounded fallback applies so MPV's
+     * read-ahead can never tee the whole file unbounded.
+     */
+    private fun teeCeilingFor(state: LiveState): Long {
+        val total = state.contentLength
+        val dur = state.playbackDurSec
+        val pos = state.playbackPosSec
+        if (total != null && total > 0 && dur > 0f && pos >= 0f) {
+            val endSec = minOf(dur, pos + FILL_WINDOW_AHEAD_S)
+            return (endSec / dur * total).toLong().coerceIn(1, total)
+        }
+        // Duration unknown: allow a bounded window past the player's read frontier.
+        return state.lastReadOffset + TEE_FALLBACK_AHEAD_BYTES
+    }
+
+    /** D-247: the fill window as (startByte, endByte) inclusive; null = no window yet. */
+    private fun fillWindowBytes(state: LiveState): Pair<Long, Long>? {
+        val total = state.contentLength ?: return null
+        if (total <= 0) return null
+        val dur = state.playbackDurSec
+        val pos = state.playbackPosSec
+        if (dur <= 0f || pos < 0f) return null
+        val startSec = maxOf(0f, pos - FILL_WINDOW_BEHIND_S)
+        val endSec = minOf(dur, pos + FILL_WINDOW_AHEAD_S)
+        if (endSec <= startSec) return null
+        val s = (startSec / dur * total).toLong().coerceIn(0, total - 1)
+        val e = (endSec / dur * total).toLong().coerceIn(0, total - 1)
+        return s to e
+    }
+
+    /** D-247: the current playback position mapped to a byte offset (ordering hint). */
+    private fun playbackPosByte(state: LiveState): Long? {
+        val total = state.contentLength ?: return null
+        val dur = state.playbackDurSec
+        val pos = state.playbackPosSec
+        if (total <= 0 || dur <= 0f || pos < 0f) return null
+        return (pos / dur * total).toLong().coerceIn(0, total - 1)
+    }
+
+    /**
+     * D-247: the fill window mapped to an HLS segment index range (exact — via EXTINF
+     * cumulative start-times). Null = durations or progress unknown.
+     */
+    private fun hlsWindowRange(state: LiveState): IntRange? {
+        val starts = state.hlsSegmentStarts
+        if (starts.isEmpty()) return null
+        val pos = state.playbackPosSec
+        val dur = state.playbackDurSec
+        if (pos < 0f || dur <= 0f) return null
+        val startSec = maxOf(0.0, pos - FILL_WINDOW_BEHIND_S.toDouble())
+        val endSec = minOf(dur.toDouble(), pos + FILL_WINDOW_AHEAD_S.toDouble())
+        val total = state.hlsTotalDuration
+        var first = -1
+        var last = -1
+        for (i in starts.indices) {
+            val s = starts[i]
+            val e = if (i + 1 < starts.size) starts[i + 1] else total
+            if (e <= startSec) continue
+            if (s >= endSec) break
+            if (first == -1) first = i
+            last = i
+        }
+        return if (first == -1) null else first..last
+    }
 
     /**
      * D-246: cross-session identity recovery. After process death the in-memory
@@ -471,6 +572,7 @@ class PlaybackCacheManager(
                 teeBase = crStart,
                 serveRemaining = if (length > 0) length else Long.MAX_VALUE,
                 openEnded = length <= 0,
+                teeLimit = teeCeilingFor(state),
             )
             val wrapped = wrapStream(state, descriptor, tee)
             return if (length > 0) {
@@ -510,6 +612,7 @@ class PlaybackCacheManager(
                 teeBase = 0L,
                 serveRemaining = cl ?: Long.MAX_VALUE,
                 openEnded = cl == null,
+                teeLimit = teeCeilingFor(state),
             )
             val wrapped = wrapStream(state, descriptor, tee)
             return if (cl != null) {
@@ -600,12 +703,19 @@ class PlaybackCacheManager(
             out.toString()
         } else {
             // MEDIA: rewrite every segment URI → /s/<key>/<i> + the init map → /s/<key>/init.
+            // D-247: also parse EXTINF durations → cumulative segment start-times (the
+            // exact time→segment mapping the window policy needs).
             val segments = mutableListOf<String>()
+            val durations = mutableListOf<Double>()
+            var pendingDur = -1.0
             var initUri: String? = null
             val out = StringBuilder()
             for (raw in text.lines()) {
                 val line = raw.trim()
-                if (line.startsWith("#EXT-X-MAP:")) {
+                if (line.startsWith("#EXTINF")) {
+                    pendingDur = line.substringAfter(':').substringBefore(',').trim().toDoubleOrNull() ?: pendingDur
+                    out.append(raw).append('\n')
+                } else if (line.startsWith("#EXT-X-MAP:")) {
                     val mapUri = Regex("URI=\"([^\"]+)\"").find(line)?.groupValues?.get(1)
                     if (mapUri != null) {
                         initUri = resolveUri(mapUri, descriptor.url)
@@ -616,12 +726,29 @@ class PlaybackCacheManager(
                 } else if (line.isNotEmpty() && !line.startsWith("#")) {
                     val absolute = resolveUri(line, descriptor.url)
                     segments.add(absolute)
+                    durations.add(pendingDur)
+                    pendingDur = -1.0
                     out.append("$baseUrl/s/$key/${segments.size - 1}").append('\n')
                 } else {
                     out.append(raw).append('\n')
                 }
             }
             state.hlsSegments = segments
+            if (durations.isNotEmpty() && durations.all { it > 0 }) {
+                val starts = mutableListOf<Double>()
+                var t = 0.0
+                for (d in durations) {
+                    starts.add(t)
+                    t += d
+                }
+                state.hlsSegmentStarts = starts
+                state.hlsTotalDuration = t
+            } else {
+                // Non-standard playlist (missing/unparseable EXTINF): window mapping
+                // unavailable — serving falls back to cache-all-requested.
+                state.hlsSegmentStarts = emptyList()
+                state.hlsTotalDuration = -1.0
+            }
             state.hlsInitUri = initUri
             state.hlsVod = text.contains("#EXT-X-ENDLIST")
             state.hlsByterange = text.contains("#EXT-X-BYTERANGE")
@@ -630,7 +757,8 @@ class PlaybackCacheManager(
             state.complete = state.hlsVod && state.segmentsCached >= state.segmentTotal
             Logger.i(TAG) {
                 "hls[${key.take(8)}]: media playlist — ${segments.size} segment(s) rewritten to /s/ " +
-                    "(cached=${state.segmentsCached}, vod=${state.hlsVod}, byterange=${state.hlsByterange})"
+                    "(cached=${state.segmentsCached}, vod=${state.hlsVod}, byterange=${state.hlsByterange}, " +
+                    "dur=${if (state.hlsTotalDuration > 0) "${state.hlsTotalDuration.toInt()}s" else "?"})"
             }
             runCatching {
                 store.updateSegmentStatsSync(key, state.segmentTotal, state.segmentsCached, state.segmentBytes, state.complete)
@@ -694,6 +822,12 @@ class PlaybackCacheManager(
         }
 
         val file = segCacheFile(key, segmentId, url)
+        // D-247 window gate: only segments at/below the window's end index are CACHED
+        // on fetch. Far-ahead read-ahead (MPV prefetching the whole episode) is served
+        // WITHOUT writing — that was the over-caching vector.
+        val windowEndIdx = hlsWindowRange(state)?.last
+        val cacheThis = segmentId == "init" || windowEndIdx == null ||
+            (segmentId.toIntOrNull() ?: -1) <= windowEndIdx
         if (!file.exists()) {
             // A stale file for the same index but a different URL (playlist drift) is garbage — remove it.
             // NOTE: the trailing '_' avoids prefix collisions (seg_5 vs seg_50).
@@ -708,12 +842,19 @@ class PlaybackCacheManager(
                 Logger.w(TAG) { "seg[${key.take(8)}]: #$segmentId fetch failed: ${e.message} — redirect (fail-open)" }
                 return server.redirectResponse(url)
             }
-            runCatching {
-                segDir(key).mkdirs()
-                file.writeBytes(bytes)
+            if (cacheThis) {
+                runCatching {
+                    segDir(key).mkdirs()
+                    file.writeBytes(bytes)
+                }
+                registerSegmentCached(state, segmentId, bytes.size.toLong(), fetched = true)
+                Logger.i(TAG) { "seg[${key.take(8)}]: #$segmentId fetched ${bytes.size}B → cached (${state.segmentsCached}/${state.segmentTotal})" }
+            } else {
+                Logger.i(TAG) {
+                    "seg[${key.take(8)}]: #$segmentId fetched ${bytes.size}B — BEYOND window " +
+                        "(end idx $windowEndIdx) — served, NOT cached"
+                }
             }
-            registerSegmentCached(state, segmentId, bytes.size.toLong(), fetched = true)
-            Logger.i(TAG) { "seg[${key.take(8)}]: #$segmentId fetched ${bytes.size}B → cached (${state.segmentsCached}/${state.segmentTotal})" }
             maybeStartFill(state, descriptor)
             if (headOnly) {
                 return server.headResponse(fi.iki.elonen.NanoHTTPD.Response.Status.OK, SEGMENT_MIME, bytes.size.toLong(), null)
@@ -776,16 +917,14 @@ class PlaybackCacheManager(
         if (fills.containsKey(state.key)) return
         if (state.isHls) {
             if (!state.hlsVod) {
-                Logger.i(TAG) { "fill[${state.key.take(8)}]: live HLS playlist — fill disabled" }
+                Logger.d(TAG) { "fill[${state.key.take(8)}]: live HLS playlist — fill disabled" }
                 return
             }
             if (state.hlsByterange) {
-                Logger.i(TAG) { "fill[${state.key.take(8)}]: BYTERANGE playlist — fill disabled" }
+                Logger.d(TAG) { "fill[${state.key.take(8)}]: BYTERANGE playlist — fill disabled" }
                 return
             }
-            if (state.segmentsCached >= state.segmentTotal && state.segmentTotal > 0) return
-        } else {
-            if (state.contentLength != null && CacheRanges.totalBytes(state.ranges) >= state.contentLength!!) return
+            if (state.segmentTotal > 0 && state.segmentsCached >= state.segmentTotal) return
         }
         val job = scope.launch(Dispatchers.IO) {
             runCatching { fillLoop(state, descriptor) }
@@ -797,102 +936,133 @@ class PlaybackCacheManager(
         fills[state.key] = job
         job.invokeOnCompletion { fills.remove(state.key, job) }
         Logger.i(TAG) {
-            "fill[${state.key.take(8)}]: started (${if (state.isHls) "hls segments" else "progressive gaps"}, " +
+            "fill[${state.key.take(8)}]: started (WINDOW mode " +
+                "pos=${state.playbackPosSec.toInt()}s/${state.playbackDurSec.toInt()}s, " +
                 "cached=${state.cachedBytes + state.segmentBytes}B)"
         }
     }
 
+    /**
+     * D-247: tick-based window fill. Each tick computes the CURRENT progress window
+     * and fetches at most one block (progressive: ≤ 8 MB) or one segment (HLS) inside
+     * it — self-paced (~4 MB/s max), never beyond [pos − BEHIND, pos + AHEAD]. Exits
+     * when the entry is deleting, caching is disabled, or the window has been
+     * satisfied while no progress arrived for FILL_IDLE_EXIT_MS (re-triggered by the
+     * next progress push).
+     */
     private suspend fun fillLoop(state: LiveState, descriptor: PlayDescriptor) {
         var errors = 0
+        var idleTicks = 0
         while (true) {
             if (state.deleting || !preferences.cacheEnabled) {
                 Logger.i(TAG) { "fill[${state.key.take(8)}]: stopped (${if (state.deleting) "deleted" else "disabled"})" }
                 return
             }
+            val playingRecently = System.currentTimeMillis() - state.lastProgressAt < FILL_IDLE_EXIT_MS
+            var worked = false
             if (state.isHls) {
-                if (state.hlsSegments.isEmpty()) {
-                    // Playlist not parsed yet (fill can only start after a serve populated it).
-                    return
-                }
-                val nextIdx = (0 until state.hlsSegments.size).firstOrNull { idx ->
-                    !segCacheFile(state.key, idx.toString(), state.hlsSegments[idx]).exists()
-                }
-                if (nextIdx == null) {
-                    state.complete = state.hlsVod
-                    runCatching { store.updateSegmentStatsSync(state.key, state.segmentTotal, state.segmentsCached, state.segmentBytes, state.complete) }
-                    Logger.i(TAG) { "fill[${state.key.take(8)}]: all ${state.segmentTotal} segments cached — done" }
-                    return
-                }
-                try {
-                    val bytes = fetchUpstreamBytes(descriptor, null, null, urlOverride = state.hlsSegments[nextIdx])
-                    val file = segCacheFile(state.key, nextIdx.toString(), state.hlsSegments[nextIdx])
-                    runCatching {
-                        segDir(state.key).mkdirs()
-                        file.writeBytes(bytes)
+                if (state.hlsSegments.isNotEmpty() && state.hlsVod && !state.hlsByterange) {
+                    val range = hlsWindowRange(state)
+                    if (range != null) {
+                        val nextIdx = range.firstOrNull { idx ->
+                            !segCacheFile(state.key, idx.toString(), state.hlsSegments[idx]).exists()
+                        }
+                        if (nextIdx != null) {
+                            try {
+                                val bytes = fetchUpstreamBytes(descriptor, null, null, urlOverride = state.hlsSegments[nextIdx])
+                                val file = segCacheFile(state.key, nextIdx.toString(), state.hlsSegments[nextIdx])
+                                runCatching {
+                                    segDir(state.key).mkdirs()
+                                    file.writeBytes(bytes)
+                                }
+                                registerSegmentCached(state, nextIdx.toString(), bytes.size.toLong(), fetched = true)
+                                Logger.i(TAG) {
+                                    "fill[${state.key.take(8)}]: segment ${nextIdx + 1}/${state.segmentTotal} " +
+                                        "cached (${bytes.size}B, window ${range.first}..${range.last})"
+                                }
+                                worked = true
+                                errors = 0
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                errors++
+                                Logger.w(TAG) { "fill[${state.key.take(8)}]: segment $nextIdx failed ($errors/$FILL_MAX_ERRORS): ${e.message}" }
+                                if (errors >= FILL_MAX_ERRORS) return
+                                delay(FILL_BACKOFF_MS)
+                            }
+                        }
                     }
-                    registerSegmentCached(state, nextIdx.toString(), bytes.size.toLong(), fetched = true)
-                    Logger.i(TAG) { "fill[${state.key.take(8)}]: segment ${nextIdx + 1}/${state.segmentTotal} cached (${bytes.size}B)" }
-                    errors = 0
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    errors++
-                    Logger.w(TAG) { "fill[${state.key.take(8)}]: segment $nextIdx failed ($errors/$FILL_MAX_ERRORS): ${e.message}" }
-                    if (errors >= FILL_MAX_ERRORS) return
-                    delay(FILL_BACKOFF_MS)
                 }
-                delay(FILL_INTER_BLOCK_DELAY_MS)
             } else {
-                val gap = nextFillGap(state) ?: run {
-                    state.complete = state.contentLength != null
-                    flushIfNeeded(state, force = true)
-                    Logger.i(TAG) { "fill[${state.key.take(8)}]: no gaps left — complete=${state.complete} (${state.cachedBytes}B)" }
-                    return
+                val gap = nextWindowGap(state)
+                if (gap != null) {
+                    val blockEnd = minOf(gap.endInclusive, gap.start + FILL_BLOCK_BYTES - 1)
+                    try {
+                        fetchToCache(state, descriptor, gap.start, blockEnd)
+                        worked = true
+                        errors = 0
+                        Logger.i(TAG) {
+                            "fill[${state.key.take(8)}]: block $gap.start-$blockEnd (window) " +
+                                "→ cached=${state.cachedBytes}/${state.contentLength ?: "?"}B"
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        errors++
+                        Logger.w(TAG) { "fill[${state.key.take(8)}]: block $gap.start failed ($errors/$FILL_MAX_ERRORS): ${e.message}" }
+                        if (errors >= FILL_MAX_ERRORS) return
+                        delay(FILL_BACKOFF_MS)
+                    }
                 }
-                val blockEnd = minOf(gap.endInclusive, gap.start + FILL_BLOCK_BYTES - 1)
-                try {
-                    fetchToCache(state, descriptor, gap.start, blockEnd)
-                    errors = 0
-                    Logger.i(TAG) { "fill[${state.key.take(8)}]: block $gap.start-$blockEnd done → cached=${state.cachedBytes}/${state.contentLength ?: "?"}B" }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    errors++
-                    Logger.w(TAG) { "fill[${state.key.take(8)}]: block $gap.start failed ($errors/$FILL_MAX_ERRORS): ${e.message}" }
-                    if (errors >= FILL_MAX_ERRORS) return
-                    delay(FILL_BACKOFF_MS)
-                }
-                delay(FILL_INTER_BLOCK_DELAY_MS)
             }
+            if (worked) {
+                idleTicks = 0
+                delay(FILL_TICK_MS)
+                continue
+            }
+            // Nothing to fetch in the current window.
+            idleTicks++
+            if (!playingRecently && idleTicks >= 2) {
+                Logger.i(TAG) { "fill[${state.key.take(8)}]: window satisfied + playback idle — exiting (re-triggers on next play)" }
+                return
+            }
+            delay(FILL_TICK_MS * 3)
         }
     }
 
     /**
-     * The next gap to fill: gaps are walked from the start, EXCEPT the region around
-     * the player's read frontier (an active stream fetches it on its own connection —
-     * filling it concurrently would duplicate the transfer).
+     * D-247: the next gap to fill — ONLY gaps intersecting the progress window
+     * [pos − BEHIND, pos + AHEAD], behind-gaps first (MPV never fetches those
+     * itself; ahead-gaps are usually being teed by the player's own read-ahead).
+     * Replaces the old whole-file gap walker.
      */
-    private fun nextFillGap(state: LiveState): ByteRange? {
-        val total = state.contentLength ?: return null
-        val active = activeCounter.activeCount(state.key) > 0
-        val frontier = state.lastReadOffset
-        val skipLow = if (active) maxOf(0L, frontier - FILL_PLAYER_MARGIN) else -1L
-        val skipHigh = if (active) frontier + FILL_PLAYER_MARGIN else -1L
+    private fun nextWindowGap(state: LiveState): ByteRange? {
+        val (winStart, winEnd) = fillWindowBytes(state) ?: return null
+        val posB = playbackPosByte(state)
         val merged = CacheRanges.merge(state.ranges)
+        val behind = mutableListOf<ByteRange>()
+        val ahead = mutableListOf<ByteRange>()
         var cursor = 0L
         for (r in merged) {
             if (r.endInclusive < cursor) continue
             if (r.start > cursor) {
-                val gapEnd = minOf(r.start - 1, total - 1)
-                if (cursor <= gapEnd) {
-                    // Skip the gap if it's fully inside the player's fetch region.
-                    val overlapsPlayer = cursor >= skipLow && cursor <= skipHigh && gapEnd <= skipHigh
-                    if (!overlapsPlayer) return ByteRange(cursor, gapEnd)
+                val gapEnd = minOf(r.start - 1, winEnd)
+                val gapStart = maxOf(cursor, winStart)
+                if (gapStart <= gapEnd) {
+                    val g = ByteRange(gapStart, gapEnd)
+                    if (posB != null && gapEnd <= posB) behind.add(g) else ahead.add(g)
                 }
             }
             cursor = r.endInclusive + 1
         }
-        return if (cursor <= total - 1) ByteRange(cursor, total - 1) else null
+        if (cursor <= winEnd) {
+            val gapStart = maxOf(cursor, winStart)
+            if (gapStart <= winEnd) {
+                val g = ByteRange(gapStart, winEnd)
+                if (posB != null && g.endInclusive <= posB) behind.add(g) else ahead.add(g)
+            }
+        }
+        return (behind + ahead).firstOrNull()
     }
 
     /** Fetches [start, endInclusive] upstream + writes it into the cache file (positional). */
@@ -924,6 +1094,7 @@ class PlaybackCacheManager(
                     if (n == -1) throw IOException("premature EOF during fill at $writePos (expected through $endInclusive)")
                     channel.write(ByteBuffer.wrap(buffer, 0, n), writePos)
                     writePos += n
+                    // CR-E flag #1 (same class of fix): register only bytes that were written.
                     registerCached(state, start, writePos - 1)
                 }
             }
@@ -1022,12 +1193,24 @@ class PlaybackCacheManager(
                 }
             }
         }
-        return TeeInputStream(state, bodyStream, skip, start, serveRemaining, openEnded = false)
+        return TeeInputStream(
+            state = state,
+            source = bodyStream,
+            skipBytes = skip,
+            teeBase = start,
+            serveRemaining = serveRemaining,
+            openEnded = false,
+            teeLimit = teeCeilingFor(state),
+        )
     }
 
     /**
      * Reads the upstream body, optionally skipping a prefix, tee'ing bytes into the
      * cache file at [teeBase + forwarded] while forwarding to the client.
+     *
+     * D-247: writes are bounded by [teeLimit] (exclusive byte offset — the progress
+     * window ceiling). Bytes at/above the limit are SERVED but NOT written, so MPV's
+     * aggressive read-ahead can never tee a whole episode into the cache.
      */
     private inner class TeeInputStream(
         private val state: LiveState,
@@ -1036,6 +1219,7 @@ class PlaybackCacheManager(
         private val teeBase: Long,
         private var serveRemaining: Long,
         private val openEnded: Boolean,
+        private val teeLimit: Long = Long.MAX_VALUE,
     ) : InputStream() {
 
         private val buf = ByteArray(UPSTREAM_BUFFER_BYTES)
@@ -1059,12 +1243,25 @@ class PlaybackCacheManager(
             val want = minOf(len.toLong(), serveRemaining, buf.size.toLong()).toInt()
             val n = source.read(buf, 0, want)
             if (n <= 0) return -1
-            // Tee into the cache file (positional write — thread-safe).
-            runCatching {
-                ensureChannel(state).write(ByteBuffer.wrap(buf, 0, n), teeBase + forwarded)
-            }.onFailure { Logger.w(TAG) { "tee[${state.key.take(8)}]: write failed: ${it.message}" } }
+            // D-247: tee only the clipped portion below the window ceiling.
+            // CR-E flag #1 fix: register the range ONLY when the write SUCCEEDED —
+            // registering on a failed write created phantom cached ranges that a
+            // later disk-slice serve would read back truncated.
+            val writeFrom = teeBase + forwarded
+            if (writeFrom < teeLimit) {
+                val writable = minOf(n.toLong(), teeLimit - writeFrom).toInt()
+                if (writable > 0) {
+                    val wrote = runCatching {
+                        ensureChannel(state).write(ByteBuffer.wrap(buf, 0, writable), writeFrom)
+                    }.isSuccess
+                    if (wrote) {
+                        registerCached(state, writeFrom, writeFrom + writable - 1)
+                    } else {
+                        Logger.w(TAG) { "tee[${state.key.take(8)}]: write failed at $writeFrom — range NOT registered" }
+                    }
+                }
+            }
             forwarded += n
-            registerCached(state, teeBase, teeBase + forwarded - 1)
             serveRemaining -= n
             System.arraycopy(buf, 0, b, off, n)
             return n
@@ -1514,13 +1711,20 @@ class PlaybackCacheManager(
         private const val EVICT_CHECK_INTERVAL_MS = 30_000L
         private const val TOUCH_INTERVAL_MS = 60_000L
 
-        /** Background fill: 8 MB blocks, gentle pacing, bounded retries. */
+        /** Background fill: window-bounded (D-247). One block/segment per FILL_TICK. */
         private const val FILL_BLOCK_BYTES = 8L * MB
-        private const val FILL_INTER_BLOCK_DELAY_MS = 50L
+        private const val FILL_TICK_MS = 2_000L
         private const val FILL_BACKOFF_MS = 5_000L
         private const val FILL_MAX_ERRORS = 3
-        /** Don't fill the region the player's own connection is fetching (±32 MB). */
-        private const val FILL_PLAYER_MARGIN = 32L * MB
+        /** The progress window: cache [pos − BEHIND, pos + AHEAD] (seconds). */
+        private const val FILL_WINDOW_BEHIND_S = 120f
+        private const val FILL_WINDOW_AHEAD_S = 120f
+        /** Tee fallback ceiling when the duration is still unknown (bounded read-ahead). */
+        private const val TEE_FALLBACK_AHEAD_BYTES = 32L * MB
+        /** Fill re-trigger threshold: position movement that restarts the fill job. */
+        private const val FILL_RETRIGGER_S = 30f
+        /** Fill idle exit: no progress push for this long → the fill exits. */
+        private const val FILL_IDLE_EXIT_MS = 60_000L
 
         private const val HLS_MIME = "application/vnd.apple.mpegurl"
         private const val SEGMENT_MIME = "video/mp2t"

@@ -306,3 +306,72 @@ Wider (player-side too):
 ```
 tag:Anikuta:Core:PlaybackCache | tag:Anikuta:Feature:Watch message~:(?i)(cache|proxy|loadfile|MPV LOAD|resum|FILE_LOADED)
 ```
+
+---
+
+## SESSION 3 ADDENDUM — Progress-Window Caching (2026-08-23, D-247)
+
+### User report
+Session-2 worked (caching verified on device) BUT it over-caches: the background
+fill fetched the WHOLE episode (all remaining gaps / every segment), and MPV's own
+read-ahead streamed (and therefore teed) the whole file through the proxy. Requested
+behavior: **cache around the user's progress** — "if the user has watched around the
+10-minute mark, cache from the 8-minute mark till the 12-minute mark. Not less, not
+more." Plus: hard safety bounds (never cache beyond the specified amount), and a
+smooth fallback when cache playback fails (episode must still play — direct network).
+
+### The two over-caching vectors, both fixed
+1. **The background fill** chased the entire remaining file → now only fetches gaps
+   **inside the window** `[pos − 120s, pos + 120s]` (behind-gaps first — MPV never
+   fetches those itself).
+2. **MPV read-ahead through the serve path** (the bigger one): MPV aggressively
+   reads ahead (whole-episode segment fetching observed) → the tee now writes only
+   bytes **below the window ceiling** (`pos + 120s`); read-ahead beyond the ceiling
+   is served but not written to the cache. Each new MPV ranged request gets a fresh
+   ceiling from the current position, so the cache trail tracks progress naturally.
+
+### Interpretation of "not more than that" (documented deliberately)
+Bytes the user actually **watched** (below the sliding ceiling) stay cached — that
+is the instant-replay feature itself; deleting them behind the window would break
+replay. The **proactive** bounds are strict: per entry, cache ⊆ watched-path ∪
+window. A full sequential watch therefore caches ≈ [0, pos+2min], bounded by the
+ceiling — never the whole episode ahead of the user. (If the user wants a strict
+sliding 4-minute-only window with behind-eviction instead, that's a one-line policy
+change — flagged as an open question.)
+
+### Mapping time → bytes
+- **Progressive**: proportional (byte ≈ time/duration × total). CBR approximation —
+  fine for windowing; worst case the window is offset by seconds.
+- **HLS**: EXACT — `#EXTINF` durations parsed per segment → cumulative start-times
+  → window maps to a segment index range. `serveSegment` caches a fetched segment
+  only when its index is ≤ the window's end index; the fill only fetches missing
+  segments within `[startIdx, endIdx]`.
+- Duration unknown (early playback): no window yet → tee fallback ceiling =
+  `lastReadOffset + 32 MB` (bounded); fill waits. As soon as WatchScreen pushes
+  position+duration, real windows apply.
+
+### New plumbing
+- `PlaybackCacheManager.onPlaybackProgress(cacheKey, posSec, durSec)` — pushed by
+  WatchScreen from its existing `position`/`duration` state (≈1 Hz; volatile writes
+  only, fill re-trigger throttled).
+- The fill loop is now **tick-based** (2 s): each tick computes the current window,
+  fetches at most one 8 MB block (progressive) or one segment (HLS) → self-paced
+  (~4 MB/s max), exits when the entry is deleting, caching is disabled, or the
+  window has been satisfied AND no progress update arrived for 60 s.
+
+### Cache-failure fallback (playback must NEVER fail because of the cache)
+Existing fail-opens stay (pre-loadfile → direct URL; proxy pre-body error → 301
+redirect upstream; mid-stream → connection close). NEW: if MPV still errors while
+playing a proxy URL (e.g., corrupt cached bytes), the auto-retry bypasses the cache
+entirely — direct network `loadfile` of the original URL, logged as the fallback.
+The bypass resets on successful load / video switch.
+
+### Constants
+`FILL_WINDOW_BEHIND_S = 120`, `FILL_WINDOW_AHEAD_S = 120`, `TEE_FALLBACK_AHEAD_BYTES = 32 MB`,
+`FILL_TICK_MS = 2000`, `FILL_BLOCK_BYTES = 8 MB` (unchanged), `FILL_IDLE_EXIT_MS = 60 s`.
+
+### Future direction noted (NOT built now, per user: "future plans")
+Preloading of *expected* episodes (next-in-series, continue-watching) using this
+cache so playback starts with zero buffering. The window machinery + identity
+system are the foundation; a preload scheduler would enqueue windows ahead of
+expected watches. Tracked as an open idea in D-247.

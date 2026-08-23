@@ -416,11 +416,18 @@ fun WatchScreen(
     val loadingState by stateHolder.loadingState.collectAsState()
     var hasResumed by remember { mutableStateOf(false) }
 
+    // D-247: when playback fails while playing through the CACHE, the next retry
+    // bypasses the cache entirely (direct network) — the episode must never fail
+    // because of the cache. Reset on successful load (READY) + on video switches.
+    var bypassCacheNextRetry by remember { mutableStateOf(false) }
+
     // D-192: Activity tracker — track WATCH_START on FILE_LOADED.
     val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker = koinInject()
 
     LaunchedEffect(loadingState) {
         if (loadingState == PlayerLoadingState.READY && mpvInitialized) {
+            // D-247: successful load — cache playback is healthy again; re-arm it.
+            bypassCacheNextRetry = false
             val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
             // D-192: Track WATCH_START (the video actually loaded + is ready to play).
             activityTracker.track(
@@ -545,6 +552,15 @@ fun WatchScreen(
             audioTracksSerialized = currentAudioTracksSerialized,
         )
 
+    // D-247: push playback progress (~1 Hz from the position/duration state) to the
+    // cache manager — drives the progress-window policy (tee ceiling + window fill).
+    LaunchedEffect(position, duration) {
+        val key = currentCacheId?.cacheKey
+        if (key != null && duration > 0 && position >= 0) {
+            playbackCacheManager.onPlaybackProgress(key, position.toFloat(), duration.toFloat())
+        }
+    }
+
     // ── Auto-retry on error (non-switching errors only) ──
     // When an error occurs (NOT during switching — switching errors are real
     // failures), auto-retry the same URL once after 1.5s. This handles
@@ -568,7 +584,17 @@ fun WatchScreen(
                 val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                     else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                 MPVLib.setOptionString("http-header-fields", headers)
-                MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
+                // D-247 cache-failure fallback: if this playback went through the
+                // cache, the FIRST retry bypasses it entirely (direct network) — the
+                // episode must never fail because of the cache (e.g. corrupt cached
+                // bytes). The flag resets on the next successful READY load.
+                if (!bypassCacheNextRetry && currentCacheId != null) {
+                    Logger.w(TAG) { "Auto-retry: cache playback failed — retrying DIRECT (bypass cache)" }
+                    bypassCacheNextRetry = true
+                    MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+                } else {
+                    MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
+                }
                 Logger.i(TAG) { "Auto-retry: loadfile re-sent (banner stays visible)" }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Auto-retry failed" }
@@ -815,7 +841,13 @@ fun WatchScreen(
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             MPVLib.setOptionString("http-header-fields", headers)
-            MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
+            // D-247: after a cache-failure we keep retrying DIRECT until a successful
+            // load re-arms the cache (bypassCacheNextRetry resets on READY).
+            if (bypassCacheNextRetry) {
+                MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+            } else {
+                MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
+            }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Retry failed" }
             // Use setSwitchingError so the error is ALWAYS shown (not suppressed
@@ -860,6 +892,8 @@ fun WatchScreen(
         // Video caching: carry the new video's external tracks (for tap-to-play replay).
         currentSubTracksSerialized = serializeTracks(video.subtitleTracks.map { it.url to it.lang })
         currentAudioTracksSerialized = serializeTracks(video.audioTracks.map { it.url to it.lang })
+        // D-247: fresh video → re-arm cache playback for retries.
+        bypassCacheNextRetry = false
         try {
             // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
@@ -1103,6 +1137,8 @@ fun WatchScreen(
                                     currentAudioTracksSerialized = pickedResolverVideo?.let { pv ->
                                         serializeTracks(pv.audioTracks.map { it.url to it.lang })
                                     } ?: ""
+                                    // D-247: fresh episode → re-arm cache playback for retries.
+                                    bypassCacheNextRetry = false
 
                                     // Set headers + loadfile.
                                     // CRITICAL: For localhost proxy URLs (AniKotoS),
