@@ -114,12 +114,10 @@ fun SearchScreen(
     var showSourcePicker by remember { mutableStateOf(false) }
     val activeFilterCount = pendingFilters.activeCount
 
-    // D-242-fix7: Do NOT auto-load trending on screen enter.
-    // The recents card only renders in Idle state — loading trending
-    // transitions to Success which hides the recents. The user wants
-    // to see their search history when they open the search page.
-    // Trending loads when the user clears a query or switches sources.
-    // LaunchedEffect(Unit) intentionally removed.
+    // D-248: trending now auto-loads on first entry (SearchViewModel.init) — recents
+    // are no longer Idle-exclusive (they render as the results grid's header item and
+    // scroll away with the content; the top bar collapses to title + compact search
+    // bar). Recents hide only when the user actually searches (query non-blank).
 
     // D-210: Auto-refresh when the user returns from the Cloudflare WebView.
     // The ViewModel sets pendingWebViewRefresh=true when the user taps "Open in
@@ -277,6 +275,13 @@ fun SearchScreen(
                         results = results,
                         gridState = gridState,
                         onResultTap = onNavigateToDetails,
+                        // D-248: recents coexist with the default/trending results — shown as
+                        // the grid's header (scrolls away with content; the top bar collapses
+                        // to title + compact search bar). They hide only when the user
+                        // actually searches (query non-blank → Loading).
+                        recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
+                            RecentsHeaderData(recents, recentsCollapsed, viewModel::toggleRecentsCollapsed, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                        } else null,
                     )
                 }
 
@@ -288,6 +293,9 @@ fun SearchScreen(
                         onResultTap = { anime ->
                             onNavigateToExtensionAnime(anime.sourceId, anime.url, anime.title, anime.thumbnailUrl)
                         },
+                        recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
+                            RecentsHeaderData(recents, recentsCollapsed, viewModel::toggleRecentsCollapsed, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                        } else null,
                     )
                 }
             }
@@ -343,11 +351,22 @@ fun SearchScreen(
 
 // ── Results grid ──
 
+// D-248: everything the results grids need to render the recents card as a header item.
+private class RecentsHeaderData(
+    val recents: List<String>,
+    val collapsed: Boolean,
+    val onToggleCollapsed: () -> Unit,
+    val onPick: (String) -> Unit,
+    val onRemove: (String) -> Unit,
+    val onClear: () -> Unit,
+)
+
 @Composable
 private fun ResultsGrid(
     results: List<AniListAnime>,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onResultTap: (Int) -> Unit,
+    recentsHeader: RecentsHeaderData? = null,
 ) {
     LazyVerticalGrid(
         state = gridState,
@@ -362,6 +381,18 @@ private fun ResultsGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (recentsHeader != null) {
+            item(key = "recents-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                RecentSearchesCard(
+                    recents = recentsHeader.recents,
+                    collapsed = recentsHeader.collapsed,
+                    onToggleCollapsed = recentsHeader.onToggleCollapsed,
+                    onPick = recentsHeader.onPick,
+                    onRemove = recentsHeader.onRemove,
+                    onClear = recentsHeader.onClear,
+                )
+            }
+        }
         items(results, key = { it.id }) { anime ->
             ResultCard(anime, onResultTap)
         }
@@ -532,6 +563,7 @@ private fun ExtensionResultsGrid(
     results: List<ExtensionAnime>,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onResultTap: (ExtensionAnime) -> Unit,
+    recentsHeader: RecentsHeaderData? = null,
 ) {
     LazyVerticalGrid(
         state = gridState,
@@ -546,6 +578,18 @@ private fun ExtensionResultsGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (recentsHeader != null) {
+            item(key = "recents-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                RecentSearchesCard(
+                    recents = recentsHeader.recents,
+                    collapsed = recentsHeader.collapsed,
+                    onToggleCollapsed = recentsHeader.onToggleCollapsed,
+                    onPick = recentsHeader.onPick,
+                    onRemove = recentsHeader.onRemove,
+                    onClear = recentsHeader.onClear,
+                )
+            }
+        }
         items(results, key = { "${it.sourceId}:${it.url}" }) { anime ->
             ExtensionResultCard(anime, onResultTap)
         }

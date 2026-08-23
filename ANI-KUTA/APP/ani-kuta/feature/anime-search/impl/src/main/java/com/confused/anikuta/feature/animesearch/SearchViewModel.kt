@@ -115,6 +115,12 @@ class SearchViewModel(
     init {
         loadRecents()
         observeQuery()
+        // D-248: load trending on FIRST entry in AniList mode (the default) — the user
+        // reported no default results until manually re-tapping the AniList chip.
+        // Recents now coexist with results (grid header), so this no longer hides them.
+        if (_source.value == SearchSource.ANILIST && _query.value.isBlank()) {
+            loadTrending()
+        }
         // Auto-select the top trusted source if none is selected (per user spec).
         // When the user switches to Extension mode, they see results immediately.
         viewModelScope.launch {

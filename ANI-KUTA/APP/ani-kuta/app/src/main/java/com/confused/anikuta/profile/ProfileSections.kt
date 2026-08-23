@@ -504,11 +504,11 @@ fun TimeDnaAndRecentCard(
                     modifier = Modifier.width(140.dp),
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        // Donut
-                        Box(modifier = Modifier.size(100.dp)) {
+                        // Donut — D-248: slightly larger for breathing room
+                        Box(modifier = Modifier.size(112.dp)) {
                             Canvas(modifier = Modifier.fillMaxSize()) {
                                 val centerX = size.width / 2f
                                 val centerY = size.height / 2f
@@ -550,9 +550,10 @@ fun TimeDnaAndRecentCard(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        // D-248: more spacing between the donut and the legend below
+                        Spacer(Modifier.height(16.dp))
                         // Legend below donut — 2 rows of 2
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             periods.forEach { (name, count, color) ->
                                 val pct = if (total > 0) count * 100 / total else 0
                                 Row(verticalAlignment = Alignment.CenterVertically) {

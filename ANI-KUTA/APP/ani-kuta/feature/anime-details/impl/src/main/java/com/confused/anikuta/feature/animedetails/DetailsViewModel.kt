@@ -1416,22 +1416,33 @@ class DetailsViewModel(
                     )
                     // D.1: Update the cache.
                     // D-198: anime_metadata_cache → content_details (data-source axis).
+                    // D-248 FIX (user-reported: refreshed covers/metadata never reach
+                    // the Library): (a) ensure the content_details row EXISTS before the
+                    // axis update (a bare updateDataSourceAxis on a missing row is a
+                    // silent no-op — refreshed data was lost); (b) build the update from
+                    // the EXISTING row so fields the fresh fetch doesn't carry (e.g.
+                    // dataCoverUrl when AniList omits it) are preserved instead of nulled.
                     val mainId = currentMainId
                     if (mainId != null) {
+                        val existing = contentRepository.getContentDetails(mainId)
+                        if (existing == null) {
+                            contentRepository.upsertContentDetails(
+                                com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
+                            )
+                        }
                         contentRepository.updateDataSourceAxis(
-                            com.confused.anikuta.core.content.ContentDetails(
-                                mainId = mainId,
+                            (existing ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
                                 dataSourceType = "anilist",
                                 dataSourceRefId = anilistId.toString(),
-                                dataScore = fresh.averageScore?.toLong(),
-                                dataEpisodes = fresh.episodes?.toLong(),
-                                dataSeason = fresh.season,
-                                dataSeasonYear = fresh.seasonYear?.toLong(),
-                                dataStatus = fresh.status,
-                                dataGenres = fresh.genres?.joinToString(", "),
-                                dataSynopsis = fresh.description,
-                                dataCoverUrl = fresh.coverUrl,
-                                dataBannerUrl = fresh.bannerImage,
+                                dataScore = fresh.averageScore?.toLong() ?: existing?.dataScore,
+                                dataEpisodes = fresh.episodes?.toLong() ?: existing?.dataEpisodes,
+                                dataSeason = fresh.season ?: existing?.dataSeason,
+                                dataSeasonYear = fresh.seasonYear?.toLong() ?: existing?.dataSeasonYear,
+                                dataStatus = fresh.status ?: existing?.dataStatus,
+                                dataGenres = fresh.genres?.joinToString(", ") ?: existing?.dataGenres,
+                                dataSynopsis = fresh.description ?: existing?.dataSynopsis,
+                                dataCoverUrl = fresh.coverUrl ?: existing?.dataCoverUrl,
+                                dataBannerUrl = fresh.bannerImage ?: existing?.dataBannerUrl,
                                 dataUpdatedAt = System.currentTimeMillis(),
                             ),
                         )
@@ -1459,6 +1470,29 @@ class DetailsViewModel(
                             (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                 ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
                         )
+                        // D-248 FIX (user-reported: extension refreshes never propagate to
+                        // the Library/covers): the old code only updated the in-memory
+                        // base — the ext_* axis of content_details was never persisted, so
+                        // the refreshed cover/thumbnail existed only until the screen
+                        // closed. Persist the extension axis now (same merge-with-existing
+                        // discipline as the AniList branch: null fetch fields preserve the
+                        // stored value instead of wiping it).
+                        val mainId = currentMainId
+                        if (mainId != null) {
+                            val existingExt = contentRepository.getContentDetails(mainId)
+                            if (existingExt == null) {
+                                contentRepository.upsertContentDetails(
+                                    com.confused.anikuta.core.content.ContentDetails(mainId = mainId),
+                                )
+                            }
+                            contentRepository.updateExtensionAxis(
+                                (existingExt ?: com.confused.anikuta.core.content.ContentDetails(mainId = mainId)).copy(
+                                    extThumbnailUrl = enriched.coverUrl ?: existingExt?.extThumbnailUrl,
+                                    extDescription = enriched.description ?: existingExt?.extDescription,
+                                    extUpdatedAt = System.currentTimeMillis(),
+                                ),
+                            )
+                        }
                     }
                     Logger.i(TAG) { "D.3 Stage 2: Refreshed extension metadata" }
                 } catch (e: Exception) {

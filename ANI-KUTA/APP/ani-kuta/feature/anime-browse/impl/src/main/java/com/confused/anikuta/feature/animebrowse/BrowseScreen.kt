@@ -84,6 +84,10 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun BrowseScreen(
     onNavigate: (NavKey) -> Unit,
+    // D-248: direct-to-player launch for continue-watching cards (same experience as
+    // the Video Caching tap-to-play) — resolves the episode + opens the Watch screen
+    // with resume position; the caller falls back to the Details page when null.
+    onPlayContinueWatching: ((ContinueWatchingItem) -> Unit)? = null,
     viewModel: BrowseViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -135,10 +139,16 @@ fun BrowseScreen(
 
             // Phase 3: Continue Watching carousel (TEMPORARY — easy to remove later).
             // Single horizontal row at the top of Browse. Shows cover thumbnail,
-            // title, episode number, and a progress bar. Tapping navigates to Details
-            // (the WP-B3 resume feature handles seeking to the saved position on play).
+            // title, episode number, and a progress bar. D-248: tapping launches the
+            // player DIRECTLY (same server auto-pick + resume as the episode-switch
+            // path) via onPlayContinueWatching; falls back to Details when the
+            // resolver can't build a playable key.
             if (continueWatching.isNotEmpty()) {
-                ContinueWatchingCarousel(items = continueWatching, onNavigate = onNavigate)
+                ContinueWatchingCarousel(
+                    items = continueWatching,
+                    onNavigate = onNavigate,
+                    onPlay = onPlayContinueWatching,
+                )
             }
 
             PullToRefreshBox(
@@ -290,6 +300,8 @@ private fun ErrorScreen(message: String, onRetry: () -> Unit) {
 private fun ContinueWatchingCarousel(
     items: List<ContinueWatchingItem>,
     onNavigate: (NavKey) -> Unit,
+    // D-248: direct-to-player launch (null = legacy Details navigation).
+    onPlay: ((ContinueWatchingItem) -> Unit)? = null,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -297,9 +309,13 @@ private fun ContinueWatchingCarousel(
     ) {
         items(items, key = { "${it.mainId}|${it.episodeNumber}" }) { item ->
             ContinueWatchingCard(item = item, onClick = {
-                // Phase 3: pass autoPlayEpisode so Details auto-triggers the episode click
-                // → Phase 2 auto-resolve → opens the player directly.
-                if (item.anilistId != null) {
+                // D-248: launch the player DIRECTLY (Video-Caching tap-to-play
+                // experience): same source/server auto-pick as the watch screen's
+                // episode-switch path + startPosition resume. MainActivity falls
+                // back to this Details route when the resolve fails.
+                if (onPlay != null) {
+                    onPlay(item)
+                } else if (item.anilistId != null) {
                     onNavigate(AnimeDetailsKey.AniList(item.anilistId, autoPlayEpisode = item.episodeNumber))
                 } else if (item.sourceId > 0 && item.animeUrl.isNotBlank()) {
                     onNavigate(AnimeDetailsKey.Extension(item.sourceId, item.animeUrl, item.title, null, autoPlayEpisode = item.episodeNumber))

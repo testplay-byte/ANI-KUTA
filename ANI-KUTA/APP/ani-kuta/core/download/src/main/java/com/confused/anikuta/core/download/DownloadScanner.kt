@@ -6,6 +6,8 @@ import com.confused.anikuta.core.content.ContentRecord
 import com.confused.anikuta.core.content.ContentDetails
 import com.confused.anikuta.core.content.ContentRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 
@@ -43,12 +45,26 @@ class DownloadScanner(
 ) {
 
     /**
+     * D-248: scans can be triggered concurrently (app startup + folder-URI change
+     * observer + setDownloadFolder's explicit rescan). The scanner does read-modify-
+     * write on .data.json (replaceEpisodesInDataJson) — interleaved runs clobber
+     * each other's writes. Serialized with a mutex; a second concurrent call waits.
+     */
+    private val scanMutex = Mutex()
+
+    /**
      * Runs the scan-on-startup reconciliation.
      *
      * @return A [ScanReport] with counts of discovered content, registered episodes,
      *   and cleaned-up orphans.
      */
     suspend fun scan(): ScanReport = withContext(Dispatchers.IO) {
+        scanMutex.withLock {
+            scanLocked()
+        }
+    }
+
+    private suspend fun scanLocked(): ScanReport = withContext(Dispatchers.IO) {
         val root = storage.getRootFolder() ?: return@withContext ScanReport.EMPTY
         val now = System.currentTimeMillis()
 
@@ -235,6 +251,16 @@ class DownloadScanner(
                 // I/O on every startup). The compare is by episodeKey set + each
                 // entry's key fields (videoUri + subtitleUris change after reinstall
                 // because the SAF URI changes).
+                //
+                // D-248 ANTI-SHRINK GUARD (user-reported: "downloads disappear from
+                // the app even though they are there in the files"): a rebuilt list
+                // SMALLER than the durable .data.json list means the file walk missed
+                // files (SAF latency, transient listing failure) — NOT that the
+                // episodes were deleted (deletions go through deleteDownloadedEpisode
+                // which updates .data.json itself). In that case: keep the durable
+                // list, don't replace .data.json, and protect ALL existing keys from
+                // orphan cleanup this pass so rows + the durable list self-heal on
+                // the next healthy scan.
                 val existingKeyed = dataJson.episodes.sortedBy { it.episodeKey }
                 val rebuiltKeyed = rebuiltEpisodes.sortedBy { it.episodeKey }
                 val listsDiffer = existingKeyed.size != rebuiltKeyed.size ||
@@ -247,11 +273,21 @@ class DownloadScanner(
                             a.episodeDescription != b.episodeDescription
                     }
                 if (listsDiffer) {
-                    DownloadLogger.i {
-                        "scan — updating ${contentDir.name} .data.json episodes list: " +
-                            "${dataJson.episodes.size} → ${rebuiltEpisodes.size} episode(s)"
+                    if (rebuiltEpisodes.size < dataJson.episodes.size) {
+                        // SUSPECTED TRANSIENT WALK FAILURE — protect everything.
+                        DownloadLogger.w {
+                            "scan — ${contentDir.name}: walk found ${rebuiltEpisodes.size} " +
+                                "file(s) but .data.json lists ${dataJson.episodes.size} — " +
+                                "keeping durable list + protecting rows (transient SAF glitch?)"
+                        }
+                        dataJson.episodes.forEach { scannedEpisodeKeys.add(dataJson.mainId to it.episodeKey) }
+                    } else {
+                        DownloadLogger.i {
+                            "scan — updating ${contentDir.name} .data.json episodes list: " +
+                                "${dataJson.episodes.size} → ${rebuiltEpisodes.size} episode(s)"
+                        }
+                        storage.replaceEpisodesInDataJson(contentDir, rebuiltEpisodes)
                     }
-                    storage.replaceEpisodesInDataJson(contentDir, rebuiltEpisodes)
                 }
             }
         }
@@ -263,12 +299,20 @@ class DownloadScanner(
         // SAF folder is temporarily inaccessible (permissions revoked, SD card
         // unmounted, etc.). The episodes will be re-verified on the next
         // successful scan.
+        // D-248: also skip cleanup when ANY folder was unreadable this pass — a
+        // partially-failing walk must never delete the rows of the folders it
+        // failed to read (they'd look like "missing" but are simply unscanned).
         var orphansCleaned = 0
         val allDbEpisodes = store.getDownloadedEpisodes()
         if (contentCount == 0 && allDbEpisodes.isNotEmpty()) {
             DownloadLogger.w {
                 "scan: 0 content folders found but ${allDbEpisodes.size} DB episodes exist — " +
                     "SKIPPING orphan cleanup (SAF folder may be inaccessible)"
+            }
+        } else if (skippedUnreadable > 0 && allDbEpisodes.isNotEmpty()) {
+            DownloadLogger.w {
+                "scan: $skippedUnreadable unreadable folder(s) — SKIPPING orphan cleanup " +
+                    "this pass (partial walk must not delete unscanned rows; re-runs on next scan)"
             }
         } else {
             for (ep in allDbEpisodes) {
@@ -376,18 +420,33 @@ class DownloadScanner(
      */
     private fun upsertAniListDetail(data: ContentDataJson) {
         val now = System.currentTimeMillis()
-        val detail = ContentDetails(
-            mainId = data.mainId,
-            dataSourceType = if (data.anilistId != null) "anilist" else null,
-            dataSourceRefId = data.anilistId?.toString(),
-            dataUpdatedAt = now,
-        )
-        // D-242: ensure the content_details row exists before the partial UPDATE.
-        if (contentRepository.getContentDetails(data.mainId) == null) {
+        // D-248 FIX (user-reported: library covers vanish after every app restart):
+        // the OLD code passed a bare ContentDetails(mainId, axis fields only) to
+        // updateDataSourceAxis — which overwrites the ENTIRE data_* axis, nulling
+        // data_cover_url / score / synopsis / episodes on EVERY scan (every launch),
+        // then reconcileDataJsonFromContent wrote the wiped state back to .data.json.
+        // Now: start from the EXISTING row (copy preserves everything), update ONLY
+        // the axis identity + timestamp; seed dataCoverUrl from .data.json when the
+        // row is fresh.
+        val existing = contentRepository.getContentDetails(data.mainId)
+        val detail = if (existing != null) {
+            existing.copy(
+                dataSourceType = if (data.anilistId != null) "anilist" else existing.dataSourceType,
+                dataSourceRefId = data.anilistId?.toString() ?: existing.dataSourceRefId,
+                dataUpdatedAt = now,
+            )
+        } else {
             DownloadLogger.i {
                 "upsertAniListDetail — creating missing content_details row for mainId=${data.mainId}"
             }
             contentRepository.upsertContentDetails(ContentDetails(mainId = data.mainId))
+            ContentDetails(
+                mainId = data.mainId,
+                dataSourceType = if (data.anilistId != null) "anilist" else null,
+                dataSourceRefId = data.anilistId?.toString(),
+                dataUpdatedAt = now,
+                dataCoverUrl = data.coverUrl?.takeIf { it.isNotBlank() },
+            )
         }
         contentRepository.updateDataSourceAxis(detail)
     }

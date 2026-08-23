@@ -271,7 +271,9 @@ class LibraryViewModel(
                             sourceId = content.extensionId,
                             animeUrl = content.animeUrl,
                             title = content.title,
-                            coverUrl = details.dataCoverUrl,
+                            // D-248: two-way cover fallback — AniList cover first,
+                            // extension cover when AniList's is missing/null.
+                            coverUrl = details.dataCoverUrl ?: details.extThumbnailUrl,
                             averageScore = details.dataScore?.toInt(),
                             episodes = details.dataEpisodes?.toInt(),
                             seasonYear = details.dataSeasonYear?.toInt(),
@@ -336,7 +338,8 @@ class LibraryViewModel(
                                 sourceId = content.extensionId,
                                 animeUrl = content.animeUrl,
                                 title = content.title,
-                                coverUrl = details.dataCoverUrl,
+                                // D-248: two-way cover fallback — AniList first, extension when missing.
+                                coverUrl = details.dataCoverUrl ?: details.extThumbnailUrl,
                                 averageScore = details.dataScore?.toInt(),
                                 episodes = details.dataEpisodes?.toInt(),
                                 seasonYear = details.dataSeasonYear?.toInt(),
@@ -350,7 +353,9 @@ class LibraryViewModel(
                         LibraryEntry.fromExtension(
                             mainId = mainId,
                             title = content.title,
-                            coverUrl = details?.extThumbnailUrl,
+                            // D-248: two-way cover fallback — extension cover first,
+                            // AniList cover when the extension's is missing/null.
+                            coverUrl = details?.extThumbnailUrl ?: details?.dataCoverUrl,
                             sourceId = content.extensionId ?: details?.sourceId,
                             animeUrl = content.animeUrl ?: details?.animeUrl,
                         ),
@@ -409,7 +414,8 @@ class LibraryViewModel(
                                 sourceId = content.extensionId,
                                 animeUrl = content.animeUrl,
                                 title = content.title,
-                                coverUrl = details.dataCoverUrl,
+                                // D-248: two-way cover fallback — AniList first, extension when missing.
+                                coverUrl = details.dataCoverUrl ?: details.extThumbnailUrl,
                                 averageScore = details.dataScore?.toInt(),
                                 episodes = details.dataEpisodes?.toInt(),
                                 seasonYear = details.dataSeasonYear?.toInt(),
@@ -422,7 +428,8 @@ class LibraryViewModel(
                             LibraryEntry.fromExtension(
                                 mainId = mainId,
                                 title = content.title,
-                                coverUrl = details.extThumbnailUrl,
+                                // D-248: two-way cover fallback for extension-only rows too.
+                                coverUrl = details.extThumbnailUrl ?: details.dataCoverUrl,
                                 sourceId = content.extensionId ?: details.sourceId,
                                 animeUrl = content.animeUrl ?: details.animeUrl,
                             ),
@@ -438,6 +445,8 @@ class LibraryViewModel(
                             LibraryEntry.fromExtension(
                                 mainId = mainId,
                                 title = content.title,
+                                // D-248: no details row at all — null stays, but this path
+                                // is now rarer because both axes fall back to each other above.
                                 coverUrl = null,
                                 sourceId = content.extensionId,
                                 animeUrl = content.animeUrl,
