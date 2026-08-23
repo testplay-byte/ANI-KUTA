@@ -271,3 +271,38 @@ Both fetchers are Koin singles in `DownloadModule`. **Zero changes** to Download
 - ffmpeg remux of HLS output (output format intentionally unchanged).
 - Per-worker-count UI for playback cache; cache over-metered-network toggles.
 - Dashboard data updates (deferred to merge-time truth sweep).
+
+---
+
+## SESSION 2 ADDENDUM — The "registered but not cached" fix + enhancements (2026-08-23)
+
+### User report
+Episode appeared in the Video Caching settings list after playback, but `cached_bytes` stayed ~0 — "the episode itself was not cached at all". New requests: tap-to-play from the list (same server/quality/resolution, resume from where left), background loading of the rest while playing, comprehensive logging + logcat filters.
+
+### Root causes (3 — all fixed)
+1. **Redirect-on-unknown-length (the killer).** When `contentLength` was unknown — extension localhost proxies commonly answer `200` with no `Content-Length` — `serve()` redirected MPV straight to the upstream URL. Playback worked (the fail-open did its job) but **zero bytes were cached**. The separate `Range: bytes=0-0` probe made this the DEFAULT path for many sources: it either failed outright, or got a 200-without-length and left the total unknown.
+2. **HLS segment bypass.** For `.m3u8` URLs only the tiny PLAYLIST went through the proxy — MPV's HLS demuxer then fetched the actual segments (absolute CDN URLs inside the playlist) directly. The entry registered with a few KB "cached" and the video never touched the cache.
+3. *(Contributing)* the probe consumed an upstream request before every first serve — some proxy tokens are single-use / rate-limited.
+
+### Fixes
+- **Learn-mode serving** (replaces the probe): when the total is unknown, the client's Range header is mirrored upstream VERBATIM; the total/range-support/Content-Type are learned from the actual serving response (206 Content-Range / 200 Content-Length). If even then no length exists: **chunked passthrough that still tees**; total learned on EOF. Redirects are now reserved for genuine pre-body internal errors (always logged with the reason).
+- **HLS playlist rewriting**: the proxy rewrites master-playlist variant URIs → `/p/<key>/<i>` (so MPV still selects quality itself — "exact same quality" preserved) and media-playlist segment URIs + `EXT-X-MAP` init → `/s/<key>/<i|init>`. Segments cache as individual files under `<key>.seg/` named `seg_<i>_<urlHash8>.ts` (playlist-drift safe; stale files for a changed URL at the same index are replaced). `EXT-X-BYTERANGE` playlists bypass caching (logged — URL-identity doesn't hold); live playlists (no `EXT-X-ENDLIST`) play but don't background-fill. `#EXT-X-KEY` URIs are left untouched (MPV fetches keys itself — they're small + usually stable).
+
+### New features
+- **Background fill** ("while it is playing in the background, everything else of it will start to load"): a per-entry fill job (on the playbackCacheScope) fetches remaining gaps (progressive: 8 MB blocks, skipping the player's ±32 MB read frontier to avoid duplicating the player's own in-flight fetch) or missing segments (HLS: in order, VOD only) until the entry is complete. Bounded retries (3 × 5 s backoff), cancels on delete/evict/disable. Segment stats are recounted from disk after every fetch (self-heals serve/fill races).
+- **Tap-to-play**: schema +4 columns (`segment_total`, `segments_cached`, `subtitle_tracks`, `audio_tracks` — ALTER-guarded for existing installs); WatchScreen passes the current video's external track lists through `playbackUrlFor`; the settings screen rows are clickable → MainActivity builds a full `WatchKey` from the entry (upstream URL + headers + tracks; episode list/registry intentionally empty — episode switching from a cache-origin launch opens Details instead) → WP-B3 resume-from-watch-progress applies. Same server/quality/resolution is guaranteed by the cache identity itself.
+
+### CR-C review round (compile probe vs real jars — EXIT 0) caught pre-push
+- **Critical**: `response.use { return ... }` in learn-mode closed the upstream body before NanoHTTPD's worker read it (dead stream on every learn-mode serve) — restructured to manual close on non-streaming exits, TeeInputStream owns the body on streaming paths.
+- **High**: `segmentsCached += 1` race between proxy workers + fill → recount-from-disk instead.
+- Variant-playlist relative-URI base fixed to the VARIANT url; `body!!` removed; TOCTOU on `contentLength` removed.
+
+### Logging (logcat filter)
+Tag `Anikuta:Core:PlaybackCache`, short key prefix on every line. Stages: `play` (URL wrap decision), `serve` (request + cached state), `learn` (total discovery), `parts` (disk/gap plan), `gap`/`tee` (fetch + cached progress, 4 MB-throttled), `flush`/`complete`, `hls` (playlist parse/rewrite), `seg` (per-segment cache hit/miss), `fill` (background progress), `evict`/`delete`, `fail-open` (redirect reasons). Android Studio filter:
+```
+tag:Anikuta:Core:PlaybackCache
+```
+Wider (player-side too):
+```
+tag:Anikuta:Core:PlaybackCache | tag:Anikuta:Feature:Watch message~:(?i)(cache|proxy|loadfile|MPV LOAD|resum|FILE_LOADED)
+```

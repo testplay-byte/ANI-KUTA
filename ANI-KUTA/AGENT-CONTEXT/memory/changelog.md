@@ -1233,3 +1233,20 @@ Fixed all 14 issues identified in the audit + re-verification:
 - NOT merged to main — awaiting user device verification (test checklist delivered in the session summary).
 - Docs: PLAN.md, D-243/D-244 (decisions.md), database/playback-cache.md + database/README.md (§24 folder created), progress.md + this changelog. Dashboard intentionally untouched (deploys from main; truth-sweep at merge time).
 - CI trigger note: build-apk.yml has `test-feature/**` added on the BRANCH ONLY — remove before merging to main.
+
+---
+
+## Session — Video caching session-2: fix "registered but not cached" + tap-to-play + background fill (2026-08-23, on `test-feature/video-cache-new-download`)
+
+### What was done
+- **User device feedback (the feedback loop working as designed)**: episodes appeared in the Video Caching settings but `cached_bytes` stayed ~0. Requested: make caching actually work; tap-to-play from the list (same server/quality/resolution, resume from where left); background loading of the rest while playing; comprehensive logging + logcat filters.
+- **Root-cause analysis (no blind guessing)**: (1) unknown-Content-Length → the session-1 code redirected MPV straight to upstream — playback fine, ZERO caching (the separate 0-1 probe made this the default path for extension proxies); (2) HLS entries only proxied the tiny playlist — the actual segments bypassed the cache entirely; (3) the probe burned an upstream request per first serve.
+- **Fixes (D-245)**: learn-mode serving (mirror the client's Range upstream; learn total from the response; chunked-with-tee when unknown — the redirect is now ONLY for true pre-body errors, always logged); the probe is removed; HLS playlist REWRITING (master variants → /p/, segments + init → /s/; per-segment cache files, URL-hash named; BYTERANGE bypasses, live playlists don't fill).
+- **New features**: background fill (progressive gaps in 8 MB blocks, player-frontier-aware; HLS segments in order, VOD only; race-safe disk-recounted stats); tap-to-play (4 new schema columns incl. stored subtitle/audio track lists; clickable settings rows → full WatchKey → WP-B3 resume).
+- **CR-C compile review (compile probe against the real dependency jars — EXIT 0) caught 2 runtime bugs pre-push**: `response.use{}` closing the streaming body before NanoHTTPD read it (critical — would have broken every learn-mode serve); HLS segment-stat races (fixed with disk recounts). Also: variant-playlist relative-URI base, `!!` removal, TOCTOU cleanup.
+- **Logging**: every decision point in the cache now logs (tag `Anikuta:Core:PlaybackCache`): play/serve/learn/parts/gap/tee (4 MB-throttled)/flush/complete/hls/seg/fill/evict/delete/fail-open — each with a short key prefix for correlation.
+
+### Status
+- Branch: `test-feature/video-cache-new-download` (commit 23a93c8b + docs commit). CI: see progress.md.
+- NOT merged to main — awaiting user device verification with the new logging in place.
+- Docs: PLAN.md Session-2 addendum, D-245 (decisions.md), database/playback-cache.md updated (new columns + segment model), progress.md + this entry.

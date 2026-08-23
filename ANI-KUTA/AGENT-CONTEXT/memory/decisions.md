@@ -1712,3 +1712,15 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Plan:** `APP/ani-kuta/DOCUMENTATION/planning/video-cache-parallel-downloads/PLAN.md` (Part B); compile review CR-B (compiler-verified: 4 compile errors + a Semaphore double-release runtime crash + probe-outside-re-resolve + sidecar cleanup — all fixed pre-push).
 - **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 5cedad58). Awaiting CI + user device verification — NOT merged to main.
 - **Date:** Video caching + parallel download session.
+
+---
+
+### D-245 — Video caching session-2: always-cache serving, HLS playlist rewriting, background fill, tap-to-play
+- **What:** Fixed the user-reported "episode registered but never cached" defect + delivered the two requested enhancements, on `test-feature/video-cache-new-download` (commit 23a93c8b).
+- **Root causes (all fixed):** (1) unknown-Content-Length → 301 redirect upstream = playback OK but zero caching — replaced by learn-mode serving (mirror the client's Range upstream, learn the total from the response; chunked-with-tee when even then unknown; the separate 0-1 probe is GONE); (2) HLS playlists only proxied the playlist text — segments (absolute URLs) bypassed the cache — the proxy now REWRITES playlists (variants → /p/&lt;key&gt;/&lt;i&gt;, segments + EXT-X-MAP → /s/&lt;key&gt;/&lt;i|init&gt;) and caches per-segment files (URL-hash named, drift-safe; BYTERANGE playlists bypass, logged; live playlists don't fill).
+- **Background fill:** per-entry job fetches remaining gaps (progressive, 8 MB blocks, player-frontier-aware ±32 MB) or segments (HLS VOD) until complete — "while it is playing, everything else loads". Segment stats recounted from disk (race-safe).
+- **Tap-to-play:** entries now carry subtitle/audio track lists (4 new ALTER-guarded columns) — settings rows are clickable → full WatchKey rebuilt → same server/quality/resolution (cache identity guarantees it) + WP-B3 resume from watch progress. Known v1 limits: no episode switching from cache-origin launches; a dead stored upstream URL fails like any dead link (reopen from Details to refresh).
+- **CR-C compile probe (real jars, EXIT 0) caught pre-push:** response.use{} closing the streaming body early (critical — dead stream on learn-mode serves); segment-stat races; variant-base-URL resolution.
+- **Logging:** every decision point logs under `Anikuta:Core:PlaybackCache` (play/serve/learn/parts/gap/tee/flush/complete/hls/seg/fill/evict/delete/fail-open) — user-debuggable via `tag:Anikuta:Core:PlaybackCache` in Android Studio.
+- **Status:** ✅ Implemented on the branch; CI pending at doc time (see progress.md). NOT merged to main.
+- **Date:** Video caching session-2.
