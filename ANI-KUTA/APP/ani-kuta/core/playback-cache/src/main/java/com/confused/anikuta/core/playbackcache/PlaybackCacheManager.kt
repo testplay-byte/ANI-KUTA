@@ -825,9 +825,15 @@ class PlaybackCacheManager(
         // D-247 window gate: only segments at/below the window's end index are CACHED
         // on fetch. Far-ahead read-ahead (MPV prefetching the whole episode) is served
         // WITHOUT writing — that was the over-caching vector.
+        //
+        // Pre-playback fallback (verified on emulator: MPV read-ahead cached 43MB
+        // before FILE_LOADED under slow decode): while the window is unknown (no
+        // progress yet), cache is bounded by a byte budget instead of unbounded.
         val windowEndIdx = hlsWindowRange(state)?.last
-        val cacheThis = segmentId == "init" || windowEndIdx == null ||
-            (segmentId.toIntOrNull() ?: -1) <= windowEndIdx
+        val cacheThis = segmentId == "init" || when {
+            windowEndIdx != null -> (segmentId.toIntOrNull() ?: -1) <= windowEndIdx
+            else -> state.segmentBytes < TEE_FALLBACK_AHEAD_BYTES
+        }
         if (!file.exists()) {
             // A stale file for the same index but a different URL (playlist drift) is garbage — remove it.
             // NOTE: the trailing '_' avoids prefix collisions (seg_5 vs seg_50).
