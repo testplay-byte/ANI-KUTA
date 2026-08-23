@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -54,6 +55,7 @@ fun SettingsScreen(
     onOpenAutoLink: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
+    onOpenVideoCaching: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -126,6 +128,14 @@ fun SettingsScreen(
                             title = "Player",
                             subtitle = "Auto-select video, playback preferences",
                             onClick = onOpenPlayerSettings,
+                        )
+                        // Video caching (test-feature branch): cache streamed episodes
+                        // locally for instant replays.
+                        SettingsNavRow(
+                            icon = Icons.Filled.VideoLibrary,
+                            title = "Video caching",
+                            subtitle = "Cache streamed episodes for instant replay",
+                            onClick = onOpenVideoCaching,
                         )
                     }
 

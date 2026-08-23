@@ -84,6 +84,9 @@ import com.confused.anikuta.core.player.PlayerMode
 import com.confused.anikuta.core.player.PlayerObserver
 import com.confused.anikuta.core.player.PlayerStateHolder
 import com.confused.anikuta.core.player.controls.EpisodeSwitchingOverlay
+import com.confused.anikuta.core.playbackcache.PlaybackCacheManager
+import com.confused.anikuta.core.playbackcache.PlaybackVideoId
+import com.confused.anikuta.core.playbackcache.serverKeyFromVideoTitle
 import com.confused.anikuta.core.videoresolver.ResolverVideo
 import com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry
 import com.confused.anikuta.core.watchprogress.WatchProgress
@@ -156,6 +159,10 @@ fun WatchScreen(
     // switching, so downloaded episodes play offline (fd://) instead of trying
     // to resolve from the network source.
     val downloadManager = koinInject<com.confused.anikuta.core.download.DownloadManager>()
+    // Video caching (test-feature branch): the local HTTP cache proxy between MPV
+    // and the video URL. playbackUrlFor() is non-suspend + fail-open — any failure
+    // returns the original URL, so the cache can never break playback.
+    val playbackCacheManager = koinInject<PlaybackCacheManager>()
     val scope = rememberCoroutineScope()
 
     // DB-7: provide debug context for the Current Screen tab.
@@ -475,6 +482,32 @@ fun WatchScreen(
     var currentServerName by remember { mutableStateOf("") }
     var currentAudioVersion by remember { mutableStateOf("") }
 
+    // ── Video caching identity (test-feature branch) ──
+    // The stable cache identity for the CURRENTLY playing video. Updated at every
+    // new-video site (init / quality switch / episode switch); reused by the retry
+    // sites. CRITICAL: episode data comes from the LIVE episode state or the new
+    // episode at switch time — NEVER from the frozen watchKey (otherwise ep N+1's
+    // bytes would be filed under ep N's cache key = wrong-content replay corruption).
+    // Null (no ResolverVideo available) → caching skipped, playback goes direct.
+    var currentCacheId by remember {
+        mutableStateOf(
+            initialPickedVideo?.let { pv ->
+                buildCacheId(
+                    mainId = watchKey.mainId,
+                    animeTitle = watchKey.animeTitle,
+                    episodeNumber = watchKey.episodeNumber,
+                    episodeTitle = watchKey.episodeTitle,
+                    sourceId = watchKey.sourceId,
+                    videoTitle = pv.videoTitle,
+                )
+            }
+        )
+    }
+
+    /** Wraps a video URL through the cache proxy (fail-open — returns the original URL on any issue). */
+    fun cachedUrl(url: String, headers: String): String =
+        playbackCacheManager.playbackUrlFor(currentCacheId, url, headers)
+
     // ── Auto-retry on error (non-switching errors only) ──
     // When an error occurs (NOT during switching — switching errors are real
     // failures), auto-retry the same URL once after 1.5s. This handles
@@ -498,7 +531,7 @@ fun WatchScreen(
                 val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                     else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                 MPVLib.setOptionString("http-header-fields", headers)
-                MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+                MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
                 Logger.i(TAG) { "Auto-retry: loadfile re-sent (banner stays visible)" }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Auto-retry failed" }
@@ -627,7 +660,12 @@ fun WatchScreen(
                         }
                     }, 500)
                 } else {
-                    MPVLib.command(arrayOf("loadfile", loadUrl, "replace"))
+                    // Video caching: wrap the network URL through the cache proxy
+                    // (fail-open — original URL when caching doesn't apply). The
+                    // headers were set above (D-199) and are replicated by the proxy.
+                    val loadHeaders = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                        else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                    MPVLib.command(arrayOf("loadfile", cachedUrl(loadUrl, loadHeaders), "replace"))
                     MPVLib.setPropertyBoolean("pause", false)
                     Logger.i(TAG) { "loadfile command sent. Waiting for FILE_LOADED event..." }
                 }
@@ -740,7 +778,7 @@ fun WatchScreen(
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             MPVLib.setOptionString("http-header-fields", headers)
-            MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+            MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Retry failed" }
             // Use setSwitchingError so the error is ALWAYS shown (not suppressed
@@ -773,12 +811,21 @@ fun WatchScreen(
         }
         // Set switching flag so efEvent from old file doesn't show a spurious error.
         stateHolder.setSwitching(true)
+        // Video caching: new identity for the new video (live episode state — NOT the frozen watchKey).
+        currentCacheId = buildCacheId(
+            mainId = watchKey.mainId,
+            animeTitle = watchKey.animeTitle,
+            episodeNumber = stateHolder.currentEpisodeNumber.value,
+            episodeTitle = stateHolder.currentEpisodeTitle.value,
+            sourceId = watchKey.sourceId,
+            videoTitle = video.videoTitle,
+        )
         try {
             // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
             MPVLib.setOptionString("http-header-fields", headers)
-            MPVLib.command(arrayOf("loadfile", video.url, "replace"))
+            MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to switch quality" }
             stateHolder.setSwitchingError("Failed to switch: ${e.message}")
@@ -851,6 +898,8 @@ fun WatchScreen(
         if (offlineUri != null) {
             // ── Offline playback path (downloaded episode) ──
             Logger.i(TAG) { "Episode switch — episode is DOWNLOADED, playing offline (fd://)" }
+            // Video caching: offline playback never goes through the proxy.
+            currentCacheId = null
             stateHolder.setSwitching(true)
             stateHolder.setSwitchingEpisode(true)
             stateHolder.updateCurrentEpisode(
@@ -998,6 +1047,16 @@ fun WatchScreen(
                                         }
                                     }
 
+                                    // Video caching: new identity for the new episode's video.
+                                    currentCacheId = buildCacheId(
+                                        mainId = watchKey.mainId,
+                                        animeTitle = watchKey.animeTitle,
+                                        episodeNumber = ep.episodeNumber,
+                                        episodeTitle = ep.name,
+                                        sourceId = watchKey.sourceId,
+                                        videoTitle = pickedResolverVideo?.videoTitle ?: "",
+                                    )
+
                                     // Set headers + loadfile.
                                     // CRITICAL: For localhost proxy URLs (AniKotoS),
                                     // do NOT set upstream headers (Referer, Origin, etc.).
@@ -1005,7 +1064,7 @@ fun WatchScreen(
                                     val headers = if (video.headers.isNotBlank()) video.headers
                                         else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                                     MPVLib.setOptionString("http-header-fields", headers)
-                                    MPVLib.command(arrayOf("loadfile", video.url, "replace"))
+                                    MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
                                     Logger.i(TAG) { "Episode switch — loadfile sent for ${video.url.take(80)}" }
                                 } else {
                                     stateHolder.setSwitchingError("No videos found for this episode")
@@ -1980,6 +2039,40 @@ private fun buildEpisodeKey(mainId: String, episodeNumber: Float): String {
         return "unknown|${String.format("%05d", episodeNumber.toInt())}"
     }
     return "$mainId|${String.format("%05d", episodeNumber.toInt())}"
+}
+
+/**
+ * Builds the video-caching identity for the currently playing video.
+ *
+ * Video caching (test-feature branch): the cache key must be STABLE across sessions
+ * for the same server+audio+quality pick — extension localhost proxy URLs change
+ * every resolve (D-066), so identity comes from mainId + episodeNumber + sourceId +
+ * the ResolverVideo.videoTitle's "server|audio|quality" prefix (videoTitle is the
+ * codebase's documented stable-identity string — see ResolverTypes.kt).
+ *
+ * Returns null when a stable identity can't be derived (no videoTitle / blank
+ * mainId) → caching is skipped for that playback (fail-open, play direct).
+ */
+private fun buildCacheId(
+    mainId: String,
+    animeTitle: String,
+    episodeNumber: Float,
+    episodeTitle: String,
+    sourceId: Long,
+    videoTitle: String,
+): PlaybackVideoId? {
+    if (mainId.isBlank()) return null
+    val serverKey = serverKeyFromVideoTitle(videoTitle)
+    if (serverKey.isBlank()) return null
+    return PlaybackVideoId(
+        mainId = mainId,
+        animeTitle = animeTitle,
+        episodeNumber = episodeNumber,
+        episodeTitle = episodeTitle,
+        sourceId = sourceId,
+        serverKey = serverKey,
+        quality = serverKey.substringAfterLast('|'),
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════════════

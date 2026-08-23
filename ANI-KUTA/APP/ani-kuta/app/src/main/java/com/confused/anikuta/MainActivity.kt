@@ -93,6 +93,7 @@ import com.confused.anikuta.settings.UpdatesSettingsScreen
 import com.confused.anikuta.settings.PlayerSettingsScreen
 import com.confused.anikuta.settings.NotificationsSettingsScreen
 import com.confused.anikuta.settings.NotificationsLibraryScreen
+import com.confused.anikuta.settings.VideoCachingScreen
 import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
 import com.confused.anikuta.updates.UpdateBottomSheet
@@ -250,6 +251,10 @@ object EpisodeSettingsKey : NavKey
 @Serializable
 object PlayerSettingsKey : NavKey
 
+// Video caching settings (test-feature/video-cache-new-download branch).
+@Serializable
+object VideoCachingKey : NavKey
+
 // About & Updates screen — hosts the app-update UI (version, auto-check toggle,
 // manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
 // from AppRoot (below) gated on AppUpdateManager.shouldShowUpdateSheet.
@@ -305,6 +310,7 @@ private val allowedUpdateSheetKeys = setOf(
     DetailsPageSettingsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
+    VideoCachingKey::class,
     ProfileKey::class,
     com.confused.anikuta.feature.updates.UpdatesKey::class,
     com.confused.anikuta.feature.animehistory.HistoryKey::class,
@@ -672,6 +678,7 @@ fun AppRoot() {
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
+                onOpenVideoCaching = { backstack.add(VideoCachingKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
                 onBack = pop,
             )
@@ -751,6 +758,9 @@ fun AppRoot() {
                 onBack = pop,
             )
             is PlayerSettingsKey -> PlayerSettingsScreen(
+                onBack = pop,
+            )
+            is VideoCachingKey -> VideoCachingScreen(
                 onBack = pop,
             )
             is ProfileKey -> com.confused.anikuta.profile.ProfileScreen(

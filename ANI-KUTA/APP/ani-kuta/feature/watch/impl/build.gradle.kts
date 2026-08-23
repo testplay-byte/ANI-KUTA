@@ -19,6 +19,7 @@ dependencies {
     implementation(project(":core:watch-progress"))
     implementation(project(":core:ratings"))  // Phase 4: per-episode rating UI
     implementation(project(":core:download"))
+    implementation(project(":core:playback-cache"))  // Video caching (test-feature branch)
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
     implementation(project(":data:extension"))
     implementation(project(":core:source-api"))

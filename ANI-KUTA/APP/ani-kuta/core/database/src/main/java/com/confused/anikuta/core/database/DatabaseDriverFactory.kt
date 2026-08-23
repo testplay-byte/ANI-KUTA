@@ -277,6 +277,14 @@ class DatabaseDriverFactory(private val context: Context) {
                     if (!hasColumn(db, "content_details", "cover_accent_argb")) {
                         db.execSQL("ALTER TABLE content_details ADD COLUMN cover_accent_argb INTEGER")
                     }
+
+                    // ── Video caching: create playback_cache_entry table if it doesn't exist ──
+                    // (test-feature/video-cache-new-download branch.) Existing installs
+                    // need this guard — the settings screen's reactive Flows query the
+                    // table directly and would crash with "no such table" without it.
+                    if (!hasColumn(db, "playback_cache_entry", "cache_key")) {
+                        onCreate(db)
+                    }
                 }
 
                 /**

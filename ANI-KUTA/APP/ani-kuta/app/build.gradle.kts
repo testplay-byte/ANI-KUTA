@@ -54,6 +54,7 @@ dependencies {
     implementation(project(":core:smart-matcher"))
     implementation(project(":core:content"))
     implementation(project(":core:data-cache"))
+    implementation(project(":core:playback-cache"))  // Video caching (test-feature branch)
 
     // Data modules
     implementation(project(":data:extension"))
