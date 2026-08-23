@@ -136,9 +136,11 @@ repo-root/
   4. Cross-reference against the Animiru documentation (in `REFERENCES/animiru/documentation/`).
   5. Push to CI and read the failure annotations from the GitHub API (`/repos/{owner}/{repo}/check-runs/{id}/annotations`).
   6. Iterate: fix → push → read CI annotations → fix again. This is the ONLY loop.
-- **ONLY** `arm64-v8a` + `armeabi-v7a` ABIs. No x86/x86_64.
+- **ONLY** `arm64-v8a` + `armeabi-v7a` ABIs in SHIPPED APKs. No x86/x86_64.
   - Set in `build-logic/.../AndroidConfig.kt` (`abiFilters`), applied via the `anikuta.android.application` convention plugin.
-  - Verified post-build in CI (the `build-apk.yml` "Verify ABIs" step inspects every APK's `lib/` folder and fails on any forbidden `lib/<abi>/`).
+  - Verified post-build in CI (the `build-apk.yml` "Verify ABIs" step inspects the SHIPPED APK's `lib/` folder and fails on any forbidden `lib/<abi>/`).
+- **EXCEPTION (user-authorized, D-246): TEST-ONLY x86_64 emulator builds.** The user explicitly authorized additional x86 APK versions for the agent's own emulator test environment. CI additionally produces `app-debug-x86_64-emulator.apk` (via `-PemulatorX64Build=true`, verified to contain ONLY x86_64) as a SEPARATE artifact for sandbox emulator testing — the SHIPPED `app-debug.apk` stays arm-only. This exception does NOT extend to release builds.
+- **Sandbox emulator tooling (user-authorized, D-246):** the agent MAY install the Android SDK command-line tools + platform-tools + emulator + system images in the sandbox to RUN and INSPECT the CI-built APK on a local AVD (x86_64 TCG, no KVM). This is an inspection/runtime-testing allowance ONLY — Gradle builds, `javac`, and Android build-tools remain FORBIDDEN locally (§8's build prohibition is unchanged: the APK always comes from CI).
 - App ID: `com.confused.anikuta`.
 - **compileSdk = 36** (kept at 36 for Compose BOM 2025.03.00 + future-proofing; was originally bumped for Nav3, but Nav3 was removed in D-150 — the SDK stays at 36 because reverting would touch `AndroidConfig.kt` only + provides no benefit).
 

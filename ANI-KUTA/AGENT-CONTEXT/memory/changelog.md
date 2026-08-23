@@ -1250,3 +1250,18 @@ Fixed all 14 issues identified in the audit + re-verification:
 - Branch: `test-feature/video-cache-new-download` (commit 23a93c8b + docs commit). CI: see progress.md.
 - NOT merged to main — awaiting user device verification with the new logging in place.
 - Docs: PLAN.md Session-2 addendum, D-245 (decisions.md), database/playback-cache.md updated (new columns + segment model), progress.md + this entry.
+
+---
+
+## Session — Download network resilience + cache identity persistence + sandbox emulator test environment (2026-08-23, on `test-feature/video-cache-new-download`)
+
+### What was done
+- User device feedback: downloads break on Wi-Fi loss with no auto-restart; downloaded > total display bug; cached videos still load from network; + install an Android emulator in the agent sandbox (user authorized x86 builds + emulator tooling).
+- **D-246 (commit 512279ee, CI green)**: network-loss auto-pause → connectivity-return AUTO-RESUME (the resume existed in name only: PAUSED tasks were invisible to tryStartNext + the service stopped itself, killing the NetworkCallback); offline transport errors → PAUSED instead of retry-burn; CallRegistry instant teardown; effTotal (downloaded never exceeds total); retry() clears persisted tracker state; cross-session cache-identity recovery (conservative single-entry+quality-match). CR-D compile review caught 2 pre-push bugs.
+- **Emulator-test x86_64 APK (commit cf4a8a6f, CI green)**: separate CI artifact via -PemulatorX64Build=true; shipped APK unchanged; CORE_RULES §8 amended (user-authorized exceptions).
+- **Sandbox emulator**: API 30 AOSP x86_64 AVD (720x1280, 1024MB; 4GB cgroup is the ceiling). Sandbox quirks documented (double-fork detach, timeout-wrapped adb, input-text chunking). SMOKE TEST PASSED end-to-end: install → launch → AniList browse/details → extension repo + install + trust (×2 sources) → source picker → extension search → Cloudflare WebView-bypass UI. Playback blocked by Cloudflare on the datacenter IP (documented — needs user device). Found real UX bug: FirstRunSetupDialog "Skip for now" does nothing (empty onClick).
+
+### Status
+- Branch: `test-feature/video-cache-new-download` @ cf4a8a6f+. CI green ×2 (runs 32619494659 + 32631607584).
+- NOT merged to main — awaiting user device verification.
+- Docs: D-246 (decisions.md), CORE_RULES §8 amendment, progress.md session block, this entry. Emulator env reusable by future sessions (see progress.md for the exact quirks + commands).
