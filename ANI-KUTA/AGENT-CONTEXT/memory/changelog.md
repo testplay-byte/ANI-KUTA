@@ -1294,3 +1294,19 @@ Fixed all 14 issues identified in the audit + re-verification:
 
 ### Status
 - Branch: `test-feature/video-cache-new-download` @ 1d82693d+. CI green. NOT merged — awaiting user device verification (esp. the window behavior + the v16 extension on device).
+
+---
+
+## Session — D-248 UX improvements (2026-08-23, on `test-feature/video-cache-new-download`, commits 0650135f + 4f367a81, CI green 32655570777)
+
+### What was done
+Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/R-B profile stats/R-C library covers/R-D search/R-E downloads), implemented + compiler-verified (CR-F: 4 standalone-jar probes EXIT 0), CI-caught one smart-cast error (fixed in 4f367a81):
+1. Continue Watching cards → player DIRECTLY (resolve + startPosition resume; Details fallback).
+2. Profile stats: organic-only counted set (manual marks never count; <10% never counts; recents >20%) — fixes the 2,333-episodes-in-one-day glitch (root cause: bulk AniList-sync inserts stamping last_watched_at with duration=0).
+3. Library covers: two-way fallback (5 sites) + the DownloadScanner cover-wiping root cause + Details refresh persistence (both axes, merge-with-existing).
+4. Downloads: anti-shrink guard + unreadable-folder cleanup suppression + scan mutex (the "downloads disappear but files exist" trio).
+5. Search: trending on first entry + recents as results-grid header (persist until an actual search; scroll away with content).
+6. Time DNA layout spacing.
+
+### Status
+- CI green. NOT merged — awaiting user device verification.
