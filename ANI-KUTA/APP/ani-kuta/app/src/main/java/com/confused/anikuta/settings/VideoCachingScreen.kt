@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.PlayCircleOutline
@@ -345,9 +344,8 @@ private fun buildCachedPointText(entry: PlaybackCacheStore.Entry): String {
     }
 }
 
-// ── Helpers (private copies — SliderRow is private in DownloadSettingsScreen,
-// BackAction is private in the settings screens; formatBytes has ~10 private
-// copies in the codebase already) ──
+// ── Helpers (private copies — SliderRow is private in DownloadSettingsScreen;
+// formatBytes has ~10 private copies in the codebase already) ──
 
 @Composable
 private fun SliderRow(
