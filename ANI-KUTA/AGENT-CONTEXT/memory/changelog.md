@@ -1350,3 +1350,18 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 ### Status
 - CI pending push at doc-write time. NOT merged — awaiting user device verification of the unified icon look across More → Settings → Appearance → Notifications.
 
+
+## Session — D-251 dead-wiring fixes + library display modes + release/versioning overhaul + emulator rebuild (2026-08-24, on `test-feature/video-cache-new-download`)
+
+### What was done
+- User instructed 5 items (all done): dead-imports cleanup (verify first), virtual device handled optimally, fix the dead `collapsed`/`scrollOffset` wiring, Library Comfortable "Hide Titles" toggle + Cover Only rework (square + zero-gap), and release/versioning discipline (bump +1, proper GitHub releases, fix Check-for-Updates, arm64-only APKs).
+- **Dead wiring fixed**: SourcePreferencesScreen + ExtensionRepoSettingsScreen now drive `CollapsingHeader` + `ScrollBlurOverlay` from a real `rememberLazyListState()` (canonical pattern from the ~15 working screens). SourcePreferences hoists the state into `PreferenceList`; ExtensionRepo gained the overlay it never had; the mispositioned outer-Box overlay relocated.
+- **Library**: (A) Comfortable "Hide Titles" toggle (`library_comfortable_hide_titles` pref + CustomizeSheet TwoWayButton gated on COMFORTABLE_GRID + title Text skipped in LibraryGridCard — rounded corners/spacing kept); (B) Cover Only reworked: `RectangleShape` covers (all 5 shape sites), zero grid gaps both axes, full-bleed contentPadding — edge-to-edge wall. COMPACT_GRID unaffected.
+- **77 verified-dead imports removed** across 15 files (audit sub-agent verified each; kept delegate imports + used symbols) + stale VideoCachingScreen comment fixed.
+- **Releases**: v0.2.48; arm64-v8a-only shipped APKs (armeabi-v7a dropped); NEW `release-apk.yml` (stable releases on `v*` tags, tag↔versionName guard, `ani-kuta-vX.Y.Z.apk` asset); build-apk.yml x86_64 emulator build now manual-dispatch-only.
+- **Check-for-Updates fixed**: `GitHubUpdateSource` rewritten — `/releases?per_page=30` list endpoint (prereleases visible), best-release selection (highest version, stable beats prerelease), tuple version comparison (fixes patch≥100 collision).
+- **Sandbox emulator rebuilt + verified E2E**: statvfs LD_PRELOAD shim (overlayfs disk-check bypass), `-qemu -m 1024` RAM override, `-accel off` TCG, archived emulator 35.1.19; cold boot ≈9min → home screen verified; helper `/home/z/emu/emu.sh`.
+- Docs: CORE_RULES §8 (arm64-only + release discipline), progress/decisions/changelog/lessons (3 new lessons), DESIGN-SYSTEM/04 library display-modes.
+
+### Status
+- CI pending push at doc-write time; tag `v0.2.48` + first automated release immediately after. NOT merged — awaiting user device verification of the library modes + in-app update flow.
