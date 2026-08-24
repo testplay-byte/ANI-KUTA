@@ -31,7 +31,7 @@ Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (
 - **Docs updated:** CORE_RULES §8 (arm64-only rule + release discipline), this progress entry, decisions.md D-251, changelog, lessons-learned (3 new: overlayfs statvfs-shim bypass, -qemu -m RAM override, prerelease-invisible-to-/releases/latest), DESIGN-SYSTEM/04 library display-mode section updated.
 
 ### Status
-- CI pending at doc-write time (commits + tag v0.2.48 pushed right after). NOT merged — awaiting user device verification of the library display modes + release/update flow.
+- **CI GREEN** on 44de265 (Build APK run 32765868210) after one compile fix (Kotlin's Triple is NOT Comparable — introduced a VersionTuple data class; lesson logged). **Release v0.2.48 PUBLISHED** (stable, asset `ani-kuta-v0.2.48.apk` 59MB, arm64-v8a-only — first automated release-apk.yml run, run 32766359668) with a user-facing highlights body. Update-detection verified against the real API: current=0.2.47 → UPDATE FOUND 0.2.48; 0.2.48 → up-to-date; old 0.2.36/0.2.6 users → update found. NOT merged — awaiting user device verification.
 
 **This session — Full Project Review + Dashboard Key-Findings Rebuild (2026-08-24, on `test-feature/video-cache-new-download`, commit 28410e6, deploy run 32731668048 = success):**
 - User instructed: read CORE_RULES + all AGENT-CONTEXT + codebase FIRST (no app changes), then completely rebuild the `/key-findings/` dashboard page (a.k.a. "project review") with a FRESH review reflecting the **test-feature branch state** (NOT main's). Deploy via GitHub Actions. Nothing else on the dashboard changes. Max 5 sub-agents. Do NOT read `REFERENCES/`. Work on `test-feature/video-cache-new-download`.
