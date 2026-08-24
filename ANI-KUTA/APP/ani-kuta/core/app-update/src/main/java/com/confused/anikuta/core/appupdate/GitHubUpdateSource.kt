@@ -174,24 +174,24 @@ class GitHubUpdateSource(
 
     /**
      * Parses a semantic version string ("MAJOR.MINOR.PATCH") into a comparable
-     * (major, minor, patch) triple.
+     * [VersionTuple].
      *
      * Handles pre-release suffixes (e.g., "1.0.0-beta1" → (1, 0, 0), ignoring
      * the suffix). Returns null if parsing fails.
      */
-    private fun parseVersionTuple(versionName: String): Triple<Int, Int, Int>? {
+    private fun parseVersionTuple(versionName: String): VersionTuple? {
         val cleanName = versionName.substringBefore("-").substringBefore("+").trim()
         val parts = cleanName.split(".")
         if (parts.isEmpty()) return null
         val major = parts.getOrNull(0)?.toIntOrNull() ?: return null
         val minor = parts.getOrNull(1)?.toIntOrNull() ?: return null
         val patch = parts.getOrNull(2)?.toIntOrNull() ?: return null
-        return Triple(major, minor, patch)
+        return VersionTuple(major, minor, patch)
     }
 
-    /** Packs a version triple into a single informational Long (wide multipliers). */
-    private fun versionCodeFromTuple(t: Triple<Int, Int, Int>): Long =
-        t.first.toLong() * 1_000_000L + t.second.toLong() * 10_000L + t.third.toLong()
+    /** Packs a version tuple into a single informational Long (wide multipliers). */
+    private fun versionCodeFromTuple(t: VersionTuple): Long =
+        t.major.toLong() * 1_000_000L + t.minor.toLong() * 10_000L + t.patch.toLong()
 
     /** Parses an ISO 8601 date string (e.g., "2025-01-15T10:30:00Z") to epoch ms. */
     private fun parseIsoDate(iso: String?): Long {
@@ -219,6 +219,22 @@ class GitHubUpdateSource(
         val draft: Boolean? = null,
         val prerelease: Boolean? = null,
     )
+
+    /**
+     * A parsed (major, minor, patch) version — lexicographically comparable.
+     * (Kotlin's Triple/Pair do NOT implement Comparable, hence this class.)
+     */
+    private data class VersionTuple(
+        val major: Int,
+        val minor: Int,
+        val patch: Int,
+    ) : Comparable<VersionTuple> {
+        override fun compareTo(other: VersionTuple): Int {
+            if (major != other.major) return major.compareTo(other.major)
+            if (minor != other.minor) return minor.compareTo(other.minor)
+            return patch.compareTo(other.patch)
+        }
+    }
 
     @Serializable
     private data class GitHubAsset(
