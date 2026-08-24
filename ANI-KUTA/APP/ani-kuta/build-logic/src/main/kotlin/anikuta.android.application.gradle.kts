@@ -16,10 +16,11 @@ android {
         versionCode = anikuta.buildlogic.AndroidConfig.versionCode
         versionName = anikuta.buildlogic.AndroidConfig.versionName
 
-        // HARD RULE (CORE_RULES.md §8): ONLY arm64-v8a + armeabi-v7a. No x86/x86_64.
+        // HARD RULE (CORE_RULES.md §8, updated D-251): ONLY arm64-v8a in SHIPPED
+        // APKs. No armeabi-v7a, no x86/x86_64.
         // EXCEPTION (D-246, user-authorized): `-PemulatorX64Build=true` swaps the ABI
         // set to x86_64 for the CI TEST-ONLY emulator artifact (separate build + upload
-        // step — the shipped APK is always the arm build above).
+        // step — the shipped APK is always the arm64-v8a build above).
         ndk {
             val isEmulatorBuild = (findProperty("emulatorX64Build") as? String) == "true"
             abiFilters += if (isEmulatorBuild) {

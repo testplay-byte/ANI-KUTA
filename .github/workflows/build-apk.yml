@@ -1,13 +1,15 @@
 # ANI-KUTA — APK Build
 #
 # Hard rules (NON-NEGOTIABLE — see AGENT-CONTEXT/CORE_RULES.md §8):
-#   - Builds ONLY arm64-v8a and armeabi-v7a ABIs.
-#     Set in ANI-KUTA/APP/ani-kuta/app/build.gradle.kts (ndk.abiFilters) AND verified post-build below.
+#   - Builds ONLY the arm64-v8a ABI in SHIPPED APKs (updated D-251 per user
+#     instruction — armeabi-v7a dropped).
+#     Set in ANI-KUTA/APP/ani-kuta/build-logic/.../AndroidConfig.kt (ndk.abiFilters)
+#     AND verified post-build below.
 #   - Never build locally; this workflow is the only build path.
 #
 # Status:
 #   - Debug build: active.
-#   - Release build + signing: TODO Phase 2 (see AGENT-CONTEXT/workflow.md).
+#   - Tag pushes (v*) are handled by release-apk.yml (build + GitHub Release).
 #
 # NOTE: Per CORE_RULES §4, all project zones live inside a single wrapper folder
 # `ANI-KUTA/`. The `.github/` folder stays at repo root (GitHub Actions constraint).
@@ -20,10 +22,14 @@ on:
     # test-feature/video-cache-new-download work branch — remove this pattern
     # before merging to main (same precedent as the TEST_BETA_FEATURE edit).
     branches: [ main, 'feature/**', 'functionality/**', 'test-feature/**' ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      build_emulator_apk:
+        description: 'Also build the TEST-ONLY x86_64 emulator APK'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -58,18 +64,21 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
-      # D-246 (user-authorized emulator-testing support): ALSO produce a TEST-ONLY
-      # native-x86_64 APK for the CI-emulator test environment. It goes to a SEPARATE
-      # artifact and never ships — the main APK above stays arm-only (CORE_RULES §8
-      # exception documented in the rule file + AndroidConfig.kt).
+      # D-246 (user-authorized emulator-testing support): OPTIONALLY produce a
+      # TEST-ONLY native-x86_64 APK for the CI-emulator test environment. Per the
+      # user's D-251 instruction this ONLY runs on explicit manual request
+      # (workflow_dispatch input) — never on normal pushes. It goes to a SEPARATE
+      # artifact and never ships; the main APK above stays arm64-v8a-only
+      # (CORE_RULES §8 exception documented in the rule file + AndroidConfig.kt).
       - name: Build emulator-test APK (x86_64, test-only)
+        if: github.event_name == 'workflow_dispatch' && inputs.build_emulator_apk
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk /tmp/app-debug-arm.apk
           ./gradlew assembleDebug -PemulatorX64Build=true
           mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug-x86_64-emulator.apk
           cp /tmp/app-debug-arm.apk app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Verify ABIs (only arm64-v8a + armeabi-v7a allowed in SHIPPED APKs)
+      - name: Verify ABIs (only arm64-v8a allowed in SHIPPED APKs)
         working-directory: .
         run: |
           set -e
@@ -83,7 +92,7 @@ jobs:
             for entry in $bad; do
               abi=$(echo "$entry" | cut -d'/' -f2)
               case "$abi" in
-                arm64-v8a|armeabi-v7a) ;;
+                arm64-v8a) ;;
                 *) echo "::error::Forbidden ABI '$abi' found in $apk ($entry)"; found_bad=1 ;;
               esac
             done

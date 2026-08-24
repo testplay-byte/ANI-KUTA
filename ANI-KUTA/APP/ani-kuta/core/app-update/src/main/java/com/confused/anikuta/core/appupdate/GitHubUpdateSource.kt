@@ -14,25 +14,35 @@ import okhttp3.Request
  *
  * # How it works
  *
- * 1. Fetches the latest release from the GitHub API:
- *    `GET https://api.github.com/repos/{owner}/{repo}/releases/latest`
- * 2. Parses the response for:
+ * 1. Fetches the release list from the GitHub API:
+ *    `GET https://api.github.com/repos/{owner}/{repo}/releases?per_page={n}`
+ *    (D-251: previously used `/releases/latest`, which EXCLUDES releases flagged
+ *    as prerelease — every release after v0.2.6 was flagged prerelease, so the
+ *    in-app "Check for Updates" never saw them and users on old builds were told
+ *    they were up to date. The list endpoint returns prereleases too.)
+ * 2. Filters out drafts (defensively — the unauthenticated API omits them anyway).
+ * 3. Picks the best release: the highest version; when two releases share a
+ *    version, a stable (non-prerelease) one wins over a prerelease one.
+ * 4. Parses the release for:
  *    - `tag_name` → version name (strips `v` prefix)
  *    - `name` → release name
  *    - `body` → changelog
  *    - `published_at` → release date (ISO 8601 → epoch ms)
  *    - `assets` → finds the first `.apk` asset → `browser_download_url` + `size`
- * 3. Compares the release's version code (derived from version name) with the
- *    installed version code. If newer → returns [AppUpdateInfo].
+ * 5. Compares the release's version with the installed version (tuple compare).
+ *    If newer → returns [AppUpdateInfo].
  *
  * # Version comparison
  *
- * GitHub releases use semantic versioning (`vMAJOR.MINOR.PATCH`). This source
- * converts the version name to a version code by:
- * `code = major * 10000 + minor * 100 + patch`
- * (e.g., "0.2.1" → 201, "1.0.0" → 10000)
+ * GitHub releases use semantic versioning (`vMAJOR.MINOR.PATCH`). D-251: the
+ * old `major * 10000 + minor * 100 + patch` packing breaks once PATCH reaches
+ * 100 (e.g. "0.2.100" would equal "0.3.0"). Versions are now compared as
+ * integer tuples (major, minor, patch) lexicographically — correct for any
+ * component values. The [AppUpdateInfo.versionCode] field is derived with
+ * wide multipliers (major * 1_000_000 + minor * 10_000 + patch) and is
+ * informational only.
  *
- * If the version name can't be parsed, the source falls back to string comparison.
+ * If the version name can't be parsed, the release is skipped.
  *
  * # Rate limiting
  *
@@ -59,7 +69,7 @@ class GitHubUpdateSource(
         currentVersionCode: Long,
         currentVersionName: String,
     ): AppUpdateInfo? = withContext(Dispatchers.IO) {
-        val url = "https://api.github.com/repos/$owner/$repo/releases/latest"
+        val url = "https://api.github.com/repos/$owner/$repo/releases?per_page=$RELEASE_PAGE_SIZE"
         Logger.i(TAG) { "fetchLatestUpdate: GET $url (current=$currentVersionName/$currentVersionCode)" }
 
         val request = Request.Builder()
@@ -81,33 +91,51 @@ class GitHubUpdateSource(
                 return@withContext null
             }
 
-            val release = try {
-                json.decodeFromString<GitHubRelease>(body)
+            val releases = try {
+                json.decodeFromString<List<GitHubRelease>>(body)
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "fetchLatestUpdate: failed to parse JSON" }
                 return@withContext null
             }
 
-            // Extract version name from tag_name (strip optional 'v' prefix).
-            val versionName = release.tagName.removePrefix("v").removePrefix("V").trim()
-            if (versionName.isBlank()) {
-                Logger.w(TAG) { "fetchLatestUpdate: empty tag_name '${release.tagName}'" }
+            // D-251: pick the best release from the list. Drafts are excluded
+            // (they're not visible to unauthenticated clients either). Among the
+            // rest, highest version wins; a stable release beats a prerelease at
+            // the same version.
+            val best = releases
+                .asSequence()
+                .filter { it.draft != true }
+                .mapNotNull { release ->
+                    val versionName = release.tagName.removePrefix("v").removePrefix("V").trim()
+                    if (versionName.isBlank()) return@mapNotNull null
+                    val parsed = parseVersionTuple(versionName) ?: return@mapNotNull null
+                    Triple(release, versionName, parsed)
+                }
+                .maxWithOrNull(
+                    compareBy(
+                        { it.third },
+                        { if (it.first.prerelease == true) 0 else 1 },
+                    )
+                )
+
+            if (best == null) {
+                Logger.w(TAG) { "fetchLatestUpdate: no usable releases found (${releases.size} fetched)" }
                 return@withContext null
             }
 
-            // Derive version code from version name.
-            val versionCode = parseVersionCode(versionName)
-            // D-240: Derive the CURRENT version code from the version NAME too,
-            // not from the APK's build versionCode. The build versionCode (23)
-            // is on a completely different scale from the parsed code (206 for
-            // "0.2.6"), so comparing them always fails. By deriving both from
-            // version names, the comparison is consistent.
-            val currentParsedCode = parseVersionCode(currentVersionName)
+            val (release, versionName, parsed) = best
+            if (release.prerelease == true) {
+                Logger.i(TAG) { "fetchLatestUpdate: best release ${release.tagName} is a prerelease (using it — /releases/latest-style filtering hid these before D-251)" }
+            }
+
             // Check if this is the same version or older than what the user has.
-            if (versionName == currentVersionName || versionCode <= currentParsedCode) {
+            val currentParsed = parseVersionTuple(currentVersionName)
+            if (versionName == currentVersionName ||
+                (currentParsed != null && parsed <= currentParsed)
+            ) {
                 Logger.i(TAG) {
                     "fetchLatestUpdate: no update available " +
-                        "(latest=$versionName/$versionCode, current=$currentVersionName/$currentParsedCode, " +
+                        "(latest=$versionName/$parsed, current=$currentVersionName/$currentParsed, " +
                         "sameVersion=${versionName == currentVersionName})"
                 }
                 return@withContext null
@@ -124,12 +152,13 @@ class GitHubUpdateSource(
 
             Logger.i(TAG) {
                 "fetchLatestUpdate: update available! " +
-                    "$versionName/$versionCode (apk=${apkAsset.name}, ${apkAsset.size} bytes)"
+                    "$versionName/$parsed (apk=${apkAsset.name}, ${apkAsset.size} bytes, " +
+                    "prerelease=${release.prerelease == true})"
             }
 
             AppUpdateInfo(
                 versionName = versionName,
-                versionCode = versionCode,
+                versionCode = versionCodeFromTuple(parsed),
                 downloadUrl = apkAsset.browserDownloadUrl,
                 changelog = release.body ?: "No changelog provided.",
                 releaseDate = releaseDate,
@@ -145,24 +174,24 @@ class GitHubUpdateSource(
 
     /**
      * Parses a semantic version string ("MAJOR.MINOR.PATCH") into a comparable
-     * long: `major * 10000 + minor * 100 + patch`.
+     * (major, minor, patch) triple.
      *
-     * Handles pre-release suffixes (e.g., "1.0.0-beta1" → 10000, ignoring the suffix).
-     * Returns 0 if parsing fails.
+     * Handles pre-release suffixes (e.g., "1.0.0-beta1" → (1, 0, 0), ignoring
+     * the suffix). Returns null if parsing fails.
      */
-    private fun parseVersionCode(versionName: String): Long {
+    private fun parseVersionTuple(versionName: String): Triple<Int, Int, Int>? {
         val cleanName = versionName.substringBefore("-").substringBefore("+").trim()
         val parts = cleanName.split(".")
-        return try {
-            val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
-            val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
-            val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
-            major * 10000L + minor * 100L + patch
-        } catch (e: Exception) {
-            Logger.w(TAG, e) { "parseVersionCode: failed to parse '$versionName'" }
-            0L
-        }
+        if (parts.isEmpty()) return null
+        val major = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val minor = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        val patch = parts.getOrNull(2)?.toIntOrNull() ?: return null
+        return Triple(major, minor, patch)
     }
+
+    /** Packs a version triple into a single informational Long (wide multipliers). */
+    private fun versionCodeFromTuple(t: Triple<Int, Int, Int>): Long =
+        t.first.toLong() * 1_000_000L + t.second.toLong() * 10_000L + t.third.toLong()
 
     /** Parses an ISO 8601 date string (e.g., "2025-01-15T10:30:00Z") to epoch ms. */
     private fun parseIsoDate(iso: String?): Long {
@@ -187,6 +216,8 @@ class GitHubUpdateSource(
         val body: String? = null,
         @SerialName("published_at") val publishedAt: String? = null,
         val assets: List<GitHubAsset>? = null,
+        val draft: Boolean? = null,
+        val prerelease: Boolean? = null,
     )
 
     @Serializable
@@ -198,5 +229,8 @@ class GitHubUpdateSource(
 
     private companion object {
         private const val TAG = "Anikuta:Core:AppUpdate:GitHub"
+
+        /** How many recent releases to scan for the best version. */
+        private const val RELEASE_PAGE_SIZE = 30
     }
 }
