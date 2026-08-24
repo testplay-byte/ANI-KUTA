@@ -65,6 +65,8 @@ class LibraryViewModel(
         private const val KEY_LIST_TITLE_POSITION = "library_list_title_position"
         // D-242-fix21: Comfortable border mode.
         private const val KEY_COMFORTABLE_BORDER_MODE = "library_comfortable_border_mode"
+        // D-251: Hide titles in Comfortable mode (cover-only look, rounded corners kept).
+        private const val KEY_COMFORTABLE_HIDE_TITLES = "library_comfortable_hide_titles"
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
@@ -192,6 +194,12 @@ class LibraryViewModel(
     // D-242-fix21: Comfortable border mode (cover-only vs full).
     private val _comfortableBorderMode = MutableStateFlow(ComfortableBorderMode.COVER_AND_TITLE)
     val comfortableBorderMode: StateFlow<ComfortableBorderMode> = _comfortableBorderMode
+
+    // D-251: When true + display mode = COMFORTABLE_GRID, the title text under
+    // covers is hidden (cover-only look, but keeps Comfortable's rounded corners
+    // and grid spacing — distinct from the square, edge-to-edge COVER_ONLY mode).
+    private val _hideTitlesInComfortable = MutableStateFlow(false)
+    val hideTitlesInComfortable: StateFlow<Boolean> = _hideTitlesInComfortable
 
     init {
         loadPreferences()
@@ -835,6 +843,13 @@ class LibraryViewModel(
         Logger.i(TAG) { "setComfortableBorderMode — $mode" }
     }
 
+    // D-251: Hide-titles-in-Comfortable setter.
+    fun setHideTitlesInComfortable(value: Boolean) {
+        _hideTitlesInComfortable.value = value
+        preferenceStore.putBoolean(KEY_COMFORTABLE_HIDE_TITLES, value)
+        Logger.i(TAG) { "setHideTitlesInComfortable — $value" }
+    }
+
     /**
      * D-242-fix10: Enriches LibraryEntry list with badge data:
      * - releasedEpisodes: count of cached episodes (actual aired count)
@@ -949,6 +964,9 @@ class LibraryViewModel(
         _comfortableBorderMode.value = preferenceStore
             .getString(KEY_COMFORTABLE_BORDER_MODE, ComfortableBorderMode.COVER_AND_TITLE.name)
             .let { runCatching { ComfortableBorderMode.valueOf(it) }.getOrDefault(ComfortableBorderMode.COVER_AND_TITLE) }
+
+        // D-251: load hide-titles-in-Comfortable toggle.
+        _hideTitlesInComfortable.value = preferenceStore.getBoolean(KEY_COMFORTABLE_HIDE_TITLES, false)
 
         // D-242-fix3: restore last-selected category across app restarts.
         // -1L sentinel = "All" (null selection).

@@ -97,6 +97,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -203,6 +204,8 @@ fun LibraryScreen(
     val listTitlePosition by viewModel.listTitlePosition.collectAsState()
     // D-242-fix21: Comfortable border mode.
     val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
+    // D-251: hide-titles toggle for Comfortable mode.
+    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
     // D.5: refresh state for pull-to-refresh.
@@ -584,6 +587,7 @@ fun LibraryScreen(
                                 displayMode = displayMode,
                                 showAllCaughtUpTag = showAllCaughtUpTag,
                                 comfortableBorderMode = comfortableBorderMode,
+                                hideTitlesInComfortable = hideTitlesInComfortable,
                             )
                         } else {
                             LibraryList(
@@ -685,6 +689,8 @@ fun LibraryScreen(
                 onActiveTabChange = { customizeSheetActiveTab = it },
                 comfortableBorderMode = comfortableBorderMode,
                 onComfortableBorderModeChange = viewModel::setComfortableBorderMode,
+                hideTitlesInComfortable = hideTitlesInComfortable,
+                onHideTitlesInComfortableChange = viewModel::setHideTitlesInComfortable,
                 onDismiss = { showSettingsSheet = false },
             )
         }
@@ -1338,6 +1344,9 @@ private fun CustomizeSheet(
     onActiveTabChange: (Int) -> Unit,
     comfortableBorderMode: ComfortableBorderMode,
     onComfortableBorderModeChange: (ComfortableBorderMode) -> Unit,
+    // D-251: hide-titles toggle for Comfortable mode.
+    hideTitlesInComfortable: Boolean,
+    onHideTitlesInComfortableChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1514,6 +1523,7 @@ private fun CustomizeSheet(
                         showAllCaughtUpTag = showAllCaughtUpTag,
                         listDensity = listDensity,
                         listTitlePosition = listTitlePosition,
+                        hideTitlesInComfortable = hideTitlesInComfortable,
                         onDisplayModeChange = onDisplayModeChange,
                         onColumnsChange = onColumnsChange,
                         onTitleLinesChange = onTitleLinesChange,
@@ -1527,6 +1537,7 @@ private fun CustomizeSheet(
                         onShowAllCaughtUpTagChange = onShowAllCaughtUpTagChange,
                         onListDensityChange = onListDensityChange,
                         onListTitlePositionChange = onListTitlePositionChange,
+                        onHideTitlesInComfortableChange = onHideTitlesInComfortableChange,
                     )
                     2 -> uiTab(
                         coverBorderEnabled = coverBorderEnabled,
@@ -1664,6 +1675,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     showAllCaughtUpTag: Boolean,
     listDensity: ListDensity,
     listTitlePosition: ListTitlePosition,
+    hideTitlesInComfortable: Boolean,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
@@ -1677,6 +1689,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     onShowAllCaughtUpTagChange: (Boolean) -> Unit,
     onListDensityChange: (ListDensity) -> Unit,
     onListTitlePositionChange: (ListTitlePosition) -> Unit,
+    onHideTitlesInComfortableChange: (Boolean) -> Unit,
 ) {
     // ═══════════════════════════════════════════════════════════════════════
     // SECTION 1: DISPLAY (Display Mode, Columns, Title lines)
@@ -1743,9 +1756,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
         }
     }
 
-    // ── Title lines (hidden for COVER_ONLY — no titles in that mode) ──
+    // ── Title lines (hidden for COVER_ONLY — no titles in that mode; also
+    // hidden in COMFORTABLE when the Hide Titles toggle is on) ──
     // D-242-fix17: Smoothly disappears when COVER_ONLY is selected.
-    if (displayMode != LibraryDisplayMode.COVER_ONLY) {
+    // D-251: Also disappears when Comfortable titles are hidden.
+    if (displayMode != LibraryDisplayMode.COVER_ONLY &&
+        !(displayMode == LibraryDisplayMode.COMFORTABLE_GRID && hideTitlesInComfortable)
+    ) {
         item {
             Spacer(Modifier.height(16.dp))
             OptionLabel("Title lines")
@@ -1755,6 +1772,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                 options = listOf("1" to 1, "2" to 2, "3" to 3),
                 selected = titleLines,
                 onSelect = onTitleLinesChange,
+            )
+        }
+    }
+
+    // ── D-251: Hide Titles (Comfortable mode only) ──
+    // Hides the title text under covers for a cover-only look that KEEPS
+    // Comfortable's rounded corners and grid spacing — distinct from the
+    // COVER_ONLY mode (square corners, edge-to-edge, zero gaps).
+    if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
+        item {
+            Spacer(Modifier.height(16.dp))
+            TwoWayButton(
+                label = "Hide Titles",
+                selected = hideTitlesInComfortable,
+                onChange = onHideTitlesInComfortableChange,
             )
         }
     }
@@ -2490,6 +2522,7 @@ private fun LibraryGrid(
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
     showAllCaughtUpTag: Boolean = false,
     comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
+    hideTitlesInComfortable: Boolean = false,
 ) {
     // D-242-fix21: Comfortable grid uses LazyVerticalStaggeredGrid (masonry
     // layout) so items in a column can have different heights (shorter items
@@ -2529,22 +2562,34 @@ private fun LibraryGrid(
                     displayMode = displayMode,
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
+                    hideTitles = hideTitlesInComfortable,
                 )
             }
         }
     } else {
+        // D-251: COVER_ONLY is a full-bleed cover wall — square covers, zero gaps
+        // between neighbors (horizontal AND vertical) and no side/top padding;
+        // covers run edge-to-edge. COMPACT_GRID keeps the standard layout.
+        val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
         // D-141: in selection mode, reserve extra bottom space for the action bar.
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(columns.coerceIn(2, 5)),
-            contentPadding = PaddingValues(
-                start = 12.dp,
-                end = 12.dp,
-                top = 4.dp,
-                bottom = if (isSelectionMode) 160.dp else 90.dp,
-            ),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = if (isCoverOnly) {
+                PaddingValues(
+                    top = 0.dp,
+                    bottom = if (isSelectionMode) 160.dp else 90.dp,
+                )
+            } else {
+                PaddingValues(
+                    start = 12.dp,
+                    end = 12.dp,
+                    top = 4.dp,
+                    bottom = if (isSelectionMode) 160.dp else 90.dp,
+                )
+            },
+            horizontalArrangement = Arrangement.spacedBy(if (isCoverOnly) 0.dp else 8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isCoverOnly) 0.dp else 8.dp),
         ) {
             items(entries, key = { it.mainId }) { item ->
                 LibraryGridCard(
@@ -2592,6 +2637,7 @@ private fun LibraryGridCard(
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
     showAllCaughtUpTag: Boolean = false,
     comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
+    hideTitles: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2627,11 +2673,16 @@ private fun LibraryGridCard(
     val isComfortable = displayMode == LibraryDisplayMode.COMFORTABLE_GRID
     val borderOnCoverOnly = isComfortable && comfortableBorderMode == ComfortableBorderMode.COVER_ONLY
 
+    // D-251: COVER_ONLY uses perfectly square covers (no rounding); every other
+    // grid mode keeps the 12dp rounded corners.
+    val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
+    val cardShape = if (isCoverOnly) RectangleShape else RoundedCornerShape(12.dp)
+
     val outerBorderModifier = if (coverBorderEnabled && !borderOnCoverOnly) {
         Modifier.border(
             width = coverBorderWidth.widthDp.dp,
             color = resolvedBorderColor,
-            shape = RoundedCornerShape(12.dp),
+            shape = cardShape,
         )
     } else {
         Modifier
@@ -2640,7 +2691,7 @@ private fun LibraryGridCard(
         Modifier.border(
             width = coverBorderWidth.widthDp.dp,
             color = resolvedBorderColor,
-            shape = RoundedCornerShape(12.dp),
+            shape = cardShape,
         )
     } else {
         Modifier
@@ -2651,7 +2702,7 @@ private fun LibraryGridCard(
 
     val cardModifier = Modifier
         .graphicsLayer { scaleX = scale; scaleY = scale; alpha = cardAlpha }
-        .clip(RoundedCornerShape(12.dp))
+        .clip(cardShape)
         .then(outerBorderModifier)
         .combinedClickable(
             interactionSource = interactionSource,
@@ -2677,7 +2728,7 @@ private fun LibraryGridCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp)),
+                        .clip(cardShape),
                 )
 
                 // Cover badges (same as compact grid).
@@ -2778,17 +2829,22 @@ private fun LibraryGridCard(
 
             // Title BELOW the cover (no gradient overlay — clean text on surface).
             // D-242-fix21: Explicit lineHeight to reduce gap between title lines.
-            Text(
-                text = anime.title,
-                fontFamily = RobotoFamily,
-                fontSize = 11.sp,
-                lineHeight = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = titleLines,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            )
+            // D-251: Hidden when the Comfortable "Hide Titles" toggle is on —
+            // cover-only look, but keeps Comfortable's rounded corners + spacing
+            // (distinct from the square edge-to-edge COVER_ONLY mode).
+            if (!hideTitles) {
+                Text(
+                    text = anime.title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = titleLines,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
         }
     } else {
         // ── COMPACT_GRID / COVER_ONLY: Box layout (title overlaid on cover) ──
@@ -2803,7 +2859,7 @@ private fun LibraryGridCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(cardShape),
             )
 
             // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
@@ -2925,7 +2981,7 @@ private fun LibraryGridCard(
                         .border(
                             width = 2.dp,
                             color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = cardShape,
                         ),
                 )
             }
