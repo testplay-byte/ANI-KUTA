@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.appupdate.AppUpdatePreferences
 import com.confused.anikuta.core.appupdate.DownloadedApk
+import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -629,30 +630,5 @@ private fun GeneralToggleCard(
             Spacer(modifier = Modifier.width(12.dp))
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
-    }
-}
-
-/**
- * A small circular back button used in the header's actions slot.
- * Matches the back action used in [SettingsScreen].
- */
-@Composable
-private fun BackAction(onBack: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .background(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(50),
-            )
-            .clickable(onClick = onBack),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
     }
 }

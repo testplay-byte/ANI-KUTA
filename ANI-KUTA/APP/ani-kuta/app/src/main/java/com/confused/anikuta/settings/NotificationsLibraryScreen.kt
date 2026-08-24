@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.content.LibraryCategory
+import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -403,33 +404,6 @@ private fun ConfigToggle(title: String, checked: Boolean, onCheckedChange: (Bool
     }
 }
 
-@Composable
-private fun ConfigSegmented(
-    title: String,
-    description: String,
-    options: List<String>,
-    selected: Int,
-    onSelect: (Int) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(
-            text = title,
-            fontFamily = RobotoFamily,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Text(
-            text = description,
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
-        )
-        SegmentedToggle(options = options, selectedIndex = selected, onSelect = onSelect)
-    }
-}
-
 private fun triggerDescription(trigger: String, state: TriggerState): String {
     val condition = when (trigger) {
         "schedule" -> "when the airing time is reached"
@@ -440,29 +414,5 @@ private fun triggerDescription(trigger: String, state: TriggerState): String {
         TriggerState.ON -> "Notify $condition"
         TriggerState.SILENT -> "Notify silently $condition"
         TriggerState.OFF -> "Don't notify $condition"
-    }
-}
-
-
-// ── Shared helpers ───────────────────────────────────────────────────────────
-
-@Composable
-private fun BackAction(onBack: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .background(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(50),
-            )
-            .clickable(onClick = onBack),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
     }
 }

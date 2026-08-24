@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.ContentResolver
+import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -114,18 +115,7 @@ fun TrackersScreen(
                     title = "Trackers",
                     collapsed = collapsed,
                     actions = {
-                        Box(
-                            modifier = Modifier.size(36.dp).clip(CircleShape)
-                                .clickable { onBack() },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
+                        BackAction(onBack)
                     },
                 )
             }

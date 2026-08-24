@@ -75,6 +75,29 @@ the **entire top section smoothly hides** when the user scrolls down, and
 
 ---
 
+### 2.4 — Nav-Row Icon Language (unified across More + Settings hubs)
+
+Every list row that navigates to a sub-screen — whether on the **More** page or
+any **Settings / Appearance / Notifications** hub — uses the **same icon
+treatment**: a **bare 24dp `Icon` tinted `primary`, no container box.**
+
+- **Implementation:** reuse [`MoreListRow`](#1-more-page) directly for every
+  nav-row slot. Do NOT create a per-screen `*NavRow` variant and do NOT wrap
+  the icon in a `primaryContainer` "chip"/"tile" `Surface` — that was the old
+  `SettingsNavRow` / `AppearanceNavRow` pattern and it looked like a different
+  visual format from the More page (user feedback, D-250).
+- **Typography:** title `RobotoFamily ExtraBold 16sp`, subtitle `Normal 13sp`,
+  trailing `Icons.Filled.ChevronRight`. All inherited from `MoreListRow`.
+- **Back button:** every settings sub-screen's `CollapsingHeader` `actions` slot
+  uses the shared `BackAction` from `:core:designsystem` (36dp `CircleShape`
+  `surfaceVariant` button + 18dp `Icons.AutoMirrored.Filled.ArrowBack`). No
+  per-screen copies.
+- **Established:** D-250 (2026-08-24) — user reported that the Settings page
+  icons "change to some other kind of format" vs. the More page; root cause was
+  the chip-box `primaryContainer` wrapper. Unified to bare icons everywhere.
+
+---
+
 ## 3. Future Rules (pending user confirmation)
 
 Rules the user has hinted at but not yet confirmed. Don't implement until

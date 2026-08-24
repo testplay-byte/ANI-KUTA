@@ -280,40 +280,27 @@ mode toggle + crop editor.
 
 ### `AppearanceScreen` (hub)
 
-Two nav rows, each a `SettingsSectionLabel` + an `AppearanceNavRow`. Each nav
-row uses a **rounded-square icon container** (36dp, `primaryContainer` bg,
-`RoundedCornerShape(10.dp)`, icon 20dp tinted `onPrimaryContainer`) — visually
-distinct from the plain-tinted icons on the More screen.
+Three nav rows, each a `SettingsSectionLabel` + a `MoreListRow` (D-250). The
+hub **reuses the same bare-icon nav row as the More page** — a 24dp `Icon`
+tinted `primary`, no `primaryContainer` chip-box. See DESIGN-LANGUAGE §2.4
+(Nav-Row Icon Language) + §1 (`MoreListRow`) for the full spec.
+
+> **D-250 change:** the hub previously defined a private `AppearanceNavRow`
+> that wrapped each icon in a 36dp `primaryContainer` rounded-square
+> ("chip-box"). User feedback: those icons "change to some other kind of
+> format" vs. the More page. Fix = delete the local `*NavRow` + call
+> `MoreListRow` directly. The same fix was applied to `SettingsScreen`'s
+> `SettingsNavRow` and `NotificationsSettingsScreen`'s `LibraryNavRow`.
 
 ```kotlin
-@Composable
-private fun AppearanceNavRow(icon, title, subtitle, onClick) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), Alignment.CenterVertically) {
-            Surface(color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(10.dp), modifier = Modifier.size(36.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(20.dp))
-                }
-            }
-            Spacer(Modifier.size(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, fontFamily = RobotoFamily, fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                Text(subtitle, fontFamily = RobotoFamily, fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        }
-    }
+item {
+    SettingsSectionLabel("General")
+    MoreListRow(
+        icon = Icons.Filled.Palette,
+        title = "General",
+        subtitle = "Theme mode, palettes, and colors",
+        onClick = onOpenGeneral,
+    )
 }
 ```
 

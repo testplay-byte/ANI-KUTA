@@ -1337,3 +1337,16 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 
 ### Status
 - Deployed live at `https://testplay-byte.github.io/ANI-KUTA/key-findings/`. NOT merged to main — awaiting user review of the findings + forward direction.
+
+## Session — Settings-UI icon unification (D-250) (2026-08-24, on `test-feature/video-cache-new-download`)
+
+### What was done
+- User feedback: the More page icons look like "proper SVG icons" (clean), but the Settings page icons "change to some other kind of format, which is not good." Same for the Appearance page + other settings sub-pages — improve + make consistent/cleaner. Stay on the current branch; complete per workflow + send a notification.
+- **Root cause**: the More page's `MoreListRow` (`:core:designsystem`) renders a **bare 24dp `Icon` tinted `primary`** (no container). The Settings/Appearance/Notifications hubs each had a LOCAL `*NavRow` that wrapped the icon in a **36dp `primaryContainer` rounded box** ("chip-box") — a different visual format from the More page, exactly as the user reported. Same glyphs, different container.
+- **Fix (D-250)**: (1) Reused `MoreListRow` directly in the 3 hubs — deleted `SettingsNavRow`/`AppearanceNavRow`/`LibraryNavRow` + swapped 11 call sites. (2) Promoted `BackAction` to `:core:designsystem` as a shared composable — replaced 12 private copies + 3 inlined bodies (fixes 2 missing-size-modifier drifts + the divergent TrackersScreen variant). (3) Fixed the lone feature-module chip-box (`AutoLinkSettingsScreen.PerExtensionCard` → bare 24dp primary icon). (4) Fixed a copy-paste bug: `NotificationsSettingsScreen.triggerDescription` SILENT branch returned the ON-branch text → now `"Notify silently $condition"`. (5) Removed dead code: `ConfigSegmented` (never called) + a dead `ImageVector` import. (6) Moved `LibraryNavRow` out of its `SettingsGroupCard` (would have double-padded with `MoreListRow`'s baked-in h-padding).
+- **Compile review (sub-agent)**: ✅ PUSH-READY — zero errors across 17 files; `MoreListRow` signature matches all call sites. ⚠️ ~30 now-dead imports (harmless — no `ktlint`/`detekt` config; tidy follow-up queued).
+- **Docs**: `DESIGN-LANGUAGE.md` §2.4 (new "Nav-Row Icon Language" rule); `DESIGN-SYSTEM/03-settings-extensions-profile.md` §3 (chip-box snippet → `MoreListRow`-reuse + D-250 change-note); D-250 in decisions.md; this entry; lessons-learned patterns (icon consistency + chip-box drift detection).
+
+### Status
+- CI pending push at doc-write time. NOT merged — awaiting user device verification of the unified icon look across More → Settings → Appearance → Notifications.
+
