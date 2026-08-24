@@ -21,22 +21,23 @@ import {
 /**
  * /key-findings/ — Key Findings (live project review).
  *
- * Renders the 2026-08-22 full-project review findings (main agent + 5
- * research sub-agents, every metric re-verified against source) per
- * DESIGN.md (MEMORY OS v3). Static Server Component — no interactivity
- * needed, no "use client".
+ * Renders the 2026-08-24 full-project review findings (main agent + 5
+ * research sub-agents, every metric re-verified against source) for the
+ * test-feature/video-cache-new-download branch @ D-249 / f4be250 / v0.2.47,
+ * per DESIGN.md (MEMORY OS v3). Static Server Component — no
+ * interactivity needed, no "use client".
  *
  * TEMPORARY SECTION — see §9 Footer Note for the removal plan.
  *
- * Sections:
+ * Sections (counts are dynamic — driven by .length on the data arrays):
  *  1. Snapshot (verified metrics)
  *  2. Project Health (verdict + 6 indicators)
- *  3. What's Built (14 feature areas)
+ *  3. What's Built (16 feature areas)
  *  4. Open Concerns (16 items grouped by severity)
- *  5. Verified Fixed (12 resolved concerns — balance)
- *  6. Doc Drift Caught (8 stale claims vs verified reality)
- *  7. Features Remaining (NOW / NEXT / LATER)
- *  8. Top Risks (5 rows)
+ *  5. Verified Fixed (16 resolved concerns — balance)
+ *  6. Doc Drift Caught (11 stale claims vs verified reality)
+ *  7. Features Remaining (NOW / NEXT / LATER — 16 total)
+ *  8. Top Risks (8 rows)
  *  9. Footer Note (temporary-section notice)
  */
 
@@ -145,7 +146,7 @@ export default function KeyFindingsPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§2 — Project Health"
-        title="Verdict + 6 indicators"
+        title={`Verdict + ${PROJECT_HEALTH.indicators.length} indicators`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-warning)" size="sm" />
@@ -202,7 +203,7 @@ export default function KeyFindingsPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§3 — What's Built"
-        title="14 feature areas shipped"
+        title={`${WHATS_BUILT.length} feature areas shipped`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-success)" size="sm" />
@@ -237,7 +238,7 @@ export default function KeyFindingsPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§4 — Open Concerns"
-        title="16 items, grouped by severity"
+        title={`${OPEN_CONCERNS.length} items, grouped by severity`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-danger)" size="sm" />
@@ -278,7 +279,7 @@ export default function KeyFindingsPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§5 — Verified Fixed"
-        title="Balance — 12 concerns resolved"
+        title={`Balance — ${VERIFIED_FIXED.length} concerns resolved`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-success)" size="sm" />
@@ -327,7 +328,7 @@ export default function KeyFindingsPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§6 — Doc Drift Caught"
-        title="8 stale claims vs verified reality"
+        title={`${DOC_DRIFT.length} stale claims vs verified reality`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-warning)" size="sm" />
@@ -456,7 +457,7 @@ export default function KeyFindingsPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§8 — Top Risks"
-        title="5 risks worth tracking"
+        title={`${TOP_RISKS.length} risks worth tracking`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-danger)" size="sm" />

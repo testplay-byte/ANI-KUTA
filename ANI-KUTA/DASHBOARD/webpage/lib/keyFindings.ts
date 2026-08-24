@@ -1,11 +1,11 @@
 /*
  * ANI-KUTA Key Findings — typed data for the /key-findings/ dashboard page.
  *
- * Source of truth: the full project review of 2026-08-22 (worklog.md Task
- * IDs 0, R-1b, R-2, R-3, R-4, R-5 and 6). Every metric, concern, fix and
- * doc-drift row below was verified against the actual repo (settings.gradle.kts,
- * .sq files, git log, code greps) — not copied from docs. Do not add
- * unverified findings to this file.
+ * Source of truth: the full project review of 2026-08-24 (worklog.md Task
+ * IDs R-1, R-2, R-3, R-4, R-5). Every metric, concern, fix and doc-drift
+ * row below was verified against the actual repo (settings.gradle.kts,
+ * 17 .sq files, git log, code greps, GitHub Actions API) — not copied
+ * from docs. Do not add unverified findings to this file.
  *
  * Consumed by app/key-findings/page.tsx — a static Server Component, so no
  * "use client" needed. Hardcoded for the static export — no API calls.
@@ -30,13 +30,13 @@
  * ------------------------------------------------------------------------- */
 
 export const KEY_FINDINGS_META = {
-  reviewDate: "2026-08-22",
-  reviewer: "Main agent + 5 research sub-agents (R-1b, R-2, R-3, R-4, R-5)",
-  repoState: "main @ 570c68f4 · D-239 · v0.2.22",
+  reviewDate: "2026-08-24",
+  reviewer: "Main agent + 5 research sub-agents (R-1, R-2, R-3, R-4, R-5)",
+  repoState: "test-feature/video-cache-new-download @ f4be250 · D-249 · v0.2.47",
   /** Hero status pills (short repo-state tokens). */
-  statusPills: ["main @ 570c68f4", "D-239", "v0.2.22"],
+  statusPills: ["test-feature @ f4be250", "D-249", "v0.2.47"],
   method:
-    "CORE_RULES + full AGENT-CONTEXT read → 5 parallel research agents → every metric re-verified against source (settings.gradle.kts, .sq files, git log, code greps)",
+    "CORE_RULES + full AGENT-CONTEXT read → 5 parallel research agents (R-1..R-5) → every metric re-verified against source (settings.gradle.kts, 17 .sq files, git log, code greps, GitHub Actions API)",
   temporary: true,
   removalNote:
     "page + lib + 1 NAV_ITEMS entry + 1 Sidebar icon key",
@@ -56,43 +56,47 @@ export const SNAPSHOT = {
   metrics: [
     {
       metric: "Gradle modules",
-      value: "47",
-      note: "docs claimed 46 — :core:app-update added without doc update",
+      value: "48",
+      note: "docs claimed 46/47 — :core:app-update unlogged + :core:playback-cache added D-243",
     },
     {
       metric: "Kotlin files",
-      value: "363",
-      note: "docs claimed 331",
+      value: "382",
+      note: "docs claimed 331/363 — grew with D-243..D-249",
     },
     {
       metric: "SQLDelight tables",
-      value: "23 across 15 .sq files",
-      note: "docs claimed 26 (older: 28) — D-198 restructuring WAS implemented",
+      value: "24 across 17 .sq files",
+      note:
+        "playback_cache_entry added D-243; app.sq intentionally empty (app_metadata dropped D-198)",
     },
     {
       metric: "App version",
-      value: "0.2.22 (main)",
-      note: "unmerged branch runs 0.2.46",
+      value: "0.2.47 (test-feature branch)",
+      note: "21 commits ahead of main @ 26e4772; versionCode 47",
     },
     {
       metric: "Decision log",
-      value: "commits at D-239",
-      note: "decisions.md stops at D-198 — 41 decisions unlogged",
+      value: "commits at D-249",
+      note:
+        "decisions.md has D-001..D-198 + D-242..D-249; gap D-199..D-241 (43 decisions) still unlogged",
     },
     {
       metric: "Lessons learned",
-      value: "163",
-      note: "86 MISTAKE · 49 PATTERN · 25 INSIGHT · 3 CORRECTION",
+      value: "190",
+      note: "grew from 163 (last review) — MISTAKE/PATTERN/INSIGHT/CORRECTION tags",
     },
     {
       metric: "CI",
-      value: "GREEN on main",
-      note: "build-apk + deploy-dashboard both passing",
+      value: "GREEN on test-feature @ f4be250",
+      note:
+        "Build APK run 32661002201 = success; 2 intermediate CI-fix commits failed then fixed",
     },
     {
       metric: "Unmerged branches",
-      value: "2",
-      note: "functionality/improvements (42 commits, active) + feature/test-controller-v5 (43 commits, dormant)",
+      value: "2 (incl. this branch)",
+      note:
+        "test-feature/video-cache-new-download (active, this review) + feature/test-controller-v5 (dormant, D-197..D-202 collision)",
     },
   ] satisfies SnapshotMetric[],
 } as const;
@@ -128,45 +132,51 @@ export interface HealthIndicator {
 }
 
 export const PROJECT_HEALTH = {
-  verdictHeadline: "SOLID CODE, AT-RISK MEMORY",
+  verdictHeadline: "STRONG EXECUTION, UNTESTED NEW ENGINE",
   verdictBody:
-    "The app architecture and features are strong and CI-green, but the recorded memory (decisions/changelog) lags reality by ~41 decisions, and three divergent lines of work exist (main + 2 branches).",
+    "Video caching (D-243) + parallel download engine (D-244) shipped CI-green with a 4-layer fail-open design, but the parallel engine + HLS AES-128 path is NOT device-tested. The decision log still has a 43-decision gap (D-199..D-241), and the 4 god-class files grew significantly (LibraryScreen 3863 lines, +1392 since last review).",
   indicators: [
     {
       area: "Architecture",
       status: "STRONG",
-      line: "47 modules, api/impl split, Koin DI clean, UI/backend separation held",
+      line:
+        "48 modules, api/impl split, Koin DI clean, new :core:playback-cache isolated as its own module",
     },
     {
       area: "Feature completeness",
-      status: "HIGH",
-      line: "all major phases shipped incl. D-225→D-238 overhauls (auto-link, match-preview, episode customization, schedule)",
+      status: "STRONG",
+      line:
+        "all major phases + video caching + parallel download engine + D-248/D-249 UX/continue-watching/browse overhauls shipped CI-green",
     },
     {
       area: "CI discipline",
       status: "GOOD",
-      line: "green, ABI-verified, failures tracked honestly since D-156",
+      line:
+        "green on D-243..D-249 (verified via GitHub Actions API); ABI-verified; compile-review-then-push loop held — intermediate failures fixed honestly",
     },
     {
       area: "Memory integrity",
-      status: "POOR",
-      line: "41 decisions unlogged, D-198 status wrong, changelog gap Aug 14–19, 3-way fork",
-    },
-    {
-      area: "Branch hygiene",
       status: "AT RISK",
-      line: "2 unmerged branches (85 combined commits), decision-number collision, 1 actively pushed",
+      line:
+        "43 decisions unlogged (D-199..D-241); decisions.md D-198 status stale (says PROPOSAL, actually IMPLEMENTED); progress.md 'Current Phase' header only mentions D-243+D-244 though D-245..D-249 session blocks exist below",
     },
     {
       area: "Device verification",
       status: "GAPS",
-      line: "download system never device-tested end-to-end; downloaded-subtitle fixes unverified",
+      line:
+        "video cache (Part A) emulator-tested; parallel download engine (Part B) + HLS AES-128 + stall watchdog + re-resolve path + rotating-key rejection + pause/resume with sidecar are compile-verified only",
+    },
+    {
+      area: "Code health",
+      status: "AT RISK",
+      line:
+        "4 god-classes grew (LibraryScreen 3863, DetailsViewModel 3510, DetailsScreen 3240, WatchScreen 2194); WatchKey still 15 fields; new PlaybackCacheManager 1758 lines",
     },
   ] satisfies HealthIndicator[],
 } as const;
 
 /* ---------------------------------------------------------------------------
- * Section 3 — WHAT'S BUILT (14 feature areas)
+ * Section 3 — WHAT'S BUILT (16 feature areas)
  * ------------------------------------------------------------------------- */
 
 export interface BuiltArea {
@@ -177,7 +187,8 @@ export interface BuiltArea {
 export const WHATS_BUILT = [
   {
     area: "Browse",
-    status: "trending grid + continue-watching carousel + pull-to-refresh",
+    status:
+      "trending grid + continue-watching carousel (D-249 redesigned) + pull-to-refresh",
   },
   {
     area: "Details",
@@ -186,21 +197,36 @@ export const WHATS_BUILT = [
   },
   {
     area: "Library",
-    status: "grid/list, categories, multi-select, sort, customize sheet",
+    status:
+      "grid/list, categories, multi-select, sort, customize sheet, badge customization (D-242)",
   },
   {
     area: "Search",
-    status: "AniList search + filter sheet + recent searches",
+    status: "AniList search + filter sheet + recent searches (D-248 fixes)",
   },
   {
     area: "Watch (MPV)",
     status:
-      "external subs/audio, episode switching, resume-seek, per-episode ratings",
+      "external subs/audio, episode switching, resume-seek, per-episode ratings, 5 loadfile sites cache-aware",
+  },
+  {
+    area: "Video Caching (NEW D-243/D-245/D-247)",
+    status:
+      "NanoHTTPD proxy on 127.0.0.1, LRU eviction, fail-open, HLS playlist rewriting, progress-window caching [pos-2min, pos+2min], background fill ±32MB, tap-to-play",
   },
   {
     area: "Downloads",
     status:
       "queue + 6-attempt retry + foreground service + offline playback + .data.json persistence",
+  },
+  {
+    area: "Parallel Download Engine (NEW D-244)",
+    status:
+      "Range probe, budget-capped chunk workers, positional sparse-file writes, exponential backoff, stall watchdog, re-resolve incl 403, chunk sidecar, HLS parallel segments + AES-128-CBC in-memory decryption",
+  },
+  {
+    area: "Download Resilience (NEW D-246)",
+    status: "network resilience + instant teardown + cache identity persistence",
   },
   {
     area: "Extensions",
@@ -213,7 +239,7 @@ export const WHATS_BUILT = [
   {
     area: "Updates",
     status:
-      "WorkManager smart engine, weighted release averaging, update categories",
+      "WorkManager smart engine, weighted release averaging, update categories (D-249 UI overhaul)",
   },
   {
     area: "Notifications",
@@ -225,11 +251,8 @@ export const WHATS_BUILT = [
   },
   {
     area: "Profile",
-    status: "genre radar, heatmap, timeline, watch-flow, avatar editor",
-  },
-  {
-    area: "Debug Bubble",
-    status: "5-tab floating panel (DB export, network, console)",
+    status:
+      "genre radar, heatmap, timeline, watch-flow, avatar editor (D-248 honest stats)",
   },
   {
     area: "Platform",
@@ -274,89 +297,88 @@ export const OPEN_CONCERNS: Concern[] = [
   // --- CRITICAL ---
   {
     severity: "critical",
-    title: "Decision log forked across 3 refs",
+    title: "Decision log has a 43-decision gap (D-199..D-241)",
     detail:
-      "main's decisions.md ends at D-198; feature/test-controller-v5 carries its own D-197..D-202 (different decisions, same numbers); functionality/improvements works at D-240..D-242. A naive merge produces two contradictory D-197/D-198 blocks.",
-    action: "Reconciliation pass BEFORE any branch merge.",
+      "decisions.md on this branch has D-001..D-198 then jumps to D-242..D-249. The 43 missing decisions cover the DB-restructuring implementation, the :core:app-update module, and the D-206..D-238 session work. changelog.md has a matching gap.",
+    action: "Backfill from git history before any merge.",
   },
   {
     severity: "critical",
     title: "D-198 status is factually wrong",
     detail:
-      "decisions.md says 'PROPOSAL — not implemented, NO schema changes made', but commit 775876a2 (Aug 14) implemented it: content.sq now has main_entry + content_details, 23 tables total. The approval+implementation session was never logged.",
-    action: "Correct the entry + backfill.",
+      "decisions.md says 'PROPOSAL — not implemented, NO schema changes made', but commit 775876a2 (Aug 14) implemented it: content.sq now has main_entry + content_details, 24 tables total. The approval+implementation session was never logged.",
+    action: "Correct the entry to IMPLEMENTED + backfill the session.",
   },
   // --- HIGH ---
   {
     severity: "high",
-    title: "41 decisions unlogged (D-199..D-239)",
+    title: "Parallel download engine NOT device-tested",
     detail:
-      "Includes the DB-restructuring implementation, the app-update system (:core:app-update module), D-206..D-238 sessions. changelog.md has a ~5-day gap (Aug 14–19).",
-    action: "Backfill from git history.",
+      "Part B of D-244 (ParallelHttpFetcher, HLS AES-128-CBC in-memory decryption, stall watchdog, re-resolve-incl-403 path, rotating-key rejection, pause/resume with sidecar, anti-shrink guard) is compile-verified only. Part A (cache) IS emulator-tested. The download-device-testing-checklist.md exists but has zero execution evidence against the parallel engine.",
+    action: "Run the checklist against Part B on device before merge.",
   },
   {
     severity: "high",
-    title: "AniList tracker reports fake success",
+    title: "God-class files grew significantly",
     detail:
-      "syncEntry stub returns true without API call (AniListTracker.kt:264-269), trackerId hardcoded 0 (TrackSyncManager.kt:89), login gated on placeholder client ID. The real implementation (track_entry table, sync mutations, TrackSheet UI) exists ONLY on the unmerged functionality/improvements branch.",
-    action: "Merge branch + make sync fail loudly until real.",
+      "LibraryScreen.kt 3863 lines (+1392 since last review's 2471), DetailsViewModel.kt 3510 (+1351 vs 2159), DetailsScreen.kt 3240 (+963 vs 2277), WatchScreen.kt 2194 (+177 vs 2017). New: PlaybackCacheManager.kt 1758, MainActivity.kt 1719.",
+    action: "Split by responsibility — LibraryScreen first.",
   },
   {
     severity: "high",
-    title: "Download system never device-tested",
+    title: "WatchKey still carries 15 fields + 4 parse helpers",
     detail:
-      "The #1 deferred item across multiple sessions; checklist exists (download-device-testing-checklist.md) but zero execution evidence; downloaded-episode subtitle fixes (D-FIX-SUB) compile-verified only.",
-    action: "Run the checklist on device.",
+      "WatchKey.kt is still a god-object (15 fields, 5 pre-serialized \u001F-delimited strings, 4 parse helpers, 2 sibling data classes). Whole episode list + tracks + metadata shipped through nav backstack; memory weight scales with series length; blocks the process-death (R7) fix.",
+    action: "Registry pattern (ResolvedVideosKey precedent exists).",
   },
   {
     severity: "high",
-    title: "Active branch divergence",
+    title: "progress.md 'Current Phase' header stale",
     detail:
-      "functionality/improvements (42 commits, v0.2.46, pushed during this review) is clean to merge TODAY but drifts hourly; its fix15–fix20 are undocumented.",
-    action: "Land it as soon as its session completes.",
+      "The Current Phase header (line 6) only mentions 'D-243 + D-244' though the D-245, D-246, D-247, D-248, D-249 session blocks all exist below (lines 18-48). 'What's Next' + 'Blockers' sections reference resolved items as deferred. 'Last Updated' verdict says '2 unmerged branches' (functionality/improvements was merged 2026-08-22, so only this branch + test-controller-v5 = 2 incl. this one, accurate) but says '47 modules / 23 tables' (actual 48 / 24).",
+    action: "Update the header + Last Updated to D-249 / 48 / 24.",
   },
   // --- MEDIUM ---
   {
     severity: "medium",
-    title: "God-class files grew",
+    title: "Dashboard data stale in 8+ places",
     detail:
-      "DetailsScreen 3165 lines (+883 since last review), DetailsViewModel 2852 (+589), LibraryScreen 2504, WatchScreen 2018.",
-    action: "Split by responsibility, Details first.",
-  },
-  {
-    severity: "medium",
-    title: "WatchKey still carries 5 serialized blobs",
-    detail:
-      "Whole episode list + tracks + metadata shipped through nav backstack; memory weight scales with series length; blocks the process-death (R7) fix.",
-    action: "Registry pattern (ResolvedVideosKey precedent exists).",
-  },
-  {
-    severity: "medium",
-    title: "Dashboard data is stale in 8+ places",
-    detail:
-      "home/Footer/decisions/progress pages say 'D-001..D-186'; home shows BOTH '26 tables' and '28 tables' (real: 23); database page shows the pre-restructuring schema; 6 of 19 routes unreachable; /test-controller/ presents unmerged branch work as current.",
-    action: "Truth-sweep session.",
+      "knowledge/* + dashboard data say 46 modules / 26 tables / D-001..D-186; actual 48 / 24 / D-249. The /key-findings/ page (this one) is fresh, but the OTHER dashboard pages (architecture, modules, database) still reflect main @ 26e4772 state. /test-controller/ presents unmerged branch work as current.",
+    action: "Truth-sweep session after this branch merges.",
   },
   {
     severity: "medium",
     title: "Extensions page gaps",
     detail:
-      "No language filter for ~240 extensions (only search + NSFW + sort); bare AsyncImage with no placeholder/crossfade/cache key → flicker (ExtensionsSettingsScreen.kt:653-657, 707-711).",
+      "No language filter for ~240 extensions (only search + NSFW + sort); bare AsyncImage with no placeholder/crossfade/cache key → flicker (ExtensionsSettingsScreen.kt).",
     action: "Filter chips + Coil polish.",
   },
   {
     severity: "medium",
     title: "DownloadVideoPickerSheet is dead code",
-    detail:
-      "Built, never composed; the ASK fallback just logs (MainActivity.kt:995 TODO).",
+    detail: "Built, never composed; the ASK fallback just logs a TODO.",
     action: "Wire or delete.",
   },
   {
     severity: "medium",
-    title: "Test-controller needs a reintegration plan",
+    title: "feature/test-controller-v5 dormant + D-197..D-202 collision",
     detail:
-      "5 textual merge conflicts + D-197..D-202 numbering collision + TEST_BETA_FEATURE CI triggers self-marked 'remove before merging'; its dashboard half is already on main while the app half is not. Its deploy-workflow single-job fix (BlobNotFound) is worth cherry-picking.",
+      "43 commits, unmerged, D-197..D-202 numbering collision with main's D-197/D-198. Its dashboard half is already on main while the app half is not. Its deploy-workflow single-job fix (BlobNotFound) is worth cherry-picking.",
     action: "Dedicated reintegration session.",
+  },
+  {
+    severity: "medium",
+    title: "FirstRunSetupDialog empty onClick",
+    detail:
+      "FirstRunSetupDialog.kt has an empty onClick handler — a real UX bug discovered this review.",
+    action: "Wire the onClick or remove the dialog.",
+  },
+  {
+    severity: "medium",
+    title: "OkHttp 5.0.0-alpha.14 binary-compat risk",
+    detail:
+      "The app pins OkHttp 5.0.0-alpha.14 (an alpha). Aniyomi extension binaries were compiled against an older OkHttp; a future breaking change in OkHttp 5 stable could break extension compat.",
+    action: "Monitor; pin to stable 5.0.0 when released.",
   },
   // --- LOW / ACCEPTED ---
   {
@@ -369,7 +391,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "low",
     title: "DB migrations are onOpen-only",
     detail:
-      "Fine for debug (§30); needs .sqm + user_version before production.",
+      "Fine for debug (CORE_RULES §30); needs .sqm + user_version before production.",
   },
   {
     severity: "low",
@@ -378,14 +400,15 @@ export const OPEN_CONCERNS: Concern[] = [
   },
   {
     severity: "low",
-    title: "Encrypted HLS unsupported",
+    title: "AniListTracker KDoc stale",
     detail:
-      "HlsDownloader is pure Kotlin; encrypted streams won't download. Known limitation.",
+      "syncEntry IS implemented (D-242, line 282 — full SaveMediaListEntry GraphQL mutation) but the KDoc header still lists it under 'TODO (next session)'. OAuth flow + search/fetchEntry completeness unverified.",
+    action: "Update the KDoc; verify OAuth/search completeness.",
   },
 ];
 
 /* ---------------------------------------------------------------------------
- * Section 5 — VERIFIED FIXED (balance section — 12 rows)
+ * Section 5 — VERIFIED FIXED (balance section — 16 rows)
  * ------------------------------------------------------------------------- */
 
 export interface FixedItem {
@@ -397,15 +420,18 @@ export interface FixedItem {
 export const VERIFIED_FIXED = [
   {
     concern: "HttpDownloader.reResolver wired",
-    evidence: "D-194 ReResolverAdapter + Koin binding (was orphaned)",
+    evidence:
+      "D-194 ReResolverAdapter + Koin binding (R-4 verified: getOrNull<HttpDownloader.ReResolver>() bound for HttpDownloader + both fetchers)",
   },
   {
     concern: "Main-thread runBlocking",
-    evidence: "moved to Dispatchers.IO (ANR risk gone)",
+    evidence:
+      "moved to Dispatchers.IO (R-4 verified: all 5 grep matches are comments, no live runBlocking; onPlayEpisode uses appScope.launch + withContext(IO))",
   },
   {
     concern: "Outer retry loop",
-    evidence: "D-195 RetryPolicy, 3×2=6 attempts with backoff",
+    evidence:
+      "D-195 RetryPolicy + D-244 reinforced, 3×2=6 attempts with backoff",
   },
   {
     concern: "data.json write-back",
@@ -413,11 +439,11 @@ export const VERIFIED_FIXED = [
   },
   {
     concern: "activity_event wiring",
-    evidence: "ActivityTracker.track() at 6 call sites (was zero)",
+    evidence: "ActivityTracker.track() at call sites (was zero)",
   },
   {
     concern: "Updates scheduling",
-    evidence: "PeriodicWorkRequest enqueued from AnikutaApp.kt:172",
+    evidence: "PeriodicWorkRequest enqueued from AnikutaApp.kt",
   },
   {
     concern: "Notification posting",
@@ -426,23 +452,42 @@ export const VERIFIED_FIXED = [
   {
     concern: "Download concurrency",
     evidence:
-      "Semaphore(1..5) queues properly; 2nd download no longer cancels 1st",
+      "Semaphore(1..5) queues properly + D-244 parallel engine; 2nd download no longer cancels 1st",
   },
   {
     concern: "Downloads UI info",
-    evidence: "server/audio/quality/size shown; file_size recorded",
+    evidence: "server/audio/quality/size shown; file_size recorded (D-151 Phase D)",
   },
   {
     concern: "Details stale-state flash",
-    evidence: "loadGeneration counter discards stale async writes",
+    evidence: "loadGeneration counter discards stale async writes (D-227)",
   },
   {
     concern: "'No source linked' race",
-    evidence: "_linkedSource reset synchronously per load",
+    evidence: "_linkedSource reset synchronously per load (D-227)",
   },
   {
     concern: "Dead user_customization table",
-    evidence: "dropped in D-192; DB restructuring landed (23 tables)",
+    evidence: "dropped in D-192; DB restructuring landed (24 tables)",
+  },
+  {
+    concern: "AniList syncEntry stub RESOLVED (D-242)",
+    evidence:
+      "full SaveMediaListEntry GraphQL mutation at AniListTracker.kt:282 (R-4 verified — was a stub returning true)",
+  },
+  {
+    concern: "Video caching actually caches (D-245)",
+    evidence:
+      "learn-mode serving + HLS playlist rewriting (was: registered rows, ~0 bytes); root cause was unknown-Content-Length redirecting MPV to upstream",
+  },
+  {
+    concern: "Download network resilience (D-246)",
+    evidence: "instant teardown + cache identity persistence",
+  },
+  {
+    concern: "Continue-watching lazy-init (D-249)",
+    evidence:
+      "fixed the lazy-init bug + updates UI overhaul + browse redesign",
   },
 ] satisfies FixedItem[];
 
@@ -461,44 +506,66 @@ export interface DocDriftRow {
 
 export const DOC_DRIFT = [
   {
-    claim: "26 tables (docs) / 28 (older docs)",
-    reality: "23 tables",
+    claim: "46/47 modules",
+    reality:
+      "48 modules (:core:app-update unlogged + :core:playback-cache added D-243)",
+    where: "knowledge/*, data.ts, master.md",
+  },
+  {
+    claim: "26/28 tables",
+    reality:
+      "24 tables across 17 .sq files (playback_cache_entry added D-243; app_metadata dropped D-198)",
     where: "knowledge/*, dashboard data",
   },
   {
-    claim: "46 modules",
-    reality: "47 modules",
-    where: "master.md, data.ts",
-  },
-  {
-    claim: "331 Kotlin files",
-    reality: "363",
+    claim: "331/363 Kotlin files",
+    reality: "382",
     where: "progress.md, data.ts",
   },
   {
-    claim: "D-001..D-186 decisions confirmed",
-    reality: "commits at D-239; log stops at D-198",
+    claim: "D-001..D-186/D-193 decisions confirmed",
+    reality:
+      "commits at D-249; decisions.md has D-001..D-198 + D-242..D-249 (gap D-199..D-241)",
     where: "dashboard home/Footer/decisions",
   },
   {
     claim: "D-198 = PROPOSAL not implemented",
-    reality: "IMPLEMENTED Aug 14 (775876a2)",
+    reality:
+      "IMPLEMENTED Aug 14 (commit 775876a2) — content.sq has main_entry + content_details",
     where: "decisions.md",
   },
   {
+    claim: "version 0.2.22 (main)",
+    reality: "0.2.47 (test-feature branch); versionCode 47",
+    where: "prior keyFindings.ts, data.ts",
+  },
+  {
+    claim: "progress.md Current Phase: D-243 + D-244 only",
+    reality:
+      "D-245..D-249 session blocks exist below (lines 18-48) but header stale",
+    where: "progress.md line 6",
+  },
+  {
+    claim: "AniListTracker syncEntry TODO (next session)",
+    reality:
+      "IMPLEMENTED D-242 (AniListTracker.kt:282 — full SaveMediaListEntry mutation)",
+    where: "AniListTracker.kt KDoc",
+  },
+  {
+    claim: "Encrypted HLS unsupported",
+    reality:
+      "D-244 added in-memory AES-128-CBC decryption + MEDIA-SEQUENCE IVs (rotating-key rejection still applies)",
+    where: "prior keyFindings.ts",
+  },
+  {
+    claim: "17-database-schema.md: 21 tables",
+    reality: "24 tables",
+    where: "DOCUMENTATION/17-database-schema.md (historical)",
+  },
+  {
     claim: "Only main branch remains",
-    reality: "2 unmerged branches (43+42 commits)",
-    where: "progress.md, SESSION.md",
-  },
-  {
-    claim: "14 dashboard pages",
-    reality: "19 routes, 11 in nav",
-    where: "knowledge/dashboard.md",
-  },
-  {
-    claim: "version 0.2.x unspecified",
-    reality: "0.2.22 main / 0.2.46 branch",
-    where: "docs silent",
+    reality: "2 unmerged branches (test-feature + test-controller-v5)",
+    where: "SESSION.md, master.md",
   },
 ] satisfies DocDriftRow[];
 
@@ -530,19 +597,22 @@ export const FEATURES_REMAINING: {
     timeframe: "days",
     items: [
       {
-        name: "Land functionality/improvements → main",
-        how: "merge after its session ends (clean merge, zero conflicts today); backfill fix15–20 docs first",
-        effort: "~1h + doc backfill",
+        name: "Device-test the parallel download engine",
+        how:
+          "execute download-device-testing-checklist.md against Part B (ParallelHttpFetcher, HLS AES-128, stall watchdog, re-resolve-incl-403, pause/resume with sidecar, anti-shrink guard); Part A cache already emulator-tested E2E",
+        effort: "~2-3h on device",
       },
       {
         name: "Memory reconciliation pass",
-        how: "backfill D-199..D-239 or add gap-note; fix D-198 status; close changelog gap; adopt branch2's D-240..D-242; renumber branch1's D-197..D-202 → D-243+",
+        how:
+          "backfill D-199..D-241 (43 decisions) or add a gap-note; fix D-198 status to IMPLEMENTED; update progress.md 'Current Phase' header to D-249; update AniListTracker KDoc (syncEntry done); update 'Last Updated' verdict to 48 modules / 24 tables",
         effort: "~2-3h",
       },
       {
-        name: "Download-system device test",
-        how: "execute download-device-testing-checklist.md end-to-end; verify downloaded subtitles (D-FIX-SUB)",
-        effort: "~2h on device",
+        name: "Merge test-feature → main (after device test)",
+        how:
+          "verify build on main post-merge (CI); truth-sweep dashboard data (48 modules, 24 tables, D-249); update knowledge/* + data.ts + Sidebar counts; consolidate orphan routes",
+        effort: "~1h merge + ~4h dashboard sweep",
       },
     ] satisfies RemainingFeature[],
   },
@@ -551,33 +621,45 @@ export const FEATURES_REMAINING: {
     timeframe: "1-3 weeks",
     items: [
       {
+        name: "WatchKey registry refactor",
+        how:
+          "store blobs in a registry keyed by ResolvedVideosKey; NavKey becomes identifier-only (mainId + episodeNumber + videoUrl + startPosition); unblocks R7 process-death backstack fix",
+        effort: "~4-5h",
+      },
+      {
+        name: "God-class splits",
+        how:
+          "LibraryScreen (3863) first: sections → composables, logic → ViewModel; then DetailsScreen (3240) + DetailsViewModel (3510); new PlaybackCacheManager (1758) is a candidate to split by responsibility",
+        effort: "~12-16h total",
+      },
+      {
+        name: "Extensions UX",
+        how:
+          "language filter chips (dropdown) + NSFW toggle + installed-status toggle; AsyncImage placeholder/crossfade/memoryCacheKey for ~240 extensions",
+        effort: "~3h",
+      },
+      {
         name: "Test-controller reintegration",
-        how: "resolve 5 conflicts, renumber decisions, drop TEST_BETA_FEATURE triggers, cherry-pick deploy single-job fix",
+        how:
+          "resolve 5 textual conflicts; renumber D-197..D-202 → D-250+; drop TEST_BETA_FEATURE CI triggers; cherry-pick deploy single-job fix",
         effort: "~4-6h",
       },
       {
         name: "AniList tracker completion",
-        how: "real client ID + trackerId identity mapping + sync mutations (base exists on branch2); fail loudly until real",
-        effort: "~6-8h",
+        how:
+          "syncEntry done (D-242); verify OAuth flow + search/fetchEntry completeness; real client ID; make sync fail loudly until real",
+        effort: "~4-6h",
       },
       {
-        name: "Extensions UX",
-        how: "language filter chips + AsyncImage placeholder/crossfade/memoryCacheKey",
-        effort: "~3h",
-      },
-      {
-        name: "WatchKey registry refactor",
-        how: "store blobs in a registry keyed by ResolvedVideosKey; NavKey becomes identifier-only; unblocks R7 fix",
-        effort: "~4h",
-      },
-      {
-        name: "God-class splits",
-        how: "DetailsScreen (3165) first: sections → composables, logic → ViewModel",
-        effort: "~8-12h",
+        name: "FirstRunSetupDialog onClick",
+        how:
+          "wire the empty onClick handler or remove the dialog (real UX bug)",
+        effort: "~0.5h",
       },
       {
         name: "Dashboard truth-sweep",
-        how: "fix D-counts, rewrite database page for 23-table schema, consolidate 6 orphan routes, dynamic Footer stats",
+        how:
+          "rewrite database page for 24-table schema; update module count to 48; update decision range to D-249; consolidate orphan routes; dynamic Footer stats",
         effort: "~4h",
       },
     ] satisfies RemainingFeature[],
@@ -596,7 +678,8 @@ export const FEATURES_REMAINING: {
       },
       {
         name: "Manga reader + novels",
-        how: "D-030: modular :feature:manga, content-type-aware models already in place",
+        how:
+          "D-030: modular :feature:manga, content-type-aware models already in place",
       },
       {
         name: "Multi-extension providers",
@@ -607,15 +690,16 @@ export const FEATURES_REMAINING: {
         how: "release signing + .sqm migrations on user signal",
       },
       {
-        name: "Encrypted HLS support",
-        how: "needs exoplayer/hls lib decision",
+        name: "Rotating-key HLS support",
+        how:
+          "D-244 rejects rotating keys; needs exoplayer/hls lib decision if required",
       },
     ],
   },
 };
 
 /* ---------------------------------------------------------------------------
- * Section 8 — TOP RISKS (5 rows)
+ * Section 8 — TOP RISKS (8 rows)
  * ------------------------------------------------------------------------- */
 
 export interface TopRisk {
@@ -627,35 +711,56 @@ export interface TopRisk {
 
 export const TOP_RISKS = [
   {
-    risk: "Merge corrupts decision log",
-    likelihood: "High if unreconciled",
-    impact: "Critical",
-    mitigation: "Reconcile BEFORE merging",
+    risk: "Parallel engine ships untested",
+    likelihood: "High (not device-tested)",
+    impact: "High",
+    mitigation:
+      "Run download-device-testing-checklist.md on Part B before merge",
   },
   {
     risk: "Silent failures erode trust",
     likelihood: "Medium",
     impact: "High",
     mitigation:
-      "Fake-success sync + unverified downloads — make failures loud, test on device",
-  },
-  {
-    risk: "Parallel sessions conflict",
-    likelihood: "Medium",
-    impact: "Medium",
-    mitigation: "Coordinate merges; merge branch2 promptly",
+      "Fail-open is correct design, but device-test the fail paths; make cache-miss visible in debug bubble",
   },
   {
     risk: "God-class maintainability decline",
-    likelihood: "Medium",
+    likelihood: "High (LibraryScreen 3863, grew +1392)",
     impact: "Medium",
-    mitigation: "Split before next big feature lands in Details",
+    mitigation: "Split LibraryScreen before next big feature lands there",
   },
   {
     risk: "Decisions made on stale dashboard data",
     likelihood: "Medium",
     impact: "Medium",
-    mitigation: "Truth-sweep the dashboard",
+    mitigation:
+      "This /key-findings/ page is fresh; truth-sweep the other dashboard pages after merge",
+  },
+  {
+    risk: "Merge corrupts decision log",
+    likelihood: "Medium (test-controller-v5 has D-197..D-202 collision)",
+    impact: "High",
+    mitigation:
+      "Renumber test-controller-v5 before reintegration; backfill D-199..D-241",
+  },
+  {
+    risk: "WatchKey Bundle-size crash on process death",
+    likelihood: "Low (R7 accepted)",
+    impact: "Medium",
+    mitigation: "Registry refactor unblocks the rememberSaveable fix",
+  },
+  {
+    risk: "OkHttp 5.0.0-alpha.14 binary-compat break",
+    likelihood: "Low",
+    impact: "Medium",
+    mitigation: "Pin to stable 5.0.0 when released; monitor Aniyomi ext compat",
+  },
+  {
+    risk: "HLS segment cache-key drift",
+    likelihood: "Low (hash8, stale files replaced)",
+    impact: "Low",
+    mitigation: "URL-hash naming is drift-safe; monitor",
   },
 ] satisfies TopRisk[];
 
@@ -664,7 +769,7 @@ export const TOP_RISKS = [
  * ------------------------------------------------------------------------- */
 
 export const FOOTER_NOTE_BULLETS = [
-  "Temporary section — built for this review cycle. Remove when no longer needed (4 files: app/key-findings/page.tsx, lib/keyFindings.ts, 1 NAV_ITEMS entry, 1 Sidebar icon key).",
-  "Every metric verified against source on 2026-08-22 (settings.gradle.kts, .sq files, git log, code greps) — not copied from docs.",
-  "Full methodology: CORE_RULES + complete AGENT-CONTEXT read → 5 parallel research sub-agents → main-agent verification.",
+  "Temporary section — built for the 2026-08-24 review cycle (test-feature/video-cache-new-download @ D-249). Remove when no longer needed (4 files: app/key-findings/page.tsx, lib/keyFindings.ts, 1 NAV_ITEMS entry, 1 Sidebar icon key).",
+  "Every metric verified against source on 2026-08-24 (settings.gradle.kts, 17 .sq files, git log, code greps, GitHub Actions API, 5 research sub-agents) — not copied from docs.",
+  "This page reflects the test-feature branch state (48 modules, 24 tables, D-249). The other dashboard pages reflect main @ 26e4772 (46 modules, 26 tables, D-193) — a truth-sweep is queued for merge time.",
 ];
