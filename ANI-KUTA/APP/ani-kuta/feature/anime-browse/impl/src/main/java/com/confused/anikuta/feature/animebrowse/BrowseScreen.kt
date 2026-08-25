@@ -34,7 +34,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -156,12 +155,21 @@ fun BrowseScreen(
                             // through a carousel is instant (the user reported
                             // covers visibly loading on first view). Order matters:
                             // the hero loads first, then visible-first sections.
-                            val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-                            val heroCardWidth = screenWidth - 32.dp
+                            //
+                            // D-262: the hero backdrop is now BLURRED (see
+                            // BlurredBannerBackdrop in BrowseHero.kt — it loads
+                            // its own small thumbnail via produceState +
+                            // context.imageLoader, namespaced under a custom
+                            // memoryCacheKey, and CPU-box-blurs it on IO). So
+                            // the hero preload only warms the SHARP cover posters
+                            // (the 84×126 foreground). The blurred backdrop
+                            // loads on first composition of each page (the dark
+                            // scrim covers the brief blank while the next page's
+                            // thumbnail decodes — ~50ms from disk cache).
                             SectionPreloader(
-                                urls = heroItems.flatMap { listOf(it.bannerImage, it.coverUrl) },
-                                width = heroCardWidth,
-                                height = heroCardWidth * 9f / 16f,
+                                urls = heroItems.map { it.coverUrl },
+                                width = 84.dp,
+                                height = 126.dp,
                             )
                             SectionPreloader(
                                 urls = continueWatching.map { it.thumbnailUrl ?: it.coverUrl },
