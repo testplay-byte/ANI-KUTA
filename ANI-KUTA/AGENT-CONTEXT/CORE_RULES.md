@@ -437,7 +437,7 @@ APP/ani-kuta/DOCUMENTATION/database/
 
 ---
 
-## 27. Tool Failure Recovery (Stop After 5 Tries)
+## 27. Tool Failure Recovery (Stop After 5 Consecutive / Halt After 10 Total + Notify)
 
 > When a tool (Bash, Read, Edit, etc.) fails repeatedly, hammering it wastes context and time. The environment often self-recovers if you pause.
 
@@ -445,9 +445,14 @@ APP/ani-kuta/DOCUMENTATION/database/
 1. **Stop after 5 consecutive failures** of the same tool with the same/similar error. Do NOT keep retrying — it won't help and burns context.
 2. **Acknowledge the failure to the user** — tell them the tool is erroring and you're pausing. The user may need to reset the session or wait.
 3. **Do NOT retry in a tight loop.** After the 5th failure, stop calling that tool entirely for the rest of the turn. Move to a different tool or describe what you would have done.
-4. **The environment often self-recovers.** If the user says "continue" or sends a new message, try the tool again — it may work now.
-5. **Log the failure** in `lessons-learned.md` with the `[PATTERN]` tag if it recurs across sessions (e.g. "Bash fails after long sessions — context limit or sandbox issue").
-6. **If a critical action is blocked** (e.g. can't `git push`), tell the user explicitly: "I can't push to GitHub right now because Bash is failing. The changes are saved locally. Please retry in a new message or run `git push` manually."
+4. **HARD LIMIT — Bash: more than 10 total failures in a session → STOP + NOTIFY (user instruction, 2026-08-25).** Count EVERY Bash invocation that errors (non-zero exit where the command did not produce its intended result — a `diff -q` exit 1 reporting "files differ" is an answer, not a failure). Once the count EXCEEDS 10:
+   - **Stop all work immediately.** No further Bash calls — not "one more try".
+   - **Send an ntfy.sh notification** (§11): `curl -fsSL -H "Title: ANI-KUTA Agent" -d "Bash failed >10 times — agent HALTED. Check the session." https://ntfy.sh/TASKISDONE`. Attempt it ONCE; if that curl itself fails, say so in the final response instead.
+   - **Tell the user in the response**: the Bash tool failed more than 10 times, work is halted, the exact work state (committed/pushed or not, files changed), and what to do next (send a new message to retry — the counter resets on a new user message).
+   - This limit is CUMULATIVE across the session, not just consecutive — intermittent failures add up to the same wasted context.
+5. **The environment often self-recovers.** If the user says "continue" or sends a new message, try the tool again — it may work now. The failure counters (5-consecutive and 10-total) RESET on each new user message.
+6. **Log the failure** in `lessons-learned.md` with the `[PATTERN]` tag if it recurs across sessions (e.g. "Bash fails after long sessions — context limit or sandbox issue").
+7. **If a critical action is blocked** (e.g. can't `git push`), tell the user explicitly: "I can't push to GitHub right now because Bash is failing. The changes are saved locally. Please retry in a new message or run `git push` manually."
 
 ---
 

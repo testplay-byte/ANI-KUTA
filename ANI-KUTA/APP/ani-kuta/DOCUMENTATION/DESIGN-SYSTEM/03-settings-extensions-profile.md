@@ -1317,8 +1317,8 @@ KDoc: *"A bottom-up sheet (per DESIGN_LANGUAGE §2 — `dragHandle = null`)"*).
 | `app/.../settings/NotificationsLibraryScreen.kt`                                    | Library-notifications sheet                       |
 | `core/player/.../controls/SpeedSheet.kt`                                            | Playback-speed picker                             |
 | `core/player/.../controls/SubtitleSettingsSheet.kt`                                 | Subtitle styling sheet                             |
-| `core/player/.../controls/ColorPickerSheet.kt`                                       | Color picker                                       |
-| `core/player/.../controls/NumericEntrySheet.kt`                                      | Numeric entry (e.g. jump-to-minute)               |
+| `core/designsystem/.../component/ColorPickerSheet.kt`                                | Color picker (D-259 redesign)                     |
+| `core/designsystem/.../component/NumericEntrySheet.kt`                               | Numeric keypad (moved from :core:player, D-259)   |
 | `feature/watch/impl/.../sheets/PlayerSheets.kt`                                     | Player sheet host                                  |
 | `feature/anime-search/impl/.../FilterSheet.kt`                                     | Search filters                                     |
 | `feature/anime-search/impl/.../ExtensionSourcePickerSheet.kt`                      | Source picker                                       |
@@ -1418,4 +1418,4 @@ These are reused across multiple screens documented above. Pull them from
 | 7   | Source preferences              | `feature/extensions-settings/impl/.../SourcePreferencesScreen.kt` (+ `preference/SharedPreferencesDataStore.kt`)            |
 | 8   | Download settings               | `feature/download/src/main/java/com/confused/anikuta/feature/download/DownloadSettingsScreen.kt` (+ `components/DragReorderableList.kt`) |
 | 9   | Update sheet                    | `app/src/main/java/com/confused/anikuta/updates/UpdateBottomSheet.kt`                                                       |
-| 10  | Bottom-up menu pattern          | `core/player/.../controls/{SpeedSheet,SubtitleSettingsSheet,ColorPickerSheet,NumericEntrySheet}.kt`, `feature/watch/impl/.../sheets/PlayerSheets.kt`, `feature/anime-search/impl/.../{FilterSheet,ExtensionSourcePickerSheet}.kt`, `feature/anime-details/impl/.../{ResolverSheet,ManualSearchSheet,ManualLinkSheet}.kt`, `feature/download/.../DownloadVideoPickerSheet.kt`, `app/.../profile/ProfileSections.kt`, `app/.../settings/NotificationsLibraryScreen.kt` |
+| 10  | Bottom-up menu pattern          | `core/player/.../controls/{SpeedSheet,SubtitleSettingsSheet}.kt`, `core/designsystem/.../component/{ColorPickerSheet,NumericEntrySheet,ThinSlider}.kt`, `feature/watch/impl/.../sheets/PlayerSheets.kt`, `feature/anime-search/impl/.../{FilterSheet,ExtensionSourcePickerSheet}.kt`, `feature/anime-details/impl/.../{ResolverSheet,ManualSearchSheet,ManualLinkSheet}.kt`, `feature/download/.../DownloadVideoPickerSheet.kt`, `app/.../profile/ProfileSections.kt`, `app/.../settings/NotificationsLibraryScreen.kt` |

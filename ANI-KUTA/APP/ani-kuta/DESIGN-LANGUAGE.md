@@ -119,6 +119,13 @@ visual language:
 - **Compound badges** (SUB+DUB split) draw their split background with
   `drawBehind` — always `Modifier.clip(shape).drawBehind { ... }` (clip BEFORE
   draw), because M3 Surface applies its own shape-clip AFTER user modifiers.
+- **Outlined (D-257)**: every cover badge carries a 1dp outline at the chip's
+  own content color @ 50% alpha (Browse score tag + Library simple chips via
+  the m3 `Surface(border=…)` param — the stroke follows `PointedTagShape`
+  incl. the 45° tip; the compound sub|dub badge draws its outline as a manual
+  stroked Path inside the same drawBehind, replicating the pointed geometry —
+  a Surface border can't trace hand-drawn paint). Keeps the tags crisp
+  against busy cover art.
 
 ### 2.6 — Custom Theme (D-254)
 
@@ -135,6 +142,14 @@ brightness offset):
   default onBackground) — CollapsingHeader titles read it.
 - The editor (CustomPaletteSheet) forces alpha opaque — translucent theme
   surfaces are not supported.
+- **Editor + picker sheet rules (D-259)**: editor sheets use a STICKY header
+  (title + primary action OUTSIDE the scroll area; no X button — dismiss via
+  swipe/scrim) with a scroll-driven `ScrollBlurOverlay` scrim at the top of
+  the content. All value sliders are `ThinSlider` (4dp track + 18dp
+  rounded-square thumb with surface halo; 36dp grab area) and every numeric
+  value renders as a TAPPABLE chip that opens the shared NumericEntrySheet
+  keypad (live-applied). Presets are exactly FIVE distinct colors in a single
+  equal-width line of rounded tiles.
 
 ---
 
@@ -149,8 +164,9 @@ confirmed.
 - *Bottom-up sheet* cap at 70% screen height (D-052).
 - *Floating pill bottom nav* (4 tabs, translucent).
 - *Translucent cards* (no shadow, surfaceVariant at low alpha).
-- *Hero pager* (full-bleed auto-advancing top-banner — IMPLEMENTED in D-253;
-  promote to a confirmed rule after user device verification).
+- *Hero pager* — IMPLEMENTED (D-253 full-bleed → D-256 poster+banner → **D-257 hero v3**:
+  inset 16:9 rounded 20dp card, infinite forward-only auto-advance, dots below
+  the card). Promote to a confirmed rule after user device verification of v3.
 
 ---
 

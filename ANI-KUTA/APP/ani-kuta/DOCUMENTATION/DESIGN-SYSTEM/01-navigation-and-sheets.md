@@ -491,8 +491,8 @@ scrollable body underneath.
 | `feature/download/.../DownloadsScreen.kt` | Download picker | (see file) | (see file) |
 | `feature/download/.../DownloadVideoPickerSheet.kt` | Pick video stream | (see file) | (see file) |
 | `feature/watch/.../sheets/PlayerSheets.kt` (multiple) | Player settings sheets | 70% | 20dp |
-| `core/player/.../controls/ColorPickerSheet.kt` | Subtitle color picker | (screen-height) | — |
-| `core/player/.../controls/NumericEntrySheet.kt` | Numeric input | — | 20dp |
+| `core/designsystem/.../component/ColorPickerSheet.kt` | Color picker (D-259 redesign: 5-preset line + ThinSliders + keypad) | (screen-height) | — |
+| `core/designsystem/.../component/NumericEntrySheet.kt` | Numeric keypad (moved from :core:player in D-259) | — | 20dp |
 | `core/player/.../controls/SubtitleSettingsSheet.kt` | Subtitle settings | (max height) | — |
 | `core/player/.../controls/SpeedSheet.kt` | Playback speed | 500dp (hard cap) | — |
 | `app/.../settings/NotificationsLibraryScreen.kt` | Notification picker | — | — |

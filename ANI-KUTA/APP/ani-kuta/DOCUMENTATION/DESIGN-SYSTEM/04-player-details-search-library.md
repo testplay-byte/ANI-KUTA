@@ -275,8 +275,8 @@ Box(Modifier.fillMaxSize()) {
 
 **Files:**
 - `core/player/src/main/java/com/confused/anikuta/core/player/controls/SubtitleSettingsSheet.kt`
-- `core/player/src/main/java/com/confused/anikuta/core/player/controls/NumericEntrySheet.kt` — the in-built keyboard
-- `core/player/src/main/java/com/confused/anikuta/core/player/controls/ColorPickerSheet.kt` — color preset swatches + RGBA sliders
+- `core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/NumericEntrySheet.kt` — the in-built keyboard (moved out of :core:player in D-259 so the theme editor can reuse it)
+- `core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/ColorPickerSheet.kt` — color preset swatches + RGBA sliders (D-259: 5-preset single line, scrollable, ThinSliders + keypad value entry)
 - Hosted from `feature/watch/impl/.../WatchScreen.kt` (~line 1146–1155)
 
 ### 3.1 Layout
