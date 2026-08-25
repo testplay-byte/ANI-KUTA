@@ -98,6 +98,46 @@ treatment**: a **bare 24dp `Icon` tinted `primary`, no container box.**
 
 ---
 
+### 2.5 — Cover Badge Language (pointed tags, D-252)
+
+Badges overlaid on cover art (Library grid modes, Browse cards) share one
+visual language:
+
+- **Pointed tip**: the chip nearest the cover CENTER tapers into a 45°
+  triangle tip (`PointedTagShape` in `:core:designsystem:badge`) — badges
+  read as pointed flags pointing INTO the cover. Text keeps +4dp padding on
+  the pointed side so it never overlaps the transparent tip.
+- **Corner-flush**: the badge row sits flush with the cover corner; its outer
+  corner clips to the cover's corner radius (12dp rounded modes, 0dp for
+  COVER_ONLY's square covers — `coverCornerRadius` param). No floating
+  badges with inset padding on grid covers.
+- **Shared colors**: `BadgeColorScheme` (designsystem) — SUB blue / DUB
+  orange / Total green / Score amber / All-Caught-Up red, hand-picked Material
+  pairs that adapt to the APPLIED theme (background luminance, not the system
+  setting). Browse's score tag uses the same amber score colors — no
+  per-screen badge palettes.
+- **Compound badges** (SUB+DUB split) draw their split background with
+  `drawBehind` — always `Modifier.clip(shape).drawBehind { ... }` (clip BEFORE
+  draw), because M3 Surface applies its own shape-clip AFTER user modifiers.
+
+### 2.6 — Custom Theme (D-254)
+
+When the CUSTOM accent preset is active, the theme comes entirely from the
+user's `CustomThemeColors` (accent + background + heading + card, each with a
+brightness offset):
+
+- Custom colors apply **as-is in both light & dark mode**; the mode toggle
+  only affects presets. AMOLED is skipped while custom is active.
+- One pick derives a coherent theme: text colors by background luminance;
+  surface ramp = background lerped toward text; card family →
+  surfaceVariant/containers.
+- Heading color flows through `LocalHeadingColor` (Unspecified sentinel →
+  default onBackground) — CollapsingHeader titles read it.
+- The editor (CustomPaletteSheet) forces alpha opaque — translucent theme
+  surfaces are not supported.
+
+---
+
 ## 3. Future Rules (pending user confirmation)
 
 Rules the user has hinted at but not yet confirmed. Don't implement until
@@ -109,7 +149,8 @@ confirmed.
 - *Bottom-up sheet* cap at 70% screen height (D-052).
 - *Floating pill bottom nav* (4 tabs, translucent).
 - *Translucent cards* (no shadow, surfaceVariant at low alpha).
-- *Accent palette system* (D-053 — 10 presets + CUSTOM).
+- *Hero pager* (full-bleed auto-advancing top-banner — IMPLEMENTED in D-253;
+  promote to a confirmed rule after user device verification).
 
 ---
 
@@ -124,6 +165,8 @@ rules solidify.)
 - **AMOLED:** Pure black backgrounds/surfaces when `amoled = true` + dark.
 - **Accent override:** `AnikutaTheme(accentSeed = ...)` overrides the primary
   family (D-053). Background/surface ramp stays fixed.
+- **Custom theme (D-254):** `AnikutaTheme(customTheme = ...)` builds the whole
+  scheme from the user's per-element picks — see §2.6.
 
 ---
 

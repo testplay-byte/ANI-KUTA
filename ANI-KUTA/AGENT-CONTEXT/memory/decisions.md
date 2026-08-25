@@ -1804,3 +1804,42 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Key decisions**: (a) Hide-Titles is a Comfortable-scoped toggle (NOT a new display mode) — keeps the mode count at 4 and the enum stable (persisted by name); (b) Cover Only = full-bleed edge-to-edge wall (no screen-edge padding either — maximal "close together" per user's wording; Instagram-grid style); (c) the update checker surfaces prereleases (fixes detection) while the release workflow publishes stable (fixes distribution) — belt and suspenders; (d) release APKs remain debug-signed (same signature as all prior CI-artifact builds — release signing is Phase 2).
 - **Status:** ✅ Implemented, sub-agent compile-reviewed (zero blockers). CI pending push. NOT merged — awaiting user device verification.
 - **Date:** Library/releases/emulator session (2026-08-24).
+
+---
+
+### D-252 — Pointed cover badges + corner-aware COVER_ONLY (unified badge language)
+- **What (user request: "the episodes tags in the cover only mode need to be handled properly and make pointier"):**
+  1. **The "not handled properly" root cause**: `CoverBadgeRow`'s outer shape hard-coded a 12dp outer corner to hug the old rounded covers — on COVER_ONLY's SQUARE covers (D-251) that left a curved sliver of cover art visible behind each badge corner and the badge never reached the corner pixel. New `coverCornerRadius` param: 0.dp for COVER_ONLY, 12.dp for rounded modes; the old 4dp inner-corner rounding (which clipped the pointed tip's base) removed.
+  2. **Pointed design**: the chip nearest the cover CENTER tapers into a 45° triangle tip via the new `PointedTagShape` (RTL-aware, tip depth = height/2, extra +4dp padding keeps text clear of the transparent tip) — badges read as pointed flags pointing INTO the cover. Compound sub/dub badge: `clip(pointedShape)` BEFORE `drawBehind` (M3 Surface applies its own clip AFTER user modifiers — the old order would spill the split-painting past the tip; caught by the plan-review agent).
+  3. **Shared badge language**: `BadgeColorScheme` moved :feature:anime-library → :core:designsystem/badge (Browse reuses the amber score colors; 2 consumers = justified move, precedent BackAction D-250). Dark/light detection now follows the APPLIED theme (background luminance) instead of `isSystemInDarkTheme()` (the app allows forcing a mode ≠ system).
+  4. Dead legacy `CoverBadge` composable removed (zero callers); stale 8sp KDoc fixed (9sp).
+- **Scope**: LibraryScreen.kt (CoverBadgeRow + 4 call sites + badgeCornerRadius threading) + 2 new designsystem files.
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit d1152736). Compile-reviewed (Task 7) — clean. Awaiting CI + user device verification. NOT merged to main.
+- **Date:** 2026-08-25 (browse-overhaul session).
+
+---
+
+### D-253 — Complete Browse page UI overhaul (hero pager + cards + skeletons)
+- **What (user request: "complete UI overhaul of the browse page... beautiful, modern, cleaner, much easier to navigate... top banner image or the hero section... proper beautiful smooth animations... database properly managed" + rating tags "ugly" + "a bit of borders" on covers):** D-249's redesign was "a little bit" — this is the full redo. BrowseScreen.kt (581 lines) split into 4 files (§5):
+  1. **BrowseHero.kt** — full-bleed edge-to-edge 260dp `HorizontalPager` over the top-5 trending-with-banner items (VM `hero` → `heroItems`); auto-advance every 6s (LaunchedEffect keyed on currentPage restarts the timer; isScrollInProgress guard; single item = no pager mechanics); animated page dots (active elongates to a 16dp pill); rank pill (#N TRENDING, D-215 recipe, no emoji per NavIcons rule) + 24sp ExtraBold title + integer-score meta row + genre pills over a stronger scrim (0.55/0.97 stops).
+  2. **BrowseCards.kt** — 2:3 covers with standardized 12dp corners (was inconsistent 18/14/10) + NEW 1dp outlineVariant@60% borders; **rating tag REPLACED**: the old hard-coded black-65% pill with lime text → the amber pointed corner tag from the shared badge language (D-252), flush at top-start (outer corner clipped by the cover Box's 12dp clip); integer AniList score (0-100, unified with Library); CW cards: same borders + center play affordance (32dp primary circle) + press-scale (had none).
+  3. **BrowseSkeleton.kt** — shimmer skeletons (reversed alpha pulse 0.35↔0.75 on surfaceVariant, 1200ms) mirroring the real layout instead of the full-screen spinner (§22).
+  4. **BrowseScreen.kt** — sections fade+expand in via AnimatedVisibility when data arrives (no pop-in); error = EmptyState + Retry button; DB-7 debug block, PTR haptic, ScrollBlurOverlay, CW direct-play contract (onPlay → AniList → Extension) preserved exactly.
+  5. **BrowseViewModel** — cache reads + JSON parse + CW enrichment moved to Dispatchers.IO (main-thread SQL smell); `refresh()` now PARALLEL (was sequential = 3× slower than init); isRefreshing in-flight counter (fixes the first-finisher-clears-spinner race). Read-through + 6h TTL semantics unchanged; no API/schema changes.
+- **Status:** ✅ Implemented (commit 4230821c). Compile-reviewed (Task 7) — clean. Awaiting CI + user device verification. NOT merged.
+- **Date:** 2026-08-25.
+
+---
+
+### D-254 — Custom palette editor (per-element theme customization)
+- **What (user request: clicking Custom again opens a bottom menu below the palettes where the user can customize the background, accent, top headings, and each element/block color, each with brightness):**
+  1. **Model**: NEW `CustomThemeColors` (designsystem) — accent/background/heading/card Colors + 4 brightness Floats (−1..1; `applyBrightness` lerps toward white/black, applied AFTER the base color). Defaults mirror the dark theme (lime on warm darks).
+  2. **Scheme derivation** (`buildCustomColorScheme`): one pick → a coherent theme — accent family via the existing `AccentColors.from` derivation; text colors by background LUMINANCE (dark text on light picks, light on dark); surface ramp = background lerped toward text (4/8/12/16%); card family → surfaceVariant/containers; outline lerps. Custom applies in BOTH light & dark mode (mode toggle affects only presets); AMOLED skipped while custom is active (custom background wins — documented in the sheet).
+  3. **Heading color**: `LocalHeadingColor` static CompositionLocal (Unspecified sentinel → default onBackground); `CollapsingHeader` titles read it.
+  4. **ColorPickerSheet promoted** :core:player → :core:designsystem with a `swatches: List<Pair<Int, String>>` param (default = the player's subtitle palette — zero behavior change for the single player call site); the theme editor passes theme-appropriate swatches per element + forces alpha opaque on live-apply (translucent theme surfaces would break scrims).
+  5. **Persistence**: ThemePreferences `customTheme` mutableStateOf loaded from 8 pref keys (4 ARGB + 4 Floats via PreferenceStore.getFloat); legacy custom-accent key seeds the accent (migration); `setCustomTheme` persists + updates state.
+  6. **Live apply**: MainActivity passes `customTheme` to AnikutaTheme when preset == CUSTOM — reading `prefs.customTheme.value` inside setContent subscribes the whole app to every editor change (§23 live verification).
+  7. **UI**: NEW `CustomPaletteSheet` (bottom sheet, dragHandle null, 65% height cap, scrollable) — live mini-preview (heading + card block + accent pill from the current config, brightness applied) + 4 element editors (swatch button → nested ColorPickerSheet; brightness Slider −100..+100 with +/- readout) + Reset button. `AppearanceGeneralScreen`: re-tapping the ALREADY-selected Custom card opens the sheet; the Custom card's selected badge is a palette (edit) icon instead of a check; stale "static placeholders" ponytail KDoc removed.
+  8. **Known caveat**: status-bar icon contrast follows the SYSTEM dark mode (enableEdgeToEdge SystemBarStyle.auto) — a light custom background under system-dark shows light icons. Pre-existing class of issue; revisit at production polish.
+- **Status:** ✅ Implemented (commit 7ef10689). Compile-reviewed (Task 7) — 2 errors caught + fixed pre-push (staticCompositionLocalOf is a function not a type; missing @OptIn(ExperimentalMaterial3Api) on CustomPaletteSheet). Awaiting CI + user device verification. NOT merged.
+- **Date:** 2026-08-25.
