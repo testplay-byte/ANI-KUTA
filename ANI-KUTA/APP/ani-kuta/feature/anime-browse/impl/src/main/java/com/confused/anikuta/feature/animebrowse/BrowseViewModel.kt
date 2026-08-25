@@ -8,6 +8,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.watchprogress.WatchProgressStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -63,43 +65,52 @@ class BrowseViewModel(
     private val _topRated = MutableStateFlow<List<AniListAnime>>(emptyList())
     val topRated: StateFlow<List<AniListAnime>> = _topRated.asStateFlow()
 
-    /** D-249: the hero item — the first trending anime with a banner image. */
-    val hero: StateFlow<AniListAnime?> = _state
+    /**
+     * D-253: the hero pager's items — up to 5 trending anime WITH banner
+     * images (falls back to the first 3 trending items so a hero always
+     * renders). Evolves D-249's single-hero-item flow.
+     */
+    val heroItems: StateFlow<List<AniListAnime>> = _state
         .map { state ->
-            (state as? BrowseState.Success)?.anime
-                ?.firstOrNull { !it.bannerImage.isNullOrBlank() }
+            val trending = (state as? BrowseState.Success)?.anime ?: emptyList()
+            trending.filter { !it.bannerImage.isNullOrBlank() }.take(5)
+                .ifEmpty { trending.take(3) }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // ── Phase 3: Continue Watching carousel ──────────────────────────────────
+    // D-253: enrichment (sync SQL: main entry + details + episode metadata)
+    // moved to Dispatchers.IO — it previously ran on the Main dispatcher.
     val continueWatching: StateFlow<List<ContinueWatchingItem>> =
         watchProgressStore.observeContinueWatching(10)
             .map { progressList ->
-                progressList.mapNotNull { progress ->
-                    val mid = progress.mainId ?: return@mapNotNull null
-                    val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
-                    val details = contentRepository.getContentDetails(mid)
-                    val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
-                    val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
-                    val epMeta = dataCacheRepository.getEpisodeMetadata(mid)
-                        .find { it.episodeNumber == episodeNumber.toFloat() }
-                    val thumbnailUrl = epMeta?.thumbnailUrl ?: coverUrl
-                    val episodeUrl = epMeta?.episodeUrl ?: ""
-                    ContinueWatchingItem(
-                        mainId = mid,
-                        anilistId = details?.anilistId,
-                        sourceId = details?.sourceId ?: content.sourceId ?: 0L,
-                        animeUrl = content.animeUrl ?: details?.animeUrl ?: "",
-                        title = content.title,
-                        coverUrl = coverUrl,
-                        thumbnailUrl = thumbnailUrl,
-                        episodeUrl = episodeUrl,
-                        episodeNumber = episodeNumber,
-                        progressFraction = progress.progressFraction,
-                        position = progress.position,
-                        duration = progress.duration,
-                        lastWatchedAt = progress.lastWatchedAt,
-                    )
+                withContext(Dispatchers.IO) {
+                    progressList.mapNotNull { progress ->
+                        val mid = progress.mainId ?: return@mapNotNull null
+                        val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
+                        val details = contentRepository.getContentDetails(mid)
+                        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+                        val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
+                        val epMeta = dataCacheRepository.getEpisodeMetadata(mid)
+                            .find { it.episodeNumber == episodeNumber.toFloat() }
+                        val thumbnailUrl = epMeta?.thumbnailUrl ?: coverUrl
+                        val episodeUrl = epMeta?.episodeUrl ?: ""
+                        ContinueWatchingItem(
+                            mainId = mid,
+                            anilistId = details?.anilistId,
+                            sourceId = details?.sourceId ?: content.sourceId ?: 0L,
+                            animeUrl = content.animeUrl ?: details?.animeUrl ?: "",
+                            title = content.title,
+                            coverUrl = coverUrl,
+                            thumbnailUrl = thumbnailUrl,
+                            episodeUrl = episodeUrl,
+                            episodeNumber = episodeNumber,
+                            progressFraction = progress.progressFraction,
+                            position = progress.position,
+                            duration = progress.duration,
+                            lastWatchedAt = progress.lastWatchedAt,
+                        )
+                    }
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -124,12 +135,18 @@ class BrowseViewModel(
     /**
      * Loads a section: cache-first (instant display) → fetch from network when expired.
      * D-249: uses fetchBrowseSection (includes bannerImage + genres for the hero).
+     * D-253: cache reads + JSON parsing moved to Dispatchers.IO (they're sync
+     * SQL/JSON work that previously ran on the Main dispatcher).
      */
     private fun loadSection(sectionKey: String, sort: String, onResult: (List<AniListAnime>) -> Unit) {
         viewModelScope.launch {
-            val cached = dataCacheRepository.getBrowseCache(sectionKey)
+            val cached = withContext(Dispatchers.IO) {
+                dataCacheRepository.getBrowseCache(sectionKey)
+            }
             if (cached != null) {
-                val cachedAnime = parseBrowseCache(cached.dataJson)
+                val cachedAnime = withContext(Dispatchers.IO) {
+                    parseBrowseCache(cached.dataJson)
+                }
                 if (cachedAnime.isNotEmpty()) {
                     Logger.i(TAG) { "Loaded ${cachedAnime.size} $sectionKey from cache" }
                     onResult(cachedAnime)
@@ -141,14 +158,25 @@ class BrowseViewModel(
         }
     }
 
+    /**
+     * In-flight network fetch counter. viewModelScope launches on Main, so a
+     * plain Int is safe (single-threaded). D-253: fixes the isRefreshing race
+     * where the first of 3 parallel fetches cleared the spinner while the
+     * others were still in flight.
+     */
+    private var inFlightFetches = 0
+
     private suspend fun fetchSection(sectionKey: String, sort: String, onResult: (List<AniListAnime>) -> Unit) {
+        inFlightFetches++
         _isRefreshing.value = true
         try {
             val anime = anilistApi.fetchBrowseSection(sort)
             Logger.i(TAG) { "Fetched ${anime.size} $sectionKey from network" }
             onResult(anime)
             val json = serializeBrowseCache(anime)
-            dataCacheRepository.upsertBrowseCache(sectionKey, json)
+            withContext(Dispatchers.IO) {
+                dataCacheRepository.upsertBrowseCache(sectionKey, json)
+            }
             Logger.i(TAG) { "Cached ${anime.size} $sectionKey anime" }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to fetch $sectionKey: ${e.message}" }
@@ -156,17 +184,23 @@ class BrowseViewModel(
                 _state.value = BrowseState.Error(e.message ?: "Unknown error")
             }
         } finally {
-            _isRefreshing.value = false
+            inFlightFetches--
+            if (inFlightFetches <= 0) {
+                inFlightFetches = 0
+                _isRefreshing.value = false
+            }
         }
     }
 
-    /** Force-refresh all sections from network. Called by pull-to-refresh. */
+    /**
+     * Force-refresh all sections from network. Called by pull-to-refresh + the
+     * error-state Retry button. D-253: the three fetches run in PARALLEL (the
+     * old sequential loop made refresh 3× slower than the parallel init path).
+     */
     fun refresh() {
-        viewModelScope.launch {
-            fetchSection(SECTION_TRENDING, "TRENDING_DESC") { _state.value = BrowseState.Success(it) }
-            fetchSection(SECTION_POPULAR, "POPULARITY_DESC") { _popular.value = it }
-            fetchSection(SECTION_TOP_RATED, "SCORE_DESC") { _topRated.value = it }
-        }
+        viewModelScope.launch { fetchSection(SECTION_TRENDING, "TRENDING_DESC") { _state.value = BrowseState.Success(it) } }
+        viewModelScope.launch { fetchSection(SECTION_POPULAR, "POPULARITY_DESC") { _popular.value = it } }
+        viewModelScope.launch { fetchSection(SECTION_TOP_RATED, "SCORE_DESC") { _topRated.value = it } }
     }
 
     // ── Cache serialization ────────────────────────────────────────────────
