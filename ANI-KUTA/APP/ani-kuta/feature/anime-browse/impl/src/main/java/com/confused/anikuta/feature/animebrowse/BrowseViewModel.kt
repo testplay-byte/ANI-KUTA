@@ -5,9 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
-import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.datacache.DataCacheRepository
-import com.confused.anikuta.core.watchprogress.WatchProgressStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,8 +38,6 @@ import kotlinx.serialization.json.put
 class BrowseViewModel(
     private val anilistApi: AniListApi,
     private val dataCacheRepository: DataCacheRepository,
-    private val watchProgressStore: WatchProgressStore,
-    private val contentRepository: ContentRepository,
 ) : ViewModel() {
 
     companion object {
@@ -77,43 +73,6 @@ class BrowseViewModel(
                 .ifEmpty { trending.take(3) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // ── Phase 3: Continue Watching carousel ──────────────────────────────────
-    // D-253: enrichment (sync SQL: main entry + details + episode metadata)
-    // moved to Dispatchers.IO — it previously ran on the Main dispatcher.
-    val continueWatching: StateFlow<List<ContinueWatchingItem>> =
-        watchProgressStore.observeContinueWatching(10)
-            .map { progressList ->
-                withContext(Dispatchers.IO) {
-                    progressList.mapNotNull { progress ->
-                        val mid = progress.mainId ?: return@mapNotNull null
-                        val content = contentRepository.getMainEntryByMainId(mid) ?: return@mapNotNull null
-                        val details = contentRepository.getContentDetails(mid)
-                        val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
-                        val episodeNumber = progress.episodeKey.substringAfterLast('|').toIntOrNull() ?: 0
-                        val epMeta = dataCacheRepository.getEpisodeMetadata(mid)
-                            .find { it.episodeNumber == episodeNumber.toFloat() }
-                        val thumbnailUrl = epMeta?.thumbnailUrl ?: coverUrl
-                        val episodeUrl = epMeta?.episodeUrl ?: ""
-                        ContinueWatchingItem(
-                            mainId = mid,
-                            anilistId = details?.anilistId,
-                            sourceId = details?.sourceId ?: content.sourceId ?: 0L,
-                            animeUrl = content.animeUrl ?: details?.animeUrl ?: "",
-                            title = content.title,
-                            coverUrl = coverUrl,
-                            thumbnailUrl = thumbnailUrl,
-                            episodeUrl = episodeUrl,
-                            episodeNumber = episodeNumber,
-                            progressFraction = progress.progressFraction,
-                            position = progress.position,
-                            duration = progress.duration,
-                            lastWatchedAt = progress.lastWatchedAt,
-                        )
-                    }
-                }
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         loadAll()
@@ -261,22 +220,3 @@ sealed interface BrowseState {
     data class Success(val anime: List<AniListAnime>) : BrowseState
     data class Error(val message: String) : BrowseState
 }
-
-/**
- * Phase 3: A continue-watching carousel item (TEMPORARY — for testing).
- */
-data class ContinueWatchingItem(
-    val mainId: String,
-    val anilistId: Int?,
-    val sourceId: Long,
-    val animeUrl: String,
-    val title: String,
-    val coverUrl: String?,
-    val thumbnailUrl: String?,
-    val episodeUrl: String?,
-    val episodeNumber: Int,
-    val progressFraction: Float,
-    val position: Long,
-    val duration: Long,
-    val lastWatchedAt: Long,
-)

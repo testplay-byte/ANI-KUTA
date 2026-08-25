@@ -57,8 +57,12 @@ import org.koin.compose.viewmodel.koinViewModel
  * Layout: CollapsingHeader → pull-to-refresh → scrollable LazyColumn containing:
  *  1. Hero pager (top trending anime — D-257 hero v3: inset 16:9 rounded card
  *     with banner backdrop + cover poster, infinite smooth auto-advance)
- *  2. Continue Watching carousel (16:9 thumbs + play affordance + progress bar)
- *  3. Trending Now / Popular / Top Rated (horizontal card carousels)
+ *  2. Trending Now / Popular / Top Rated (horizontal card carousels)
+ *
+ * D-266: Continue Watching section removed from Browse per user instruction
+ * (the carousel + its direct-to-player launch callback were deleted; the
+ * underlying WatchProgressStore + watch.sq remain for the Library's
+ * per-collection continue-watching toggle, which is a separate feature).
  *
  * D-257 changes vs D-256:
  * - Hero redesigned as a padded rounded card (16:9 — the banner's native
@@ -84,13 +88,10 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun BrowseScreen(
     onNavigate: (NavKey) -> Unit,
-    // D-248: direct-to-player launch for continue-watching cards.
-    onPlayContinueWatching: ((ContinueWatchingItem) -> Unit)? = null,
     viewModel: BrowseViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val continueWatching by viewModel.continueWatching.collectAsState()
     val popular by viewModel.popular.collectAsState()
     val topRated by viewModel.topRated.collectAsState()
     val heroItems by viewModel.heroItems.collectAsState()
@@ -171,11 +172,6 @@ fun BrowseScreen(
                                 width = 84.dp,
                                 height = 126.dp,
                             )
-                            SectionPreloader(
-                                urls = continueWatching.map { it.thumbnailUrl ?: it.coverUrl },
-                                width = 168.dp,
-                                height = 94.dp,
-                            )
                             SectionPreloader(urls = s.anime.map { it.coverUrl }, width = 128.dp, height = 192.dp)
                             SectionPreloader(urls = popular.map { it.coverUrl }, width = 128.dp, height = 192.dp)
                             SectionPreloader(urls = topRated.map { it.coverUrl }, width = 128.dp, height = 192.dp)
@@ -191,22 +187,6 @@ fun BrowseScreen(
                                     BrowseHero(
                                         items = heroItems,
                                         onOpen = { anime -> onNavigate(AnimeDetailsKey.AniList(anime.id)) },
-                                    )
-                                }
-                            }
-
-                            // ── Continue Watching ──
-                            item(key = "cw_header") {
-                                BrowseSection(visible = continueWatching.isNotEmpty()) {
-                                    BrowseSectionHeader("Continue Watching")
-                                }
-                            }
-                            item(key = "cw_carousel") {
-                                BrowseSection(visible = continueWatching.isNotEmpty()) {
-                                    ContinueWatchingCarousel(
-                                        items = continueWatching,
-                                        onNavigate = onNavigate,
-                                        onPlay = onPlayContinueWatching,
                                     )
                                 }
                             }

@@ -54,6 +54,7 @@ import coil3.compose.AsyncImage
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
+import coil3.request.allowHardware
 import coil3.toBitmap
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -278,11 +279,11 @@ private fun HeroCard(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.30f),
+                            Color.Black.copy(alpha = 0.22f),
                             Color.Transparent,
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Black.copy(alpha = 0.88f),
+                            Color.Black.copy(alpha = 0.45f),
+                            Color.Black.copy(alpha = 0.82f),
                         ),
                         startY = 0f,
                         endY = Float.POSITIVE_INFINITY,
@@ -437,6 +438,7 @@ private fun BlurredBannerBackdrop(
                 val req = ImageRequest.Builder(context)
                     .data(url)
                     .size(HERO_BLUR_W_PX, HERO_BLUR_H_PX)
+                    .allowHardware(false) // D-266: prevent HARDWARE bitmaps — getPixels() throws on them
                     .memoryCacheKey("$HERO_BLUR_KEY_PREFIX$url")
                     .build()
                 val r = loader.execute(req)
@@ -483,11 +485,22 @@ private fun BlurredBannerBackdrop(
  */
 private fun boxBlur(src: Bitmap, radius: Int): Bitmap {
     if (radius <= 0) return src
-    val w = src.width
-    val h = src.height
+    // D-266: Coil 3 returns HARDWARE bitmaps by default on API 26+; getPixels()
+    // on a hardware bitmap throws IllegalStateException (silently caught by the
+    // outer try/catch in produceState -> backdrop rendered blank -> user saw
+    // only the dark scrim). Copy to ARGB_8888 so getPixels succeeds. Safety net
+    // for the .allowHardware(false) on the ImageRequest (which should already
+    // prevent this, but defends against any future config drift).
+    val safeSrc = if (src.config == Bitmap.Config.HARDWARE) {
+        src.copy(Bitmap.Config.ARGB_8888, true) ?: return src
+    } else {
+        src
+    }
+    val w = safeSrc.width
+    val h = safeSrc.height
     if (w <= 1 || h <= 1) return src
     val pixels = IntArray(w * h)
-    src.getPixels(pixels, 0, w, 0, 0, w, h)
+    safeSrc.getPixels(pixels, 0, w, 0, 0, w, h)
     val result = IntArray(w * h)
     val window = radius * 2 + 1
     val div = (window * window).toFloat()

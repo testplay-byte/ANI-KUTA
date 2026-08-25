@@ -56,7 +56,6 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.feature.animebrowse.AnimeBrowseKey
 import com.confused.anikuta.feature.animebrowse.BrowseScreen
-import com.confused.anikuta.feature.animebrowse.ContinueWatchingItem
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
 import com.confused.anikuta.feature.animedetails.DetailsScreen
 import com.confused.anikuta.feature.animelibrary.AnimeLibraryKeyImpl
@@ -509,36 +508,6 @@ fun AppRoot() {
         when (currentKey) {
             is AnimeBrowseKey -> BrowseScreen(
                 onNavigate = { navKey -> backstack.add(navKey) },
-                // D-248: continue-watching tap → player DIRECTLY (Video-Caching
-                // tap-to-play experience): resolve in the background, then push the
-                // Watch key; fall back to the legacy Details route when the resolve
-                // can't produce a playable key (no source/episodes/extension).
-                onPlayContinueWatching = { item ->
-                    appScope.launch {
-                        val watchKey = withContext(Dispatchers.IO) {
-                            buildWatchKeyForContinueWatching(item)
-                        }
-                        if (watchKey != null) {
-                            Logger.i("Anikuta:MainActivity") {
-                                "continue-watching: launching player for '${item.title}' EP ${item.episodeNumber} " +
-                                    "(resume at ${item.position}s)"
-                            }
-                            backstack.add(watchKey)
-                        } else {
-                            Logger.w("Anikuta:MainActivity") {
-                                "continue-watching: could not build a playable key for '${item.title}' " +
-                                    "EP ${item.episodeNumber} — falling back to Details"
-                            }
-                            // Cross-module property — no smart cast; capture locally.
-                            val anilistId = item.anilistId
-                            if (anilistId != null) {
-                                backstack.add(AnimeDetailsKey.AniList(anilistId, autoPlayEpisode = item.episodeNumber))
-                            } else if (item.sourceId > 0 && item.animeUrl.isNotBlank()) {
-                                backstack.add(AnimeDetailsKey.Extension(item.sourceId, item.animeUrl, item.title, null, autoPlayEpisode = item.episodeNumber))
-                            }
-                        }
-                    }
-                },
             )
             is AnimeDetailsKey -> {
                 // Handle both AniList and Extension variants of the sealed key.
@@ -1636,98 +1605,5 @@ private fun buildWatchKeyFromCacheEntry(
         audioTracksSerialized = entry.audioTracks,
         episodeMetadataSerialized = "",
         startPosition = 0L, // WP-B3 falls back to the watch-progress store lookup.
-    )
-}
-
-/**
- * D-248: builds a playable [WatchKey] for a Continue Watching card so tapping it
- * opens the player DIRECTLY (the same experience as the Video Caching tap-to-play)
- * instead of the Details page. Mirrors the watch screen's episode-switch path:
- * same source auto-pick (first video of the resolved servers — the pick the user
- * already gets on episode switches) + [startPosition] resume from the card's saved
- * position. Returns null (→ caller falls back to the Details route) when the
- * episode can't be resolved: no linked source, missing episode metadata, or a
- * resolver error.
- */
-private suspend fun buildWatchKeyForContinueWatching(
-    item: ContinueWatchingItem,
-): WatchKey? {
-    if (item.mainId.isBlank()) return null
-    val koin = org.koin.core.context.GlobalContext.get()
-    val extensionManager = koin.get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
-    val videoResolver = koin.get<com.confused.anikuta.core.videoresolver.VideoResolver>()
-    val contentRepository = koin.get<com.confused.anikuta.core.content.ContentRepository>()
-    val dataCacheRepository = koin.get<com.confused.anikuta.core.datacache.DataCacheRepository>()
-
-    // Source: the card's sourceId, else the linked source from content_details.
-    val sourceId = item.sourceId.takeIf { it > 0 }
-        ?: contentRepository.getContentDetails(item.mainId)?.sourceId ?: return null
-
-    // D-249 FIX (user-reported: first tap after cold start still opened Details):
-    // ExtensionManager is a LAZY Koin singleton — this helper may be the FIRST thing
-    // that resolves it, and its loadAll() populates the source map ASYNC. Querying
-    // getSource() immediately returned null (empty map) → instant fallback. Fix:
-    // await the sources map (it emits on completion of loadAll; already-loaded =
-    // immediate) with a bounded timeout, THEN look up.
-    val source = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-        extensionManager.sources.first { it.containsKey(sourceId) }[sourceId]
-    } as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource ?: run {
-        Logger.w("Anikuta:MainActivity") {
-            "continue-watching: source $sourceId not loaded (extension missing or load timed out)"
-        }
-        return null
-    }
-
-    // Episode metadata: the cached list for this content (has the extension's
-    // episode URLs + titles — the same source the Details episode list uses).
-    val episodes = dataCacheRepository.getEpisodeMetadata(item.mainId)
-    if (episodes.isEmpty()) return null
-    val target = episodes.firstOrNull { it.episodeNumber == item.episodeNumber.toFloat() }
-        ?: episodes.firstOrNull { kotlin.math.abs(it.episodeNumber - item.episodeNumber.toFloat()) < 0.01f }
-        ?: return null
-    val episodeUrl = target.episodeUrl ?: return null
-
-    // Resolve (single resolve — D-066: never double-resolve).
-    val sEpisode = eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
-        url = episodeUrl
-        name = target.title ?: "Episode ${item.episodeNumber}"
-        episode_number = item.episodeNumber.toFloat()
-    }
-    val success = runCatching {
-        videoResolver.resolve(source, sEpisode)
-            .firstOrNull { it is com.confused.anikuta.core.videoresolver.ResolverState.Success }
-            as? com.confused.anikuta.core.videoresolver.ResolverState.Success
-    }.getOrNull() ?: return null
-
-    val video = success.videos.firstOrNull() ?: return null
-    val servers = videoResolver.buildServers(success.rawEntries, source.name)
-    val resolvedVideosKey = if (servers.isNotEmpty()) {
-        com.confused.anikuta.core.videoresolver.ResolvedVideosRegistry.put(servers)
-    } else ""
-
-    // WatchKey wire formats (WatchKey.parseEpisodeList / parseTracks).
-    val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-    val epListStr = episodes.joinToString("\n") { e ->
-        "${e.episodeUrl ?: ""}$delim${e.episodeNumber}$delim${e.title ?: ""}"
-    }
-    val subTracksStr = video.subtitleTracks.joinToString("\n") { "${it.url}$delim${it.lang}" }
-    val audioTracksStr = video.audioTracks.joinToString("\n") { "${it.url}$delim${it.lang}" }
-
-    return WatchKey(
-        videoUrl = video.url,
-        animeTitle = item.title,
-        quality = video.quality,
-        episodeUrl = episodeUrl,
-        episodeNumber = item.episodeNumber.toFloat(),
-        episodeTitle = target.title ?: "Episode ${item.episodeNumber}",
-        episodeListSerialized = epListStr,
-        videoHeaders = video.headers,
-        resolvedVideosKey = resolvedVideosKey,
-        sourceId = sourceId,
-        mainId = item.mainId,
-        subtitleTracksSerialized = subTracksStr,
-        audioTracksSerialized = audioTracksStr,
-        episodeMetadataSerialized = "",
-        startPosition = item.position, // direct resume from the saved position
     )
 }
