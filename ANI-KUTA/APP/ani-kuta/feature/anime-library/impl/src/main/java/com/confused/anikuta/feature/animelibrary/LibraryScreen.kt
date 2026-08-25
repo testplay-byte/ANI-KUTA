@@ -82,6 +82,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -276,10 +277,20 @@ fun LibraryScreen(
     }
 
     val isList = displayMode == LibraryDisplayMode.LIST
-    val collapsed = if (!isList) {
-        gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 20
-    } else {
-        listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20
+    // D-269: wrap in derivedStateOf so the parent only recomposes when collapsed
+    // FLIPS (true<->false), not on every scroll frame. Without this, every scroll
+    // frame reads gridState/listState in the composition body -> parent recomposes
+    // -> re-allocates onEntryClick/onEntryLongClick lambdas -> children can't skip
+    // -> all per-card anti-patterns re-run (compounds on fling). THE primary scroll-
+    // perf fix.
+    val collapsed by remember(isList) {
+        derivedStateOf {
+            if (!isList) {
+                gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 20
+            } else {
+                listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20
+            }
+        }
     }
 
     // D-141: click + long-click handlers — depend on selection mode.
@@ -2550,7 +2561,7 @@ private fun LibraryGrid(
             verticalItemSpacing = 8.dp,
             modifier = Modifier.fillMaxSize(),
         ) {
-            staggeredItems(entries, key = { it.mainId }) { item ->
+            staggeredItems(entries, key = { it.mainId }, contentType = { "card" }) { item ->
                 LibraryGridCard(
                     anime = item,
                     titleLines = titleLines,
@@ -2599,7 +2610,7 @@ private fun LibraryGrid(
             horizontalArrangement = Arrangement.spacedBy(if (isCoverOnly) 0.dp else 8.dp),
             verticalArrangement = Arrangement.spacedBy(if (isCoverOnly) 0.dp else 8.dp),
         ) {
-            items(entries, key = { it.mainId }) { item ->
+            items(entries, key = { it.mainId }, contentType = { "card" }) { item ->
                 LibraryGridCard(
                     anime = item,
                     titleLines = titleLines,
@@ -3084,7 +3095,7 @@ private fun LibraryList(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(entries, key = { it.mainId }) { item ->
+        items(entries, key = { it.mainId }, contentType = { "row" }) { item ->
             LibraryListRow(
                 anime = item,
                 isSelectionMode = isSelectionMode,

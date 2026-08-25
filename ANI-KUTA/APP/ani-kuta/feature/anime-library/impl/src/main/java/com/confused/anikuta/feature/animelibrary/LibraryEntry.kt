@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.animelibrary
 
+import androidx.compose.runtime.Immutable
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.AudioAvailability
 
@@ -19,6 +20,7 @@ import com.confused.anikuta.core.common.AudioAvailability
  *  the Customize sheet, and the per-type unwatched count when "only unwatched"
  *  is toggled on.
  */
+@Immutable
 data class LibraryEntry(
     val mainId: String,
     val anilistId: Int?,      // null or 0 for extension-only

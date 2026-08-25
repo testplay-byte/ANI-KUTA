@@ -1027,6 +1027,13 @@ class DetailsViewModel(
         currentAnimeId = 0
         extensionBase = null
         anilistBase = null
+        // D-270: clear tracking state so re-opening the same anime doesn't show
+        // the previous anime's stale tracking (loadFrom* repopulates on success).
+        _trackEntry.value = null
+        _pendingRemoteTrackEntry.value = null
+        _showTrackSheet.value = false
+        _showMarkPreviousPrompt.value = null
+        _showMarkSeriesPrompt.value = false
         Logger.d(TAG) { "resetState: all per-anime state cleared (loadGeneration=$loadGeneration)" }
     }
 
@@ -2392,6 +2399,7 @@ class DetailsViewModel(
         priority: com.confused.anikuta.core.common.model.DataSourcePriority =
             com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST,
     ) {
+        val gen = loadGeneration // D-270: guard the post-link refreshTracking
         try {
             // Fetch fresh AniList data + store as anilistBase.
             val anilistData = anilistProvider.fetchFromAniList(anilistId)
@@ -2438,6 +2446,12 @@ class DetailsViewModel(
                 }
                 // Refresh the contentId (it changed after linking).
                 refreshContentId(mainId)
+                // D-270: refresh tracking now that the AniList link is established
+                // (currentMainId + anilistId are set, state is Success). Previously
+                // the concurrent refreshTracking launched in loadFromExtension
+                // early-returned (null ids at launch time) and was never re-invoked
+                // after the link — the user had to manually refresh to see tracking.
+                if (loadGeneration == gen) refreshTracking()
             }
 
             // Now that we have an anilistId, kick off episode metadata fetch.
