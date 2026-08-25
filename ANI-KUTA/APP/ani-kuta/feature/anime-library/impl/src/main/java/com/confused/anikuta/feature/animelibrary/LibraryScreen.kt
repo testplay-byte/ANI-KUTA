@@ -121,6 +121,9 @@ import com.confused.anikuta.core.designsystem.badge.rememberBadgeColorScheme
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SearchField
+import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
+import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
+import com.confused.anikuta.core.designsystem.theme.LocalHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -1197,7 +1200,7 @@ private fun LibraryHeader(
                     fontSize = fontSize.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = (-0.02).sp,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                 )
                 if (subtitle != null) {
@@ -1206,7 +1209,7 @@ private fun LibraryHeader(
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
                 }
@@ -2857,7 +2860,7 @@ private fun LibraryGridCard(
                     fontSize = 11.sp,
                     lineHeight = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                     maxLines = titleLines,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
@@ -2991,7 +2994,7 @@ private fun LibraryGridCard(
                         fontSize = 11.sp,
                         lineHeight = 12.sp, // D-242-fix21: reduce gap between title lines
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                         maxLines = titleLines,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
@@ -3292,7 +3295,7 @@ private fun LibraryListRow(
                     fontSize = listDensity.titleFontSize.sp,
                     lineHeight = (listDensity.titleFontSize + 1).sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                     maxLines = titleLines,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -3313,7 +3316,7 @@ private fun LibraryListRow(
                     fontSize = listDensity.titleFontSize.sp,
                     lineHeight = (listDensity.titleFontSize + 1).sp, // D-242-fix21
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                     maxLines = titleLines,
                     overflow = TextOverflow.Ellipsis,
                 )

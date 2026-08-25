@@ -64,6 +64,8 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
+import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.feature.animesearch.ExtensionAnime
@@ -447,7 +449,7 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
@@ -497,7 +499,7 @@ private fun SearchPromptCard(
             fontFamily = RobotoFamily,
             fontSize = 18.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
         )
         Spacer(Modifier.height(8.dp))
         Text(
@@ -505,7 +507,7 @@ private fun SearchPromptCard(
             fontFamily = RobotoFamily,
             fontSize = 14.sp,
             fontWeight = FontWeight.Normal,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             // D-209: allow more lines for the longer Cloudflare description.
             maxLines = 8,
@@ -642,7 +644,7 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),

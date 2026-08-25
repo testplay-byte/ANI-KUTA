@@ -52,7 +52,7 @@ private val LightColorScheme = lightColorScheme(
  *
  * Derivation rules (one user pick → a coherent theme):
  * - Accent family: the existing [AccentColors.from] derivation from the
- *   (brightness-adjusted) accent seed — identical to every preset.
+ *   accent seed — identical to every preset (D-261: brightness removed).
  * - Text colors: picked by the custom background's luminance — dark text on
  *   light backgrounds, light text on dark ones (works for any pick).
  * - Surface ramp: the background lerped slightly toward the text color
@@ -62,7 +62,7 @@ private val LightColorScheme = lightColorScheme(
  * - Outline: the card color lerped toward the text color.
  */
 private fun buildCustomColorScheme(custom: CustomThemeColors): ColorScheme {
-    val c = custom.resolved()
+    val c = custom
     val isDarkBg = c.background.luminance() < 0.5f
     val text = if (isDarkBg) TextDark else TextLight
     val textMuted = if (isDarkBg) TextMutedDark else TextMutedLight
@@ -168,9 +168,19 @@ fun AnikutaTheme(
     // under it (including AppRoot's nav backstack), which navigated the user
     // back to Browse. Providing an Unspecified sentinel keeps the structure
     // stable; only the VALUE changes.
-    val headingColor = customTheme?.resolved()?.heading ?: Color.Unspecified
+    //
+    // D-261: also provides LocalCardHeadingColor + LocalCardDescriptionColor
+    // (the two new palette elements) using the same always-provide pattern so
+    // consumers can guard with `.takeIf { it != Color.Unspecified } ?:`.
+    val headingColor = customTheme?.heading ?: Color.Unspecified
+    val cardHeadingColor = customTheme?.cardHeading ?: Color.Unspecified
+    val cardDescriptionColor = customTheme?.cardDescription ?: Color.Unspecified
 
-    CompositionLocalProvider(LocalHeadingColor provides headingColor) {
+    CompositionLocalProvider(
+        LocalHeadingColor provides headingColor,
+        LocalCardHeadingColor provides cardHeadingColor,
+        LocalCardDescriptionColor provides cardDescriptionColor,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = AnikutaTypography,

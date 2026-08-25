@@ -127,29 +127,50 @@ visual language:
   a Surface border can't trace hand-drawn paint). Keeps the tags crisp
   against busy cover art.
 
-### 2.6 — Custom Theme (D-254)
+### 2.6 — Custom Theme (D-254 / D-261)
 
 When the CUSTOM accent preset is active, the theme comes entirely from the
-user's `CustomThemeColors` (accent + background + heading + card, each with a
-brightness offset):
+user's `CustomThemeColors` — six elements (D-261 added `cardHeading` +
+`cardDescription`; brightness offsets were removed entirely per device feedback
+"there is no need for the brightness sliders at all"):
 
-- Custom colors apply **as-is in both light & dark mode**; the mode toggle
-  only affects presets. AMOLED is skipped while custom is active.
-- One pick derives a coherent theme: text colors by background luminance;
-  surface ramp = background lerped toward text; card family →
-  surfaceVariant/containers.
-- Heading color flows through `LocalHeadingColor` (Unspecified sentinel →
-  default onBackground) — CollapsingHeader titles read it.
-- The editor (CustomPaletteSheet) forces alpha opaque — translucent theme
-  surfaces are not supported.
-- **Editor + picker sheet rules (D-259)**: editor sheets use a STICKY header
-  (title + primary action OUTSIDE the scroll area; no X button — dismiss via
-  swipe/scrim) with a scroll-driven `ScrollBlurOverlay` scrim at the top of
-  the content. All value sliders are `ThinSlider` (4dp track + 18dp
-  rounded-square thumb with surface halo; 36dp grab area) and every numeric
-  value renders as a TAPPABLE chip that opens the shared NumericEntrySheet
-  keypad (live-applied). Presets are exactly FIVE distinct colors in a single
-  equal-width line of rounded tiles.
+- `accent` → primary color family seed (`AccentColors.from` derivation).
+- `background` → the app canvas; surface ramp derived (lerps toward text).
+- `heading` → big screen titles → `LocalHeadingColor` (CollapsingHeader, plus
+  the Library header clone since D-261).
+- `card` → blocks/surfaces family → surfaceVariant + surfaceContainer tiers.
+- `cardHeading` → D-261 NEW — title text inside cards/blocks →
+  `LocalCardHeadingColor` (Browse cards, Library grid/list titles, Search
+  result cards, Details anime title + block headers + episode rows).
+- `cardDescription` → D-261 NEW — body/description text inside cards/blocks →
+  `LocalCardDescriptionColor` (Browse subtitles, Library list meta, Details
+  synopsis body + episode meta).
+
+Custom colors apply **as-is in both light & dark mode**; the mode toggle only
+affects presets. AMOLED is skipped while custom is active. One pick derives a
+coherent theme: text colors by background luminance; surface ramp = background
+lerped toward text; card family → surfaceVariant/containers.
+
+Editor + picker sheet rules (D-259 / D-261):
+- Editor sheets (CustomPaletteSheet) use a STICKY header (title + Reset
+  OUTSIDE the scroll area; no X button — dismiss via swipe/scrim) with a
+  scroll-driven `ScrollBlurOverlay` scrim at the top of the content.
+- All RGBA channel sliders in ColorPickerSheet are **colorful** (D-263): the
+  red slider's track is a black→red gradient, green's is black→green, blue's
+  is black→blue, alpha's is transparent→opaque of the current color.
+- Every numeric value renders as a TAPPABLE chip that opens the shared
+  `NumericEntrySheet` keypad (live-applied).
+- Presets are exactly FIVE distinct colors in a single equal-width line of
+  rounded tiles.
+- **Random palette (D-263)**: a Random button (`Icons.Filled.Casino`) sits
+  left of the Reset button; tapping opens a nested `RandomPaletteSheet` with
+  three options — Random dark / Random light / Completely random. Each
+  generates a palette (constrained-HSV for the first two; fully-random
+  per-channel with alpha forced opaque for chaos) and applies it via the
+  same `setCustomTheme` path (persists across restart — D-261 fixed the
+  v0.2.49/v0.2.50 persistence bug).
+- The editor forces alpha opaque — translucent theme surfaces are not
+  supported.
 
 ---
 

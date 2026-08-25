@@ -32,19 +32,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.ColorPickerSheet
-import com.confused.anikuta.core.designsystem.component.NumericEntrySheet
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
-import com.confused.anikuta.core.designsystem.component.ThinSlider
 import com.confused.anikuta.core.designsystem.theme.CustomThemeColors
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 /**
- * D-254: Custom palette editor — the bottom sheet below the palettes carousel.
+ * D-254 / D-261: Custom palette editor — the bottom sheet below the palettes carousel.
  *
  * Opens when the user taps the CUSTOM palette card while CUSTOM is ALREADY
  * selected (Appearance → General → Palettes). Lets the user customize every
@@ -54,10 +53,13 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  * - **Accent** — the primary color family
  * - **Headings** — the big screen titles (CollapsingHeader)
  * - **Cards & blocks** — the settings cards / sheets / chip surfaces
+ * - **Card headings** — D-261 NEW — the title text inside cards/blocks
+ * - **Card descriptions** — D-261 NEW — the body/description text inside cards
  *
  * Each element gets its own color swatch (opens the shared ColorPickerSheet
- * with theme-appropriate presets + RGBA sliders) AND its own brightness
- * slider (−100..+100, 0 = neutral) that lightens/darkens the picked color.
+ * with theme-appropriate presets + RGBA sliders). D-261 removed the brightness
+ * sliders entirely per device feedback ("there is no need for the brightness
+ * sliders at all").
  *
  * Every change persists immediately via [ThemePreferences.setCustomTheme] —
  * MainActivity's AnikutaTheme recomposes and the whole app re-themes LIVE
@@ -68,9 +70,8 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  * ALWAYS visible (outside the scroll area), NO close button (dismiss via
  * swipe/scrim tap like the episode-list sheet), a scroll-driven gradient
  * scrim at the top of the content (the ScrollBlurOverlay language used by
- * every screen header), the brightness sliders are the new [ThinSlider] with
- * tappable value chips that open the numeric keypad for precise entry, and
- * each element's preset list is exactly five distinct colors.
+ * every screen header), and each element's preset list is exactly five
+ * distinct colors.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -147,37 +148,44 @@ fun CustomPaletteSheet(
                         label = "Background",
                         description = "The whole app canvas",
                         color = current.background,
-                        brightness = current.backgroundBrightness,
                         swatches = BackgroundSwatches,
                         onColor = { c -> prefs.setCustomTheme(current.copy(background = c)) },
-                        onBrightness = { b -> prefs.setCustomTheme(current.copy(backgroundBrightness = b)) },
                     )
                     CustomElementEditor(
                         label = "Accent",
                         description = "Primary buttons, highlights, active states",
                         color = current.accent,
-                        brightness = current.accentBrightness,
                         swatches = AccentSwatches,
                         onColor = { c -> prefs.setCustomTheme(current.copy(accent = c)) },
-                        onBrightness = { b -> prefs.setCustomTheme(current.copy(accentBrightness = b)) },
                     )
                     CustomElementEditor(
                         label = "Headings",
                         description = "Big screen titles",
                         color = current.heading,
-                        brightness = current.headingBrightness,
                         swatches = HeadingSwatches,
                         onColor = { c -> prefs.setCustomTheme(current.copy(heading = c)) },
-                        onBrightness = { b -> prefs.setCustomTheme(current.copy(headingBrightness = b)) },
                     )
                     CustomElementEditor(
                         label = "Cards & blocks",
                         description = "Settings cards, sheets, chips",
                         color = current.card,
-                        brightness = current.cardBrightness,
                         swatches = CardSwatches,
                         onColor = { c -> prefs.setCustomTheme(current.copy(card = c)) },
-                        onBrightness = { b -> prefs.setCustomTheme(current.copy(cardBrightness = b)) },
+                    )
+                    // ── D-261: two new customizable elements ──
+                    CustomElementEditor(
+                        label = "Card headings",
+                        description = "Titles inside cards/blocks (Browse, Library, Search, Details)",
+                        color = current.cardHeading,
+                        swatches = CardHeadingSwatches,
+                        onColor = { c -> prefs.setCustomTheme(current.copy(cardHeading = c)) },
+                    )
+                    CustomElementEditor(
+                        label = "Card descriptions",
+                        description = "Body/description text inside cards/blocks",
+                        color = current.cardDescription,
+                        swatches = CardDescriptionSwatches,
+                        onColor = { c -> prefs.setCustomTheme(current.copy(cardDescription = c)) },
                     )
 
                     Spacer(Modifier.height(10.dp))
@@ -199,20 +207,17 @@ fun CustomPaletteSheet(
     }
 }
 
-// ── Element editor row (swatch + brightness) ───────────────────────────────────
+// ── Element editor row (swatch) ───────────────────────────────────────────────
 
 @Composable
 private fun CustomElementEditor(
     label: String,
     description: String,
     color: Color,
-    brightness: Float,
     swatches: List<Pair<Int, String>>,
     onColor: (Color) -> Unit,
-    onBrightness: (Float) -> Unit,
 ) {
     var picking by remember { mutableStateOf(false) }
-    var editingBrightness by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -250,50 +255,17 @@ private fun CustomElementEditor(
                         .clickable { picking = true },
                 )
             }
-            // Brightness — thin slider + tappable value chip (D-259). The chip
-            // opens the numeric keypad for precise entry, exactly like the
-            // subtitle settings sheet's value chips.
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "Brightness",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                ThinSlider(
-                    value = brightness * 100f,
-                    onValueChange = { onBrightness((it / 100f).coerceIn(-1f, 1f)) },
-                    valueRange = -100f..100f,
-                    modifier = Modifier.weight(1f),
-                    contentDescription = "$label brightness",
-                )
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    modifier = Modifier.clickable { editingBrightness = true },
-                ) {
-                    Text(
-                        text = if (brightness >= 0) "+${(brightness * 100).toInt()}" else "${(brightness * 100).toInt()}",
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        maxLines = 1,
-                    )
-                }
-            }
         }
     }
 
     if (picking) {
         ColorPickerSheet(
             title = "$label color",
-            initialColor = color.value.toInt(),
+            // D-261: `.toArgb()` (was `color.value.toInt()` — Color is a ULong
+            // value class with ARGB in the UPPER 32 bits, so `.toInt()` truncated
+            // to 0 → the picker always opened at #00000000 transparent, the
+            // "transparent by default" device-reported bug).
+            initialColor = color.toArgb(),
             swatches = swatches,
             onLiveChange = { argb ->
                 onColor(Color((argb or 0xFF000000.toInt()).toLong() and 0xFFFFFFFF))
@@ -301,25 +273,10 @@ private fun CustomElementEditor(
             onDismiss = { picking = false },
         )
     }
-
-    // Precise brightness entry — the numeric keypad (live-applied).
-    if (editingBrightness) {
-        NumericEntrySheet(
-            title = "$label brightness",
-            initial = (brightness * 100).toInt(),
-            min = -100,
-            max = 100,
-            onLiveChange = { v -> onBrightness((v / 100f).coerceIn(-1f, 1f)) },
-            onConfirm = { v ->
-                onBrightness((v / 100f).coerceIn(-1f, 1f))
-                editingBrightness = false
-            },
-            onDismiss = { editingBrightness = false },
-        )
-    }
 }
 
-// ── Theme-appropriate swatch palettes (D-259: exactly five distinct colors) ────
+// ── Theme-appropriate swatch palettes (D-259: exactly five distinct colors;
+//    D-261: +2 new element swatch lists) ──────────────────────────────────────
 
 private val BackgroundSwatches: List<Pair<Int, String>> = listOf(
     0xFF14111F.toInt() to "Warm Dark",
@@ -351,4 +308,22 @@ private val CardSwatches: List<Pair<Int, String>> = listOf(
     0xFF232B3A.toInt() to "Deep Blue",
     0xFFF2F0EB.toInt() to "Warm Light",
     0xFFE0E4EA.toInt() to "Cool Light",
+)
+
+// D-261: card-heading colors — readable tints for titles inside cards.
+private val CardHeadingSwatches: List<Pair<Int, String>> = listOf(
+    0xFFECE6F5.toInt() to "Soft White",
+    0xFFC5BEE0.toInt() to "Lilac",
+    0xFFB0D4A0.toInt() to "Sage",
+    0xFFF6C177.toInt() to "Amber",
+    0xFFA7C5E3.toInt() to "Sky",
+)
+
+// D-261: card-description colors — muted tints for body/description text.
+private val CardDescriptionSwatches: List<Pair<Int, String>> = listOf(
+    0xFFA89EC0.toInt() to "Muted Purple",
+    0xFF8A8580.toInt() to "Warm Gray",
+    0xFF7FA088.toInt() to "Muted Sage",
+    0xFF7E8A9A.toInt() to "Slate",
+    0xFFB89B5A.toInt() to "Muted Gold",
 )
