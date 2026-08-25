@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isUnspecified
 import androidx.compose.ui.input.pointer.pointerInput
@@ -41,6 +42,11 @@ import kotlin.math.roundToInt
  * - **Track**: a thin 4dp rounded bar (active = [thumbColor]/[activeTrackColor],
  *   inactive = [inactiveTrackColor], defaults primary /
  *   surfaceContainerHighest — the same palette the stock slider used).
+ *   D-263: pass a [trackBrush] to render a single full-width gradient track
+ *   instead (for the color picker's per-channel sliders — red slider red
+ *   gradient, etc.). When non-null the active/inactive split is skipped
+ *   (fillMaxWidth(fraction) would compress the gradient into the traversed
+ *   portion and visibly shift it while dragging).
  * - **Thumb**: an 18dp square with 6dp rounded corners (a "sticker" — filled
  *   with the active color + a 1.5dp surface-color halo so it pops on any
  *   background), always visible so it doubles as the value indicator.
@@ -72,6 +78,7 @@ fun ThinSlider(
     thumbColor: Color = Color.Unspecified,
     activeTrackColor: Color = Color.Unspecified,
     inactiveTrackColor: Color = Color.Unspecified,
+    trackBrush: Brush? = null,
 ) {
     val resolvedThumb = if (thumbColor.isUnspecified) MaterialTheme.colorScheme.primary else thumbColor
     val resolvedActive = if (activeTrackColor.isUnspecified) resolvedThumb else activeTrackColor
@@ -118,22 +125,35 @@ fun ThinSlider(
             },
         contentAlignment = Alignment.CenterStart,
     ) {
-        // Inactive track — thin 4dp rounded bar.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(resolvedInactive),
-        )
-        // Active track.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(fraction)
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(resolvedActive),
-        )
+        // Track — D-263: when trackBrush is set, render a single full-width
+        // gradient bar (the colored-channel-slider look). Otherwise the
+        // two-box active/inactive split (the default slider look).
+        if (trackBrush != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(trackBrush),
+            )
+        } else {
+            // Inactive track — thin 4dp rounded bar.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(resolvedInactive),
+            )
+            // Active track.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(resolvedActive),
+            )
+        }
         // Thumb — 18dp rounded square with a surface halo, vertically centered,
         // horizontally positioned by the fraction (clamped inside the track).
         if (trackWidthPx > 0f) {

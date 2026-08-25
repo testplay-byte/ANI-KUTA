@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -225,24 +226,60 @@ fun ColorPickerSheet(
                 ChannelSliderRow(
                     label = "Alpha",
                     value = a,
+                    // Transparent→opaque of the current color (live-updates with RGB).
+                    trackBrush = remember(r, g, b) {
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(red = r, green = g, blue = b, alpha = 0),
+                                Color(red = r, green = g, blue = b, alpha = 255),
+                            )
+                        )
+                    },
                     onValueChange = { applyColor(it, r, g, b) },
                     onTapValue = { editingChannel = "Alpha" },
                 )
                 ChannelSliderRow(
                     label = "Red",
                     value = r,
+                    trackBrush = remember(g, b, a) {
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(red = 0, green = g, blue = b, alpha = a),
+                                Color(red = 255, green = g, blue = b, alpha = a),
+                            )
+                        )
+                    },
+                    thumbColor = Color(0xFFE53935),
                     onValueChange = { applyColor(a, it, g, b) },
                     onTapValue = { editingChannel = "Red" },
                 )
                 ChannelSliderRow(
                     label = "Green",
                     value = g,
+                    trackBrush = remember(r, b, a) {
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(red = r, green = 0, blue = b, alpha = a),
+                                Color(red = r, green = 255, blue = b, alpha = a),
+                            )
+                        )
+                    },
+                    thumbColor = Color(0xFF43A047),
                     onValueChange = { applyColor(a, r, it, b) },
                     onTapValue = { editingChannel = "Green" },
                 )
                 ChannelSliderRow(
                     label = "Blue",
                     value = b,
+                    trackBrush = remember(r, g, a) {
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color(red = r, green = g, blue = 0, alpha = a),
+                                Color(red = r, green = g, blue = 255, alpha = a),
+                            )
+                        )
+                    },
+                    thumbColor = Color(0xFF1E88E5),
                     onValueChange = { applyColor(a, r, g, it) },
                     onTapValue = { editingChannel = "Blue" },
                 )
@@ -335,6 +372,8 @@ private fun ChannelSliderRow(
     value: Int,
     onValueChange: (Int) -> Unit,
     onTapValue: () -> Unit,
+    trackBrush: Brush? = null,
+    thumbColor: Color = Color.Unspecified,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -355,6 +394,8 @@ private fun ChannelSliderRow(
             valueRange = 0f..255f,
             modifier = Modifier.weight(1f),
             contentDescription = "$label channel",
+            thumbColor = thumbColor,
+            trackBrush = trackBrush,
         )
         Surface(
             shape = RoundedCornerShape(6.dp),

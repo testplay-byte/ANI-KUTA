@@ -17,7 +17,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -35,12 +41,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.ColorPickerSheet
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.CustomThemeColors
+import com.confused.anikuta.core.designsystem.theme.RandomPaletteKind
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.designsystem.theme.randomCustomTheme
 
 /**
  * D-254 / D-261: Custom palette editor — the bottom sheet below the palettes carousel.
@@ -83,6 +92,8 @@ fun CustomPaletteSheet(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     var current by prefs.customTheme
     val scrollState = rememberScrollState()
+    // D-263: the nested Random palette sheet (Dark / Light / Chaos options).
+    var showRandom by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -96,15 +107,15 @@ fun CustomPaletteSheet(
                 .fillMaxWidth()
                 .heightIn(max = screenHeight * 0.65f),
         ) {
-            // ── Sticky header — title + Reset ALWAYS visible, NO close button ──
-            // (D-259: previously the header scrolled away with the content and
-            // carried an X the user found unnecessary.)
+            // ── Sticky header — title + Random (D-263) + Reset ALWAYS visible,
+            // NO close button (D-259: previously the header scrolled away with
+            // the content and carried an X the user found unnecessary). ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
                     text = "Custom palette",
@@ -112,7 +123,35 @@ fun CustomPaletteSheet(
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
                 )
+                // D-263: Random pill (left of Reset) — opens the nested
+                // RandomPaletteSheet (Dark / Light / Chaos options).
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.clickable { showRandom = true },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Casino,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = "Random",
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(50),
@@ -204,6 +243,18 @@ fun CustomPaletteSheet(
                 )
             }
         }
+    }
+
+    // ── D-263: nested Random palette sheet (stacked on top of this sheet, ──
+    // same idiom as the ColorPickerSheet nesting at `if (picking) { ... }`).
+    if (showRandom) {
+        RandomPaletteSheet(
+            onPick = { kind ->
+                prefs.setCustomTheme(randomCustomTheme(kind))
+                showRandom = false
+            },
+            onDismiss = { showRandom = false },
+        )
     }
 }
 
@@ -327,3 +378,99 @@ private val CardDescriptionSwatches: List<Pair<Int, String>> = listOf(
     0xFF7E8A9A.toInt() to "Slate",
     0xFFB89B5A.toInt() to "Muted Gold",
 )
+
+// ── D-263: nested random palette sheet (Dark / Light / Chaos) ──────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RandomPaletteSheet(
+    onPick: (RandomPaletteKind) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = null,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        ) {
+            Text(
+                text = "Random palette",
+                fontFamily = RobotoFamily,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+            RandomOptionRow(
+                icon = Icons.Filled.DarkMode,
+                label = "Random dark",
+                description = "Coherent dark-theme colors picked at random.",
+                onClick = { onPick(RandomPaletteKind.DARK) },
+            )
+            RandomOptionRow(
+                icon = Icons.Filled.LightMode,
+                label = "Random light",
+                description = "Coherent light-theme colors picked at random.",
+                onClick = { onPick(RandomPaletteKind.LIGHT) },
+            )
+            RandomOptionRow(
+                icon = Icons.Filled.Shuffle,
+                label = "Completely random",
+                description = "Every color fully random. May look terrible — that's the point.",
+                onClick = { onPick(RandomPaletteKind.CHAOS) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun RandomOptionRow(
+    icon: ImageVector,
+    label: String,
+    description: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Column {
+                Text(
+                    text = label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = description,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
