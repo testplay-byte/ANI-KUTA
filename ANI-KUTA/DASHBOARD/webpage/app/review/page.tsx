@@ -26,7 +26,7 @@ import {
  *
  * Renders the 2026-08-25 full-project review #3 (main agent + 5 read-only
  * research sub-agents, every metric re-derived from source) for the
- * test-feature/video-cache-new-download branch @ 34c7f66e / v0.2.50,
+ * test-feature/video-cache-new-download branch @ 89878429 / v0.2.50,
  * per DESIGN.md (MEMORY OS v3). Static Server Component — no
  * interactivity needed, no "use client".
  *

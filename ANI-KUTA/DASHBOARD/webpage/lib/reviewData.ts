@@ -2,11 +2,12 @@
  * ANI-KUTA Review & Roadmap — typed data for the /review/ dashboard page.
  *
  * Source of truth: the full project review #3 of 2026-08-25 (worklog.md
- * Task IDs 0, 1-a..1-e, 2), version-refreshed for v0.2.49 @ aa83eb43
- * (worklog Task 11) and again for v0.2.50 @ 34c7f66e (worklog Task 8,
- * D-257..D-260 refresh). Every metric, concern, fix and doc-drift row below
- * was re-derived from source (settings.gradle.kts, 17 .sq files, git
- * log, code greps, GitHub API) — never copied from docs.
+ * Task IDs 0, 1-a..1-e, 2), version-refreshed for v0.2.50 @ 89878429
+ * (worklog Tasks 8 + 13: D-257..D-260 refresh, then the release-state
+ * flip — CI green on HEAD, v0.2.50 published). Every metric, concern,
+ * fix and doc-drift row below was re-derived from source
+ * (settings.gradle.kts, 17 .sq files, git log, code greps, GitHub API) —
+ * never copied from docs.
  * Do not add unverified findings to this file.
  *
  * Consumed by app/review/page.tsx — a static Server Component, so no
@@ -53,18 +54,18 @@ export const REVIEW_META = {
   reviewDate: "2026-08-25",
   title: "Project Review & Roadmap",
   description:
-    "Full review of the test-feature/video-cache-new-download branch (44 commits ahead of main, v0.2.50) — verified state, open concerns, doc drift, and every remaining feature with its implementation path.",
+    "Full review of the test-feature/video-cache-new-download branch (46 commits ahead of main, v0.2.50) — verified state, open concerns, doc drift, and every remaining feature with its implementation path.",
   /** Hero status pills (short repo-state tokens, tone-coloured). */
   statusPills: [
-    { label: "CI RED @ 34c7f66e", tone: "warning" },
-    { label: "v0.2.50 UNRELEASED", tone: "warning" },
+    { label: "CI GREEN @ 89878429", tone: "success" },
+    { label: "v0.2.50 RELEASED", tone: "success" },
     { label: "NOT MERGED", tone: "warning" },
     { label: "REVIEW #3", tone: "secondary" },
   ] as readonly { label: string; tone: StatusTone }[],
   reviewer:
     "Main agent + 5 read-only research sub-agents (R-1 concerns · R-2 decisions · R-3 features · R-4 metrics · R-5 dashboard)",
   method:
-    "Every metric re-derived from source at 34c7f66e — never copied from docs. CI + release status verified via the GitHub API. Zero local builds (CORE_RULES §8).",
+    "Every metric re-derived from source at 89878429 — never copied from docs. CI + release status verified via the GitHub API. Zero local builds (CORE_RULES §8).",
 } as const;
 
 /* ---------------------------------------------------------------------------
@@ -81,19 +82,20 @@ export const SNAPSHOT = {
   metrics: [
     {
       metric: "Branch",
-      value: "test-feature/video-cache-new-download @ 34c7f66e",
-      note: "44 commits ahead of main — NOT merged",
+      value: "test-feature/video-cache-new-download @ 89878429",
+      note: "46 commits ahead of main — NOT merged",
     },
     {
       metric: "CI",
-      value: "Build APK RED on HEAD (run 32845772374)",
+      value: "Build APK GREEN on HEAD (run 32855993486)",
       note:
-        "verified via GitHub API — BrowseScreen.kt:44 unresolved coil3.ImageRequest, 1-line D-257 import fix pending",
+        "verified via GitHub API — the earlier D-257 import-path failure was fixed (abb91ac0); docs commit 89878429 is green",
     },
     {
       metric: "Release",
-      value: "v0.2.50 pending tag — v0.2.49 is latest",
-      note: "v0.2.50 blocked on the CI fix · arm64-v8a-only · debug-signed",
+      value: "v0.2.50 published (stable)",
+      note:
+        "ani-kuta-v0.2.50.apk · 59.2 MB · Release APK run 32856508541 · arm64-v8a-only · debug-signed",
     },
     {
       metric: "Version",
@@ -166,13 +168,13 @@ export const PROJECT_HEALTH = {
   verdictHeadline:
     "Strong engine, growing debt — one gate: device-verify the branch, then merge.",
   verdictBody:
-    "D-243..D-256 shipped CI-green, but the v0.2.50 HEAD is red on a one-line D-257 import fix and none of the branch is fully device-verified; meanwhile the codebase's largest files keep growing and docs have fallen ~60 claims behind.",
+    "D-243..D-260 shipped CI-green and v0.2.50 is published, but none of the branch is fully device-verified; meanwhile the codebase's largest files keep growing and docs have fallen ~60 claims behind.",
   indicators: [
     {
       area: "CI & release pipeline",
-      status: "DEGRADING",
+      status: "GOOD",
       line:
-        "RED on the v0.2.50 HEAD (34c7f66e — one-line D-257 coil import fix pending); automated stable releases on v* tags work (v0.2.49 shipped)",
+        "green on HEAD (89878429); automated stable releases on v* tags work (v0.2.50 shipped) — releases still ship debug-signed",
     },
     {
       area: "Feature velocity",
@@ -328,7 +330,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "high",
     title: "Entire branch unverified on device",
     detail:
-      "18 decisions, 44 commits — device-feedback rounds addressed (D-255..D-259, v0.2.50 HEAD still needs its 1-line CI fix); full checklist sign-off still pending. The merge gate is blocked on this.",
+      "18 decisions, 46 commits — device-feedback rounds addressed (D-255..D-259, v0.2.50 built + released CI-green); full checklist sign-off still pending. The merge gate is blocked on this.",
     area: "verification",
   },
   {
@@ -427,7 +429,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "low",
     title: "Release signing not configured",
     detail:
-      "releases ship debug-signed (latest v0.2.49; documented, deliberate — \"release signing is Phase 2\").",
+      "releases ship debug-signed (latest v0.2.50; documented, deliberate — \"release signing is Phase 2\").",
     area: "deferred",
   },
 ];
@@ -544,7 +546,7 @@ export const DOC_DRIFT = {
     {
       file: "master.md + SESSION.md",
       claim: "\"Branch: main (all feature branches merged + deleted)\"",
-      reality: "active unmerged branch, 44 commits ahead",
+      reality: "active unmerged branch, 46 commits ahead",
     },
     {
       file: "all knowledge/* files",
@@ -579,7 +581,7 @@ export const DOC_DRIFT = {
     {
       file: "knowledge/project-overview.md",
       claim: "\"no published APK\"",
-      reality: "stable releases published (latest v0.2.49)",
+      reality: "stable releases published (latest v0.2.50)",
     },
     {
       file: "FUTURE-PHASE-DL-GAPS.md",
@@ -819,7 +821,7 @@ export interface TopRisk {
 
 export const TOP_RISKS = [
   {
-    risk: "Branch integration risk — 44 unverified commits on one long-lived branch; conflict surface grows daily",
+    risk: "Branch integration risk — 46 unverified commits on one long-lived branch; conflict surface grows daily",
     impact: "High",
     likelihood: "Medium",
     mitigation: "Device-verify → merge promptly; keep future batches small",
@@ -874,8 +876,8 @@ export const TOP_RISKS = [
  * ------------------------------------------------------------------------- */
 
 export const FOOTER_NOTE_BULLETS = [
-  "This is a TEMPORARY review section (full-project review #3, 2026-08-25) — it replaces the deleted /key-findings/ page (review #2, 2026-08-24) per user instruction. Nothing else on the dashboard changed. State refreshed for v0.2.50 @ 34c7f66e (D-257..D-260).",
-  "Review method: main agent + 5 read-only research sub-agents; every metric re-derived from source at 34c7f66e; CI + release status verified via the GitHub API; zero local builds (CORE_RULES §8).",
-  "Recommended immediate next step: land the one-line D-257 CI fix (BrowseScreen.kt:44 import), push, tag v0.2.50 → release, then run the v0.2.50 device-verification checklist (NOW items 1-3), report ✅/❌ per item — then merge.",
+  "This is a TEMPORARY review section (full-project review #3, 2026-08-25) — it replaces the deleted /key-findings/ page (review #2, 2026-08-24) per user instruction. Nothing else on the dashboard changed. State refreshed for v0.2.50 @ 89878429 (D-257..D-260 + release flip).",
+  "Review method: main agent + 5 read-only research sub-agents; every metric re-derived from source at 89878429; CI + release status verified via the GitHub API; zero local builds (CORE_RULES §8).",
+  "Recommended immediate next step: run the v0.2.50 device-verification checklist (NOW items 1-3) against the released APK, report ✅/❌ per item — then merge.",
   "This page reflects the BRANCH state, not main. Other dashboard pages still reflect main @ the D-186 era (truth-sweep queued for merge time — NEXT #13).",
 ];
