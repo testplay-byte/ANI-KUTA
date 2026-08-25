@@ -26,7 +26,7 @@ import {
  *
  * Renders the 2026-08-25 full-project review #3 (main agent + 5 read-only
  * research sub-agents, every metric re-derived from source) for the
- * test-feature/video-cache-new-download branch @ aa83eb43 / v0.2.49,
+ * test-feature/video-cache-new-download branch @ 34c7f66e / v0.2.50,
  * per DESIGN.md (MEMORY OS v3). Static Server Component — no
  * interactivity needed, no "use client".
  *
@@ -36,11 +36,11 @@ import {
  * Sections (counts are dynamic — driven by .length on the data arrays):
  *  1. Snapshot (verified metrics)
  *  2. Project Health (verdict + 6 indicators)
- *  3. What's Built (10 branch highlights)
+ *  3. What's Built (12 branch highlights)
  *  4. Open Concerns (15 items grouped by severity)
  *  5. Verified Fixed (14 resolved concerns — balance)
  *  6. Doc Drift Caught (top 12 of ~60 stale claims)
- *  7. Features Remaining (NOW / NEXT / LATER — 30 total)
+ *  7. Features Remaining (NOW / NEXT / LATER — 29 total)
  *  8. Top Risks (8 rows)
  *  9. Footer Note (temporary-section notice)
  */

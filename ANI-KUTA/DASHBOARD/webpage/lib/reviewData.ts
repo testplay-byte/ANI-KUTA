@@ -3,7 +3,8 @@
  *
  * Source of truth: the full project review #3 of 2026-08-25 (worklog.md
  * Task IDs 0, 1-a..1-e, 2), version-refreshed for v0.2.49 @ aa83eb43
- * (worklog Task 11). Every metric, concern, fix and doc-drift row below
+ * (worklog Task 11) and again for v0.2.50 @ 34c7f66e (worklog Task 8,
+ * D-257..D-260 refresh). Every metric, concern, fix and doc-drift row below
  * was re-derived from source (settings.gradle.kts, 17 .sq files, git
  * log, code greps, GitHub API) — never copied from docs.
  * Do not add unverified findings to this file.
@@ -52,18 +53,18 @@ export const REVIEW_META = {
   reviewDate: "2026-08-25",
   title: "Project Review & Roadmap",
   description:
-    "Full review of the test-feature/video-cache-new-download branch (38 commits ahead of main, v0.2.49) — verified state, open concerns, doc drift, and every remaining feature with its implementation path.",
+    "Full review of the test-feature/video-cache-new-download branch (44 commits ahead of main, v0.2.50) — verified state, open concerns, doc drift, and every remaining feature with its implementation path.",
   /** Hero status pills (short repo-state tokens, tone-coloured). */
   statusPills: [
-    { label: "CI GREEN @ aa83eb43", tone: "success" },
-    { label: "v0.2.49 RELEASED", tone: "success" },
+    { label: "CI RED @ 34c7f66e", tone: "warning" },
+    { label: "v0.2.50 UNRELEASED", tone: "warning" },
     { label: "NOT MERGED", tone: "warning" },
     { label: "REVIEW #3", tone: "secondary" },
   ] as readonly { label: string; tone: StatusTone }[],
   reviewer:
     "Main agent + 5 read-only research sub-agents (R-1 concerns · R-2 decisions · R-3 features · R-4 metrics · R-5 dashboard)",
   method:
-    "Every metric re-derived from source at aa83eb43 — never copied from docs. CI + release status verified via the GitHub API. Zero local builds (CORE_RULES §8).",
+    "Every metric re-derived from source at 34c7f66e — never copied from docs. CI + release status verified via the GitHub API. Zero local builds (CORE_RULES §8).",
 } as const;
 
 /* ---------------------------------------------------------------------------
@@ -80,22 +81,23 @@ export const SNAPSHOT = {
   metrics: [
     {
       metric: "Branch",
-      value: "test-feature/video-cache-new-download @ aa83eb43",
-      note: "38 commits ahead of main — NOT merged",
+      value: "test-feature/video-cache-new-download @ 34c7f66e",
+      note: "44 commits ahead of main — NOT merged",
     },
     {
       metric: "CI",
-      value: "Build APK GREEN on HEAD (run 32827548649)",
-      note: "verified via GitHub API, not assumed",
+      value: "Build APK RED on HEAD (run 32845772374)",
+      note:
+        "verified via GitHub API — BrowseScreen.kt:44 unresolved coil3.ImageRequest, 1-line D-257 import fix pending",
     },
     {
       metric: "Release",
-      value: "v0.2.49 published (stable)",
-      note: "arm64-v8a-only · debug-signed · 2nd automated release-apk.yml run",
+      value: "v0.2.50 pending tag — v0.2.49 is latest",
+      note: "v0.2.50 blocked on the CI fix · arm64-v8a-only · debug-signed",
     },
     {
       metric: "Version",
-      value: "0.2.49 (versionCode 49)",
+      value: "0.2.50 (versionCode 50)",
       note: "+1 per improvement batch (D-251 release discipline)",
     },
     {
@@ -105,7 +107,7 @@ export const SNAPSHOT = {
     },
     {
       metric: "Kotlin",
-      value: "388 files · ~84,400 LOC",
+      value: "390 files · ~85,700 LOC",
       note: "grew from 363 files at the Aug-24 review",
     },
     {
@@ -120,12 +122,12 @@ export const SNAPSHOT = {
     },
     {
       metric: "Decisions logged",
-      value: "D-001..D-198 + D-242..D-256",
+      value: "D-001..D-198 + D-242..D-260",
       note: "44 IDs missing (D-121 + D-199..D-241)",
     },
     {
       metric: "Lessons learned",
-      value: "201",
+      value: "204",
       note: "docs still claim 163",
     },
     {
@@ -164,19 +166,19 @@ export const PROJECT_HEALTH = {
   verdictHeadline:
     "Strong engine, growing debt — one gate: device-verify the branch, then merge.",
   verdictBody:
-    "Everything since D-243 is CI-green but zero of it is user-device-verified; meanwhile the codebase's largest files keep growing and docs have fallen ~60 claims behind.",
+    "D-243..D-256 shipped CI-green, but the v0.2.50 HEAD is red on a one-line D-257 import fix and none of the branch is fully device-verified; meanwhile the codebase's largest files keep growing and docs have fallen ~60 claims behind.",
   indicators: [
     {
       area: "CI & release pipeline",
-      status: "GOOD",
+      status: "DEGRADING",
       line:
-        "green on HEAD; automated stable releases on v* tags work (v0.2.49 shipped, 2nd automated run)",
+        "RED on the v0.2.50 HEAD (34c7f66e — one-line D-257 coil import fix pending); automated stable releases on v* tags work (v0.2.49 shipped)",
     },
     {
       area: "Feature velocity",
       status: "GOOD",
       line:
-        "14 decisions (D-243..D-256): caching, parallel downloads, resilience, UX overhauls, browse redesign, custom palettes, hero v2",
+        "18 decisions (D-243..D-260): caching, parallel downloads, resilience, UX overhauls, browse redesign + hero v3, custom palettes + color-picker overhaul, search restore fix",
     },
     {
       area: "Device verification",
@@ -188,7 +190,7 @@ export const PROJECT_HEALTH = {
       area: "Code size discipline",
       status: "DEGRADING",
       line:
-        "6 files >1,500 LOC; LibraryScreen grew 2,471 → 3,919 lines (+59%) since main",
+        "6 files >1,500 LOC; LibraryScreen grew 2,471 → 4,001 lines (+62%) since main",
     },
     {
       area: "Documentation sync",
@@ -268,6 +270,18 @@ export const WHATS_BUILT = [
       "Palette-switch navigation fix (theme structural stability); custom-palette crash fixed (Compose version-skew root-caused via APK artifact inspection); hero redesigned with cover + banner + genre tags; update-check date parsing fixed for Android 7.x.",
   },
   {
+    area: "Browse hero v3 + image preloading",
+    ref: "D-257",
+    detail:
+      "Inset 16:9 rounded hero card (fixes the full-bleed \"square vibe\") + infinite pager that always auto-advances forward one page; SectionPreloader warms Coil memory+disk caches at exact card dims; 1dp rating-tag borders on Browse + Library badges.",
+  },
+  {
+    area: "Search restore + palette editor overhaul",
+    ref: "D-258 · D-259",
+    detail:
+      "Search defaults restore after clearing (idempotent loadDefaults + staleness guards; recents redesigned as a chip cloud); color picker rebuilt on new ThinSlider + keypad precise entry (NumericEntrySheet ported to :core:designsystem, 5-preset lines); palette sheet with sticky header + Reset and gradient scrim. D-260 bumps to v0.2.50.",
+  },
+  {
     area: "AniList tracker",
     ref: "D-242 (on main)",
     detail:
@@ -314,7 +328,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "high",
     title: "Entire branch unverified on device",
     detail:
-      "14 decisions, 38 commits, CI-green — device feedback round 1 fixed (D-255/D-256); full checklist sign-off still pending. The merge gate is blocked on this.",
+      "18 decisions, 44 commits — device-feedback rounds addressed (D-255..D-259, v0.2.50 HEAD still needs its 1-line CI fix); full checklist sign-off still pending. The merge gate is blocked on this.",
     area: "verification",
   },
   {
@@ -343,7 +357,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "medium",
     title: "God-class growth accelerating",
     detail:
-      "LibraryScreen 3,919 · DetailsViewModel 3,510 · DetailsScreen 3,240 · WatchScreen 2,194 · PlaybackCacheManager 1,758 (new) · MainActivity 1,718. All grew on this branch.",
+      "LibraryScreen 4,001 · DetailsViewModel 3,510 · DetailsScreen 3,240 · WatchScreen 2,194 · PlaybackCacheManager 1,758 · MainActivity 1,733. All grew on this branch.",
     area: "maintainability",
   },
   {
@@ -413,7 +427,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "low",
     title: "Release signing not configured",
     detail:
-      "v0.2.49 ships debug-signed (documented, deliberate — \"release signing is Phase 2\").",
+      "releases ship debug-signed (latest v0.2.49; documented, deliberate — \"release signing is Phase 2\").",
     area: "deferred",
   },
 ];
@@ -530,7 +544,7 @@ export const DOC_DRIFT = {
     {
       file: "master.md + SESSION.md",
       claim: "\"Branch: main (all feature branches merged + deleted)\"",
-      reality: "active unmerged branch, 38 commits ahead",
+      reality: "active unmerged branch, 44 commits ahead",
     },
     {
       file: "all knowledge/* files",
@@ -549,7 +563,7 @@ export const DOC_DRIFT = {
       claim:
         "frozen at the D-186 era — 46 modules, D-001..D-186, \"main branch\"",
       reality:
-        "48 modules, D-251, active branch; MODULES array missing :core:playback-cache + :core:app-update",
+        "48 modules, D-260, active branch; MODULES array missing :core:playback-cache + :core:app-update",
     },
     {
       file: "4 stale KDocs in code",
@@ -629,9 +643,9 @@ export const FEATURES_REMAINING: {
     timeframe: "device-verification gate + cheapest wins",
     items: [
       {
-        name: "Device-verify the branch (D-243..D-256)",
+        name: "Device-verify the branch (D-243..D-260)",
         status: "BUILT-UNTESTED",
-        how: "Install the v0.2.49 release APK → run DOCUMENTATION/download-device-testing-checklist.md §A-I + video-cache checks (replay instant-start, ±2min window bounds, tap-to-play resume) + library display modes + unified settings icons. Logcat tags: Anikuta:Core:PlaybackCache, Anikuta:Core:Download:Parallel, Anikuta:Core:Download:Hls.",
+        how: "Install the v0.2.50 release APK → run DOCUMENTATION/download-device-testing-checklist.md §A-I + video-cache checks (replay instant-start, ±2min window bounds, tap-to-play resume) + library display modes + unified settings icons + hero v3 pager + search default-restore + palette editor round-trip. Logcat tags: Anikuta:Core:PlaybackCache, Anikuta:Core:Download:Parallel, Anikuta:Core:Download:Hls.",
         effort: "~2-3h on device",
       },
       {
@@ -678,7 +692,7 @@ export const FEATURES_REMAINING: {
       {
         name: "God-class splits",
         status: "NOT STARTED",
-        how: "LibraryScreen (3,919) first: extract section composables + move logic to LibraryViewModel; then the Details pair (3,510 + 3,240); then PlaybackCacheManager (1,758). Each split needs a sub-agent review pass.",
+        how: "LibraryScreen (4,001) first: extract section composables + move logic to LibraryViewModel; then the Details pair (3,510 + 3,240); then PlaybackCacheManager (1,758). Each split needs a sub-agent review pass.",
         effort: "~12-16h total",
       },
       {
@@ -690,7 +704,7 @@ export const FEATURES_REMAINING: {
       {
         name: "test-controller-v5 branch decision",
         status: "BLOCKED-ON-USER",
-        how: "43-commit dormant branch (D-197..D-202 numbering COLLIDES with main's); decide reintegrate (renumber → D-257+, resolve 5 textual conflicts, cherry-pick its deploy-workflow fix) vs abandon.",
+        how: "43-commit dormant branch (D-197..D-202 numbering COLLIDES with main's); decide reintegrate (renumber → D-261+, resolve 5 textual conflicts, cherry-pick its deploy-workflow fix) vs abandon.",
         effort: "~4-6h",
       },
       {
@@ -708,7 +722,7 @@ export const FEATURES_REMAINING: {
       {
         name: "Dashboard truth-sweep (post-merge)",
         status: "NOT STARTED",
-        how: "All non-review pages reflect main @ D-186; update to 48 modules / 24 tables / D-256 / v0.2.49 / branch truth; rewrite lib/schema.ts to the actual 24 tables; audit the 6-7 orphan routes.",
+        how: "All non-review pages reflect main @ D-186; update to 48 modules / 24 tables / D-260 / v0.2.50 / branch truth; rewrite lib/schema.ts to the actual 24 tables; audit the 6-7 orphan routes.",
         effort: "~4h",
       },
       {
@@ -738,11 +752,6 @@ export const FEATURES_REMAINING: {
       {
         name: "Backup/restore system",
         how: ".anikuta zip format + Aniyomi .tachibk import compat (design complete: 15-backup-research.md, D-047)",
-      },
-      {
-        name: "Custom color picker (palette editor)",
-        how: "CUSTOM preset storage works, picker UI missing; reuse the SubtitleSettingsSheet ColorPickerSheet pattern",
-        effort: "~2-4h",
       },
       {
         name: "Ads system (D-033)",
@@ -810,7 +819,7 @@ export interface TopRisk {
 
 export const TOP_RISKS = [
   {
-    risk: "Branch integration risk — 38 unverified commits on one long-lived branch; conflict surface grows daily",
+    risk: "Branch integration risk — 44 unverified commits on one long-lived branch; conflict surface grows daily",
     impact: "High",
     likelihood: "Medium",
     mitigation: "Device-verify → merge promptly; keep future batches small",
@@ -865,8 +874,8 @@ export const TOP_RISKS = [
  * ------------------------------------------------------------------------- */
 
 export const FOOTER_NOTE_BULLETS = [
-  "This is a TEMPORARY review section (full-project review #3, 2026-08-25) — it replaces the deleted /key-findings/ page (review #2, 2026-08-24) per user instruction. Nothing else on the dashboard changed. State refreshed for v0.2.49 @ aa83eb43.",
-  "Review method: main agent + 5 read-only research sub-agents; every metric re-derived from source at aa83eb43; CI + release status verified via the GitHub API; zero local builds (CORE_RULES §8).",
-  "Recommended immediate next step: run the v0.2.49 device-verification checklist (NOW items 1-3), report ✅/❌ per item — then merge.",
+  "This is a TEMPORARY review section (full-project review #3, 2026-08-25) — it replaces the deleted /key-findings/ page (review #2, 2026-08-24) per user instruction. Nothing else on the dashboard changed. State refreshed for v0.2.50 @ 34c7f66e (D-257..D-260).",
+  "Review method: main agent + 5 read-only research sub-agents; every metric re-derived from source at 34c7f66e; CI + release status verified via the GitHub API; zero local builds (CORE_RULES §8).",
+  "Recommended immediate next step: land the one-line D-257 CI fix (BrowseScreen.kt:44 import), push, tag v0.2.50 → release, then run the v0.2.50 device-verification checklist (NOW items 1-3), report ✅/❌ per item — then merge.",
   "This page reflects the BRANCH state, not main. Other dashboard pages still reflect main @ the D-186 era (truth-sweep queued for merge time — NEXT #13).",
 ];
