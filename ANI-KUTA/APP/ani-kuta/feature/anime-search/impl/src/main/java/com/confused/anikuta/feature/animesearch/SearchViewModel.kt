@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -50,7 +51,6 @@ class SearchViewModel(
     companion object {
         private const val TAG = "Anikuta:Feature:Search"
         private const val KEY_RECENT_SEARCHES = "search_recent_anilist"
-        private const val KEY_RECENTS_COLLAPSED = "search_recents_collapsed"
         private const val KEY_SELECTED_SOURCE_ID = "search_selected_extension_source_id"
         private const val DEBOUNCE_MS = 350L
         private const val MAX_RECENTS = 10
@@ -77,10 +77,12 @@ class SearchViewModel(
     private val _appliedFilters = MutableStateFlow(SearchFilters.Empty)
     val appliedFilters: StateFlow<SearchFilters> = _appliedFilters.asStateFlow()
 
-    private val _recentsCollapsed = MutableStateFlow(
-        preferenceStore.getBoolean(KEY_RECENTS_COLLAPSED, false),
-    )
-    val recentsCollapsed: StateFlow<Boolean> = _recentsCollapsed.asStateFlow()
+    // D-258: default-content bookkeeping. `showingDefaults` is true when the
+    // current Success/ExtensionSuccess state holds DEFAULT (blank-query)
+    // content — trending in AniList mode, the selected source's popular in
+    // Extension mode. `defaultsJob` de-dupes concurrent default loads.
+    private var showingDefaults = false
+    private var defaultsJob: Job? = null
 
     /** The trusted extension sources available for browsing. */
     val trustedSources: StateFlow<List<AnimeCatalogueSource>> =
@@ -115,12 +117,10 @@ class SearchViewModel(
     init {
         loadRecents()
         observeQuery()
-        // D-248: load trending on FIRST entry in AniList mode (the default) — the user
-        // reported no default results until manually re-tapping the AniList chip.
-        // Recents now coexist with results (grid header), so this no longer hides them.
-        if (_source.value == SearchSource.ANILIST && _query.value.isBlank()) {
-            loadTrending()
-        }
+        // D-248/D-258: load default (trending) content on first entry in
+        // AniList mode — routed through loadDefaults() so it shares the
+        // dedup guard with the debounced collector's initial blank emission.
+        loadDefaults()
         // Auto-select the top trusted source if none is selected (per user spec).
         // When the user switches to Extension mode, they see results immediately.
         viewModelScope.launch {
@@ -157,22 +157,21 @@ class SearchViewModel(
         _appliedFilters.value = _pendingFilters.value
     }
 
-    fun toggleRecentsCollapsed() {
-        val newValue = !_recentsCollapsed.value
-        _recentsCollapsed.value = newValue
-        preferenceStore.putBoolean(KEY_RECENTS_COLLAPSED, newValue)
-    }
-
     fun onQueryChange(value: String) {
         _query.value = value
         if (value.isBlank()) {
-            _uiState.value = SearchUiState.Idle
+            // D-258: backspacing to empty restores the default results (was:
+            // a hard Idle reset that left the page permanently empty).
+            loadDefaults()
         }
     }
 
     fun onClearQuery() {
         _query.value = ""
-        _uiState.value = SearchUiState.Idle
+        // D-258: clearing via the X button restores the default results —
+        // fixes the device-reported bug where the defaults never came back
+        // after a search (the old code set Idle and nothing ever reloaded).
+        loadDefaults()
     }
 
     fun onSourceChange(source: SearchSource) {
@@ -236,6 +235,12 @@ class SearchViewModel(
         if (pendingWebViewRefresh) {
             pendingWebViewRefresh = false
             retryExtensionSearch()
+            return
+        }
+        // D-258: defense-in-depth — if the screen is re-entered while Idle with
+        // a blank query (e.g. trending failed earlier), restore the defaults.
+        if (_query.value.isBlank() && _uiState.value is SearchUiState.Idle) {
+            loadDefaults()
         }
     }
 
@@ -279,9 +284,11 @@ class SearchViewModel(
             .distinctUntilChanged()
             .onEach { q ->
                 if (q.isBlank()) {
-                    // D-242-fix7: stay in Idle state so recents are visible.
-                    // Do NOT auto-load trending (it hides the recents card).
-                    _uiState.value = SearchUiState.Idle
+                    // D-258: query became blank (X clear / backspace) — restore
+                    // the default results. loadDefaults() is idempotent, so the
+                    // immediate call from onClearQuery/onQueryChange and this
+                    // debounced one don't double-fetch.
+                    loadDefaults()
                 } else {
                     // D-242-fix: record the search term in history.
                     addRecent(q.trim())
@@ -304,6 +311,7 @@ class SearchViewModel(
             payload = q,
         )
 
+        showingDefaults = false
         _uiState.value = SearchUiState.Loading
         viewModelScope.launch {
             try {
@@ -315,6 +323,9 @@ class SearchViewModel(
                     sort = _sort.value.apiValue,
                 )
                 Logger.i(TAG) { "Got ${results.size} results" }
+                // D-258 staleness guard: the query was cleared while this
+                // search was in flight — don't clobber the restored defaults.
+                if (_query.value.isBlank()) return@launch
                 _uiState.value = if (results.isEmpty()) {
                     SearchUiState.Empty
                 } else {
@@ -322,27 +333,53 @@ class SearchViewModel(
                 }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Search failed for '$q': ${e.message}" }
+                if (_query.value.isBlank()) return@launch
                 _uiState.value = SearchUiState.Error
             }
         }
     }
 
     /**
+     * D-258: loads the blank-query default content (AniList trending, or the
+     * selected extension source's popular). Idempotent: skips while a default
+     * load is already in flight or when defaults are already showing. Every
+     * "query became blank" path funnels here (X clear, backspace-to-empty,
+     * debounced collector, init, screen re-entry) — this fixes the
+     * device-reported bug where default results never came back after clearing
+     * a search.
+     */
+    private fun loadDefaults() {
+        if (_query.value.isNotBlank()) return
+        if (defaultsJob?.isActive == true) return
+        if (showingDefaults) return
+        defaultsJob = if (_source.value == SearchSource.ANILIST) {
+            loadTrending()
+        } else {
+            loadExtensionPopular()
+        }
+    }
+
+    /**
      * Load trending anime from AniList (shown when AniList source is active + query is blank).
      */
-    private fun loadTrending() {
+    private fun loadTrending(): Job {
         _uiState.value = SearchUiState.Loading
-        viewModelScope.launch {
+        return viewModelScope.launch {
             try {
                 Logger.i(TAG) { "Loading trending anime from AniList" }
                 val results = anilistApi.fetchTrending(perPage = 30)
-                _uiState.value = if (results.isEmpty()) {
-                    SearchUiState.Idle
+                // D-258 staleness guard: the user typed a query while the
+                // trending fetch was in flight — don't clobber the search.
+                if (_query.value.isNotBlank()) return@launch
+                if (results.isEmpty()) {
+                    _uiState.value = SearchUiState.Idle
                 } else {
-                    SearchUiState.Success(results = results)
+                    showingDefaults = true
+                    _uiState.value = SearchUiState.Success(results = results)
                 }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Trending load failed: ${e.message}" }
+                if (_query.value.isNotBlank()) return@launch
                 _uiState.value = SearchUiState.Idle
             }
         }
@@ -352,11 +389,11 @@ class SearchViewModel(
      * Load the selected extension source's popular anime.
      * If no source is selected, shows ExtensionNotAvailable.
      */
-    private fun loadExtensionPopular() {
+    private fun loadExtensionPopular(): Job {
         val sourceId = _selectedSourceId.value
         if (sourceId == null) {
             _uiState.value = SearchUiState.ExtensionNotAvailable
-            return
+            return Job().apply { complete() }
         }
 
         val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
@@ -365,11 +402,11 @@ class SearchViewModel(
             _selectedSourceId.value = null
             preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, -1L)
             _uiState.value = SearchUiState.ExtensionNotAvailable
-            return
+            return Job().apply { complete() }
         }
 
         _uiState.value = SearchUiState.Loading
-        viewModelScope.launch {
+        return viewModelScope.launch {
             try {
                 Logger.i(TAG) { "Fetching popular anime from source: ${source.name}" }
                 val page = withContext(Dispatchers.IO) { source.getPopularAnime(1) }
@@ -377,17 +414,22 @@ class SearchViewModel(
                     it.toExtensionAnime(sourceId, source.name)
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
+                // D-258 staleness guard: the user typed a query while the
+                // popular fetch was in flight — don't clobber the search.
+                if (_query.value.isNotBlank()) return@launch
                 _uiState.value = if (results.isEmpty()) {
                     // D-209: distinguish extension-empty from AniList-empty so the
                     // UI can show the source name + a Refresh button (the empty result
                     // might be due to a stale Cloudflare cookie the user just solved).
                     SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
                 } else {
+                    showingDefaults = true
                     SearchUiState.ExtensionSuccess(results = results)
                 }
             } catch (e: Throwable) {
                 // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
                 // D-209: detect CloudflareException → show the "Open in WebView" button.
+                if (_query.value.isNotBlank()) return@launch
                 if (e is CloudflareException) {
                     Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
                     _uiState.value = SearchUiState.CloudflareBlocked(
@@ -422,6 +464,7 @@ class SearchViewModel(
             return
         }
 
+        showingDefaults = false
         _uiState.value = SearchUiState.Loading
         viewModelScope.launch {
             try {
@@ -433,6 +476,9 @@ class SearchViewModel(
                     it.toExtensionAnime(sourceId, source.name)
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
+                // D-258 staleness guard: the query was cleared while this
+                // search was in flight — don't clobber the restored defaults.
+                if (_query.value.isBlank()) return@launch
                 _uiState.value = if (results.isEmpty()) {
                     // D-209: distinguish extension-empty from AniList-empty.
                     SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
@@ -441,6 +487,7 @@ class SearchViewModel(
                 }
             } catch (e: Throwable) {
                 // D-209: detect CloudflareException → show the "Open in WebView" button.
+                if (_query.value.isBlank()) return@launch
                 if (e is CloudflareException) {
                     Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
                     _uiState.value = SearchUiState.CloudflareBlocked(

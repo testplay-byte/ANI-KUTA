@@ -98,7 +98,6 @@ fun SearchScreen(
     val source by viewModel.source.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val recents by viewModel.recents.collectAsState()
-    val recentsCollapsed by viewModel.recentsCollapsed.collectAsState()
     val pendingFilters by viewModel.pendingFilters.collectAsState()
     val trustedSources by viewModel.trustedSources.collectAsState()
     val selectedSourceId by viewModel.selectedSourceId.collectAsState()
@@ -173,8 +172,6 @@ fun SearchScreen(
                         if (recents.isNotEmpty()) {
                             RecentSearchesCard(
                                 recents = recents,
-                                collapsed = recentsCollapsed,
-                                onToggleCollapsed = viewModel::toggleRecentsCollapsed,
                                 onPick = viewModel::onPickRecent,
                                 onRemove = viewModel::onRemoveRecent,
                                 onClear = viewModel::onClearRecents,
@@ -280,7 +277,7 @@ fun SearchScreen(
                         // to title + compact search bar). They hide only when the user
                         // actually searches (query non-blank → Loading).
                         recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
-                            RecentsHeaderData(recents, recentsCollapsed, viewModel::toggleRecentsCollapsed, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                            RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
                         } else null,
                     )
                 }
@@ -294,7 +291,7 @@ fun SearchScreen(
                             onNavigateToExtensionAnime(anime.sourceId, anime.url, anime.title, anime.thumbnailUrl)
                         },
                         recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
-                            RecentsHeaderData(recents, recentsCollapsed, viewModel::toggleRecentsCollapsed, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                            RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
                         } else null,
                     )
                 }
@@ -351,11 +348,9 @@ fun SearchScreen(
 
 // ── Results grid ──
 
-// D-248: everything the results grids need to render the recents card as a header item.
+// D-248/D-258: everything the results grids need to render the recents card as a header item.
 private class RecentsHeaderData(
     val recents: List<String>,
-    val collapsed: Boolean,
-    val onToggleCollapsed: () -> Unit,
     val onPick: (String) -> Unit,
     val onRemove: (String) -> Unit,
     val onClear: () -> Unit,
@@ -385,8 +380,6 @@ private fun ResultsGrid(
             item(key = "recents-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                 RecentSearchesCard(
                     recents = recentsHeader.recents,
-                    collapsed = recentsHeader.collapsed,
-                    onToggleCollapsed = recentsHeader.onToggleCollapsed,
                     onPick = recentsHeader.onPick,
                     onRemove = recentsHeader.onRemove,
                     onClear = recentsHeader.onClear,
@@ -582,8 +575,6 @@ private fun ExtensionResultsGrid(
             item(key = "recents-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                 RecentSearchesCard(
                     recents = recentsHeader.recents,
-                    collapsed = recentsHeader.collapsed,
-                    onToggleCollapsed = recentsHeader.onToggleCollapsed,
                     onPick = recentsHeader.onPick,
                     onRemove = recentsHeader.onRemove,
                     onClear = recentsHeader.onClear,
