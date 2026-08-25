@@ -2,53 +2,57 @@ import { Card } from "@/components/Card";
 import { StatusDot } from "@/components/StatusDot";
 import {
   DOC_DRIFT,
+  FEATURE_STATUS_META,
   FEATURES_REMAINING,
   FOOTER_NOTE_BULLETS,
   HEALTH_STATUS_META,
-  KEY_FINDINGS_META,
   OPEN_CONCERNS,
   PROJECT_HEALTH,
+  REVIEW_META,
   SEVERITIES,
   SEVERITY_META,
   SNAPSHOT,
+  STATUS_TONE_META,
   TOP_RISKS,
   VERIFIED_FIXED,
   WHATS_BUILT,
+  type FeatureStatus,
   type HealthStatus,
   type Severity,
-} from "@/lib/keyFindings";
+} from "@/lib/reviewData";
 
 /**
- * /key-findings/ — Key Findings (live project review).
+ * /review/ — Review & Roadmap (full project review).
  *
- * Renders the 2026-08-24 full-project review findings (main agent + 5
- * research sub-agents, every metric re-verified against source) for the
- * test-feature/video-cache-new-download branch @ D-249 / f4be250 / v0.2.47,
+ * Renders the 2026-08-25 full-project review #3 (main agent + 5 read-only
+ * research sub-agents, every metric re-derived from source) for the
+ * test-feature/video-cache-new-download branch @ 127d074f / v0.2.48,
  * per DESIGN.md (MEMORY OS v3). Static Server Component — no
  * interactivity needed, no "use client".
  *
- * TEMPORARY SECTION — see §9 Footer Note for the removal plan.
+ * TEMPORARY SECTION — replaces the deleted /key-findings/ page
+ * (review #2, 2026-08-24). See §9 Footer Note.
  *
  * Sections (counts are dynamic — driven by .length on the data arrays):
  *  1. Snapshot (verified metrics)
  *  2. Project Health (verdict + 6 indicators)
- *  3. What's Built (16 feature areas)
- *  4. Open Concerns (16 items grouped by severity)
- *  5. Verified Fixed (16 resolved concerns — balance)
- *  6. Doc Drift Caught (11 stale claims vs verified reality)
- *  7. Features Remaining (NOW / NEXT / LATER — 16 total)
+ *  3. What's Built (9 branch highlights)
+ *  4. Open Concerns (15 items grouped by severity)
+ *  5. Verified Fixed (14 resolved concerns — balance)
+ *  6. Doc Drift Caught (top 12 of ~60 stale claims)
+ *  7. Features Remaining (NOW / NEXT / LATER — 30 total)
  *  8. Top Risks (8 rows)
  *  9. Footer Note (temporary-section notice)
  */
 
 /** Impact-level → semantic colour (for the §8 risk table). */
 const IMPACT_COLOR: Record<string, string> = {
-  Critical: "var(--c-danger)",
   High: "var(--c-warning)",
   Medium: "var(--c-secondary)",
+  Low: "var(--c-text-secondary)",
 };
 
-export default function KeyFindingsPage() {
+export default function ReviewPage() {
   const totalRemaining =
     FEATURES_REMAINING.now.items.length +
     FEATURES_REMAINING.next.items.length +
@@ -63,40 +67,41 @@ export default function KeyFindingsPage() {
         <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
           <div className="min-w-0">
             <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1.5">
-              Agent Review · {KEY_FINDINGS_META.reviewDate}
+              Agent Review · {REVIEW_META.reviewDate}
             </div>
             <h1 className="text-[22px] sm:text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
-              Key Findings
+              {REVIEW_META.title}
             </h1>
           </div>
           <div className="flex items-center gap-2 flex-wrap max-w-full">
-            {KEY_FINDINGS_META.statusPills.map((pill, i) => (
-              <span
-                key={pill}
-                className={`inline-flex items-center gap-1.5 min-h-7 py-1 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary ${i === 0 ? "font-mono break-all" : ""}`}
-              >
-                {i === 0 && (
-                  <StatusDot color="var(--c-success)" size="sm" />
-                )}
-                {pill}
-              </span>
-            ))}
+            {REVIEW_META.statusPills.map((pill, i) => {
+              const tone = STATUS_TONE_META[pill.tone];
+              return (
+                <span
+                  key={pill.label}
+                  className={`inline-flex items-center gap-1.5 min-h-7 py-1 px-3 rounded-full text-[11px] font-semibold border ${i === 0 ? "font-mono" : ""}`}
+                  style={{
+                    backgroundColor: `color-mix(in srgb, ${tone.colorVar} 10%, transparent)`,
+                    borderColor: `color-mix(in srgb, ${tone.colorVar} 35%, transparent)`,
+                    color: tone.colorVar,
+                  }}
+                >
+                  <StatusDot color={tone.colorVar} size="sm" />
+                  {pill.label}
+                </span>
+              );
+            })}
           </div>
         </div>
         <p className="text-[12.5px] sm:text-[13.5px] text-text-secondary leading-[1.5] max-w-2xl">
-          A codebase-verified read of where ANI-KUTA actually stands —
-          snapshot metrics, project health, what&apos;s built, open
-          concerns, verified fixes, doc drift caught, and the forward
-          direction. Every number below was re-verified against source
-          (settings.gradle.kts, .sq files, git log, code greps) — not
-          copied from docs.
+          {REVIEW_META.description}
         </p>
         <p className="text-[11.5px] text-text-secondary leading-relaxed mt-3 pt-3 border-t border-border/60 break-words">
           <span className="font-medium text-text-primary">Reviewer:</span>{" "}
-          {KEY_FINDINGS_META.reviewer}
+          {REVIEW_META.reviewer}
           <span className="mx-2 text-border">·</span>
           <span className="font-medium text-text-primary">Method:</span>{" "}
-          {KEY_FINDINGS_META.method}
+          {REVIEW_META.method}
         </p>
       </Card>
 
@@ -113,7 +118,7 @@ export default function KeyFindingsPage() {
           </span>
         }
       >
-        <SubLabel>Every value below was checked against the repo, not the docs</SubLabel>
+        <SubLabel>Every value below was re-derived from the repo, not the docs</SubLabel>
         <div className="overflow-x-auto -mx-1 px-1">
           <table className="w-full min-w-[560px] text-left border-collapse">
             <thead>
@@ -199,34 +204,40 @@ export default function KeyFindingsPage() {
       </SectionCard>
 
       {/* ───────────────────────────────────────────────────────────────
-       *  SECTION 3 — WHAT'S BUILT
+       *  SECTION 3 — WHAT'S BUILT (BRANCH HIGHLIGHTS)
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§3 — What's Built"
-        title={`${WHATS_BUILT.length} feature areas shipped`}
+        title={`${WHATS_BUILT.length} branch highlights`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-success)" size="sm" />
-            {WHATS_BUILT.length} areas
+            {WHATS_BUILT.length} highlights
           </span>
         }
       >
+        <SubLabel>Everything landed on this branch since it forked from main</SubLabel>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {WHATS_BUILT.map((a, i) => (
             <div
               key={a.area}
               className="rounded-[14px] border border-border bg-surface-alt/40 p-3.5"
             >
-              <div className="flex items-baseline gap-2 mb-1">
+              <div className="flex items-baseline gap-2 mb-1.5">
                 <span className="font-mono text-[11px] font-semibold text-text-secondary tabular-nums shrink-0">
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                <span className="text-[13px] font-bold tracking-extra-tight text-text-primary">
+                <span className="text-[13px] font-bold tracking-extra-tight text-text-primary min-w-0 break-words">
                   {a.area}
                 </span>
               </div>
+              <div className="mb-2">
+                <span className="inline-flex items-center min-h-6 py-0.5 px-2.5 rounded-full text-[10.5px] font-mono font-medium bg-chip border border-border text-text-secondary">
+                  {a.ref}
+                </span>
+              </div>
               <p className="text-[11.5px] text-text-secondary leading-relaxed min-w-0 break-words">
-                {a.status}
+                {a.detail}
               </p>
             </div>
           ))}
@@ -247,9 +258,9 @@ export default function KeyFindingsPage() {
         }
       >
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          Every concern carries evidence (file:line where relevant) and a
-          suggested action. Low-severity items are accepted limitations —
-          listed for completeness, no action required now.
+          Every concern carries verified evidence (file:line where relevant)
+          plus an area tag. Low-severity items are accepted limitations or
+          deferred work — listed for completeness, no action required now.
         </p>
 
         {SEVERITIES.map((sev) => {
@@ -288,8 +299,8 @@ export default function KeyFindingsPage() {
         }
       >
         <p className="text-[12.5px] text-text-secondary leading-relaxed mb-4">
-          For balance: deferred concerns from earlier reviews that have
-          since been verified as fixed in code.
+          For balance: concerns from earlier reviews that have since been
+          verified as fixed in code — swept since the docs were last updated.
         </p>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {VERIFIED_FIXED.map((f) => (
@@ -328,11 +339,11 @@ export default function KeyFindingsPage() {
        * ─────────────────────────────────────────────────────────────── */}
       <SectionCard
         kicker="§6 — Doc Drift Caught"
-        title={`${DOC_DRIFT.length} stale claims vs verified reality`}
+        title={`Top ${DOC_DRIFT.rows.length} of ${DOC_DRIFT.totalStaleClaims} stale claims vs verified reality`}
         right={
           <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium border bg-chip border-border text-text-secondary">
             <StatusDot color="var(--c-warning)" size="sm" />
-            {DOC_DRIFT.length} rows
+            {DOC_DRIFT.rows.length} of {DOC_DRIFT.totalStaleClaims} · {DOC_DRIFT.filesAffected} files
           </span>
         }
       >
@@ -340,23 +351,23 @@ export default function KeyFindingsPage() {
           <table className="w-full min-w-[560px] text-left border-collapse">
             <thead>
               <tr className="text-[10.5px] uppercase tracking-widest text-text-secondary">
-                <Th>Claim in docs</Th>
+                <Th>File</Th>
+                <Th>Stale claim</Th>
                 <Th>Verified reality</Th>
-                <Th>Where</Th>
               </tr>
             </thead>
             <tbody>
-              {DOC_DRIFT.map((d) => (
+              {DOC_DRIFT.rows.map((d) => (
                 <tr
                   key={d.claim}
                   className="border-t border-border hover:bg-canvas/50 transition-colors align-top"
                 >
+                  <Td className="font-mono text-[11px] text-text-secondary break-words">
+                    {d.file}
+                  </Td>
                   <Td className="text-text-secondary">{d.claim}</Td>
                   <Td className="font-medium text-text-primary">
                     {d.reality}
-                  </Td>
-                  <Td className="font-mono text-[11px] text-text-secondary break-words">
-                    {d.where}
                   </Td>
                 </tr>
               ))}
@@ -428,13 +439,14 @@ export default function KeyFindingsPage() {
                   className="flex items-start justify-between gap-3 flex-wrap"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2 min-w-0">
+                    <div className="flex items-baseline gap-2 min-w-0 flex-wrap">
                       <span className="font-mono text-[11px] font-semibold text-text-secondary tabular-nums shrink-0">
                         {String(startAt + idx).padStart(2, "0")}
                       </span>
                       <span className="text-[12.5px] font-semibold text-text-primary leading-snug min-w-0 break-words">
                         {f.name}
                       </span>
+                      {f.status && <FeatureStatusPill status={f.status} />}
                     </div>
                     <p className="text-[11.5px] text-text-secondary leading-relaxed mt-0.5 min-w-0 break-words">
                       {f.how}
@@ -470,8 +482,8 @@ export default function KeyFindingsPage() {
             <thead>
               <tr className="text-[10.5px] uppercase tracking-widest text-text-secondary">
                 <Th>Risk</Th>
-                <Th>Likelihood</Th>
                 <Th>Impact</Th>
+                <Th>Likelihood</Th>
                 <Th>Mitigation</Th>
               </tr>
             </thead>
@@ -485,7 +497,6 @@ export default function KeyFindingsPage() {
                     className="border-t border-border hover:bg-canvas/50 transition-colors align-top"
                   >
                     <Td className="font-medium text-text-primary">{r.risk}</Td>
-                    <Td className="text-text-secondary">{r.likelihood}</Td>
                     <Td>
                       <span
                         className="inline-flex items-center gap-1.5 font-semibold"
@@ -499,6 +510,7 @@ export default function KeyFindingsPage() {
                         {r.impact}
                       </span>
                     </Td>
+                    <Td className="text-text-secondary">{r.likelihood}</Td>
                     <Td className="text-text-secondary min-w-0 break-words">
                       {r.mitigation}
                     </Td>
@@ -671,7 +683,29 @@ function SeverityPill({ severity }: { severity: Severity }) {
   );
 }
 
-/** One open-concern card (§4) — severity-tinted border + evidence + action. */
+/** Colored pill for a remaining-feature status (§7). */
+function FeatureStatusPill({ status }: { status: FeatureStatus }) {
+  const meta = FEATURE_STATUS_META[status];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 min-h-6 py-0.5 px-2.5 rounded-full text-[10px] font-semibold uppercase tracking-wide border shrink-0"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${meta.colorVar} 12%, transparent)`,
+        borderColor: `color-mix(in srgb, ${meta.colorVar} 35%, transparent)`,
+        color: meta.colorVar,
+      }}
+    >
+      <span
+        className="inline-block w-1.5 h-1.5 rounded-full"
+        style={{ backgroundColor: meta.colorVar }}
+        aria-hidden="true"
+      />
+      {status}
+    </span>
+  );
+}
+
+/** One open-concern card (§4) — severity-tinted border + detail + area tag. */
 function ConcernCard({
   concern,
 }: {
@@ -680,7 +714,7 @@ function ConcernCard({
     severity: Severity;
     title: string;
     detail: string;
-    action?: string;
+    area: string;
   };
 }) {
   const meta = SEVERITY_META[concern.severity];
@@ -705,16 +739,11 @@ function ConcernCard({
       <p className="text-[12.5px] text-text-secondary leading-relaxed min-w-0 break-words">
         {concern.detail}
       </p>
-      {concern.action && (
-        <div className="mt-2.5 pt-2.5 border-t border-border/60 text-[12px] leading-relaxed min-w-0">
-          <span className="font-semibold text-[var(--c-primary)]">
-            Action:
-          </span>{" "}
-          <span className="text-text-primary break-words">
-            {concern.action}
-          </span>
-        </div>
-      )}
+      <div className="mt-2.5 pt-2.5 border-t border-border/60">
+        <span className="inline-flex items-center min-h-6 py-0.5 px-2.5 rounded-full text-[10.5px] font-mono font-medium bg-chip border border-border text-text-secondary">
+          {concern.area}
+        </span>
+      </div>
     </div>
   );
 }
