@@ -149,11 +149,15 @@ private fun BrowseAnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit
             // The outer (top-start) corner is clipped to the cover's 12dp
             // corner by the parent Box clip; the inner end is pointed
             // (PointedTagShape) per the D-252 badge language.
+            // D-257: 1dp border (content color @ 50%) so the tag stays crisp
+            // against busy cover art (device feedback: "give some border to
+            // the rating tags so it is a bit more clear").
             anime.averageScore?.takeIf { it > 0 }?.let { score ->
                 Surface(
                     modifier = Modifier.align(Alignment.TopStart),
                     color = badgeColors.scoreContainer,
                     shape = PointedTagShape(PointedSide.END),
+                    border = BorderStroke(1.dp, badgeColors.scoreContent.copy(alpha = 0.5f)),
                 ) {
                     Text(
                         text = "★ $score",

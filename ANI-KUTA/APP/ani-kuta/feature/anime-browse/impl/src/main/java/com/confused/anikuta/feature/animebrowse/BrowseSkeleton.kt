@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -51,13 +52,31 @@ internal fun BrowseSkeleton() {
     val cardShape = RoundedCornerShape(12.dp)
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Hero block (full-bleed).
+        // Hero block (D-257 hero v3): inset 16:9 rounded card + dot row below.
         Box(
             modifier = Modifier
+                .padding(horizontal = 16.dp)
                 .fillMaxWidth()
-                .height(300.dp)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(20.dp))
                 .background(block),
         )
+        Spacer(Modifier.height(8.dp))
+        // Page dots below the card.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            repeat(5) { index ->
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 2.dp)
+                        .size(width = if (index == 0) 16.dp else 6.dp, height = 6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(block),
+                )
+            }
+        }
         Spacer(Modifier.height(20.dp))
 
         // Continue-watching row.

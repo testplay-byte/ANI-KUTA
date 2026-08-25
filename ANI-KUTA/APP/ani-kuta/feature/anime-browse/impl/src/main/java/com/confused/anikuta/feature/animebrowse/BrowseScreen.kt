@@ -34,10 +34,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.ImageRequest
+import coil3.imageLoader
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.EmptyState
@@ -51,17 +56,23 @@ import org.koin.compose.viewmodel.koinViewModel
  * Browse screen — the home tab (D-253 complete UI overhaul).
  *
  * Layout: CollapsingHeader → pull-to-refresh → scrollable LazyColumn containing:
- *  1. Hero pager (top trending anime with banner images, auto-advancing,
- *     page dots — full-bleed edge-to-edge, D-249's single static banner evolved)
+ *  1. Hero pager (top trending anime — D-257 hero v3: inset 16:9 rounded card
+ *     with banner backdrop + cover poster, infinite smooth auto-advance)
  *  2. Continue Watching carousel (16:9 thumbs + play affordance + progress bar)
  *  3. Trending Now / Popular / Top Rated (horizontal card carousels)
  *
- * D-253 changes vs D-249:
- * - Hero is a full-bleed 260dp auto-advancing pager (top 5 trending with
- *   banners) instead of a single padded static card.
+ * D-257 changes vs D-256:
+ * - Hero redesigned as a padded rounded card (16:9 — the banner's native
+ *   aspect; the old full-bleed block cropped it into a square-ish frame) with
+ *   page dots below the card and a virtually-circular pager so auto-advance
+ *   always slides FORWARD (the old wraparound swept backwards through every
+ *   page — the "not smooth / not animated" glitch).
+ * - All section cover images are PRELOADED into Coil's caches as soon as the
+ *   data arrives (SectionPreloader) — no first-view load waits.
+ *
+ * D-253 (historical):
  * - Cards: 2:3 covers with 12dp corners + subtle 1dp borders, amber pointed
- *   score corner-tag (unified with the Library badge language, D-252) instead
- *   of the old black-pill + lime-text rating tag.
+ *   score corner-tag (unified with the Library badge language, D-252).
  * - Loading = shimmer skeletons (no full-screen spinner); Error = EmptyState
  *   + Retry button (no dead-end text).
  * - Sections fade+expand in when their data arrives — never pop in.
@@ -138,12 +149,35 @@ fun BrowseScreen(
                         onRetry = { viewModel.refresh() },
                     )
                     is BrowseState.Success -> {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 90.dp),
-                        ) {
-                            // ── Hero pager (full-bleed, auto-advancing) ──
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            // ── D-257: image preloading ──
+                            // Warm Coil's memory+disk caches for every section as
+                            // soon as the data arrives, so the first scroll
+                            // through a carousel is instant (the user reported
+                            // covers visibly loading on first view). Order matters:
+                            // the hero loads first, then visible-first sections.
+                            val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+                            val heroCardWidth = screenWidth - 32.dp
+                            SectionPreloader(
+                                urls = heroItems.flatMap { listOf(it.bannerImage, it.coverUrl) },
+                                width = heroCardWidth,
+                                height = heroCardWidth * 9f / 16f,
+                            )
+                            SectionPreloader(
+                                urls = continueWatching.map { it.thumbnailUrl ?: it.coverUrl },
+                                width = 168.dp,
+                                height = 94.dp,
+                            )
+                            SectionPreloader(urls = s.anime.map { it.coverUrl }, width = 128.dp, height = 192.dp)
+                            SectionPreloader(urls = popular.map { it.coverUrl }, width = 128.dp, height = 192.dp)
+                            SectionPreloader(urls = topRated.map { it.coverUrl }, width = 128.dp, height = 192.dp)
+
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 90.dp),
+                            ) {
+                            // ── Hero pager (inset 16:9 card, auto-advancing) ──
                             item(key = "hero") {
                                 BrowseSection(visible = heroItems.isNotEmpty()) {
                                     BrowseHero(
@@ -210,6 +244,7 @@ fun BrowseScreen(
                                     }
                                 }
                             }
+                            }
                         }
                     }
                 }
@@ -223,6 +258,37 @@ fun BrowseScreen(
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
             }
+        }
+    }
+}
+
+/**
+ * D-257: preloads a section's images into Coil's memory + disk cache as soon
+ * as the data arrives, so covers are already decoded when the user first
+ * scrolls a carousel into view (device feedback: "I have to wait for them to
+ * load when I see them for the first time").
+ *
+ * Sizing note (Coil 3.0.4): the memory-cache key excludes size when a request
+ * has no transformations, and AsyncImage resolves with INEXACT precision —
+ * so a preload at the card's exact pixel dimensions is a memory-cache HIT for
+ * the composable later. Emits no UI.
+ */
+@Composable
+private fun SectionPreloader(urls: List<String?>, width: Dp, height: Dp) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val cleaned = remember(urls) { urls.filter { !it.isNullOrBlank() }.distinct() }
+    LaunchedEffect(cleaned) {
+        if (cleaned.isEmpty()) return@LaunchedEffect
+        val w = with(density) { width.roundToPx() }
+        val h = with(density) { height.roundToPx() }
+        cleaned.forEach { url ->
+            context.imageLoader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .size(w, h)
+                    .build(),
+            )
         }
     }
 }
