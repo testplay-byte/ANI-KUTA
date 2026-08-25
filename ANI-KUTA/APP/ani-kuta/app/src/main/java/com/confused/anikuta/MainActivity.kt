@@ -104,6 +104,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import com.confused.anikuta.core.preferences.AppPreferences
 import org.koin.compose.koinInject
 
 class MainActivity : androidx.fragment.app.FragmentActivity() {
@@ -358,7 +359,8 @@ fun AppRoot() {
             NavItem("more", "More", NavIcons.More),
         )
     }
-    var currentTab by remember { mutableStateOf("browse") }
+    val appPreferences = koinInject<AppPreferences>() // D-267: last-tab persistence
+    var currentTab by remember { mutableStateOf(appPreferences.lastTab) }
 
     // D-143: Library selection mode state — shared between LibraryScreen + AppRoot.
     val librarySelectionMode = remember { LibrarySelectionMode() }
@@ -389,7 +391,13 @@ fun AppRoot() {
     FirstRunSetupDialog(preferences = downloadPreferences)
 
     val backstack = remember {
-        androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
+        val initialKey = when (appPreferences.lastTab) {
+            "library" -> AnimeLibraryKeyImpl
+            "search" -> AnimeSearchKey
+            "more" -> MoreKey
+            else -> AnimeBrowseKey
+        }
+        androidx.compose.runtime.mutableStateListOf<NavKey>(initialKey)
     }
     val currentKey = backstack.last()
 
@@ -886,6 +894,7 @@ fun AppRoot() {
                 currentRoute = currentTab,
                 onSelect = { route ->
                     currentTab = route
+                    appPreferences.lastTab = route // D-267: persist for next cold start
                     backstack.clear()
                     when (route) {
                         "browse" -> backstack.add(AnimeBrowseKey)
