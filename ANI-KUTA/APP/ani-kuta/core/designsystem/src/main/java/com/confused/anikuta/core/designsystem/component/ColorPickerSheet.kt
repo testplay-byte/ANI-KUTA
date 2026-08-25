@@ -1,4 +1,4 @@
-package com.confused.anikuta.core.player.controls
+package com.confused.anikuta.core.designsystem.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,12 +48,18 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  * Color picker bottom sheet — preset swatches + custom RGB+A sliders.
  *
  * Simplified port from the old project's `ColorPickerSheet.kt` (which had a
- * full HSV picker). This version uses preset swatches (common subtitle colors)
- * + RGBA sliders for custom colors. Live-applies changes via [onLiveChange]
- * so the user sees the color on the video behind the sheet.
+ * full HSV picker). This version uses preset swatches + RGBA sliders for
+ * custom colors. Live-applies changes via [onLiveChange] so the caller can
+ * preview the color behind the sheet.
+ *
+ * D-254: moved from `:core:player` (controls) to `:core:designsystem` so the
+ * theme editor (Appearance → Custom palette) can reuse it — swatches are now
+ * a parameter (the default preserves the player's subtitle palette).
  *
  * @param title Sheet title (e.g. "Text color").
  * @param initialColor The starting color (ARGB int).
+ * @param swatches Preset swatches as (ARGB int, label) pairs — shown in the
+ *   Presets flow row.
  * @param onLiveChange Called on every color change (live preview).
  * @param onDismiss Close the sheet.
  */
@@ -62,6 +68,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 fun ColorPickerSheet(
     title: String,
     initialColor: Int,
+    swatches: List<Pair<Int, String>> = DefaultColorPickerSwatches,
     onLiveChange: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -81,17 +88,7 @@ fun ColorPickerSheet(
     }
 
     val currentColor = Color(a, r, g, b)
-    val presets = listOf(
-        0xFFFFFFFF.toInt() to "White",
-        0xFF000000.toInt() to "Black",
-        0xFFFFEB3B.toInt() to "Yellow",
-        0xFFF44336.toInt() to "Red",
-        0xFF4CAF50.toInt() to "Green",
-        0xFF2196F3.toInt() to "Blue",
-        0xFFFF9800.toInt() to "Orange",
-        0xFF9C27B0.toInt() to "Purple",
-        0x00000000 to "Transparent",
-    )
+    val presets = swatches
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -265,3 +262,19 @@ private fun ColorSliderRow(
         )
     }
 }
+
+/**
+ * The default swatch palette (the player's original subtitle colors, kept as
+ * the default so the SubtitleSettingsSheet call site behaves identically).
+ */
+val DefaultColorPickerSwatches: List<Pair<Int, String>> = listOf(
+    0xFFFFFFFF.toInt() to "White",
+    0xFF000000.toInt() to "Black",
+    0xFFFFEB3B.toInt() to "Yellow",
+    0xFFF44336.toInt() to "Red",
+    0xFF4CAF50.toInt() to "Green",
+    0xFF2196F3.toInt() to "Blue",
+    0xFFFF9800.toInt() to "Orange",
+    0xFF9C27B0.toInt() to "Purple",
+    0x00000000 to "Transparent",
+)

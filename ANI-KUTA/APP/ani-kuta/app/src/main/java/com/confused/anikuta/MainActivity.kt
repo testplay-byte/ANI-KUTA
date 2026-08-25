@@ -50,6 +50,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
+import com.confused.anikuta.core.designsystem.theme.AccentPreset
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.navigation.NavKey
@@ -136,14 +137,28 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             val prefs = koinInject<ThemePreferences>()
             val themeMode = prefs.themeMode.value
             val amoled = prefs.amoled.value
-            // Accent seed: resolves CUSTOM → stored custom color, else preset seed.
+            // Accent seed: resolves CUSTOM → stored custom accent, else preset seed.
             val accentSeed = prefs.resolveAccentSeed()
+            // D-254: the fully-custom per-element theme — active only when the
+            // CUSTOM preset is selected. Reading prefs.customTheme.value here
+            // subscribes this composition to every custom-palette edit, so the
+            // whole app re-themes LIVE from the editor sheet (CORE_RULES §23).
+            val customTheme = if (prefs.accentPreset.value == AccentPreset.CUSTOM) {
+                prefs.customTheme.value
+            } else {
+                null
+            }
             val isDark = when (themeMode) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
-            AnikutaTheme(darkTheme = isDark, amoled = amoled, accentSeed = accentSeed) {
+            AnikutaTheme(
+                darkTheme = isDark,
+                amoled = amoled,
+                accentSeed = accentSeed,
+                customTheme = customTheme,
+            ) {
                 AppRoot()
             }
         }
