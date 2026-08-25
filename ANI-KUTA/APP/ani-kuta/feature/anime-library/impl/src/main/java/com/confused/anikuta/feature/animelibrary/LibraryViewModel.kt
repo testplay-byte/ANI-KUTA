@@ -887,11 +887,14 @@ class LibraryViewModel(
                 } else null
 
                 val watched = watchProgressStore?.getWatchedEpisodeCount(entry.mainId)?.takeIf { it > 0 }
+                // D-268: most recent last_watched_at for the LAST_WATCHED sort.
+                val lastWatched = watchProgressStore?.getLastWatchedAt(entry.mainId)
 
                 entries[i] = entry.copy(
                     releasedEpisodes = releasedCount,
                     audioAvailability = audioAvail,
                     watchedCount = watched,
+                    lastWatchedAt = lastWatched,
                     subEpisodeCount = subCount.takeIf { it > 0 },
                     dubEpisodeCount = dubCount.takeIf { it > 0 },
                 )
@@ -1001,7 +1004,32 @@ class LibraryViewModel(
             } else {
                 filtered
             }
-            LibrarySortType.LAST_WATCHED -> filtered
+            // D-268: LAST_WATCHED — was a no-op stub; now sorts by last_watched_at.
+            // ascending = oldest-watched first; descending = most-recent first.
+            LibrarySortType.LAST_WATCHED -> if (_sortAscending.value) {
+                filtered.sortedBy { it.lastWatchedAt ?: 0L }
+            } else {
+                filtered.sortedByDescending { it.lastWatchedAt ?: 0L }
+            }
+            // D-268: BEHIND — caught-up (unwatchedCount 0) at top, behind (positive) at bottom.
+            // ascending = caught-up first; descending = behind first.
+            LibrarySortType.BEHIND -> if (_sortAscending.value) {
+                filtered.sortedWith(
+                    compareBy<LibraryEntry> { it.unwatchedCount ?: 0 }
+                        .thenBy { it.title.lowercase() }
+                )
+            } else {
+                filtered.sortedWith(
+                    compareByDescending<LibraryEntry> { it.unwatchedCount ?: 0 }
+                        .thenBy { it.title.lowercase() }
+                )
+            }
+            // D-268: SEASON_YEAR — ascending = oldest year first; descending = newest first.
+            LibrarySortType.SEASON_YEAR -> if (_sortAscending.value) {
+                filtered.sortedBy { it.seasonYear ?: 0 }
+            } else {
+                filtered.sortedByDescending { it.seasonYear ?: 0 }
+            }
         }
 
         _state.value = LibraryState.Success(filtered)
@@ -1020,6 +1048,8 @@ enum class LibrarySortType(val displayName: String) {
     SCORE("Score"),
     DATE_ADDED("Date Added"),
     LAST_WATCHED("Last Watched"),
+    BEHIND("Behind"),        // D-268: caught-up top, behind bottom (by unwatchedCount)
+    SEASON_YEAR("Year"),     // D-268: by season year
 }
 
 enum class LibraryDisplayMode {

@@ -34,6 +34,7 @@ data class LibraryEntry(
     val releasedEpisodes: Int? = null,      // actual aired count (from cache)
     val audioAvailability: AudioAvailability? = null,  // SUB/DUB/HSUB
     val watchedCount: Int? = null,          // user's watched episode count
+    val lastWatchedAt: Long? = null,        // D-268: most recent last_watched_at (for LAST_WATCHED sort)
     // D-242-fix14: per-audio-type episode counts (for advanced RELEASED badges).
     val subEpisodeCount: Int? = null,       // # of cached episodes with SUB audio
     val dubEpisodeCount: Int? = null,       // # of cached episodes with DUB audio

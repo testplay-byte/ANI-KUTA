@@ -106,6 +106,12 @@ interface WatchProgressStore {
     suspend fun getHighestWatchedEpisodeNumber(mainId: String): Int
 
     /**
+     * D-268: Get the most recent last_watched_at timestamp for an anime (for the
+     * library LAST_WATCHED sort). Returns null if no episodes have been watched.
+     */
+    suspend fun getLastWatchedAt(mainId: String): Long?
+
+    /**
      * D-242: Mark all episodes from 1 to [upToEpisodeNumber] (inclusive) as
      * watched for the given [mainId]. Used by the "mark all previous episodes"
      * prompt when the user marks episode N as watched but 1..N-1 aren't.

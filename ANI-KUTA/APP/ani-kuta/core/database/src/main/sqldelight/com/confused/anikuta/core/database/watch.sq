@@ -120,6 +120,12 @@ FROM watch_progress
 WHERE main_id = :mainId
   AND ((completed = 1 AND auto_mark_suppressed = 0) OR user_marked_watched = 1);
 
+-- D-268: Get the most recent last_watched_at for an anime (for library LAST_WATCHED sort).
+-- COALESCE(..., 0) guarantees non-null (0 = no episodes watched) so the generated
+-- Kotlin method returns Long (not Long?); the store converts 0 -> null.
+getLastWatchedAt:
+SELECT COALESCE(MAX(last_watched_at), 0) FROM watch_progress WHERE main_id = :mainId;
+
 -- Phase WP: Clear all progress for an anime (for library-remove — S3).
 clearByMainId:
 DELETE FROM watch_progress WHERE main_id = ?;

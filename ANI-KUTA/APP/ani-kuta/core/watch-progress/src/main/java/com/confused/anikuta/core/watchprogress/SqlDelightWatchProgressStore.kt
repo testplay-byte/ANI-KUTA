@@ -235,6 +235,11 @@ class SqlDelightWatchProgressStore(
         database.watchQueries.getHighestWatchedEpisodeNumber(mainId).executeAsOne().toInt()
     }
 
+    // D-268: COALESCE(MAX, 0) returns 0 when no episodes watched -> convert to null.
+    override suspend fun getLastWatchedAt(mainId: String): Long? = withContext(dispatchers) {
+        database.watchQueries.getLastWatchedAt(mainId).executeAsOne().takeIf { it > 0 }
+    }
+
     /**
      * D-242: Mark all episodes in [episodeKeys] as watched (sticky).
      * Delegates to [setUserMarkedWatched] for each key — reuses the INSERT-or-UPDATE
