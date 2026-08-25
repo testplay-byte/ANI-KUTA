@@ -108,11 +108,15 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.common.HapticHelper
+import com.confused.anikuta.core.designsystem.badge.PointedSide
+import com.confused.anikuta.core.designsystem.badge.PointedTagShape
+import com.confused.anikuta.core.designsystem.badge.rememberBadgeColorScheme
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SearchField
@@ -2678,6 +2682,11 @@ private fun LibraryGridCard(
     val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
     val cardShape = if (isCoverOnly) RectangleShape else RoundedCornerShape(12.dp)
 
+    // D-252: badge rows clip their outer corner to match the cover's corner —
+    // 0.dp on COVER_ONLY's square covers so the badge reaches the corner pixel
+    // (the old hard-coded 12dp left a curved sliver of cover art visible).
+    val badgeCornerRadius = if (isCoverOnly) 0.dp else 12.dp
+
     val outerBorderModifier = if (coverBorderEnabled && !borderOnCoverOnly) {
         Modifier.border(
             width = coverBorderWidth.widthDp.dp,
@@ -2802,10 +2811,18 @@ private fun LibraryGridCard(
                     }
 
                     if (topStartBadges.isNotEmpty()) {
-                        CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
+                        CoverBadgeRow(
+                            badges = topStartBadges,
+                            position = BadgePosition.TOP_START,
+                            coverCornerRadius = badgeCornerRadius,
+                        )
                     }
                     if (topEndBadges.isNotEmpty()) {
-                        CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
+                        CoverBadgeRow(
+                            badges = topEndBadges,
+                            position = BadgePosition.TOP_END,
+                            coverCornerRadius = badgeCornerRadius,
+                        )
                     }
                 }
 
@@ -2929,10 +2946,18 @@ private fun LibraryGridCard(
                 }
 
                 if (topStartBadges.isNotEmpty()) {
-                    CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
+                    CoverBadgeRow(
+                        badges = topStartBadges,
+                        position = BadgePosition.TOP_START,
+                        coverCornerRadius = badgeCornerRadius,
+                    )
                 }
                 if (topEndBadges.isNotEmpty()) {
-                    CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
+                    CoverBadgeRow(
+                        badges = topEndBadges,
+                        position = BadgePosition.TOP_END,
+                        coverCornerRadius = badgeCornerRadius,
+                    )
                 }
             }
 
@@ -3700,8 +3725,7 @@ private fun ReleasedAudioFilterCard(
 
 /**
  * D-242-fix11: Renders multiple badges side-by-side in a single Row at a corner.
- * Edge-to-edge — sits flush with the cover corner.
- * Compact: 8sp, 1dp vertical, Bold.
+ * Edge-to-edge — sits flush with the cover corner. Compact: 9sp, 1dp vertical, Bold.
  *
  * D-242-fix15: Now supports compound badges (via [CoverBadgeData.secondary]).
  * When a badge has a secondary segment, it renders as a SINGLE badge with:
@@ -3710,13 +3734,19 @@ private fun ReleasedAudioFilterCard(
  * - Right half: [secondary.containerColor] background, [secondary.icon] +
  *   [secondary.text] in [secondary.contentColor]
  *
- * This merges SUB+DUB into one compact badge instead of two separate tags,
- * saving space and looking cleaner (per user feedback D-242-fix15).
+ * D-252 (pointed tags): the chip nearest the cover CENTER now tapers into a
+ * 45° triangle tip ([PointedTagShape]) — badges read as pointed flags pointing
+ * INTO the cover, per the user's "make pointier" request. The outer corner of
+ * the whole row clips to [coverCornerRadius] so it stays flush with the cover's
+ * corner — 0.dp for COVER_ONLY's square covers (fixes the curved-sliver defect
+ * where the old hard-coded 12dp outer rounding left cover art visible behind
+ * the badge corner), 12.dp for rounded-cover modes.
  */
 @Composable
 private fun BoxScope.CoverBadgeRow(
     badges: List<CoverBadgeData>,
     position: BadgePosition,
+    coverCornerRadius: Dp = 12.dp,
 ) {
     val alignment = when (position) {
         BadgePosition.TOP_START -> Alignment.TopStart
@@ -3724,13 +3754,19 @@ private fun BoxScope.CoverBadgeRow(
         BadgePosition.BOTTOM_START -> Alignment.BottomStart
         BadgePosition.BOTTOM_END -> Alignment.BottomEnd
     }
-    // Outer shape matches the cover's 12dp corner on the outer side.
+    // Outer shape matches the cover's corner on the OUTER side only (D-252:
+    // the old 4dp inner-corner rounding clipped the pointed tip's base — removed).
     val outerShape = when (position) {
-        BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 4.dp)
-        BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 0.dp)
-        BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 4.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
-        BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 4.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
+        BadgePosition.TOP_START -> RoundedCornerShape(topStart = coverCornerRadius)
+        BadgePosition.TOP_END -> RoundedCornerShape(topEnd = coverCornerRadius)
+        BadgePosition.BOTTOM_START -> RoundedCornerShape(bottomStart = coverCornerRadius)
+        BadgePosition.BOTTOM_END -> RoundedCornerShape(bottomEnd = coverCornerRadius)
     }
+    // Which chip is nearest the cover center (the innermost chip) — that one
+    // gets the pointed tip. For END-aligned rows the FIRST chip is innermost
+    // (point on its START side); for START-aligned rows the LAST chip is
+    // innermost (point on its END side).
+    val pointFirstChip = position == BadgePosition.TOP_END || position == BadgePosition.BOTTOM_END
     Surface(
         modifier = Modifier.align(alignment),
         color = Color.Transparent,
@@ -3750,50 +3786,75 @@ private fun BoxScope.CoverBadgeRow(
                     )
                 }
 
+                // D-252: this chip carries the pointed tip when it is the
+                // innermost one. Extra horizontal padding keeps the content
+                // clear of the transparent 45° tip (tip depth ≈ height/2 ≈ 7dp).
+                val isPointedChip = if (pointFirstChip) idx == 0 else idx == badges.lastIndex
+                val pointedShape = when {
+                    !isPointedChip -> null
+                    pointFirstChip -> PointedTagShape(PointedSide.START)
+                    else -> PointedTagShape(PointedSide.END)
+                }
+                val tipPadding = if (isPointedChip) 4.dp else 0.dp
+
                 if (badge.secondary != null) {
                     // ── Compound badge: single Surface with split background ──
                     // Left half = subContainer, right half = dubContainer,
                     // separated by a 45° diagonal line.
                     // D-242-fix16: Tightened spacing — segments are closer together
                     // to feel like a single cohesive badge (not two separate parts).
+                    //
+                    // D-252 (clip order): the split-painting drawBehind sits on the
+                    // Surface MODIFIER, and M3 Surface applies its own shape-clip
+                    // AFTER the user modifier — so the drawn halves would spill past
+                    // a pointed shape. Fix: clip(pointedShape) BEFORE drawBehind in
+                    // the modifier chain, so the halves are trimmed to the tip.
                     val sec = badge.secondary
+                    val compoundShape = pointedShape ?: RoundedCornerShape(0.dp)
                     Surface(
                         color = Color.Transparent,
                         shape = RoundedCornerShape(0.dp),
-                        modifier = Modifier.drawBehind {
-                            val w = size.width
-                            val h = size.height
-                            // The diagonal is at the horizontal center, tilted
-                            // by half the badge height on each side → ~45° angle.
-                            val centerX = w * 0.5f
-                            val tilt = h * 0.5f
+                        modifier = Modifier
+                            .clip(compoundShape)
+                            .drawBehind {
+                                val w = size.width
+                                val h = size.height
+                                // The diagonal is at the horizontal center, tilted
+                                // by half the badge height on each side → ~45° angle.
+                                val centerX = w * 0.5f
+                                val tilt = h * 0.5f
 
-                            // Left half (sub color) — fill entire background first.
-                            drawRect(badge.containerColor)
+                                // Left half (sub color) — fill entire background first.
+                                drawRect(badge.containerColor)
 
-                            // Right half (dub color) — drawn as a path with
-                            // a diagonal left edge.
-                            val rightPath = Path().apply {
-                                moveTo(centerX + tilt, 0f)
-                                lineTo(w, 0f)
-                                lineTo(w, h)
-                                lineTo(centerX - tilt, h)
-                                close()
-                            }
-                            drawPath(rightPath, sec.containerColor)
+                                // Right half (dub color) — drawn as a path with
+                                // a diagonal left edge.
+                                val rightPath = Path().apply {
+                                    moveTo(centerX + tilt, 0f)
+                                    lineTo(w, 0f)
+                                    lineTo(w, h)
+                                    lineTo(centerX - tilt, h)
+                                    close()
+                                }
+                                drawPath(rightPath, sec.containerColor)
 
-                            // 45° diagonal separator line (white, semi-transparent
-                            // for a subtle visual divide).
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.5f),
-                                start = Offset(centerX + tilt, 0f),
-                                end = Offset(centerX - tilt, h),
-                                strokeWidth = 0.8.dp.toPx(),
-                            )
-                        },
+                                // 45° diagonal separator line (white, semi-transparent
+                                // for a subtle visual divide).
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    start = Offset(centerX + tilt, 0f),
+                                    end = Offset(centerX - tilt, h),
+                                    strokeWidth = 0.8.dp.toPx(),
+                                )
+                            },
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                            modifier = Modifier.padding(
+                                start = 4.dp + tipPadding,
+                                end = 4.dp + tipPadding,
+                                top = 1.dp,
+                                bottom = 1.dp,
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // ── Left segment (SUB) ──
@@ -3841,12 +3902,19 @@ private fun BoxScope.CoverBadgeRow(
                     }
                 } else {
                     // ── Simple badge (no secondary) ──
+                    // D-252: pointed tip on the innermost chip; flat otherwise.
+                    val chipShape = pointedShape ?: RoundedCornerShape(0.dp)
                     Surface(
                         color = badge.containerColor,
-                        shape = RoundedCornerShape(0.dp),
+                        shape = chipShape,
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                            modifier = Modifier.padding(
+                                start = 5.dp + tipPadding,
+                                end = 5.dp + tipPadding,
+                                top = 1.dp,
+                                bottom = 1.dp,
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
@@ -3875,45 +3943,5 @@ private fun BoxScope.CoverBadgeRow(
     }
 }
 
-/**
- * D-242-fix9: Edge-to-edge cover badge — sits flush with the cover corner.
- * Matches the cover's 12dp corner radius on the outer corner; flat on the inner side.
- * Theme-adaptive: uses colorScheme container/content colors (not hardcoded).
- * Compact: minimal padding to avoid taking more height than needed.
- * NOTE: Must be called inside a BoxScope (the parent Box provides the alignment).
- */
-@Composable
-private fun BoxScope.CoverBadge(
-    text: String,
-    position: BadgePosition,
-    containerColor: Color,
-    contentColor: Color,
-) {
-    val alignment = when (position) {
-        BadgePosition.TOP_START -> Alignment.TopStart
-        BadgePosition.TOP_END -> Alignment.TopEnd
-        BadgePosition.BOTTOM_START -> Alignment.BottomStart
-        BadgePosition.BOTTOM_END -> Alignment.BottomEnd
-    }
-    // Edge-to-edge: NO padding from the corner. The badge clips to match the
-    // cover's 12dp rounded corner on the outer side, flat on the inner side.
-    Surface(
-        modifier = Modifier.align(alignment),
-        color = containerColor,
-        shape = when (position) {
-            BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 8.dp)
-            BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 8.dp, bottomEnd = 0.dp)
-            BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 8.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
-            BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 8.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
-        },
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            color = contentColor,
-            maxLines = 1,
-        )
-    }
-}
+// D-252: the legacy single `CoverBadge` composable (D-242-fix9) was removed —
+// it had zero call sites since CoverBadgeRow superseded it.
