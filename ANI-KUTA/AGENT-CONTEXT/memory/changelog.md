@@ -1394,3 +1394,19 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 
 ### Status
 - CI pending at doc-write time (pushed d1152736/4230821c/7ef10689). NOT merged — awaiting user device verification of the new Browse page, the pointed badges, and the custom palette editor.
+
+
+## Session — D-255/256: device-feedback fixes + Browse hero v2 + v0.2.49 (2026-08-25, on `test-feature/video-cache-new-download`)
+
+### What was done
+- User device-tested D-252/253/254: homepage good but hero "looks very bad" (cover+banner together + tags); palette selection navigates to Browse; custom palette crashes (NoSuchMethodError: FlowRow); verify update-check; bump version everywhere.
+- **Diagnosis method (§8-compliant, zero local builds)**: crash-stack analysis → CI-APK artifact download → `META-INF/androidx.versions` (runtime compose = 1.10.4 vs BOM 1.7.8!) → dex string-pool signature grep (runtime FlowRow has an extra `Alignment$Vertical` param) → foundation-layout sources-jar diff 1.7.8/1.8.0/1.9.0 (itemVerticalAlignment added in 1.8) → POM analysis (koin-compose 4.2.2 → org.jetbrains.compose.foundation:1.10.2 → androidx aliases; also lifecycle 2.9.6/2.10.0, activity 1.12.4). Module-split confirmed: koin-compose modules compile 1.10.x; designsystem+player compile 1.7.8 → FlowRow signature mismatch.
+- **D-255 fixes**: (1) AnikutaTheme always-CompositionLocalProvider (content never moves between branches — palette switches no longer reset the nav backstack); (2) ColorPickerSheet FlowRow → manual chunked Rows + fixed the pre-existing Color(a,r,g,b) channel-rotation preview bug; (3) GitHubUpdateSource.parseIsoDate → regex + java.util.Calendar (java.time crashes on minSdk 24 + NoClassDefFoundError isn't caught by catch(Exception)); (4) AMOLED row hidden while CUSTOM active.
+- **D-256 hero v2**: banner backdrop + cover poster (80×120, 12dp, 1dp border) + rank pill + 20sp 2-line title + ★score·eps·year + genre chips (3 + "+N") over a stronger scrim; 300dp; auto-advance + animated dots + tap-to-Details retained; skeleton matched.
+- **Version/release**: 0.2.48 → 0.2.49 (code 49); update-check flow verified end-to-end; v0.2.49 stable release published via release-apk.yml; dashboard version strings updated + deployed via workflow_dispatch.
+- Compile review (Task 10): 1 compile error caught + fixed pre-push (MatchResult.Destructured has component1..5 only — 6 groups need groupValues).
+- Docs: D-255 (incl. the version-skew OPEN DECISION + BOM-alignment recommendation), D-256, progress, changelog, 5 new lessons, worklog Tasks 9-10.
+- Emulator untouched per user instruction.
+
+### Status
+- CI green required before tagging; v0.2.49 release + dashboard deploy verified via API/browser. NOT merged — awaiting user device verification (palette stays on settings, custom palette live-customization works, hero v2, update-check finds 0.2.49).
