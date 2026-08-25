@@ -9,8 +9,8 @@ object AndroidConfig {
     const val compileSdk = 36  // Kept at 36 (was originally for Nav3; Nav3 removed D-150, SDK left at 36 for Compose BOM 2025.03 + future-proofing)
     const val minSdk = 24
     const val targetSdk = 36
-    const val versionCode = 48
-    const val versionName = "0.2.48"
+    const val versionCode = 49
+    const val versionName = "0.2.49"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

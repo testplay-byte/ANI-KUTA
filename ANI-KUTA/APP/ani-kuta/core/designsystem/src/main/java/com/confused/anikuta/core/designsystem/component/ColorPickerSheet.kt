@@ -6,8 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -63,7 +61,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
  * @param onLiveChange Called on every color change (live preview).
  * @param onDismiss Close the sheet.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ColorPickerSheet(
     title: String,
@@ -87,7 +85,7 @@ fun ColorPickerSheet(
         onLiveChange(argb)
     }
 
-    val currentColor = Color(a, r, g, b)
+    val currentColor = Color(red = r, green = g, blue = b, alpha = a)
     val presets = swatches
 
     ModalBottomSheet(
@@ -159,6 +157,12 @@ fun ColorPickerSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             // ── Preset swatches ──
+            // D-255: replaced FlowRow with manual chunked Rows (4 per row).
+            // FlowRow's signature changed between the compile-time BOM
+            // (foundation-layout 1.7.8) and the RUNTIME the app ships
+            // (1.10.4 — silently pulled transitively by koin-compose), which
+            // crashed with NoSuchMethodError (D-254 device feedback). Manual
+            // rows are version-proof and visually identical for swatch grids.
             Text(
                 text = "Presets",
                 style = MaterialTheme.typography.labelMedium,
@@ -166,42 +170,20 @@ fun ColorPickerSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
-            FlowRow(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                presets.forEach { (colorInt, label) ->
-                    val presetColor = Color(colorInt)
-                    val isSelected = colorInt == ((a shl 24) or (r shl 16) or (g shl 8) or b)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(presetColor)
-                                .border(
-                                    width = if (isSelected) 3.dp else 1.dp,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.outline,
-                                    shape = CircleShape,
-                                )
-                                .clickable {
-                                    val pa = (colorInt shr 24) and 0xFF
-                                    val pr = (colorInt shr 16) and 0xFF
-                                    val pg = (colorInt shr 8) and 0xFF
-                                    val pb = colorInt and 0xFF
-                                    applyColor(pa, pr, pg, pb)
-                                },
-                        )
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                presets.chunked(SWATCHES_PER_ROW).forEach { rowSwatches ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowSwatches.forEach { (colorInt, label) ->
+                            PresetSwatch(
+                                colorInt = colorInt,
+                                label = label,
+                                isSelected = colorInt == ((a shl 24) or (r shl 16) or (g shl 8) or b),
+                                onClick = { pa, pr, pg, pb -> applyColor(pa, pr, pg, pb) },
+                            )
+                        }
                     }
                 }
             }
@@ -221,6 +203,49 @@ fun ColorPickerSheet(
             ColorSliderRow("Green", g, 0xFF) { applyColor(a, r, it, b) }
             ColorSliderRow("Blue", b, 0xFF) { applyColor(a, r, g, it) }
         }
+    }
+}
+
+/**
+ * One preset swatch — circular color dot + label, with a selection ring.
+ * Extracted from the old inline FlowRow body during the D-255 FlowRow removal.
+ */
+@Composable
+private fun PresetSwatch(
+    colorInt: Int,
+    label: String,
+    isSelected: Boolean,
+    onClick: (Int, Int, Int, Int) -> Unit,
+) {
+    val presetColor = Color(colorInt)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(presetColor)
+                .border(
+                    width = if (isSelected) 3.dp else 1.dp,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outline,
+                    shape = CircleShape,
+                )
+                .clickable {
+                    val pa = (colorInt shr 24) and 0xFF
+                    val pr = (colorInt shr 16) and 0xFF
+                    val pg = (colorInt shr 8) and 0xFF
+                    val pb = colorInt and 0xFF
+                    onClick(pa, pr, pg, pb)
+                },
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -262,6 +287,9 @@ private fun ColorSliderRow(
         )
     }
 }
+
+/** Swatches per manual row (was FlowRow's auto-wrap before D-255). */
+private const val SWATCHES_PER_ROW = 4
 
 /**
  * The default swatch palette (the player's original subtitle colors, kept as

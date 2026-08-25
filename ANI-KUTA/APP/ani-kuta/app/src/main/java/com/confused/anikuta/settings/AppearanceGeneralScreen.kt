@@ -157,10 +157,13 @@ fun AppearanceGeneralScreen(
                     }
 
                     // ── AMOLED (dark-only, smooth expand/collapse) ──
+                    // D-255: hidden while the CUSTOM palette is active — the
+                    // custom theme ignores AMOLED by design (custom background
+                    // wins), so showing a dead toggle would be dishonest UI.
                     item {
                         Column {
                             AnimatedVisibility(
-                                visible = isDark,
+                                visible = isDark && prefs.accentPreset.value != AccentPreset.CUSTOM,
                                 enter = fadeIn() + expandVertically(),
                                 exit = fadeOut() + shrinkVertically(),
                             ) {

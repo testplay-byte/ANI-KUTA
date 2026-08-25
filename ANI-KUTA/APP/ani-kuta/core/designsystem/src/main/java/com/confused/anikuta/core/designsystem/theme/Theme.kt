@@ -160,18 +160,17 @@ fun AnikutaTheme(
         }
     }
 
-    val headingColor = customTheme?.resolved()?.heading
+    // D-255 (palette-navigation fix): ALWAYS provide the local + MaterialTheme
+    // through the SAME composition structure. The previous if/else around
+    // CompositionLocalProvider MOVED `content` between two branches whenever
+    // customTheme flipped null ↔ non-null (selecting/deselecting the CUSTOM
+    // palette) — moving content between call sites destroys every remember{}
+    // under it (including AppRoot's nav backstack), which navigated the user
+    // back to Browse. Providing an Unspecified sentinel keeps the structure
+    // stable; only the VALUE changes.
+    val headingColor = customTheme?.resolved()?.heading ?: Color.Unspecified
 
-    if (headingColor != null) {
-        CompositionLocalProvider(LocalHeadingColor provides headingColor) {
-            MaterialTheme(
-                colorScheme = colorScheme,
-                typography = AnikutaTypography,
-                shapes = AnikutaShapes,
-                content = content,
-            )
-        }
-    } else {
+    CompositionLocalProvider(LocalHeadingColor provides headingColor) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = AnikutaTypography,

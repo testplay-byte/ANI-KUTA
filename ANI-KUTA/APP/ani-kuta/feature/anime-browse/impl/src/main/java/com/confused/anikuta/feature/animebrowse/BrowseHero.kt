@@ -2,7 +2,9 @@ package com.confused.anikuta.feature.animebrowse
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -40,18 +43,33 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import kotlinx.coroutines.delay
 
 /**
- * D-253: Browse hero — a full-bleed edge-to-edge auto-advancing pager over the
- * top trending anime with banner images (evolution of D-249's single static
- * hero card).
+ * D-256: Browse hero v2 — full-bleed edge-to-edge auto-advancing pager over
+ * the top trending anime (evolution of D-253 after user feedback: "showing the
+ * cover and the banner together properly… showing the relevant tags properly").
  *
- * - 260dp tall, no horizontal padding — the banner bleeds to the screen edges
- *   under the pinned CollapsingHeader (modern streaming-app hero pattern).
+ * Each page layers BOTH images — the banner as the ambient backdrop and the
+ * cover poster as the anchor element (classic AniList/Netflix hero anatomy):
+ *
+ * ```
+ * ┌──────────────────────────────────────────────┐
+ * │              banner (crop, full-bleed)       │
+ * │          bottom-heavy gradient scrim         │
+ * │                                              │
+ * │ ┌────────┐   #1 TRENDING                     │
+ * │ │        │   Title (20sp ExtraBold, 2 lines) │
+ * │ │ cover  │   ★ 85 · 24 eps · 2024            │
+ * │ │  2:3   │   [Action] [Comedy] [+2]          │
+ * │ └────────┘                       ● ○ ○ ○ ○   │
+ * └──────────────────────────────────────────────┘
+ * ```
+ *
+ * - 300dp tall; poster 80×120dp (2:3, 12dp corners, 1dp border) bottom-aligned
+ *   with the text block; 16dp page padding.
+ * - Genre tags: proper chips (D-215 Info-pill recipe) — up to 3, with a "+N"
+ *   overflow chip when there are more genres.
  * - Auto-advances every 6s with wraparound; the timer restarts on every page
- *   change (LaunchedEffect keyed on currentPage) and skips a tick if the user
- *   is mid-drag. A single hero item renders without pager mechanics.
- * - Each page: rank pill (#N TRENDING, solid primary per the D-215 EP-tag
- *   recipe), 24sp ExtraBold title, meta row (score · eps · year — integer
- *   score, unified with the Library badge language), genre pills.
+ *   change and skips a tick if the user is mid-drag. A single hero item
+ *   renders without pager mechanics.
  * - Page dots bottom-end: the active dot elongates to a 16dp pill (animated).
  */
 @Composable
@@ -73,7 +91,7 @@ internal fun BrowseHero(
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().height(260.dp)) {
+    Box(modifier = Modifier.fillMaxWidth().height(300.dp)) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -116,7 +134,7 @@ internal fun BrowseHero(
     }
 }
 
-/** A single hero page — banner image + scrim + bottom-start content. */
+/** A single hero page — banner backdrop + scrim + cover-and-text foreground. */
 @Composable
 private fun HeroCard(
     anime: AniListAnime,
@@ -128,21 +146,23 @@ private fun HeroCard(
             .fillMaxSize()
             .clickable(onClick = onClick),
     ) {
-        // Banner image (fallback to cover when an item has no banner).
+        // ── Layer 1: banner as the ambient backdrop (falls back to the cover). ──
         AsyncImage(
             model = anime.bannerImage ?: anime.coverUrl,
             contentDescription = anime.displayName,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
         )
-        // Bottom-heavy gradient scrim — strong enough for readable text over
-        // any artwork (D-253: stronger than D-249's 0.75/0.95 stops).
+
+        // ── Layer 2: bottom-heavy gradient scrim (strong enough for text over
+        // any artwork). A subtle top scrim keeps the status-bar edge soft. ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.25f),
                             Color.Transparent,
                             Color.Transparent,
                             MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
@@ -153,95 +173,109 @@ private fun HeroCard(
                     ),
                 ),
         )
-        // Content overlay (bottom-start).
-        Column(
+
+        // ── Layer 3: foreground — cover poster + text block, bottom-aligned. ──
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
-            // Rank pill — solid primary (D-215 EP-tag recipe). No emoji
-            // (NavIcons rule: Material vectors only, never emojis).
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.primary,
-            ) {
-                Text(
-                    text = "#$rank TRENDING",
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            // Title (large, bold, 1 line).
-            Text(
-                text = anime.displayName,
-                fontFamily = RobotoFamily,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            // Meta row: score · episodes · year.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                anime.averageScore?.let { score ->
-                    // Integer AniList score — unified with the Library score badge.
-                    Text(
-                        text = "★ $score",
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+            // Cover poster (2:3, matches the carousel card language).
+            Box(
+                modifier = Modifier
+                    .size(width = 80.dp, height = 120.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(
+                        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                        RoundedCornerShape(12.dp),
                     )
-                }
-                anime.episodes?.let { eps ->
-                    Text(
-                        text = "· $eps eps",
-                        fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+            ) {
+                if (anime.coverUrl != null) {
+                    AsyncImage(
+                        model = anime.coverUrl,
+                        contentDescription = null, // decorative — title carries the meaning
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
                     )
-                }
-                anime.seasonYear?.let { year ->
+                } else {
                     Text(
-                        text = "· $year",
+                        text = anime.displayName.firstOrNull()?.uppercase() ?: "?",
                         fontFamily = RobotoFamily,
-                        fontSize = 13.sp,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            // Genre pills (first 3) — Info pill recipe (D-215).
-            anime.genres?.takeIf { it.isNotEmpty() }?.take(3)?.let { genres ->
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+
+            Spacer(Modifier.width(14.dp))
+
+            // Text block.
+            Column(modifier = Modifier.weight(1f)) {
+                // Rank pill — solid primary (D-215 EP-tag recipe). No emoji.
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primary,
                 ) {
-                    genres.forEach { genre ->
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        ) {
-                            Text(
-                                text = genre,
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                softWrap = false,
+                    Text(
+                        text = "#$rank TRENDING",
+                        fontFamily = RobotoFamily,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                // Title — 20sp ExtraBold, up to 2 lines.
+                Text(
+                    text = anime.displayName,
+                    fontFamily = RobotoFamily,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    lineHeight = 24.sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                // Meta row: score · episodes · year.
+                val metaParts = buildList {
+                    anime.averageScore?.let { add("★ $it") }
+                    anime.episodes?.let { add("$it eps") }
+                    anime.seasonYear?.let { add(it.toString()) }
+                }
+                if (metaParts.isNotEmpty()) {
+                    Text(
+                        text = metaParts.joinToString("  ·  "),
+                        fontFamily = RobotoFamily,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                // Genre tag chips — up to 3 + a "+N" overflow chip.
+                anime.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        genres.take(HERO_MAX_GENRE_CHIPS).forEach { genre ->
+                            HeroGenreChip(label = genre)
+                        }
+                        if (genres.size > HERO_MAX_GENRE_CHIPS) {
+                            HeroGenreChip(
+                                label = "+${genres.size - HERO_MAX_GENRE_CHIPS}",
+                                emphasized = false,
                             )
                         }
                     }
@@ -251,4 +285,32 @@ private fun HeroCard(
     }
 }
 
+/** A genre tag chip — the D-215 Info-pill recipe (surfaceVariant @ 65%). */
+@Composable
+private fun HeroGenreChip(label: String, emphasized: Boolean = true) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = if (emphasized) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        },
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            fontWeight = if (emphasized) FontWeight.Medium else FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
 private const val HERO_AUTO_ADVANCE_MS = 6_000L
+
+/** Genre chips shown in the hero (overflow folds into a "+N" chip). */
+private const val HERO_MAX_GENRE_CHIPS = 3

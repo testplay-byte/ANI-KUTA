@@ -55,7 +55,7 @@ internal fun BrowseSkeleton() {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(260.dp)
+                .height(300.dp)
                 .background(block),
         )
         Spacer(Modifier.height(20.dp))

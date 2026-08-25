@@ -193,19 +193,41 @@ class GitHubUpdateSource(
     private fun versionCodeFromTuple(t: VersionTuple): Long =
         t.major.toLong() * 1_000_000L + t.minor.toLong() * 10_000L + t.patch.toLong()
 
-    /** Parses an ISO 8601 date string (e.g., "2025-01-15T10:30:00Z") to epoch ms. */
+    /**
+     * Parses an ISO 8601 date string (e.g., "2025-01-15T10:30:00Z") to epoch ms.
+     *
+     * D-255: rewritten WITHOUT java.time — the old OffsetDateTime.parse crashed
+     * on Android 7.x (API 24-25): java.time needs coreLibraryDesugaring at
+     * minSdk 24, and NoClassDefFoundError is an Error, not an Exception, so the
+     * catch block didn't save it. GitHub's published_at is always
+     * "yyyy-MM-ddTHH:mm:ssZ" (UTC) — a regex + java.util.Calendar parses it on
+     * every API level.
+     */
     private fun parseIsoDate(iso: String?): Long {
         if (iso.isNullOrBlank()) return 0L
         return try {
-            // Use java.time (available on API 26+, which is our minSdk).
-            java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli()
-        } catch (e: Exception) {
-            try {
-                java.time.LocalDateTime.parse(iso).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
-            } catch (e2: Exception) {
-                Logger.w(TAG, e2) { "parseIsoDate: failed to parse '$iso'" }
-                0L
+            val match = ISO_DATE_REGEX.find(iso) ?: run {
+                Logger.w(TAG) { "parseIsoDate: unrecognized format '$iso'" }
+                return 0L
             }
+            // groupValues[0] = whole match; [1..6] = the capture groups.
+            // (MatchResult.Destructured only provides component1..5 — six
+            // values need groupValues.)
+            val g = match.groupValues
+            java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+                clear()
+                set(
+                    g[1].toInt(),
+                    g[2].toInt() - 1, // Calendar months are 0-based
+                    g[3].toInt(),
+                    g[4].toInt(),
+                    g[5].toInt(),
+                    g[6].toInt(),
+                )
+            }.timeInMillis
+        } catch (e: Exception) {
+            Logger.w(TAG, e) { "parseIsoDate: failed to parse '$iso'" }
+            0L
         }
     }
 
@@ -248,5 +270,9 @@ class GitHubUpdateSource(
 
         /** How many recent releases to scan for the best version. */
         private const val RELEASE_PAGE_SIZE = 30
+
+        /** GitHub `published_at` format: "2025-01-15T10:30:00Z" (always UTC). */
+        private val ISO_DATE_REGEX =
+            Regex("""(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})""")
     }
 }
