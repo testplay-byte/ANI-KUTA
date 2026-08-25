@@ -53,7 +53,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.imageLoader
 import coil3.request.ImageRequest
-import coil3.request.ImageResult
+import coil3.request.SuccessResult
 import coil3.toBitmap
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -440,10 +440,12 @@ private fun BlurredBannerBackdrop(
                     .memoryCacheKey("$HERO_BLUR_KEY_PREFIX$url")
                     .build()
                 val r = loader.execute(req)
-                // D-262: ImageResult.Success.image is non-null; the `as?` cast
-                // + null-coalescing returns null on any non-success result
-                // (network error, etc.) → backdrop stays blank until next try.
-                val src = (r as? ImageResult.Success)?.image
+                // D-262: SuccessResult.image is non-null (ImageResult.image is
+                // nullable on the sealed interface; SuccessResult overrides it
+                // non-null). The `as?` cast + null-coalescing returns null on
+                // any non-success result (network error, etc.) → backdrop
+                // stays blank until next try.
+                val src = (r as? SuccessResult)?.image
                     ?.toBitmap(HERO_BLUR_W_PX, HERO_BLUR_H_PX)
                     ?: return@withContext null
                 // Safety net: guarantee the bitmap is at the target decode size
