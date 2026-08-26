@@ -362,7 +362,15 @@ fun AppRoot() {
         )
     }
     val appPreferences = koinInject<AppPreferences>() // D-267: last-tab persistence
-    var currentTab by remember { mutableStateOf(appPreferences.lastTab) }
+    // D-282: only Browse/Library are valid cold-start restores — More + Search
+    // are deliberately EXCLUDED (user instruction): closing the app on More (or
+    // Search) and reopening it must land on one of the two main sections, never
+    // More/Search. Sanitize at read time so a legacy persisted "more"/"search"
+    // value (from D-267, which persisted all four) also falls back correctly.
+    val startTab = appPreferences.lastTab
+        .takeIf { it == "browse" || it == "library" }
+        ?: "browse"
+    var currentTab by remember { mutableStateOf(startTab) }
 
     // D-143: Library selection mode state — shared between LibraryScreen + AppRoot.
     val librarySelectionMode = remember { LibrarySelectionMode() }
@@ -393,10 +401,11 @@ fun AppRoot() {
     FirstRunSetupDialog(preferences = downloadPreferences)
 
     val backstack = remember {
-        val initialKey = when (appPreferences.lastTab) {
+        // D-282: startTab is already sanitized to "browse"/"library" — the old
+        // "search"/"more" mappings are intentionally gone (cold start never
+        // restores onto those sections).
+        val initialKey = when (startTab) {
             "library" -> AnimeLibraryKeyImpl
-            "search" -> AnimeSearchKey
-            "more" -> MoreKey
             else -> AnimeBrowseKey
         }
         androidx.compose.runtime.mutableStateListOf<NavKey>(initialKey)
@@ -915,7 +924,14 @@ fun AppRoot() {
                 currentRoute = currentTab,
                 onSelect = { route ->
                     currentTab = route
-                    appPreferences.lastTab = route // D-267: persist for next cold start
+                    // D-267/D-282: persist for next cold start — ONLY Browse +
+                    // Library. More + Search are session-scoped by design (user
+                    // instruction): a full close + reopen must land on one of the
+                    // two main sections. The pref keeps the last VALID tab, so
+                    // Browse → More → close → reopen restores Browse.
+                    if (route == "browse" || route == "library") {
+                        appPreferences.lastTab = route
+                    }
                     backstack.clear()
                     when (route) {
                         "browse" -> backstack.add(AnimeBrowseKey)
