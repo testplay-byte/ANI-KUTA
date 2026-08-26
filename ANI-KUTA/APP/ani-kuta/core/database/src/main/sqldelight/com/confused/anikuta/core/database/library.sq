@@ -76,7 +76,9 @@ SELECT EXISTS(SELECT 1 FROM library_item WHERE main_id = :mainId);
 isInCategory:
 SELECT EXISTS(SELECT 1 FROM library_item WHERE main_id = :mainId AND category_id = :categoryId);
 
--- Get all library items (all categories) — for the full library view
+-- Get all library items (all categories) — for the full library view.
+-- D-285: also the Library batch loader's single read — the category filter,
+-- per-category counts, and totals all derive from this one list in memory.
 getAllLibraryItems:
 SELECT * FROM library_item ORDER BY added_at DESC;
 
@@ -130,11 +132,3 @@ DELETE FROM library_item WHERE main_id = :mainId AND category_id = :categoryId;
 -- Get all main_ids that are in the library (as a list for fetching)
 getLibraryMainIds:
 SELECT DISTINCT main_id FROM library_item ORDER BY added_at DESC;
-
--- D-285: BATCH read of every library item (main_id + category + add date) in
--- ONE query. The Library's batch loader derives the category filter, the
--- per-category counts, and the total count in memory instead of issuing one
--- query per category per load. Ordered added_at DESC to preserve the entry
--- order the DATE_ADDED sort expects (newest first).
-getAllLibraryItems:
-SELECT main_id, category_id, added_at FROM library_item ORDER BY added_at DESC;

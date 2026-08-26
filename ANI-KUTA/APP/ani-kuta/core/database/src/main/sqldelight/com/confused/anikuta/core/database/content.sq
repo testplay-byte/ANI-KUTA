@@ -240,11 +240,6 @@ DELETE FROM main_entry WHERE main_id = :mainId;
 getContentDetails:
 SELECT * FROM content_details WHERE main_id = :mainId;
 
--- D-285: BATCH read of every content_details row (companion to
--- getAllLibraryMainEntries). The caller joins in memory by main_id.
-getAllContentDetails:
-SELECT * FROM content_details;
-
 getMainEntryByDataSourceRef:
 SELECT m.* FROM main_entry m
 JOIN content_details d ON m.main_id = d.main_id
@@ -341,6 +336,8 @@ WHERE main_id = :mainId;
 deleteContentDetails:
 DELETE FROM content_details WHERE main_id = :mainId;
 
+-- D-285: also the Library batch loader's batch read (companion to
+-- getAllLibraryMainEntries in this file) — the caller joins in memory by main_id.
 getAllContentDetails:
 SELECT * FROM content_details;
 
