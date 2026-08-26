@@ -104,6 +104,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import android.graphics.Bitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -114,6 +115,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.badge.PointedSide
@@ -248,8 +251,13 @@ fun LibraryScreen(
         }
     }
 
-    val gridState = rememberLazyGridState()
-    val listState = rememberLazyListState()
+    // D-286: scroll states live in the (Activity-scoped) ViewModel so they
+    // SURVIVE tab switches — the old rememberLazyGridState()/rememberLazyListState()
+    // died with the composable when the user left the Library tab, snapping the
+    // grid back to the top on every return. Coming back now shows the list
+    // exactly where the user left it.
+    val gridState = viewModel.gridState
+    val listState = viewModel.listState
 
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -2636,6 +2644,53 @@ private fun LibraryGrid(
     }
 }
 
+/**
+ * D-287: Library cover AsyncImage with a scroll-tuned Coil request.
+ *
+ * Device feedback on v0.2.54 (653-item "All" grid): 5-column scrolling janks
+ * when many images load at once, fast scroll outruns the loads, and scrolling
+ * back to the top re-loads covers that had already been on screen. Two request
+ * tweaks address the root causes:
+ *
+ * 1. **`crossfade(false)`** — overrides the ImageLoader's global crossfade for
+ *    grid/list cells. The 100ms opacity animation ran per cell during fast
+ *    scroll (5-column mode = 10+ concurrent fades = extra invalidation frames
+ *    every ~100ms) and re-faded every cover on scroll-back cache repopulation,
+ *    making the disk-cache re-decode read as a full re-load. Hero/detail images
+ *    keep the crossfade — only dense grid cells opt out.
+ * 2. **`bitmapConfig(RGB_565)`** — 2 bytes/pixel instead of ARGB_8888's 4:
+ *    halves each cover's footprint in Coil's memory cache (25% of app memory),
+ *    so a 653-cover "All" grid stops evicting itself during a full scroll —
+ *    scroll-back hits the memory cache instead of re-decoding from disk.
+ *    Covers are opaque (alpha channel unused — ContentScale.Crop fills the
+ *    cell), and at thumbnail scale RGB_565's banding is imperceptible.
+ *
+ * Progressive loading during scroll is UNCHANGED (user-approved) — cells still
+ * fill in as they decode; they just don't animate or evict as aggressively.
+ */
+@Composable
+private fun LibraryCoverImage(
+    url: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
+    val context = LocalContext.current
+    val request = remember(url, context) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .crossfade(false)
+            .bitmapConfig(Bitmap.Config.RGB_565)
+            .build()
+    }
+    AsyncImage(
+        model = request,
+        contentDescription = contentDescription,
+        contentScale = contentScale,
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun LibraryGridCard(
     anime: LibraryEntry,
@@ -2746,10 +2801,9 @@ private fun LibraryGridCard(
                     .aspectRatio(2f / 3f)
                     .then(coverBorderModifier),
             ) {
-                AsyncImage(
-                    model = anime.coverUrl,
+                LibraryCoverImage(
+                    url = anime.coverUrl,
                     contentDescription = anime.title,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(cardShape),
@@ -2884,10 +2938,9 @@ private fun LibraryGridCard(
             modifier = cardModifier,
         ) {
             // Cover image — 2:3 aspect ratio
-            AsyncImage(
-                model = anime.coverUrl,
+            LibraryCoverImage(
+                url = anime.coverUrl,
                 contentDescription = anime.title,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
@@ -3254,10 +3307,9 @@ private fun LibraryListRow(
     ) {
         // Cover thumbnail (with optional D-141 selection badge in the corner)
         Box {
-            AsyncImage(
-                model = anime.coverUrl,
+            LibraryCoverImage(
+                url = anime.coverUrl,
                 contentDescription = anime.title,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .width(listDensity.coverWidth.dp)
                     .height(listDensity.coverHeight.dp)

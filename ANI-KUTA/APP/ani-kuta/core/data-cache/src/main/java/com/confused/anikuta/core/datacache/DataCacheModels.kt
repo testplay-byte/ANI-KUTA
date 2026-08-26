@@ -56,3 +56,24 @@ data class CachedBrowseSection(
     val isExpired: Boolean get() = System.currentTimeMillis() > expiresAt
 }
 
+/**
+ * D-285: Per-anime episode/audio aggregates for the Library's batch loader.
+ *
+ * Computed by [DataCacheRepository.getAllEpisodeAudioAggregates] from ONE batch
+ * read of the episode table — replaces the per-entry getEpisodeMetadata loop
+ * (a 653-item library used to run 653 full-row episode queries per load).
+ *
+ * Semantics are identical to the old per-entry enrichment:
+ * - [releasedCount] = number of cached episode rows (the aired/cached count)
+ * - [hasSub]/[hasDub]/[hasHsub] = aggregated across ALL cached episodes
+ * - [subCount]/[dubCount] = per-audio-type episode counts (advanced badges)
+ */
+data class EpisodeAudioAggregates(
+    val releasedCount: Int,
+    val hasSub: Boolean,
+    val hasDub: Boolean,
+    val hasHsub: Boolean,
+    val subCount: Int,
+    val dubCount: Int,
+)
+

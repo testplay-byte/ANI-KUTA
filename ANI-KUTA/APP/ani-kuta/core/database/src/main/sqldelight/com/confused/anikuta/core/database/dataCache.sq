@@ -60,6 +60,14 @@ getEpisodeMetadata:
 SELECT * FROM data_cache_episode WHERE main_id = :mainId
 ORDER BY episode_number ASC;
 
+-- D-285: BATCH audio-availability read for the Library's N+1 fix.
+-- Only the 4 columns the audio parser + episode counter need — a fraction of
+-- the full row (no description/thumbnail/etc. deserialized). One query loads
+-- every episode row's audio-relevant fields; the repository aggregates them
+-- into a Map<mainId, EpisodeAudioInfo> in memory.
+getAllEpisodeAudioRows:
+SELECT main_id, source_name, scanlator, title FROM data_cache_episode;
+
 getEpisodeMetadataByNumber:
 SELECT * FROM data_cache_episode WHERE main_id = :mainId AND episode_number = :episodeNumber;
 

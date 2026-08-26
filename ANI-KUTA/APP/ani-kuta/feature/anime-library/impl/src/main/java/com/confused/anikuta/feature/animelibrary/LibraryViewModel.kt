@@ -8,10 +8,12 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.preferences.PreferenceStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * ViewModel for the Library screen (Phase C, D-140, D-141).
@@ -206,6 +208,22 @@ class LibraryViewModel(
         loadLibrary()
     }
 
+    // ── D-286: scroll state survives tab switches ──────────────────────────
+    //
+    // The Library composable leaves composition when the user switches to
+    // Browse/Search/More — rememberLazyGridState()/rememberLazyListState() die
+    // with it, so returning to the Library always snapped back to the top (part
+    // of the "whole page reloads" feel). The ViewModel is Activity-scoped
+    // (koinViewModel resolves against the Activity's ViewModelStore), so states
+    // held HERE persist across tab switches: coming back shows the grid exactly
+    // where the user left it. LazyGridState/LazyListState are plain @Stable
+    // classes — constructing them outside composition is a standard pattern.
+    /** Grid-mode scroll position — shared with LibraryScreen (D-286). */
+    val gridState = androidx.compose.foundation.lazy.grid.LazyGridState()
+
+    /** List-mode scroll position — shared with LibraryScreen (D-286). */
+    val listState = androidx.compose.foundation.lazy.LazyListState()
+
     /**
      * Load the library from the content ID system.
      * D-141: Uses in-memory cache for AniList data to prevent re-fetching.
@@ -215,63 +233,96 @@ class LibraryViewModel(
      * EXACT duration of the load — no hardcoded delays.
      */
     fun loadLibrary() {
-        _state.value = LibraryState.Loading
-        viewModelScope.launch {
-            loadLibraryImpl()
+        // D-286: INSTANT TAB SWITCH — when the grid is already showing, keep it
+        // on screen and refresh silently in the background. The old unconditional
+        // `_state.value = LibraryState.Loading` tore the whole grid down on EVERY
+        // tab switch (Browse → Library → Browse → …), flashing a loading spinner
+        // and re-showing the list from scratch; now the already-loaded entries
+        // stay visible while the (batched, fast) reload swaps the result in.
+        if (_state.value is LibraryState.Success) {
+            viewModelScope.launch {
+                loadLibraryImpl()
+            }
+        } else {
+            _state.value = LibraryState.Loading
+            viewModelScope.launch {
+                loadLibraryImpl()
+            }
         }
     }
 
     /**
-     * The suspend body of [loadLibrary]. Loads categories + counts, builds the
-     * [LibraryEntry] list (cache-first, AniList-fetch-on-miss, extension-fallback),
-     * and pushes the resulting [LibraryState] to [_state].
+     * The suspend body of [loadLibrary]. D-285: BATCHED load — the whole library
+     * comes from 7 queries total (categories, library items, main entries,
+     * content details, watched counts, last-watched timestamps, episode audio
+     * rows), assembled in memory. The previous implementation issued
+     * getMainEntryByMainId + getContentDetails + getEpisodeMetadata +
+     * getWatchedEpisodeCount + getLastWatchedAt PER ENTRY (5×N queries — a
+     * 653-item library cost ~3,300 queries, 4-5 seconds) and ran them all on
+     * the MAIN thread (viewModelScope defaults to Main.immediate), freezing the
+     * UI for the full duration. Now: [Dispatchers.Default] + batch reads.
+     *
+     * Fully offline: entries without a data-source link show the stored
+     * extension-axis fallback — the OLD "fetch AniList on miss" branch was
+     * unreachable dead code (anilistId is non-null only when dataSourceType ==
+     * "anilist", which makes hasDataSourceLink true, which always takes the
+     * cached branch first); entries with no data link have no stored AniList
+     * ID to fetch with, so there is nothing to backfill.
      *
      * Does NOT touch [_isRefreshing] — that's the caller's responsibility
      * (see [refreshLibrary]).
      */
-    private suspend fun loadLibraryImpl() {
+    private suspend fun loadLibraryImpl() = withContext(Dispatchers.Default) {
         try {
-            // Load ALL categories + counts.
+            // Batch query 1: all categories.
             val cats = contentRepository.getAllCategories()
             _categories.value = cats
 
-            // Count items per category.
+            // Batch query 2: every library_item row (mainId + categoryId + addedAt,
+            // newest first). The category filter, per-category counts, and the
+            // total count all derive from this ONE list in memory.
+            val items = contentRepository.getAllLibraryItems()
+            val selectedCategoryId = _selectedCategoryId.value
+
+            // Per-category counts + total across ALL categories (D-143). The
+            // unique (main_id, category_id) index guarantees at most one row per
+            // pair, so counting rows == counting distinct mainIds per category.
             val counts = mutableMapOf<Long, Int>()
-            for (cat in cats) {
-                counts[cat.id] = contentRepository.countItemsInCategory(cat.id)
+            for (item in items) {
+                counts[item.categoryId] = (counts[item.categoryId] ?: 0) + 1
             }
             _categoryCounts.value = counts
+            _totalEntries.value = items.map { it.mainId }.distinct().size
 
-            // Get library mainIds — filtered by selected category if set.
-            val mainIds = if (_selectedCategoryId.value != null) {
-                contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
+            // mainIds in view — filtered by the selected category when set.
+            // Preserves the added_at DESC order (the DATE_ADDED sort relies on it).
+            val uniqueMainIds = if (selectedCategoryId != null) {
+                items.filter { it.categoryId == selectedCategoryId }.map { it.mainId }.distinct()
             } else {
-                contentRepository.getLibraryMainIds()
+                items.map { it.mainId }.distinct()
             }
 
-            // Deduplicate mainIds (a content can be in multiple categories).
-            val uniqueMainIds = mainIds.distinct()
-            // D-143: totalEntries should show the TOTAL across ALL categories,
-            // not just the selected category. Fetch the full count separately.
-            val allMainIds = contentRepository.getLibraryMainIds()
-            _totalEntries.value = allMainIds.distinct().size
-            Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${_selectedCategoryId.value ?: "all"})" }
+            Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${selectedCategoryId ?: "all"})" }
 
             if (uniqueMainIds.isEmpty()) {
                 _state.value = LibraryState.Empty
-                return
+                return@withContext
             }
 
-            // Build LibraryEntry for each content.
-            val entries = mutableListOf<LibraryEntry>()
-            for (mainId in uniqueMainIds) {
-                val content = contentRepository.getMainEntryByMainId(mainId) ?: continue
+            // Batch queries 3+4: every library main_entry (added_at DESC) + every
+            // content_details row — joined in memory by mainId.
+            val recordsById = contentRepository.getAllLibraryContentRecords()
+                .associateBy { it.mainId }
+            val detailsById = contentRepository.getAllContentDetailsMap()
 
-                // D-198: anime_metadata_cache was absorbed into content_details (data-axis).
-                // Check the data-source axis first — if populated, use it as the cached metadata.
-                val details = contentRepository.getContentDetails(mainId)
+            val entries = mutableListOf<LibraryEntry>()
+
+            for (mainId in uniqueMainIds) {
+                val content = recordsById[mainId] ?: continue
+                val details = detailsById[mainId]
+
                 if (details != null && details.hasDataSourceLink) {
-                    // Use content_details data-axis — instant display.
+                    // data-axis populated — instant display (D-198).
                     entries.add(
                         LibraryEntry(
                             mainId = mainId,
@@ -288,75 +339,9 @@ class LibraryViewModel(
                             status = details.dataStatus,
                         ),
                     )
-                    continue
-                }
-
-                // Not cached — try AniList detail (for fetching + caching).
-                val anilistId = details?.anilistId
-                if (details != null && anilistId != null) {
-                    // Fetch fresh AniList data (first time only — will be cached after this).
-                    try {
-                        val anime = anilistApi.fetchAnimeDetails(anilistId)
-                        // D-198: cache the AniList metadata in content_details (data-axis).
-                        contentRepository.updateDataSourceAxis(
-                            com.confused.anikuta.core.content.ContentDetails(
-                                mainId = mainId,
-                                dataSourceType = "anilist",
-                                dataSourceRefId = anilistId.toString(),
-                                dataScore = anime.averageScore?.toLong(),
-                                dataEpisodes = anime.episodes?.toLong(),
-                                dataSeason = anime.season,
-                                dataSeasonYear = anime.seasonYear?.toLong(),
-                                dataStatus = anime.status,
-                                dataGenres = anime.genres?.joinToString(", "),
-                                dataSynopsis = anime.description,
-                                dataCoverUrl = anime.coverUrl,
-                                dataBannerUrl = anime.bannerImage,
-                                dataUpdatedAt = System.currentTimeMillis(),
-                                // Extension axis preserved (call updateDataSourceAxis — not full upsert).
-                                extensionType = details.extensionType,
-                                extensionId = details.extensionId,
-                                sourceId = details.sourceId,
-                                animeUrl = details.animeUrl,
-                                extDescription = details.extDescription,
-                                extGenres = details.extGenres,
-                                extStatus = details.extStatus,
-                                extAuthor = details.extAuthor,
-                                extArtist = details.extArtist,
-                                extThumbnailUrl = details.extThumbnailUrl,
-                                extExtraJson = details.extExtraJson,
-                                extUpdatedAt = details.extUpdatedAt,
-                            ),
-                        )
-                        entries.add(
-                            LibraryEntry.fromAniList(
-                                mainId = mainId,
-                                anime = anime,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                            ),
-                        )
-                    } catch (e: Exception) {
-                        Logger.w(TAG) { "AniList fetch failed for $anilistId: ${e.message}" }
-                        // Fall back to stored data.
-                        entries.add(
-                            LibraryEntry(
-                                mainId = mainId,
-                                anilistId = anilistId,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                                title = content.title,
-                                // D-248: two-way cover fallback — AniList first, extension when missing.
-                                coverUrl = details.dataCoverUrl ?: details.extThumbnailUrl,
-                                averageScore = details.dataScore?.toInt(),
-                                episodes = details.dataEpisodes?.toInt(),
-                                seasonYear = details.dataSeasonYear?.toInt(),
-                                status = details.dataStatus,
-                            ),
-                        )
-                    }
                 } else {
-                    // Extension-only content — use stored data.
+                    // No data-axis link — stored fallback (extension axis, or bare
+                    // main_entry title when even the details row is missing — D-222).
                     entries.add(
                         LibraryEntry.fromExtension(
                             mainId = mainId,
@@ -374,7 +359,7 @@ class LibraryViewModel(
             if (entries.isEmpty()) {
                 _state.value = LibraryState.Empty
             } else {
-                // D-242-fix10: enrich entries with badge data (released count, audio, watched)
+                // Batch queries 5-7: badge enrichment (released count, audio, watched).
                 enrichEntriesWithBadgeData(entries)
                 _state.value = LibraryState.Success(entries)
                 applyFilters()
@@ -387,93 +372,16 @@ class LibraryViewModel(
 
     /**
      * Reload library but use cached data only (no network fetch).
-     * Used when switching tabs — just re-filters from the content DB.
+     * Used when switching category tabs — just re-filters from the content DB.
+     *
+     * D-285: delegates to the BATCHED [loadLibraryImpl] — the per-entry query
+     * loop this used to duplicate is gone (one implementation, 7 queries total,
+     * background-dispatched). The old entries stay on screen until the fresh
+     * state arrives (~tens of ms) — no loading flash on category switches.
      */
     fun reloadFromCache() {
         viewModelScope.launch {
-            try {
-                val mainIds = if (_selectedCategoryId.value != null) {
-                    contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
-                } else {
-                    contentRepository.getLibraryMainIds()
-                }
-                val uniqueMainIds = mainIds.distinct()
-                // D-143: totalEntries = total across ALL categories.
-                val allMainIds = contentRepository.getLibraryMainIds()
-                _totalEntries.value = allMainIds.distinct().size
-
-                if (uniqueMainIds.isEmpty()) {
-                    _state.value = LibraryState.Empty
-                    return@launch
-                }
-
-                val entries = mutableListOf<LibraryEntry>()
-                for (mainId in uniqueMainIds) {
-                    val content = contentRepository.getMainEntryByMainId(mainId) ?: continue
-
-                    // D-198: anime_metadata_cache absorbed into content_details (data-axis).
-                    // Use content_details (no network on tab switch).
-                    val details = contentRepository.getContentDetails(mainId)
-                    if (details != null && details.hasDataSourceLink) {
-                        entries.add(
-                            LibraryEntry(
-                                mainId = mainId,
-                                anilistId = details.anilistId,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                                title = content.title,
-                                // D-248: two-way cover fallback — AniList first, extension when missing.
-                                coverUrl = details.dataCoverUrl ?: details.extThumbnailUrl,
-                                averageScore = details.dataScore?.toInt(),
-                                episodes = details.dataEpisodes?.toInt(),
-                                seasonYear = details.dataSeasonYear?.toInt(),
-                                status = details.dataStatus,
-                            ),
-                        )
-                    } else if (details != null) {
-                        // Extension-only content — use stored data on the ext_* axis.
-                        entries.add(
-                            LibraryEntry.fromExtension(
-                                mainId = mainId,
-                                title = content.title,
-                                // D-248: two-way cover fallback for extension-only rows too.
-                                coverUrl = details.extThumbnailUrl ?: details.dataCoverUrl,
-                                sourceId = content.extensionId ?: details.sourceId,
-                                animeUrl = content.animeUrl ?: details.animeUrl,
-                            ),
-                        )
-                    } else {
-                        // D-222 FIX: content_details row is missing (e.g. populate
-                        // didn't create it, or it was deleted). Fall back to the
-                        // main_entry's title so the entry is at least visible.
-                        // This mirrors the fallback in loadLibraryImpl (lines 292-303)
-                        // and prevents the Library grid from appearing empty when
-                        // switching category tabs.
-                        entries.add(
-                            LibraryEntry.fromExtension(
-                                mainId = mainId,
-                                title = content.title,
-                                // D-248: no details row at all — null stays, but this path
-                                // is now rarer because both axes fall back to each other above.
-                                coverUrl = null,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                            ),
-                        )
-                    }
-                }
-
-                if (entries.isEmpty()) {
-                    _state.value = LibraryState.Empty
-                } else {
-                    // D-242-fix10: enrich entries with badge data
-                    enrichEntriesWithBadgeData(entries)
-                    _state.value = LibraryState.Success(entries)
-                    applyFilters()
-                }
-            } catch (e: Exception) {
-                Logger.e(TAG, e) { "reloadFromCache failed: ${e.message}" }
-            }
+            loadLibraryImpl()
         }
     }
 
@@ -857,56 +765,40 @@ class LibraryViewModel(
      * - watchedCount: how many episodes the user has watched
      *
      * D-242-fix14: Also counts per-audio-type episode counts (subEpisodeCount,
-     * dubEpisodeCount) for the advanced RELEASED badge sub-options. Logs the
-     * enrichment result for each entry at DEBUG level.
+     * dubEpisodeCount) for the advanced RELEASED badge sub-options.
+     *
+     * D-285: BATCHED — 3 queries for the WHOLE library (audio aggregates,
+     * watched counts, last-watched timestamps) instead of the old per-entry loop
+     * (3 queries × N entries; a 653-item library cost ~1,959 queries here).
+     * Called from [loadLibraryImpl]'s Dispatchers.Default context, so the reads
+     * stay off the main thread. Semantics are identical to the old loop.
      */
     private suspend fun enrichEntriesWithBadgeData(entries: MutableList<LibraryEntry>) {
+        val audioAggregates = dataCacheRepository.getAllEpisodeAudioAggregates()
+        val watchedCounts = watchProgressStore?.getAllWatchedCounts() ?: emptyMap()
+        val lastWatchedMap = watchProgressStore?.getAllLastWatchedAt() ?: emptyMap()
+
         for (i in entries.indices) {
             val entry = entries[i]
-            try {
-                val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(entry.mainId)
-                val releasedCount = cachedEpisodes.size.takeIf { it > 0 }
-
-                // Aggregate audio availability across all episodes + count per type.
-                var hasSub = false
-                var hasDub = false
-                var hasHsub = false
-                var subCount = 0
-                var dubCount = 0
-                for (ep in cachedEpisodes) {
-                    val audio = com.confused.anikuta.core.common.parseAudioAvailability(
-                        ep.scanlator,
-                        ep.sourceName ?: ep.title ?: "",
-                    )
-                    if (audio.hasSub) { hasSub = true; subCount++ }
-                    if (audio.hasDub) { hasDub = true; dubCount++ }
-                    if (audio.hasHsub) hasHsub = true
-                }
-                val audioAvail = if (hasSub || hasDub || hasHsub) {
-                    com.confused.anikuta.core.common.AudioAvailability(hasSub, hasDub, hasHsub)
+            val audio = audioAggregates[entry.mainId]
+            val audioAvail = audio?.let {
+                if (it.hasSub || it.hasDub || it.hasHsub) {
+                    com.confused.anikuta.core.common.AudioAvailability(it.hasSub, it.hasDub, it.hasHsub)
                 } else null
-
-                val watched = watchProgressStore?.getWatchedEpisodeCount(entry.mainId)?.takeIf { it > 0 }
-                // D-268: most recent last_watched_at for the LAST_WATCHED sort.
-                val lastWatched = watchProgressStore?.getLastWatchedAt(entry.mainId)
-
-                entries[i] = entry.copy(
-                    releasedEpisodes = releasedCount,
-                    audioAvailability = audioAvail,
-                    watchedCount = watched,
-                    lastWatchedAt = lastWatched,
-                    subEpisodeCount = subCount.takeIf { it > 0 },
-                    dubEpisodeCount = dubCount.takeIf { it > 0 },
-                )
-
-                Logger.d(TAG) {
-                    "enrichEntriesWithBadgeData — ${entry.title}: " +
-                    "released=$releasedCount, sub=$subCount, dub=$dubCount, " +
-                    "watched=$watched, audio=$audioAvail"
-                }
-            } catch (e: Exception) {
-                Logger.w(TAG) { "enrichEntriesWithBadgeData — failed for ${entry.mainId}: ${e.message}" }
             }
+
+            entries[i] = entry.copy(
+                releasedEpisodes = audio?.releasedCount?.takeIf { it > 0 },
+                audioAvailability = audioAvail,
+                watchedCount = watchedCounts[entry.mainId]?.takeIf { it > 0 },
+                lastWatchedAt = lastWatchedMap[entry.mainId],
+                subEpisodeCount = audio?.subCount?.takeIf { it > 0 },
+                dubEpisodeCount = audio?.dubCount?.takeIf { it > 0 },
+            )
+        }
+
+        Logger.d(TAG) {
+            "enrichEntriesWithBadgeData — batched: ${entries.size} entries enriched from 3 queries"
         }
     }
 

@@ -240,6 +240,21 @@ class SqlDelightWatchProgressStore(
         database.watchQueries.getLastWatchedAt(mainId).executeAsOne().takeIf { it > 0 }
     }
 
+    // D-285: one GROUP BY for the whole table — the Library's batch loader
+    // replaces N per-entry getWatchedEpisodeCount calls with this single read.
+    override suspend fun getAllWatchedCounts(): Map<String, Int> = withContext(dispatchers) {
+        database.watchQueries.getAllWatchedCounts().executeAsList()
+            .associate { it.main_id to it.watched_count.toInt() }
+    }
+
+    // D-285: one GROUP BY for the whole table — the Library's batch loader
+    // replaces N per-entry getLastWatchedAt calls with this single read.
+    // Rows only exist for main_ids with at least one watched episode.
+    override suspend fun getAllLastWatchedAt(): Map<String, Long> = withContext(dispatchers) {
+        database.watchQueries.getAllLastWatchedAt().executeAsList()
+            .associate { it.main_id to it.last_watched_at }
+    }
+
     /**
      * D-242: Mark all episodes in [episodeKeys] as watched (sticky).
      * Delegates to [setUserMarkedWatched] for each key — reuses the INSERT-or-UPDATE

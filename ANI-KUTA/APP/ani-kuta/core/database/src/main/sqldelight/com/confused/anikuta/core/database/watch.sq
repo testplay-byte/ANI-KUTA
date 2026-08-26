@@ -126,6 +126,21 @@ WHERE main_id = :mainId
 getLastWatchedAt:
 SELECT COALESCE(MAX(last_watched_at), 0) FROM watch_progress WHERE main_id = :mainId;
 
+-- D-285: BATCH variants of the two queries above — the Library's N+1 fix.
+-- One GROUP BY returns the aggregate for EVERY anime at once (653 entries used
+-- to cost 2×653 individual queries; now 2 queries total). Rows with a NULL
+-- main_id (legacy data before the column existed) are skipped — the Library
+-- only queries by known mainIds anyway.
+getAllWatchedCounts:
+SELECT main_id, COUNT(*) AS watched_count FROM watch_progress
+WHERE main_id IS NOT NULL AND completed = 1
+GROUP BY main_id;
+
+getAllLastWatchedAt:
+SELECT main_id, MAX(last_watched_at) AS last_watched_at FROM watch_progress
+WHERE main_id IS NOT NULL
+GROUP BY main_id;
+
 -- Phase WP: Clear all progress for an anime (for library-remove — S3).
 clearByMainId:
 DELETE FROM watch_progress WHERE main_id = ?;

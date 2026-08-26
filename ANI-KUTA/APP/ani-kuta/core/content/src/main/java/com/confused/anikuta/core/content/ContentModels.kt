@@ -220,3 +220,15 @@ data class LibraryItem(
     val displayOrder: Long,
     val addedAt: Long,
 )
+
+/**
+ * D-285: Lightweight library_item row for the Library's batch loader — one
+ * query returns every (mainId, categoryId, addedAt) triple; the caller derives
+ * the category filter, per-category counts, and totals in memory.
+ */
+data class LibraryItemRecord(
+    val mainId: String,
+    val categoryId: Long,
+    val addedAt: Long,
+)
+

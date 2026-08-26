@@ -170,6 +170,18 @@ VALUES (:name, :displayName, :packagePrefix, :createdAt);
 getMainEntryByMainId:
 SELECT * FROM main_entry WHERE main_id = :mainId;
 
+-- D-285: BATCH read of every main_entry row that is IN the library — the
+-- Library's batch loader used to issue getMainEntryByMainId +
+-- getContentDetails per entry (2×653 queries for a 653-item library); this +
+-- getAllContentDetails load everything in 2 queries total. The GROUP BY
+-- subquery dedupes main_ids that sit in multiple categories and preserves the
+-- getLibraryMainIds ordering (library add date, newest first).
+getAllLibraryMainEntries:
+SELECT m.* FROM main_entry m
+JOIN (SELECT main_id, MAX(added_at) AS added_at FROM library_item GROUP BY main_id) li
+  ON li.main_id = m.main_id
+ORDER BY li.added_at DESC;
+
 getMainEntryByAniListId:
 SELECT m.* FROM main_entry m
 JOIN content_details d ON m.main_id = d.main_id
@@ -227,6 +239,11 @@ DELETE FROM main_entry WHERE main_id = :mainId;
 -- ============================================================================
 getContentDetails:
 SELECT * FROM content_details WHERE main_id = :mainId;
+
+-- D-285: BATCH read of every content_details row (companion to
+-- getAllLibraryMainEntries). The caller joins in memory by main_id.
+getAllContentDetails:
+SELECT * FROM content_details;
 
 getMainEntryByDataSourceRef:
 SELECT m.* FROM main_entry m
