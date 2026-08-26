@@ -255,6 +255,7 @@ class SqlDelightWatchProgressStore(
     override suspend fun getAllLastWatchedAt(): Map<String, Long> = withContext(dispatchers) {
         database.watchQueries.getAllLastWatchedAt().executeAsList()
             .mapNotNull { row -> row.last_watched_at?.let { row.main_id to it } }
+            .toMap()
     }
 
     /**
