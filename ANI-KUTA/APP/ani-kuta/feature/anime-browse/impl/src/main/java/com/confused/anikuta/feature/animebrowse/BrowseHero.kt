@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,10 +29,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -54,49 +56,45 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.random.Random
 
 /**
- * D-283/D-284: Browse hero v5 — full uncropped banner + 6-color palette
- * gradient + dark veil + reduced height.
+ * D-289: Browse hero v6 — compact fixed height + abstract splash background +
+ * seamless banner↔content blending.
  *
- * v4 (D-277) fixed the banner (Fit + TopCenter — whole banner, no crop) and
- * replaced the blurred-cover strip with a SINGLE dominant-color gradient. User
- * device feedback on v0.2.54:
- * - "its height is apparently a bit more than what I hoped for … The bottom
- *   section below the banner is way too much" → **D-283:** card ratio 1.2:1 →
- *   1.4:1 (~15% shorter card; the below-banner zone shrinks ~25%) + poster
- *   84×126 → 76×114 to match.
- * - "the accent theme color … is apparently not correct … utilize some beautiful
- *   gradient kind of effect … Don't use a simple solid color but utilize a smooth
- *   darker kind of gradient. Utilize maybe five or six colors from the cover image
- *   … On top of that gradient effect, apply a slightly blurred dark effect" →
- *   **D-284:** the content zone is now a 6-stop ramp of palette colors from the
- *   cover ([rememberCoverGradientColors] — dominant/vibrant/muted swatches,
- *   darkened into a cinematic band, sorted light → dark), with a soft black veil
- *   layered on top.
+ * User device feedback on v0.2.55 (after v5's reduced-height 6-color gradient):
+ * - "The hero section height is very bad … way too tall. I need you to make it
+ *   less tall in height" → **fixed [HERO_HEIGHT] = 148dp** — just a little
+ *   taller than the 114dp cover poster it frames (v5's 1.4:1 ratio was still
+ *   ~234dp tall on a 360dp-wide screen).
+ * - "The top banner area … could be in the background, over the cover image and
+ *   the background of the text" → the banner is now a **full-bleed background
+ *   layer** (Crop + Center) behind everything — atmosphere, not a showcase.
+ * - "I did not want you to quite literally go with a gradient … a random splash
+ *   of colors … not a smooth gradient … some splash of colors which blend in
+ *   together with each other randomly … an abstract splash kind of vibe" →
+ *   [SplashOverlay]: 8 soft-edged radial blobs in the cover's own 6-color
+ *   palette at seeded-random positions/sizes, layered organically — no linear
+ *   ramp anywhere.
+ * - "The cover image's colors would blend in smoothly around it. Also the top
+ *   banner section would blend in smoothly towards it too. The difference
+ *   between where the top banner ends and the bottom section starts would be
+ *   minimal … the user can't describe or see it quite clearly where the
+ *   boundary is" → there IS no banner-end boundary anymore: the banner spans
+ *   the full card, the blobs float over it with soft radial edges everywhere
+ *   (denser toward the bottom where the text sits), and one large echo blob
+ *   washes the poster's own palette color around the cover. A smooth dark veil
+ *   (near-zero at top → deeper at bottom) unifies the layers and guarantees
+ *   white-text contrast.
  *
- * **Anatomy** (same 16dp inset / 20dp corners / 1dp border card language):
- * - **Full banner, uncropped** (unchanged from v4): `ContentScale.Fit` +
- *   `Alignment.TopCenter` — AniList banners (~3:1) occupy the top ~47% of the
- *   now-shorter card.
- * - **6-color palette gradient**: transparent over the banner (it reads fully),
- *   feathering into the ramp at the junction, then the 6 palette colors blend
- *   smoothly to the bottom. Fallback ramp (null extraction): surfaceVariant
- *   darkened in steps.
- * - **Dark veil (the "slightly blurred dark effect")**: a near-imperceptible →
- *   soft black gradient layered OVER the palette ramp. (A literal
- *   `Modifier.blur()` on a smooth vertical gradient is a visual no-op — there's
- *   no horizontal variance to smear — so the soft darkening veil IS the blurred
- *   feel; it also guarantees white-text contrast on any cover palette.)
- * - Foreground: cover poster (76×114) + rank pill + title + meta + chips,
- *   bottom-aligned on the dark zone.
- *
+ * **Anatomy** (16dp inset / 20dp corners / 1dp border card language):
  * ```
- * ┌──────────────────────────────────────────────┐  ← HERO_CARD_RATIO (1.4:1),
- * │  ▓▓▓▓▓▓ FULL BANNER (Fit, TopCenter) ▓▓▓▓▓▓ │     20dp corners, 1dp border
- * │  ░░░ feather (transparent → ramp[0]) ░░░░░░░ │     — whole banner, no crop
- * │ ┌────┐  #1 TRENDING                          │     6 palette colors (light→dark)
- * │ │cover│  Title (18sp ExtraBold, white)      │     + soft dark veil on top
+ * ┌──────────────────────────────────────────────┐  ← fixed 148dp height
+ * │ ░▒▓ banner (Crop, full-bleed background) ▓▒░ │     (≈ poster + 34dp)
+ * │  ˚˚ splash blobs — cover palette, random ˚˚  │
+ * │    ˚˚˚ echo blob around poster ˚˚˚           │
+ * │ ┌────┐  #1 TRENDING                          │
+ * │ │cover│  Title (18sp ExtraBold, white)      │  ← bottom-aligned, 12dp pad
  * │ │2:3 │  ★ 85 · 24 eps · 2024               │
  * │ └────┘  [Action] [Comedy] [+2]               │
  * └──────────────────────────────────────────────┘
@@ -108,8 +106,9 @@ import kotlin.math.abs
  *
  * History: D-256 (first hero) → D-257 (wider banner) → D-262 (smooth
  * auto-advance) → D-275 (sharp banner + blurred-cover strip) → D-277 (full
- * uncropped banner + single-color palette gradient) → **D-283/D-284** (reduced
- * height + 6-color gradient + dark veil — this version).
+ * uncropped banner + single-color palette gradient) → D-283/D-284 (reduced
+ * height + 6-color gradient + dark veil) → **D-289** (compact fixed height +
+ * banner-as-background + abstract splash + seamless blend — this version).
  */
 @Composable
 internal fun BrowseHero(
@@ -236,23 +235,25 @@ private fun HeroDot(active: Boolean) {
 }
 
 /**
- * A single hero card — full uncropped banner + 6-color palette gradient + dark
- * veil (D-283/D-284).
+ * A single hero card — compact fixed height, banner-as-background, abstract
+ * splash of cover-palette colors, seamless layering (D-289).
  *
  * Layering (bottom → top render order):
- * 1. **Base + banner** — solid ramp[0] (the lightest palette color — shows in
- *    the transparent banner zone so the top stays continuous) + the full banner
- *    via `AsyncImage(ContentScale.Fit, TopCenter)` (no crop). Skipped when no
- *    banner URL → gradient-only header.
- * 2. **Palette gradient overlay** — explicit-position stops: transparent to
- *    [BANNER_FEATHER_END], then the 6 ramp colors blended smoothly to the
- *    bottom. The transparent zone lets the banner read fully; the feather
- *    junction hides the banner's bottom edge into ramp[0] (no hard seam).
- * 3. **Dark veil** — `Brush.verticalGradient` of near-zero → soft black alpha
- *    over everything (the "slightly blurred dark effect", D-284 — see file
- *    KDoc for why a literal blur is a no-op here).
+ * 1. **Base + banner** — solid darkest palette color (shows wherever the
+ *    banner is missing/failing) + the banner as a full-bleed BACKGROUND layer
+ *    (`ContentScale.Crop`, Center) — the user's "banner … in the background,
+ *    over the cover image and the background of the text".
+ * 2. **[SplashOverlay]** — 8 seeded-random radial blobs in the cover's own
+ *    6-color palette (light blobs keep the upper zone airy so the banner still
+ *    reads; denser/darker blobs gather toward the content zone) + one large
+ *    "echo" blob washing the poster's palette color around the cover ("the
+ *    cover image's colors would blend in smoothly around it").
+ * 3. **Unifying veil** — a smooth near-zero → deep black ramp over everything.
+ *    Because the banner never "ends" (it spans the full card) and every blob
+ *    edge is a soft radial falloff, there is no visible boundary anywhere —
+ *    the top banner zone and the bottom content zone melt into each other.
  * 4. **Foreground Row** — cover poster (76×114) + rank pill + title + meta +
- *    chips, bottom-aligned (on the darkest zone).
+ *    chips, bottom-aligned on the darkest zone.
  */
 @Composable
 private fun HeroCard(
@@ -260,9 +261,10 @@ private fun HeroCard(
     rank: Int,
     onClick: () -> Unit,
 ) {
-    // D-284: 5–6 palette colors from the cover, light → dark. Null on blank URL
-    // or extraction failure → fall back to a neutral surface ramp so the hero
-    // still renders (with a neutral gradient) rather than blanking out.
+    // 5–6 palette colors from the cover (D-284 extractor: dominant/vibrant/
+    // muted swatches darkened into a cinematic band). Null on blank URL or
+    // extraction failure → neutral surface ramp fallback so the hero still
+    // renders rather than blanking out.
     val paletteRamp = rememberCoverGradientColors(anime.coverUrl)
     val fallbackBase = MaterialTheme.colorScheme.surfaceVariant
     val ramp = paletteRamp ?: listOf(
@@ -274,71 +276,62 @@ private fun HeroCard(
         lerp(fallbackBase, Color.Black, 0.78f),
     )
 
-    // D-284: explicit-position gradient stops — transparent over the banner
-    // (it reads fully), feathered junction, then the ramp blended to the bottom.
-    val gradientStops = buildList {
-        add(0f to Color.Transparent)
-        add(BANNER_FEATHER_END to Color.Transparent)
-        ramp.forEachIndexed { i, color ->
-            val t = BANNER_FEATHER_END +
-                (1f - BANNER_FEATHER_END) * (i + 1f) / ramp.size
-            add(t to color)
-        }
+    // Stable per-item randomness: every hero page derives its own splash
+    // layout from its cover URL — reshuffles never happen on recomposition,
+    // but each banner gets a genuinely different abstract arrangement.
+    val splashSeed = remember(anime.coverUrl, anime.displayName) {
+        (anime.coverUrl ?: anime.displayName).hashCode()
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(HERO_CARD_RATIO)
+            .height(HERO_HEIGHT)
             .clip(HeroCardShape)
-            .background(ramp.first())
+            .background(ramp.last())
             .border(
                 BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                 HeroCardShape,
             )
             .clickable(onClick = onClick),
     ) {
-        // ── Layer 1: FULL banner (Fit + TopCenter — no crop, whole banner).
-        // AniList banners are ~3:1; at the card's width they occupy the top
-        // ~47% of the (now shorter, D-283) card. Fit guarantees no part of the
-        // banner is lost (the user's explicit "won't be cropped" requirement). ──
+        // ── Layer 1: BANNER — full-bleed background (Crop + Center). ──
+        // The banner no longer has to fit or stay uncropped: it is atmosphere
+        // behind the splash + content layers (D-289 device feedback). A ~3:1
+        // AniList banner scaled to cover a 148dp card loses only its outer
+        // wings — the artwork's center (where the subject sits) fills the card.
         val bannerUrl = anime.bannerImage
         if (!bannerUrl.isNullOrBlank()) {
             AsyncImage(
                 model = bannerUrl,
                 contentDescription = anime.displayName,
-                alignment = Alignment.TopCenter,
-                contentScale = ContentScale.Fit,
+                alignment = Alignment.Center,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
         }
 
-        // ── Layer 2: 6-color palette gradient — transparent over the banner,
-        // feathered junction into ramp[0], then the cover's palette colors blend
-        // smoothly (light → dark) to the bottom. "Five or six colors from the
-        // cover image … smooth blended gradient", NOT a blurred copy of the
-        // cover (D-284 device feedback).
-        // (verticalGradient's colorStops is a vararg — spread the built list.) ──
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(*gradientStops.toTypedArray())),
+        // ── Layer 2: SPLASH — abstract seeded-random blobs in the cover's own
+        // palette ("not a smooth gradient … a random splash of colors which
+        // blend in together with each other randomly"). ──
+        SplashOverlay(
+            colors = ramp,
+            seed = splashSeed,
+            modifier = Modifier.fillMaxSize(),
         )
 
-        // ── Layer 3: dark veil — the "slightly blurred dark effect" applied on
-        // top of the gradient (D-284). A soft black ramp: near-imperceptible on
-        // the banner (top), deepening over the content zone so the bottom is
-        // clearly darkened + text contrast is guaranteed on any palette. ──
+        // ── Layer 3: unifying veil — smooth near-zero → deep black. Keeps the
+        // top banner zone airy, deepens toward the content zone for white-text
+        // contrast, and visually welds banner + splash + base into one
+        // continuous field (no detectable "where the banner ends" line). ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        *arrayOf(
-                            0f to Color.Black.copy(alpha = 0.04f),
-                            BANNER_FEATHER_END to Color.Black.copy(alpha = 0.10f),
-                            1f to Color.Black.copy(alpha = 0.32f),
-                        ),
+                        0f to Color.Black.copy(alpha = 0.06f),
+                        0.5f to Color.Black.copy(alpha = 0.20f),
+                        1f to Color.Black.copy(alpha = 0.52f),
                     ),
                 ),
         )
@@ -350,8 +343,7 @@ private fun HeroCard(
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
-            // Cover poster (2:3, matches the carousel card language; D-283:
-            // 84×126 → 76×114 to fit the shorter card).
+            // Cover poster (2:3, matches the carousel card language).
             Box(
                 modifier = Modifier
                     .size(width = 76.dp, height = 114.dp)
@@ -386,7 +378,7 @@ private fun HeroCard(
             // Text block.
             Column(modifier = Modifier.weight(1f)) {
                 // Rank pill — translucent dark (matches the genre chips' language;
-                // sits on the dark gradient zone, readable on any cover hue).
+                // sits on the dark splash zone, readable on any cover hue).
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = Color.Black.copy(alpha = 0.45f),
@@ -405,7 +397,7 @@ private fun HeroCard(
                 }
                 Spacer(Modifier.height(6.dp))
                 // Title — 18sp ExtraBold, up to 2 lines (white: it always sits
-                // on the dark gradient zone, regardless of theme).
+                // on the dark splash zone, regardless of theme).
                 Text(
                     text = anime.displayName,
                     fontFamily = RobotoFamily,
@@ -457,6 +449,124 @@ private fun HeroCard(
     }
 }
 
+// ── D-289: abstract splash ─────────────────────────────────────────────────
+
+/**
+ * One splash blob: a soft-edged radial gradient circle, placed and sized as
+ * fractions of the card. All fields are fractions so the same seeded layout
+ * adapts to any card size.
+ */
+private data class SplashBlob(
+    val centerX: Float,
+    val centerY: Float,
+    val radius: Float,
+    val color: Color,
+    val alpha: Float,
+)
+
+/**
+ * Builds the seeded-random blob layout for a hero card (D-289).
+ *
+ * The arrangement ("abstract splash kind of vibe"):
+ * - **2 airy top blobs** — low alpha (0.16–0.26), anywhere in the card: they
+ *   keep the banner zone alive with color without burying the artwork.
+ * - **5 content blobs** — stronger (0.32–0.55), biased toward the lower ⅔
+ *   where the poster + text sit; varied radii (0.30–0.72 of width) overlap
+ *   each other and blend organically (SRC_OVER alpha stacking).
+ * - **1 poster echo blob** — the palette's lightest color at ~0.5 alpha,
+ *   centered just behind the poster's position, ~0.55 of the card width:
+ *   "the cover image's colors would blend in smoothly around it".
+ *
+ * Colors cycle through the cover's palette with a stride so neighboring blobs
+ * rarely repeat a hue, and the seeded [Random] makes the layout stable per
+ * cover (no reshuffling on recomposition) yet different for every hero page.
+ */
+private fun buildSplashBlobs(colors: List<Color>, seed: Int): List<SplashBlob> {
+    if (colors.isEmpty()) return emptyList()
+    val rng = Random(seed)
+    val blobs = mutableListOf<SplashBlob>()
+
+    // Poster echo — lightest palette color washing around the cover.
+    blobs += SplashBlob(
+        centerX = 0.17f,
+        centerY = 0.72f,
+        radius = 0.55f,
+        color = colors.first(),
+        alpha = 0.50f,
+    )
+
+    // Airy top-zone blobs (let the banner read through).
+    repeat(2) { i ->
+        blobs += SplashBlob(
+            centerX = rng.nextFloat().mapToRange(0.05f, 0.95f),
+            centerY = rng.nextFloat().mapToRange(0.08f, 0.45f),
+            radius = rng.nextFloat().mapToRange(0.38f, 0.62f),
+            color = colors[(i * 2 + 1) % colors.size],
+            alpha = rng.nextFloat().mapToRange(0.16f, 0.26f),
+        )
+    }
+
+    // Content-zone blobs (denser, darker, toward the bottom).
+    repeat(5) { i ->
+        blobs += SplashBlob(
+            centerX = rng.nextFloat().mapToRange(0.0f, 1.0f),
+            centerY = rng.nextFloat().mapToRange(0.42f, 1.05f),
+            radius = rng.nextFloat().mapToRange(0.30f, 0.72f),
+            color = colors[(i * 2 + 2) % colors.size],
+            alpha = rng.nextFloat().mapToRange(0.32f, 0.55f),
+        )
+    }
+
+    return blobs
+}
+
+/** Maps rng.nextFloat() (0..1) into [from, to]. */
+private fun Float.mapToRange(from: Float, to: Float): Float =
+    from + (this * (to - from))
+
+/**
+ * The abstract splash layer (D-289) — draws [buildSplashBlobs]'s seeded layout
+ * as overlapping soft-edged radial gradients directly behind the hero content.
+ *
+ * Draw order: the poster echo blob FIRST (it reads as a halo behind the cover
+ * once the foreground renders on top), then the random blobs on top of it.
+ * Every edge is a radial falloff to transparent, so blobs never form hard
+ * outlines against the banner or each other — they "blend in together with
+ * each other randomly", exactly the requested abstract-splash feel.
+ */
+@Composable
+private fun SplashOverlay(
+    colors: List<Color>,
+    seed: Int,
+    modifier: Modifier = Modifier,
+) {
+    val blobs = remember(colors, seed) { buildSplashBlobs(colors, seed) }
+    Box(
+        modifier = modifier.drawBehind {
+            blobs.forEach { blob ->
+                val center = Offset(
+                    x = size.width * blob.centerX,
+                    y = size.height * blob.centerY,
+                )
+                val radius = size.width * blob.radius
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            blob.color.copy(alpha = blob.alpha),
+                            blob.color.copy(alpha = blob.alpha * 0.55f),
+                            Color.Transparent,
+                        ),
+                        center = center,
+                        radius = radius,
+                    ),
+                    radius = radius,
+                    center = center,
+                )
+            }
+        },
+    )
+}
+
 /** A genre tag chip — translucent dark pill (readable on any artwork). */
 @Composable
 private fun HeroGenreChip(label: String, emphasized: Boolean = true) {
@@ -486,26 +596,14 @@ private fun HeroGenreChip(label: String, emphasized: Boolean = true) {
 private val HeroCardShape = RoundedCornerShape(20.dp)
 
 /**
- * D-283: the hero card's width:height ratio. 1.2:1 (v4) → **1.4:1** per device
- * feedback ("its height is apparently a bit more than what I hoped for … The
- * bottom section below the banner is way too much"): the card is ~15% shorter
- * and the below-banner content zone shrinks ~25%. All pager pages share this
- * ratio so the pager height never jumps between banners of differing aspect
- * ratios. A ~3:1 AniList banner occupies the top ~47% of the card; the poster
- * (76×114 + 12dp bottom padding) may overlap the banner's feathered bottom
- * edge by a few dp on narrower banners — the classic cinematic overlap, and
- * the banner is still fully rendered (Fit, never cropped).
+ * D-289: the hero card's FIXED height. The user's rule: "make sure that the
+ * hero section is a little bit taller than the cover image itself" — the
+ * poster is 114dp (+ 12dp bottom padding), so 148dp frames it with a ~22dp
+ * banner-airy strip above. (v5's 1.4:1 aspect ratio still produced ~234dp on a
+ * 360dp-wide screen — "way too tall".) All pager pages share this fixed
+ * height so the pager never jumps between banners.
  */
-private const val HERO_CARD_RATIO = 1.4f
-
-/**
- * D-284: where the gradient's transparent zone ends (the banner-feather
- * junction). Below this fraction the palette ramp blends in — ramp[0] reaches
- * full opacity at `BANNER_FEATHER_END + (1 - BANNER_FEATHER_END) / ramp.size`,
- * feathering the banner's bottom edge (~40–58% for AniList's 2.5:1–4:1 banners)
- * into the gradient with no hard seam.
- */
-private const val BANNER_FEATHER_END = 0.42f
+private val HERO_HEIGHT = 148.dp
 
 // D-262: auto-advance interval doubled (was 6s) per device feedback
 // "should be doubled... maybe 12 seconds".

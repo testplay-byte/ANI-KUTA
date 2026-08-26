@@ -224,6 +224,71 @@ class LibraryViewModel(
     /** List-mode scroll position — shared with LibraryScreen (D-286). */
     val listState = androidx.compose.foundation.lazy.LazyListState()
 
+    // D-290: Comfortable-mode masonry scroll position — SAME retention as
+    // gridState/listState. It used to be rememberLazyStaggeredGridState()
+    // INSIDE LibraryGrid (died on every tab switch → Comfortable users lost
+    // their scroll on every return) while the VM-held gridState went stale at
+    // an old index — switching display modes re-attached that stale index.
+    /** Comfortable-grid (masonry) scroll position — shared with LibraryScreen (D-290). */
+    val staggeredState = androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState()
+
+    /**
+     * D-290: resets all three scroll states to the top. Called when the
+     * DATASET identity changes (category switch, search query change) — a new
+     * dataset should present from its top, and a stale retained index would
+     * otherwise land the grid mid-list (or clamp to a bottom when the new set
+     * is smaller). requestScrollToItem is the non-suspend 1.7+ API: it
+     * schedules the position for the next remeasure, so it is safe to call
+     * while the grid is between compositions.
+     */
+    private fun resetScrollToTop() {
+        runCatching {
+            gridState.requestScrollToItem(0, 0)
+            listState.requestScrollToItem(0, 0)
+            staggeredState.requestScrollToItem(0, 0)
+        }
+    }
+
+    // ── D-290: master list + single-emission state pipeline ────────────────
+    //
+    // Device feedback on v0.2.55: "the library page … scrolled way too much
+    // down automatically by itself … about the middle" after refresh.
+    // Root cause (R-1 research): loadLibraryImpl emitted Success(entries) in
+    // DATE_ADDED order and THEN applyFilters() re-emitted the sorted list. If
+    // a recomposition landed between the two writes (preemption/GC pause on
+    // the Default dispatcher), the grid composed the UNSORTED list and
+    // LazyGrid's key-based anchoring (key = mainId) followed the previously
+    // first-visible item to its DATE_ADDED rank — the middle of the list.
+    // Fix: the master list is stored unfiltered here, and the state flow is
+    // only ever written ONCE per load, with the final filtered+sorted list —
+    // no intermediate ordering is ever visible to composition. (This also
+    // fixes a latent bug: applyFilters() used to re-filter the ALREADY
+    // filtered state — clearing a search query could never restore removed
+    // entries until a full reload.)
+    /** The unfiltered, unsorted entries of the current category view (D-290). */
+    private var masterEntries: List<LibraryEntry> = emptyList()
+
+    /**
+     * D-291: cover-URL keys whose image has been revealed at least once.
+     *
+     * Drives the reveal-once cover animation in LibraryCoverImage: a cover
+     * fades in the FIRST time it loads; after that it renders instantly (no
+     * re-animation on scroll-back or tab switches — "if they were previously
+     * loaded then there is no need to reload them completely"). Lives in the
+     * Activity-scoped VM so it survives tab switches; cleared ONLY by
+     * [refreshLibrary] (a pull-to-refresh is the user's explicit "reload
+     * everything" signal).
+     */
+    val revealedCoverKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** Read-only check — is this cover's key already revealed? (D-291) */
+    fun isCoverRevealed(key: String): Boolean = key in revealedCoverKeys
+
+    /** Records that a cover's key has started its reveal (D-291). */
+    fun markCoverRevealed(key: String) {
+        revealedCoverKeys.add(key)
+    }
+
     /**
      * Load the library from the content ID system.
      * D-141: Uses in-memory cache for AniList data to prevent re-fetching.
@@ -357,12 +422,23 @@ class LibraryViewModel(
             }
 
             if (entries.isEmpty()) {
+                masterEntries = emptyList()
                 _state.value = LibraryState.Empty
             } else {
                 // Batch queries 5-7: badge enrichment (released count, audio, watched).
                 enrichEntriesWithBadgeData(entries)
-                _state.value = LibraryState.Success(entries)
-                applyFilters()
+                // D-290: SINGLE emission — the final filtered+sorted list is
+                // computed BEFORE any state write, so no unsorted intermediate
+                // ordering can ever be composed (the key-anchor jump bug).
+                masterEntries = entries
+                _state.value = LibraryState.Success(
+                    filterAndSort(
+                        entries = entries,
+                        query = _searchQuery.value,
+                        sortType = _sortType.value,
+                        ascending = _sortAscending.value,
+                    ),
+                )
             }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to load library: ${e.message}" }
@@ -395,8 +471,11 @@ class LibraryViewModel(
     }
 
     fun setSearchQuery(query: String) {
+        val changed = _searchQuery.value != query
         _searchQuery.value = query
         applyFilters()
+        // D-290: a changed query is a changed dataset — present it from the top.
+        if (changed) resetScrollToTop()
     }
 
     // ── Category management (D-138, D-140) ──
@@ -410,6 +489,10 @@ class LibraryViewModel(
         // D-242-fix3: persist the selected category across app restarts.
         // -1L sentinel = "All" (null selection).
         preferenceStore.putLong(KEY_SELECTED_CATEGORY, categoryId ?: -1L)
+        // D-290: switching category switches DATASET — start it from the top
+        // (a retained index from the previous category would land mid-list or
+        // clamp to the bottom of a smaller set).
+        resetScrollToTop()
         reloadFromCache()
     }
 
@@ -430,6 +513,12 @@ class LibraryViewModel(
             _isRefreshing.value = true
             try {
                 clearCache()
+                // D-291: a pull-to-refresh is the user's explicit "reload
+                // everything" signal — clear the reveal-once set so covers
+                // fade back in as they re-load (progressive loading "should
+                // only work if they were not loaded … unless the user refreshes
+                // the whole page again").
+                revealedCoverKeys.clear()
                 loadLibraryImpl()
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Library refresh failed: ${e.message}" }
@@ -873,39 +962,62 @@ class LibraryViewModel(
         val current = _state.value
         if (current !is LibraryState.Success) return
 
-        var filtered = current.entries
+        // D-290: re-derive from the MASTER list, not the already-filtered
+        // state (the old re-filter could never restore entries removed by a
+        // previous query once the query was cleared).
+        _state.value = LibraryState.Success(
+            filterAndSort(
+                entries = masterEntries,
+                query = _searchQuery.value,
+                sortType = _sortType.value,
+                ascending = _sortAscending.value,
+            ),
+        )
+    }
 
-        val query = _searchQuery.value
+    /**
+     * D-290: the pure filter+sort pipeline shared by [loadLibraryImpl] (single
+     * emission) and [applyFilters] (query/sort changes). No state writes —
+     * callers decide what to emit.
+     */
+    private fun filterAndSort(
+        entries: List<LibraryEntry>,
+        query: String,
+        sortType: LibrarySortType,
+        ascending: Boolean,
+    ): List<LibraryEntry> {
+        var filtered = entries
+
         if (query.isNotBlank()) {
             filtered = filtered.filter { it.title.contains(query, ignoreCase = true) }
         }
 
-        filtered = when (_sortType.value) {
-            LibrarySortType.TITLE -> if (_sortAscending.value) {
+        filtered = when (sortType) {
+            LibrarySortType.TITLE -> if (ascending) {
                 filtered.sortedBy { it.title.lowercase() }
             } else {
                 filtered.sortedByDescending { it.title.lowercase() }
             }
-            LibrarySortType.SCORE -> if (_sortAscending.value) {
+            LibrarySortType.SCORE -> if (ascending) {
                 filtered.sortedBy { it.averageScore ?: 0 }
             } else {
                 filtered.sortedByDescending { it.averageScore ?: 0 }
             }
-            LibrarySortType.DATE_ADDED -> if (_sortAscending.value) {
+            LibrarySortType.DATE_ADDED -> if (ascending) {
                 filtered.asReversed()
             } else {
                 filtered
             }
             // D-268: LAST_WATCHED — was a no-op stub; now sorts by last_watched_at.
             // ascending = oldest-watched first; descending = most-recent first.
-            LibrarySortType.LAST_WATCHED -> if (_sortAscending.value) {
+            LibrarySortType.LAST_WATCHED -> if (ascending) {
                 filtered.sortedBy { it.lastWatchedAt ?: 0L }
             } else {
                 filtered.sortedByDescending { it.lastWatchedAt ?: 0L }
             }
             // D-268: BEHIND — caught-up (unwatchedCount 0) at top, behind (positive) at bottom.
             // ascending = caught-up first; descending = behind first.
-            LibrarySortType.BEHIND -> if (_sortAscending.value) {
+            LibrarySortType.BEHIND -> if (ascending) {
                 filtered.sortedWith(
                     compareBy<LibraryEntry> { it.unwatchedCount ?: 0 }
                         .thenBy { it.title.lowercase() }
@@ -917,14 +1029,14 @@ class LibraryViewModel(
                 )
             }
             // D-268: SEASON_YEAR — ascending = oldest year first; descending = newest first.
-            LibrarySortType.SEASON_YEAR -> if (_sortAscending.value) {
+            LibrarySortType.SEASON_YEAR -> if (ascending) {
                 filtered.sortedBy { it.seasonYear ?: 0 }
             } else {
                 filtered.sortedByDescending { it.seasonYear ?: 0 }
             }
         }
 
-        _state.value = LibraryState.Success(filtered)
+        return filtered
     }
 }
 

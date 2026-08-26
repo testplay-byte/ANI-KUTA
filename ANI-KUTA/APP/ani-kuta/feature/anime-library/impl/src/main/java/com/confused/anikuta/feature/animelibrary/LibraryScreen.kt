@@ -36,11 +36,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -81,9 +80,11 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -115,6 +116,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.bitmapConfig
 import coil3.request.crossfade
@@ -131,9 +133,11 @@ import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.LocalHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import org.koin.compose.viewmodel.koinViewModel
+import kotlin.math.abs
 
 /**
  * Library screen — the user's personal anime collection.
@@ -171,19 +175,94 @@ import org.koin.compose.viewmodel.koinViewModel
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
  * All text uses fontFamily = RobotoFamily; titles/labels use FontWeight.ExtraBold.
  */
+// ── D-291: reveal-once cover animation infrastructure ─────────────────────
+
+/**
+ * D-291: the reveal-once animation context threaded from the screen down to
+ * every [LibraryCoverImage] cell.
+ *
+ * Device feedback on v0.2.55: "the loading of the images is not smooth. All
+ * the images just outright jump into it … I wanted a smoother experience for
+ * the images to come into view, like they would all show up one by one with a
+ * smoother animation … The speed of them will be faster as the users scroll
+ * faster … if I scroll to the very bottom and then back to the very top it
+ * should not be loading any images."
+ *
+ * - [velocity] — 0f (idle) … 1f (fast fling); sampled NON-reactively when a
+ *   load completes, so a fast scroll yields snappy ~70ms fades and a calm
+ *   view yields gentle ~240ms fades (reading it inside the cell would
+ *   recompose every cell on every scroll frame — exactly the jank D-287
+ *   removed).
+ * - [isRevealed] / [markRevealed] — the once-only gate (backed by the VM's
+ *   revealedCoverKeys, which survives tab switches and is cleared only by
+ *   pull-to-refresh).
+ */
+internal class CoverRevealController(
+    val velocity: State<Float>,
+    val isRevealed: (String) -> Boolean,
+    val markRevealed: (String) -> Unit,
+)
+
+/**
+ * D-291: tracks how fast the library is scrolling (0f idle … 1f hard fling).
+ *
+ * [position] returns a coarse scroll signal (firstVisibleItemIndex * 4096 +
+ * firstVisibleItemScrollOffset — the multiplier just keeps the index term
+ * dominant). The signal feeds an EMA speed estimate; a 150ms decay loop fades
+ * the factor back to idle after scrolling stops, so covers that finish
+ * loading AFTER a fling ends still get the calm (slow) fade — "if the user
+ * jumps into some area directly then it will slow down that area smoothly".
+ */
+@Composable
+private fun rememberScrollVelocityFactor(position: () -> Int): State<Float> {
+    val factor = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(position) {
+        var lastSignal = position()
+        var lastTime = 0L
+        snapshotFlow { position() }.collect { signal ->
+            val now = System.nanoTime()
+            if (lastTime == 0L) {
+                lastTime = now
+                lastSignal = signal
+                return@collect
+            }
+            val dtMs = (now - lastTime) / 1_000_000f
+            if (dtMs >= 1f && signal != lastSignal) {
+                // signal-units per ms; ~3/ms reads as a hard fling.
+                val speed = abs(signal - lastSignal) / dtMs
+                val instant = (speed / 3.0f).coerceIn(0f, 1f)
+                factor.floatValue = factor.floatValue * 0.4f + instant * 0.6f
+                lastSignal = signal
+                lastTime = now
+            }
+        }
+    }
+    // Decay toward idle when no scroll signals arrive (scroll stopped).
+    LaunchedEffect(position) {
+        while (true) {
+            delay(150)
+            if (factor.floatValue > 0.01f) {
+                factor.floatValue *= 0.5f
+            }
+        }
+    }
+    return factor
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     onNavigateToDetails: (LibraryEntry) -> Unit,
     viewModel: LibraryViewModel = koinViewModel(),
 ) {
-    // D-140: live reload on resume — when the user navigates back to the
+    // D-140/D-290: live reload on resume — when the user navigates back to the
     // library (e.g. after bookmarking from the details page), the list should
     // refresh. LaunchedEffect(Unit) runs once per composition entering the
     // back stack entry (i.e. each time the screen becomes visible again).
-    // D-141: still calls loadLibrary() (NOT reloadFromCache) on resume so the
-    // user gets fresh AniList data; tab switches go through selectCategory
-    // which uses reloadFromCache internally (no network).
+    // With D-290's SINGLE-emission loads + structural-equality conflation, an
+    // unchanged library produces an equal Success state that StateFlow DROPS —
+    // the resume refresh is now truly invisible (no grid teardown, no flash,
+    // no scroll disturbance), while genuinely changed data still swaps in.
     LaunchedEffect(Unit) {
         viewModel.loadLibrary()
     }
@@ -259,6 +338,39 @@ fun LibraryScreen(
     // exactly where the user left it.
     val gridState = viewModel.gridState
     val listState = viewModel.listState
+
+    // D-291: scroll-velocity tracker feeding the reveal-once cover fades.
+    // The position signal follows whichever list is actually on screen
+    // (comfortable masonry / list / grid). remember(displayMode) keeps the
+    // lambda identity STABLE between recompositions (a fresh lambda every
+    // recomposition would restart the tracker's LaunchedEffects), while still
+    // switching signals when the display mode changes.
+    val revealPositionSignal = remember(displayMode) {
+        when (displayMode) {
+            LibraryDisplayMode.COMFORTABLE_GRID -> ({
+                viewModel.staggeredState.firstVisibleItemIndex * 4096 +
+                    viewModel.staggeredState.firstVisibleItemScrollOffset
+            })
+            LibraryDisplayMode.LIST -> ({
+                viewModel.listState.firstVisibleItemIndex * 4096 +
+                    viewModel.listState.firstVisibleItemScrollOffset
+            })
+            else -> ({
+                viewModel.gridState.firstVisibleItemIndex * 4096 +
+                    viewModel.gridState.firstVisibleItemScrollOffset
+            })
+        }
+    }
+    val revealVelocity = rememberScrollVelocityFactor(position = revealPositionSignal)
+    // D-291: one shared controller threaded to every cover cell (see
+    // [CoverRevealController]).
+    val revealController = remember(viewModel) {
+        CoverRevealController(
+            velocity = revealVelocity,
+            isRevealed = { viewModel.isCoverRevealed(it) },
+            markRevealed = { viewModel.markCoverRevealed(it) },
+        )
+    }
 
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -597,6 +709,8 @@ fun LibraryScreen(
                             LibraryGrid(
                                 entries = s.entries,
                                 gridState = gridState,
+                                staggeredState = viewModel.staggeredState,
+                                reveal = revealController,
                                 columns = columns,
                                 titleLines = titleLines,
                                 isSelectionMode = isSelectionMode,
@@ -621,6 +735,7 @@ fun LibraryScreen(
                             LibraryList(
                                 entries = s.entries,
                                 listState = listState,
+                                reveal = revealController,
                                 titleLines = titleLines,
                                 isSelectionMode = isSelectionMode,
                                 selectedMainIds = selectedMainIds,
@@ -2532,6 +2647,8 @@ private fun SectionSeparator(title: String) {
 private fun LibraryGrid(
     entries: List<LibraryEntry>,
     gridState: LazyGridState,
+    staggeredState: LazyStaggeredGridState,
+    reveal: CoverRevealController?,
     columns: Int,
     titleLines: Int,
     isSelectionMode: Boolean,
@@ -2555,8 +2672,9 @@ private fun LibraryGrid(
     // D-242-fix21: Comfortable grid uses LazyVerticalStaggeredGrid (masonry
     // layout) so items in a column can have different heights (shorter items
     // don't force taller items to have gaps). All other modes use LazyVerticalGrid.
+    // D-290: staggeredState is VM-held (survives tab switches) — was
+    // rememberLazyStaggeredGridState() which died with the composable.
     if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
-        val staggeredState = rememberLazyStaggeredGridState()
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(columns.coerceIn(2, 5)),
             state = staggeredState,
@@ -2573,6 +2691,7 @@ private fun LibraryGrid(
             staggeredItems(entries, key = { it.mainId }, contentType = { "card" }) { item ->
                 LibraryGridCard(
                     anime = item,
+                    reveal = reveal,
                     titleLines = titleLines,
                     isSelectionMode = isSelectionMode,
                     isSelected = item.mainId in selectedMainIds,
@@ -2622,6 +2741,7 @@ private fun LibraryGrid(
             items(entries, key = { it.mainId }, contentType = { "card" }) { item ->
                 LibraryGridCard(
                     anime = item,
+                    reveal = reveal,
                     titleLines = titleLines,
                     isSelectionMode = isSelectionMode,
                     isSelected = item.mainId in selectedMainIds,
@@ -2646,28 +2766,35 @@ private fun LibraryGrid(
 }
 
 /**
- * D-287: Library cover AsyncImage with a scroll-tuned Coil request.
+ * D-287 + D-291: Library cover AsyncImage with a scroll-tuned Coil request and
+ * a REVEAL-ONCE fade-in animation.
  *
- * Device feedback on v0.2.54 (653-item "All" grid): 5-column scrolling janks
- * when many images load at once, fast scroll outruns the loads, and scrolling
- * back to the top re-loads covers that had already been on screen. Two request
- * tweaks address the root causes:
+ * D-287 kept two request tweaks from the v0.2.54 scroll-perf work:
+ * 1. **`crossfade(false)`** — the underlying Coil request never animates; the
+ *    reveal-once system below owns ALL animation (one fade per cover, first
+ *    load only — no per-cell crossfades re-running on every scroll-back).
+ * 2. **`bitmapConfig(RGB_565)`** — 2 bytes/pixel halves each cover's memory
+ *    cache footprint, so a 653-cover "All" grid stops evicting itself during a
+ *    full scroll; scroll-back hits the memory cache instead of re-decoding.
  *
- * 1. **`crossfade(false)`** — overrides the ImageLoader's global crossfade for
- *    grid/list cells. The 100ms opacity animation ran per cell during fast
- *    scroll (5-column mode = 10+ concurrent fades = extra invalidation frames
- *    every ~100ms) and re-faded every cover on scroll-back cache repopulation,
- *    making the disk-cache re-decode read as a full re-load. Hero/detail images
- *    keep the crossfade — only dense grid cells opt out.
- * 2. **`bitmapConfig(RGB_565)`** — 2 bytes/pixel instead of ARGB_8888's 4:
- *    halves each cover's footprint in Coil's memory cache (25% of app memory),
- *    so a 653-cover "All" grid stops evicting itself during a full scroll —
- *    scroll-back hits the memory cache instead of re-decoding from disk.
- *    Covers are opaque (alpha channel unused — ContentScale.Crop fills the
- *    cell), and at thumbnail scale RGB_565's banding is imperceptible.
- *
- * Progressive loading during scroll is UNCHANGED (user-approved) — cells still
- * fill in as they decode; they just don't animate or evict as aggressively.
+ * D-291 (device feedback on v0.2.55: "All the images just outright jump into
+ * it … show up one by one with a smoother animation … faster as the users
+ * scroll faster … if previously loaded then no need to reload"):
+ * - **Reveal-once gate** — [CoverRevealController.isRevealed] (VM-backed set
+ *   that survives tab switches; cleared only by pull-to-refresh). An
+ *   unrevealed cover starts at alpha 0 and fades in when its load succeeds.
+ *   A revealed cover renders at full alpha INSTANTLY — scroll-back and
+ *   tab-return are smooth sailing, no re-animation, exactly "progressive
+ *   loading should only work if they were not loaded".
+ * - **Velocity-adaptive duration** — the fade duration is sampled from the
+ *   screen-level scroll-velocity factor at the moment the load completes
+ *   (non-reactive read — no per-cell recomposition on scroll frames): ~240ms
+ *   when calm, ~70ms during a hard fling.
+ * - **Draw-phase animation** — the fade alpha is read inside a
+ *   `graphicsLayer { }` block, so animating it only re-DRAWS the cell; the
+ *   cell (and its 5-column neighbors) never recompose during the fade.
+ * - **Soft placeholder** — a low-alpha surfaceVariant tint sits behind the
+ *   image so an unrevealed cover reads as "reserved space", not a black hole.
  */
 @Composable
 private fun LibraryCoverImage(
@@ -2675,6 +2802,8 @@ private fun LibraryCoverImage(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    revealKey: String? = null,
+    reveal: CoverRevealController? = null,
 ) {
     val context = LocalContext.current
     val request = remember(url, context) {
@@ -2684,17 +2813,62 @@ private fun LibraryCoverImage(
             .bitmapConfig(Bitmap.Config.RGB_565)
             .build()
     }
-    AsyncImage(
-        model = request,
-        contentDescription = contentDescription,
-        contentScale = contentScale,
-        modifier = modifier,
+
+    // ── D-291: reveal-once state ──
+    // Initially revealed (alpha 1, instant) unless a controller + key say this
+    // cover has never been revealed. Both states are remembered per key so a
+    // cell that scrolls away mid-load and comes back keeps its promise.
+    val hasReveal = revealKey != null && reveal != null
+    var revealed by remember(revealKey) {
+        mutableStateOf(if (hasReveal) reveal!!.isRevealed(revealKey!!) else true)
+    }
+    var fadeDurationMs by remember(revealKey) { mutableStateOf(220) }
+    // Target alpha: 0 until first load success (or 1 immediately when already
+    // revealed / no reveal controller). The animate*AsState spec is rebuilt
+    // when fadeDurationMs changes, which only happens at reveal time — the
+    // tween the fade actually runs with is the one sampled below in onState.
+    val revealAlpha = animateFloatAsState(
+        targetValue = if (revealed) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = fadeDurationMs,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "coverReveal",
     )
+
+    Box(
+        modifier = modifier.background(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        ),
+    ) {
+        AsyncImage(
+            model = request,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            onState = { state ->
+                if (state is AsyncImagePainter.State.Success && hasReveal && !revealed) {
+                    // Sample the scroll velocity NON-reactively right now and
+                    // map it to the fade duration: calm ≈ 240ms, fling ≈ 70ms.
+                    fadeDurationMs = (240 - 170 * reveal!!.velocity.value)
+                        .toInt()
+                        .coerceIn(70, 240)
+                    reveal!!.markRevealed(revealKey!!)
+                    revealed = true
+                }
+            },
+            // Draw-phase alpha read: animating the fade re-draws ONLY this
+            // cell's layer — zero recomposition churn in the grid.
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = revealAlpha.value },
+        )
+    }
 }
 
 @Composable
 private fun LibraryGridCard(
     anime: LibraryEntry,
+    reveal: CoverRevealController? = null,
     titleLines: Int,
     isSelectionMode: Boolean,
     isSelected: Boolean,
@@ -2805,6 +2979,8 @@ private fun LibraryGridCard(
                 LibraryCoverImage(
                     url = anime.coverUrl,
                     contentDescription = anime.title,
+                    revealKey = anime.coverUrl,
+                    reveal = reveal,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(cardShape),
@@ -2942,6 +3118,8 @@ private fun LibraryGridCard(
             LibraryCoverImage(
                 url = anime.coverUrl,
                 contentDescription = anime.title,
+                revealKey = anime.coverUrl,
+                reveal = reveal,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
@@ -3122,6 +3300,7 @@ private data class ListDetailTag(val text: String, val container: Color, val con
 private fun LibraryList(
     entries: List<LibraryEntry>,
     listState: LazyListState,
+    reveal: CoverRevealController? = null,
     titleLines: Int,
     isSelectionMode: Boolean,
     selectedMainIds: Set<String>,
@@ -3152,6 +3331,7 @@ private fun LibraryList(
         items(entries, key = { it.mainId }, contentType = { "row" }) { item ->
             LibraryListRow(
                 anime = item,
+                reveal = reveal,
                 isSelectionMode = isSelectionMode,
                 isSelected = item.mainId in selectedMainIds,
                 onClick = onClickEntry,
@@ -3183,6 +3363,7 @@ private fun LibraryList(
 @Composable
 private fun LibraryListRow(
     anime: LibraryEntry,
+    reveal: CoverRevealController? = null,
     isSelectionMode: Boolean,
     isSelected: Boolean,
     onClick: (LibraryEntry) -> Unit,
@@ -3311,6 +3492,8 @@ private fun LibraryListRow(
             LibraryCoverImage(
                 url = anime.coverUrl,
                 contentDescription = anime.title,
+                revealKey = anime.coverUrl,
+                reveal = reveal,
                 modifier = Modifier
                     .width(listDensity.coverWidth.dp)
                     .height(listDensity.coverHeight.dp)
