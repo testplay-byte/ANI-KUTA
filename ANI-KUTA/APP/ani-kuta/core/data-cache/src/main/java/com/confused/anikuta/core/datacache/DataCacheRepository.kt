@@ -141,7 +141,7 @@ class DataCacheRepository(
             for (row in episodeRows) {
                 val audio = parseAudioAvailability(
                     scanlator = row.scanlator,
-                    sourceName = row.source_name ?: row.title ?: "",
+                    episodeName = row.source_name ?: row.title ?: "",
                 )
                 if (audio.hasSub) { hasSub = true; subCount++ }
                 if (audio.hasDub) { hasDub = true; dubCount++ }

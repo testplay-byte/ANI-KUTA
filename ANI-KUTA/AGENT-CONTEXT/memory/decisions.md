@@ -2126,3 +2126,89 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Version:** AndroidConfig 0.2.53 → **0.2.54** (versionCode 54) with the D-277..D-279 batch; annotated tag `v0.2.54` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.54.apk`, --latest) so a v0.2.53 install updates in-app.
 - **Status:** ✅ Implemented. Release verification pending CI green.
 - **Date:** 2026-08-26.
+
+---
+
+### D-281 — CORE_RULES §8 rewritten: CI-first compile verification (no sub-agent pre-review)
+- **What (user):** "Utilizing sub-agents to find the compile errors is not a great option… You can directly build it using GitHub Actions and if it fails you can analyze the errors there. You most specifically do not need to utilize sub-agents to review it."
+- **Change (workflow docs only — zero app code):** CORE_RULES.md §8, SESSION.md task loop, and workflow.md Steps 7/8 + the non-negotiable rules list all updated: the sub-agent compile-review step is REMOVED as a workflow stage. The loop is now **write → push → GitHub Actions builds the APK → read the results/annotations via the GitHub API → fix → repeat.** CI is the compiler of record. Plan-review sub-agents (logic-level review BEFORE implementation) remain allowed; only the post-implementation compile-review pass is gone.
+- **Rationale:** the sub-agent pre-review added latency + was strictly weaker than the actual compiler — CI catches everything the review would (and nothing it wouldn't). Validated the same session: run 32977933759 caught a real compile error (D-284's vararg misuse) in ~3 min; the fix (f7740b0) went green on the next run.
+- **Files:** CORE_RULES.md, SESSION.md, workflow.md (AGENT-CONTEXT).
+- **Status:** ✅ Implemented (commit 93534f6, part of the CI-green f7740b0 push).
+- **Date:** 2026-08-26.
+
+---
+
+### D-282 — Tab memory excludes More + Search (cold start lands on Browse/Library only)
+- **What (user):** "When I close the app on the More section and reopen it, it should open on Browse or Library — the tab memory should not work on the More section… it also should not work on the Search section."
+- **Fix (MainActivity.kt — AppRoot):**
+  1. **Read site:** `startTab = appPreferences.lastTab.takeIf { it == "browse" || it == "library" } ?: "browse"` — cold start restores ONLY Browse/Library; a legacy persisted "more"/"search" value (D-267 persisted all four) sanitizes to Browse.
+  2. **Write site:** `onSelect` persists ONLY `"browse"`/`"library"` — More + Search are session-scoped by design. The pref keeps the last VALID tab, so Browse → More → close → reopen restores Browse.
+  3. **Backstack initialKey:** the `"search" → AnimeSearchKey` / `"more" → MoreKey` mappings removed (unreachable now).
+- **Behavior:** close on More/Search → reopen lands on the last main tab; close on Browse/Library → reopens there.
+- **Files:** MainActivity.kt.
+- **Status:** ✅ Implemented (commit d5625d1, CI GREEN on f7740b0).
+- **Date:** 2026-08-26.
+
+---
+
+### D-283 — Browse hero height reduction (card 1.2:1 → 1.4:1)
+- **What (user, device test on v0.2.54):** "Its height is apparently a bit more than what I hoped for… the bottom section below the banner is way too much" — the banner itself displayed correctly (D-277's Fit fix confirmed working), but the card was too tall overall.
+- **Fix (BrowseHero.kt):** `HERO_CARD_RATIO` 1.2f → **1.4f** (width:height) — the card is ~15% shorter and the below-banner content zone shrinks ~25%. A ~3:1 AniList banner now occupies the top ~47% of the card. Poster 84×126 → **76×114** to fit the shorter card. All pager pages share the ratio (pager height never jumps between banners of differing aspect). The poster (76×114 + 12dp bottom padding) may overlap the banner's feathered bottom edge by a few dp on narrower banners — the classic cinematic overlap; the banner is still fully rendered (Fit, never cropped).
+- **Files:** BrowseHero.kt.
+- **Status:** ✅ Implemented (commit 4356b5a; compile fix f7740b0 CI GREEN).
+- **Date:** 2026-08-26.
+
+---
+
+### D-284 — Browse hero 6-color palette gradient + dark veil
+- **What (user):** "Don't use a simple solid color but utilize a smooth darker kind of gradient. Utilize maybe five or six colors from the cover image and utilize them to create a smooth blended gradient effect… On top of that gradient effect, apply a slightly blurred dark effect."
+- **Fix:**
+  1. **`CoverColorExtractor.extractGradientColors`** (new pipeline, ~90 lines): loads the shared 100×100 swatch bitmap (Coil memory-cache dedupes vs `extract`), collects Palette's named swatches (dominant/vibrant/dark-light vibrant/muted/dark-light muted — topped up with population-ranked swatches when < 6 named), darkens each into a cinematic HSL band (L∈[0.16, 0.42], S∈[0.25, 0.85] — the "smooth darker" feel), sorts light→dark (monotonic luminance = smooth vertical ramp), merges near-duplicate stops (RGB distance < 48), resamples to EXACTLY 6 evenly-spaced stops via piecewise lerp — narrow palettes (grayscale/flat covers) get synthesized intermediates so the ramp is ALWAYS 6 steps.
+  2. **`rememberCoverGradientColors`** (new composable in `:core:designsystem` — CoverAccentColor.kt): produceState wrapper, same self-contained no-Koin pattern as D-277's `rememberCoverDominantColor`.
+  3. **HeroCard gradient (BrowseHero.kt):** explicit-position stops — `[0 → Transparent, BANNER_FEATHER_END=0.42 → Transparent]` over the banner (it reads fully), feathered junction, then the 6 palette colors blended to the bottom; base `background(ramp[0])`. Fallback (null extraction): surfaceVariant darkened in 6 steps.
+  4. **Dark veil:** soft black gradient (0.04 → 0.10 → 0.32 alpha) layered OVER the ramp — the "slightly blurred dark effect". A literal `Modifier.blur()` on a smooth vertical gradient is a visual no-op (no horizontal variance to smear) — documented in KDoc; the veil also guarantees white-text contrast on any cover palette.
+  5. **Compile fix (f7740b0):** CI run 32977933759 caught `Brush.verticalGradient(colorStops = List<Pair<Float,Color>>)` — the param is a VARARG. Fixed with spread operators (`*gradientStops.toTypedArray()`, `*arrayOf(...)`). The new §8 loop's first catch.
+- **Files:** CoverColorExtractor.kt, CoverAccentColor.kt (new), BrowseHero.kt.
+- **Status:** ✅ Implemented (commit 4356b5a + fix f7740b0, CI GREEN).
+- **Date:** 2026-08-26.
+
+---
+
+### D-285 — Library batch loader (N+1 + main-thread freeze fix)
+- **What (user):** "Switching from Browse to Library, the whole page reloads… The 'All' section is the worst — 653 entries take 4-5 seconds to display."
+- **Root causes (both found by reading the code):**
+  1. **N+1 queries:** the entry-building loop issued `getMainEntryByMainId` + `getContentDetails` per entry, and `enrichEntriesWithBadgeData` issued `getEpisodeMetadata` + `getWatchedEpisodeCount` + `getLastWatchedAt` per entry — **~5 queries × 653 entries ≈ 3,300 queries** per load.
+  2. **ALL on the main thread:** `viewModelScope.launch` dispatches on `Main.immediate`; there was ZERO `withContext` in the ViewModel — the UI froze for the entire 4-5s load.
+- **Fix — the load is now 7 queries total, assembled in memory, on `Dispatchers.Default`:**
+  - **Batch queries (additive named queries — NO schema changes, §"don't touch the DB structure" honored):** `getAllWatchedCounts` + `getAllLastWatchedAt` (watch.sq — GROUP BY main_id), `getAllEpisodeAudioRows` (dataCache.sq — only the 4 columns the audio parser + counter need), `getAllLibraryMainEntries` (content.sq — main_entry JOIN deduped library_item subquery, added_at DESC order preserved). `getAllLibraryItems` + `getAllContentDetails` already existed — REUSED (my first push added duplicates; CI run 32979727730 failed with "Duplicate SQL identifier" — the §8 loop caught it; fix 0809551 removed the duplicates; the pre-existing queries return the same columns so the Kotlin mappers compile unchanged).
+  - **Repository/store batch methods:** `ContentRepository.getAllLibraryItems()→List<LibraryItemRecord>` (new lightweight model) + `getAllLibraryContentRecords()` + `getAllContentDetailsMap()`; `WatchProgressStore.getAllWatchedCounts()/getAllLastWatchedAt()` (+ SqlDelight impls); `DataCacheRepository.getAllEpisodeAudioAggregates()→Map<mainId, EpisodeAudioAggregates>` (new model — released count + audio flags + per-type counts, same parseAudioAvailability semantics as the old loop).
+  - **`loadLibraryImpl` rewritten:** categories (1) + library items (1) → category filter + per-category counts + total IN MEMORY; main entries (1) + content details (1) → in-memory join; enrich (3 batch maps). `reloadFromCache` now delegates to it (was a duplicated ~90-line per-entry loop).
+  - **Honest finding:** the old "fetch AniList on miss" branch was UNREACHABLE dead code — `anilistId != null` requires `dataSourceType == "anilist"` which implies `hasDataSourceLink == true` which always took the cached branch first. Removed rather than mirrored; entries with no data link have no stored AniList ID to fetch with anyway.
+  - **Side fix:** category-filtered mainIds now preserve added_at DESC order (the old `getMainIdsByCategory` had no ORDER BY → the DATE_ADDED sort was inconsistent between All and category views).
+- **Files:** watch.sq, dataCache.sq, content.sq, library.sq (comments only), WatchProgressStore.kt, SqlDelightWatchProgressStore.kt, DataCacheRepository.kt, DataCacheModels.kt, ContentRepository.kt, ContentModels.kt, LibraryViewModel.kt.
+- **Status:** ✅ Implemented (commits 1e963f3 + 0809551; CI on 0809551 pending at doc time).
+- **Date:** 2026-08-26.
+
+---
+
+### D-286 — Library instant tab switch (state retention + scroll position)
+- **What (user):** "The page should already be cached and displayed instantaneously" when switching tabs.
+- **Fix (LibraryViewModel + LibraryScreen):**
+  1. **No more Loading flash:** `loadLibrary()` checks `_state.value is LibraryState.Success` — if the grid is already on screen it stays there while the (now-fast, batched) reload runs silently in the background and swaps the result in. The old unconditional `_state.value = LibraryState.Loading` tore the whole grid down on EVERY tab switch (LaunchedEffect fires loadLibrary on every re-entry into composition).
+  2. **Scroll position survives:** `gridState`/`listState` moved into the Activity-scoped ViewModel (`LazyGridState()`/`LazyListState()` constructed outside composition — standard pattern). The old `rememberLazyGridState()` died with the composable when the user left the Library tab, snapping the grid back to the top on every return — part of the "whole page reloads" feel. Coming back now shows the list exactly where the user left it.
+- **Files:** LibraryViewModel.kt, LibraryScreen.kt.
+- **Status:** ✅ Implemented (commit 1e963f3; CI on 0809551 pending at doc time).
+- **Date:** 2026-08-26.
+
+---
+
+### D-287 — Grid scroll performance (5-column smoothness + scroll-back re-loads)
+- **What (user):** "In the 5-column mode, the scrolling is not very smooth because it needs to load a lot of images… fast scrolling jitters… when I scroll to the bottom and then scroll back to the top, the images load again." (Progressive loading during forward scroll is approved behavior — keep it.)
+- **Fix — new `LibraryCoverImage` composable replacing all 3 cover AsyncImage sites (comfortable grid, compact/cover-only grid, list rows):**
+  1. **`crossfade(false)` per cell:** overrides the ImageLoader's global crossfade for dense grid/list cells only (hero/detail images keep it). The 100ms opacity animation ran per cell during fast 5-column scroll (10+ concurrent fades = extra invalidation frames) and re-faded every cover on scroll-back cache repopulation — making the disk re-decode read as a full re-load.
+  2. **`bitmapConfig(Bitmap.Config.RGB_565)`:** 2 bytes/pixel instead of ARGB_8888's 4 — halves each cover's footprint in Coil's memory cache (25% of app memory), so a 653-cover "All" grid stops evicting itself mid-scroll; scroll-back now hits the memory cache instead of re-decoding from disk. Covers are opaque (alpha unused — Crop fills the cell) and at thumbnail scale RGB_565 banding is imperceptible.
+  - Request built once per URL via `remember(url, context)`; progressive loading UNCHANGED.
+- **Files:** LibraryScreen.kt.
+- **Status:** ✅ Implemented (commit 1e963f3; CI on 0809551 pending at doc time).
+- **Date:** 2026-08-26.
