@@ -33,11 +33,10 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.designsystem.color.rememberCoverDominantColor
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -56,57 +56,59 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /**
- * D-257 / D-262 / D-275: Browse hero v3 — a padded, rounded, cinematic banner card
- * (evolution of D-256 after device feedback: the hero "looks way too ugly,
- * like a rigid kind of format", the banner felt "forced into a square vibe",
- * and the auto-scroll wraparound was "not smooth, not animated").
+ * D-277: Browse hero v4 — full uncropped banner + palette-gradient content zone.
  *
- * Changes vs D-256 (D-257) + device-feedback batch #2 (D-262) + batch #5 (D-275):
- * - **Wider banner aspect**: the hero is an inset 16:9 card (16dp side
- *   margins, 20dp rounded corners, 1dp border — the standard card language)
- *   instead of a full-bleed ~1.2:1 block. 16:9 matches AniList's native banner
- *   ratio, so the artwork shows with minimal cropping.
- * - **Smooth auto-advance (infinite pager)**: the pager is virtually
- *   circular — `pageCount = size × 200`, starting at `size × 100` — so every
- *   auto-advance moves FORWARD exactly one page with a 600ms tween. The old
- *   wraparound scrolled backwards through all pages (the "ugly" glitch).
- *   D-262: the auto-advance loop is now restart-proof (a `while(true)` keyed
- *   on `(pagerState, virtualCount)` — NOT on `currentPage`, which flipped at
- *   the 50% scroll crossing and cancelled the animation mid-flight, leaving
- *   the pager stuck "between two banners" with no snap). CancellationException
- *   is caught → the nearest whole page is snapped so the card never rests
- *   misaligned. Dots read `settledPage` (change on settle, not mid-slide).
- * - **12s auto-advance** (D-262 device feedback: "should be doubled...
- *   maybe 12 seconds"). Was 6s.
- * - **Sharp banner + blurred-cover bottom strip** (D-275 device feedback:
- *   "the background banner is apparently blurred out way too much so it
- *   should not be blurred out at all" + "in the bottom empty area the
- *   blurred-out view of the cover image will show"). The backdrop is now a
- *   SHARP banner (Coil `AsyncImage`, no blur) filling the card, with a
- *   blurred COVER strip at the bottom — `Modifier.blur(8.dp).scale(1.15f)`,
- *   matching the details page exactly (same recipe as DetailsScreen.kt's
- *   banner blur). Scrim lightened (0.15/0/0/0.30/0.55) so the banner reads at
- *   top + the blurred cover reads at the bottom. The old D-262 CPU box-blur
- *   (`BlurredBannerBackdrop` + `boxBlur`) is REMOVED — no longer needed.
- * - Cover poster + banner layered as before (D-256 anatomy), rank pill,
- *   2-line title, score/eps/year meta and genre chips, page dots BELOW the
- *   card (centered — never collides with the text block on narrow screens).
+ * Replaces D-275's "16:9 cropped banner + blurred-cover strip", which the user
+ * found ugly on device:
+ * - the forced `aspectRatio(16f/9f)` + `ContentScale.Crop` discarded ~half of
+ *   AniList's natively ~3:1 banner (only the center horizontal band showed);
+ * - the "blurred cover bottom strip" (`Modifier.blur(8.dp).scale(1.15f)`)
+ *   had a hard rectangular seam against the sharp banner above AND sat directly
+ *   behind the foreground cover poster (visually redundant — same image twice).
+ *
+ * **New anatomy** (same 16dp inset / 20dp corners / 1dp border card language;
+ * ratio widened from 16:9 to `HERO_CARD_RATIO` = 1.2:1 so a full banner + a
+ * content zone both fit):
+ * - **Full banner, uncropped**: the banner renders with `ContentScale.Fit` +
+ *   `Alignment.TopCenter` so the WHOLE banner shows — no crop. AniList banners
+ *   (~3:1) occupy the top ~40% of the card; the remaining space is the gradient.
+ * - **Palette-derived gradient (NOT a blurred cover)**: the cover's dominant
+ *   color is extracted via [rememberCoverDominantColor] (Coil + AndroidX
+ *   Palette, DI-bound [com.confused.anikuta.core.designsystem.color.CoverColorExtractor]),
+ *   then darkened with [lerp] toward black for white-text contrast. The gradient
+ *   goes transparent (over the banner) → coverColor (junction) → darkCoverColor
+ *   (content zone). This is "colors of the cover image", not a blurred copy —
+ *   exactly what the user asked for.
+ * - **Smooth blend into the top banner**: the gradient's transparent zone
+ *   covers the banner's bottom ~45%, ramping to solid coverColor — so the
+ *   banner's bottom edge feathers into the solid color with no hard seam
+ *   (the details-page `DetailBanner` recipe adapted: its
+ *   `Brush.verticalGradient([Black@0.2, Transparent, background])` becomes
+ *   here `[Transparent, Transparent, coverColor, darkCoverColor]`).
+ * - If the banner URL is missing, the gradient alone forms the header
+ *   (coverColor top → darkCoverColor bottom) — still on-palette, still
+ *   cinematic. The foreground cover poster (Layer 3) still shows the cover.
+ *
+ * The pager mechanics (infinite virtual copies, 12s auto-advance, restart-proof
+ * loop, dots reading settledPage) are UNCHANGED from D-262 — only the card's
+ * internals were redone.
  *
  * ```
- * ┌─── 16dp ──────────────────────────────────┐
- * │ ╭───────────────────────────────────────╮ │      ← 16:9, 20dp corners, 1dp border
- * │ │  SHARP banner (top)                    │ │
- * │ │  ── blurred cover strip (bottom) ──     │ │      ← Modifier.blur(8.dp).scale(1.15f)
- * │ │ ┌────┐  #1 TRENDING                   │ │
- * │ │ │cover│  Title (18sp ExtraBold)       │ │
- * │ │ │2:3 │  ★ 85 · 24 eps · 2024          │ │
- * │ │ └────┘  [Action] [Comedy] [+2]        │ │
- * │ ╰───────────────────────────────────────╯ │
- * │                  ● ○ ○ ○ ○                │      ← dots below the card
- * └───────────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────┐  ← HERO_CARD_RATIO (1.2:1),
+ * │  ▓▓▓▓▓▓ FULL BANNER (Fit, TopCenter) ▓▓▓▓▓▓ │     20dp corners, 1dp border
+ * │  ░░░░░░ banner-bottom feather (transparent) ░│     — no crop, whole banner
+ * │ ┌────┐  #1 TRENDING                          │     coverColor→darkCoverColor
+ * │ │cover│  Title (18sp ExtraBold, white)      │     (dark = readable on any hue)
+ * │ │2:3 │  ★ 85 · 24 eps · 2024               │
+ * │ └────┘  [Action] [Comedy] [+2]               │
+ * └──────────────────────────────────────────────┘
  * ```
  *
  * A single hero item renders as the same card WITHOUT pager mechanics.
+ *
+ * History: D-256 (first hero) → D-257 (wider banner) → D-262 (smooth
+ * auto-advance) → D-275 (sharp banner + blurred-cover strip) → **D-277** (full
+ * uncropped banner + palette gradient — this version).
  */
 @Composable
 internal fun BrowseHero(
@@ -233,22 +235,25 @@ private fun HeroDot(active: Boolean) {
 }
 
 /**
- * A single hero card — sharp banner + blurred-cover bottom strip + scrim +
- * cover-and-text foreground (D-275).
+ * A single hero card — full uncropped banner + palette-gradient content zone
+ * (D-277).
  *
  * Layering (bottom → top render order):
- * 1. SHARP banner — `AsyncImage` filling the card (no blur; D-275 device
- *    feedback: "should not be blurred out at all"). Falls back to the cover
- *    when no banner URL.
- * 1.5. BLURRED COVER strip — `AsyncImage` at the bottom 140dp with
- *    `Modifier.blur(8.dp).scale(1.15f)` — matches the details-page blur
- *    EXACTLY (D-275 device feedback: "in the bottom empty area the
- *    blurred-out view of the cover image will show" + "the blur is exactly
- *    how it is implemented on the details page"). Fills the "empty area" the
- *    user saw (where the old heavy scrim occluded the blurred banner).
- * 2. Lightened gradient scrim (0.15/0/0/0.30/0.55) — banner reads at top +
- *    blurred cover reads at bottom; text still legible.
- * 3. Foreground Row — cover poster (84×126) + rank pill + title + meta + chips.
+ * 1. **Base + banner** — solid [coverColor] base (shows wherever the gradient
+ *    is transparent) + the full banner via `AsyncImage(ContentScale.Fit,
+ *    TopCenter)` (no crop). Skipped when no banner URL → gradient-only header.
+ * 2. **Palette gradient overlay** — `Brush.verticalGradient([Transparent,
+ *    Transparent, coverColor, darkCoverColor])`. The transparent zone lets the
+ *    banner read fully; the ramp to solid coverColor feathers the banner's
+ *    bottom into the solid color (no hard seam); the bottom darkCoverColor is
+ *    where the white text sits.
+ * 3. **Foreground Row** — cover poster (84×126) + rank pill + title + meta +
+ *    chips, bottom-aligned (on the dark zone).
+ *
+ * `coverColor` comes from [rememberCoverDominantColor] (extracted once per
+ * cover URL, cached by `produceState`'s key). `darkCoverColor` =
+ * `lerp(coverColor, Black, 0.55)` — guaranteed dark enough for white text on
+ * any extracted hue/lightness.
  */
 @Composable
 private fun HeroCard(
@@ -256,75 +261,63 @@ private fun HeroCard(
     rank: Int,
     onClick: () -> Unit,
 ) {
+    // D-277: extract the cover's dominant color for the gradient. Mid-tone,
+    // theme-agnostic (sat ≥ 0.40, lightness ∈ [0.40, 0.65]). Null on blank URL
+    // or extraction failure → fall back to a neutral surface color so the hero
+    // still renders (with a neutral gradient) rather than blanking out.
+    val coverColor = rememberCoverDominantColor(anime.coverUrl)
+        ?: MaterialTheme.colorScheme.surfaceVariant
+    // Darken the cover color for the gradient's solid bottom — guarantees
+    // white-text contrast regardless of the extracted hue/lightness. 0.55 blend
+    // toward black lands any mid-tone (lightness 0.40–0.65) at ~0.18–0.29 final
+    // lightness → comfortable white-on-color AA contrast.
+    val darkCoverColor = lerp(coverColor, Color.Black, 0.55f)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
+            .aspectRatio(HERO_CARD_RATIO)
             .clip(HeroCardShape)
+            .background(coverColor)
             .border(
                 BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
                 HeroCardShape,
             )
             .clickable(onClick = onClick),
     ) {
-        // ── Layer 1: SHARP banner backdrop (D-275 — un-blurred per device feedback
-        // "the background banner is apparently blurred out way too much so it
-        // should not be blurred out at all"; falls back to the cover when no
-        // banner). Fills the whole card so the top shows the sharp banner artwork. ──
-        if (!anime.bannerImage.isNullOrBlank() || !anime.coverUrl.isNullOrBlank()) {
+        // ── Layer 1: FULL banner (Fit + TopCenter — no crop, whole banner).
+        // AniList banners are ~3:1; at the card's width they occupy the top
+        // ~40% of the card. Fit guarantees no part of the banner is lost
+        // (the user's explicit "won't be cropped" requirement, D-277). ──
+        val bannerUrl = anime.bannerImage
+        if (!bannerUrl.isNullOrBlank()) {
             AsyncImage(
-                model = anime.bannerImage ?: anime.coverUrl,
+                model = bannerUrl,
                 contentDescription = anime.displayName,
-                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            // No banner + no cover → tinted surface fill (rare; e.g. placeholder items).
-            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
         }
 
-        // ── Layer 1.5: BLURRED COVER at the bottom strip (D-275 — "in the bottom
-        // empty area the blurred-out view of the cover image will show"). Matches
-        // the details-page blur EXACTLY: `Modifier.blur(8.dp) + scale(1.15f)` so the
-        // pan never reveals edges (same recipe as DetailsScreen.kt's banner). The
-        // bottom strip fills the "empty area" the user saw (where the heavy scrim
-        // occluded the blurred banner). Now it shows the cover artwork, blurred — a
-        // beautiful backdrop for the foreground cover poster + text. `Modifier.blur`
-        // uses RenderEffect on API 31+ (same as DetailsScreen); below 31 it's a
-        // no-op → the sharp cover shows (still better than the old empty dark strip).
-        // ──
-        if (!anime.coverUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = anime.coverUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(140.dp)
-                    .blur(8.dp)
-                    .scale(1.15f),
-            )
-        }
-
-        // ── Layer 2: bottom-heavy gradient scrim (D-275 — lightened so the sharp
-        // banner reads at the top + the blurred cover reads at the bottom; was
-        // 0.22/0/0/0.45/0.82 which occluded the cover entirely). A subtle top
-        // scrim keeps the card's top edge soft. ──
+        // ── Layer 2: palette gradient overlay — transparent over the banner,
+        // ramps to solid coverColor at the junction (the banner's bottom edge
+        // feathers into solid color → no hard seam), then to darkCoverColor at
+        // the bottom for white-text contrast. This is "gradient colors of the
+        // cover image", NOT a blurred copy of the cover (D-277 device feedback:
+        // "rather than being the bold version of the cover image"). ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.15f),
-                            Color.Transparent,
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.30f),
-                            Color.Black.copy(alpha = 0.55f),
+                            Color.Transparent,    // top — banner reads fully
+                            Color.Transparent,     // ~45% — still banner zone
+                            coverColor,            // ~55% junction — banner
+                                                   //  feathers into solid color
+                            darkCoverColor,        // bottom — solid dark (text zone)
                         ),
-                        startY = 0f,
-                        endY = Float.POSITIVE_INFINITY,
                     ),
                 ),
         )
@@ -345,7 +338,7 @@ private fun HeroCard(
                         BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
                         RoundedCornerShape(10.dp),
                     )
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    .background(Color.Black.copy(alpha = 0.25f)),
             ) {
                 if (anime.coverUrl != null) {
                     AsyncImage(
@@ -360,7 +353,7 @@ private fun HeroCard(
                         fontFamily = RobotoFamily,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White,
                         modifier = Modifier.align(Alignment.Center),
                     )
                 }
@@ -370,10 +363,11 @@ private fun HeroCard(
 
             // Text block.
             Column(modifier = Modifier.weight(1f)) {
-                // Rank pill — solid primary (D-215 EP-tag recipe). No emoji.
+                // Rank pill — translucent dark (matches the genre chips' language;
+                // sits on the dark gradient zone, readable on any cover hue).
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primary,
+                    color = Color.Black.copy(alpha = 0.45f),
                 ) {
                     Text(
                         text = "#$rank TRENDING",
@@ -381,7 +375,7 @@ private fun HeroCard(
                         fontSize = 10.sp,
                         lineHeight = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = Color.White,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         maxLines = 1,
                         softWrap = false,
@@ -389,7 +383,7 @@ private fun HeroCard(
                 }
                 Spacer(Modifier.height(6.dp))
                 // Title — 18sp ExtraBold, up to 2 lines (white: it always sits
-                // on the dark scrim, regardless of theme).
+                // on the dark gradient zone, regardless of theme).
                 Text(
                     text = anime.displayName,
                     fontFamily = RobotoFamily,
@@ -468,6 +462,14 @@ private fun HeroGenreChip(label: String, emphasized: Boolean = true) {
 
 /** The hero card's outer shape (20dp rounded — the standard card language). */
 private val HeroCardShape = RoundedCornerShape(20.dp)
+
+/**
+ * D-277: the hero card's width:height ratio (1.2:1 — cinematic, taller than the
+ * old 16:9 so a full banner + a content zone both fit). All pager pages share
+ * this ratio so the pager height never jumps between banners of differing
+ * aspect ratios.
+ */
+private const val HERO_CARD_RATIO = 1.2f
 
 // D-262: auto-advance interval doubled (was 6s) per device feedback
 // "should be doubled... maybe 12 seconds".
