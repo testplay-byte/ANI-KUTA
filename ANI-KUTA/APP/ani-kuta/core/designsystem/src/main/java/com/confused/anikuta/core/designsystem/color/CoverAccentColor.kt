@@ -62,3 +62,40 @@ fun rememberCoverDominantColor(coverUrl: String?): Color? {
     }
     return state.value
 }
+
+/**
+ * D-284: Compose-side accessor for the cover's multi-color gradient ramp.
+ *
+ * Wraps [CoverColorExtractor.extractGradientColors] in a [produceState] so a
+ * Composable can reactively receive 5–6 palette-derived colors ordered
+ * lightest → darkest — ready to feed a `Brush.verticalGradient` top → bottom.
+ * Re-extracts only when [coverUrl] changes; Coil's memory cache makes repeat
+ * reads instant.
+ *
+ * Returns `null` on blank URL, load failure, or when no swatches are available.
+ * Callers should provide a fallback ramp (e.g. a theme surface color darkened
+ * in steps) so the UI degrades gracefully rather than blanking out.
+ *
+ * **Where this is used:** the Browse hero's content-zone gradient (D-284 —
+ * user device feedback: "utilize maybe five or six colors from the cover image
+ * and utilize them to create a smooth blended gradient effect").
+ *
+ * CORE_RULES §20: extraction is logged under `CoverColorExtractor.TAG`.
+ */
+@Composable
+fun rememberCoverGradientColors(coverUrl: String?): List<Color>? {
+    val context = LocalContext.current
+    val extractor = remember { CoverColorExtractor(context, context.imageLoader) }
+    val key = coverUrl.orEmpty()
+    val state = produceState<List<Color>?>(initialValue = null, key) {
+        value = if (coverUrl.isNullOrBlank()) {
+            null
+        } else {
+            runCatching { extractor.extractGradientColors(coverUrl) }
+                .getOrNull()
+                ?.takeIf { it.isNotEmpty() }
+                ?.map { Color(it.toLong() and 0xFFFFFFFFL) }
+        }
+    }
+    return state.value
+}
