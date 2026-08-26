@@ -317,11 +317,12 @@ private fun HeroCard(
         // feathered junction into ramp[0], then the cover's palette colors blend
         // smoothly (light → dark) to the bottom. "Five or six colors from the
         // cover image … smooth blended gradient", NOT a blurred copy of the
-        // cover (D-284 device feedback). ──
+        // cover (D-284 device feedback).
+        // (verticalGradient's colorStops is a vararg — spread the built list.) ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(colorStops = gradientStops)),
+                .background(Brush.verticalGradient(*gradientStops.toTypedArray())),
         )
 
         // ── Layer 3: dark veil — the "slightly blurred dark effect" applied on
@@ -333,7 +334,7 @@ private fun HeroCard(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colorStops = listOf(
+                        *arrayOf(
                             0f to Color.Black.copy(alpha = 0.04f),
                             BANNER_FEATHER_END to Color.Black.copy(alpha = 0.10f),
                             1f to Color.Black.copy(alpha = 0.32f),
