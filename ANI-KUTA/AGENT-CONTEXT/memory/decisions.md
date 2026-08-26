@@ -2018,3 +2018,66 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **What:** AndroidConfig 0.2.51 → **0.2.52** (versionCode 52) with the D-266..D-270 device-feedback batch; annotated tag `v0.2.52` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.52.apk`, --latest) so a v0.2.51 install updates in-app. Dashboard version strings refreshed (full-stack-dev sub-agent, DASHBOARD/webpage/ only).
 - **Status:** ✅ Implemented. Release verification pending CI green.
 - **Date:** 2026-08-26.
+
+---
+
+### D-272 — :core:ads module (smart-link ad system architecture)
+- **What (user device feedback on v0.2.52 + new feature request):** "implement ad functionality. I want to be able to add multiple kinds of ads in my application for multiple things too, to get monetized... I am thinking about utilizing various techniques for getting monetized... like maybe utilizing smart links... create a full-fledged robust system for it... all of it should be customizable over an update. If the user downloads the latest, these settings of the ads will be updated alongside it. The user will not be given any option at all, most probably, to configure the ads... I want to keep it separate from the other parts of the application, making sure that it does not affect their functionality or such. I want it to be highly customizable and properly built... robust and not intrusive."
+- **Architecture (new `:core:ads` module, package `com.confused.anikuta.core.ads`):** An ISOLATED, EXTENSIBLE ad system. The module depends on `:core:common` (Logger), `:core:preferences` (PreferenceStore), `:core:designsystem` (theme for the interstitial UI) — deliberately does NOT depend on `:core:navigation-api` or any `:feature:*`. The coordinator gates a `() -> Unit` proceed-callback; the caller (AppRoot) decides what "proceed" means (e.g. `backstack.add(key)`). This keeps `:core:ads` fully decoupled (CORE_RULES §5/§7 + user's "keep it separate"). Files:
+  - `AdsConfig.kt` — `data class AdsConfig(enabled, activeKind, smartLink)` + `sealed interface AdKind { data object SmartLink; /* future: BannerAd, InterstitialVideo, NativeAd */ }` + `data class SmartLinkConfig(url, cooldownMs, minTimeOutsideMs, maxRetries)` + `object DefaultAdsConfig { val current = AdsConfig(...) }`. **The config ships in APK bytecode** — no user-facing setting, no remote config. To change the URL later: edit `SmartLinkConfig.url` here + ship a new release (CORE_RULES §5 exception: interface-with-one-impl OK when future swap is explicitly planned — the user said more ad kinds are coming).
+  - `AdPreferences.kt` — isolated `AdPreferences(preferenceStore: PreferenceStore)` with `var lastAdShownTimestamp: Long` (mirrors `AppUpdatePreferences` pattern; separate from `AppPreferences` per user's "keep it separate"). The cooldown survives cold starts (the user said "for the next six hours he will not see any ad at all").
+  - `AdsRepository.kt` — `interface AdsRepository` + `AdsRepositoryImpl(preferences)` — config holder + cooldown gate (`isInCooldown()`, `recordAdShown()`, `timeSinceLastAdMs()`, `remainingCooldownMs()`). Interface-bound for future remote-config swap.
+  - `AppLifecycleObserver.kt` — `DefaultLifecycleObserver` registered on `ProcessLifecycleOwner.get().lifecycle` (new `androidx.lifecycle:lifecycle-process` dependency — not previously used anywhere). Records ON_STOP timestamp + emits `onReturnToForeground: SharedFlow<Unit>` on ON_START (only if a prior ON_STOP). `elapsedOutsideMs()` measures the time spent outside. The §8 research sub-agent confirmed `:core:activity-tracker` is a batched SQLDelight event logger — NOT reusable for foreground/background tracking; this observer is purpose-built.
+  - `AdsModule.kt` (Koin) — registers `AdPreferences`, `AdsRepository`, `AppLifecycleObserver`, `AdsCoordinator`. Added `adsModule,` to `AnikutaApp.kt`'s `modules(...)` list.
+  - `build.gradle.kts` — `id("anikuta.library.compose")` (Compose for the interstitial) + deps on `:core:common`, `:core:preferences`, `:core:designsystem`, `androidx.lifecycle.process` (new), `androidx.lifecycle.runtime.compose`, koin, coroutines.
+  - `AndroidManifest.xml` — empty (no components).
+- **Cooldown:** `SmartLinkConfig.cooldownMs = 6 * 60 * 60 * 1000L` (6 hours, per user "one ad per every for six hours").
+- **Placeholder URL:** `SmartLinkConfig.url = "https://example.com/anikuta-sponsor"` — the user said "for the current temporary testing purposes you can use any random URL but later on I will tell you the URL." Change this single line + ship a new release to update.
+- **Extensibility:** The `AdKind` sealed interface is the extension point. Adding a new ad kind = add a `data object` + a `when` branch in the interstitial + (if needed) extend the coordinator. No DI changes. The user said "in the future I'm thinking about adding some other kinds of ads too."
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review sub-agent: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-273 — AdsCoordinator state machine + SmartLinkAdInterstitial UI
+- **What:** The brain + the UI of the ad system.
+- **AdsCoordinator.kt** — `class AdsCoordinator(repository, lifecycleObserver)` with `val state: StateFlow<AdGateState>` + `requestNavigation(proceed: () -> Unit): Boolean` + `onUserContinue(context)` + `onAppReturnedToForeground()` + `onTryAgain(context)` + `cancel()`. State machine: `sealed interface AdGateState { data object Idle; data object AdPending; data class AdInProgress(startedAt, retryCount); data class AdTryAgain(lastElapsedMs, retryCount) }`. Flow: Idle → (requestNavigation, not in cooldown) → AdPending → (onUserContinue opens browser) → AdInProgress → (onAppReturnedToForeground: elapsed ≥ minTime → complete+proceed+Idle; elapsed < min + retries < max → AdTryAgain; retries ≥ max → safety-cap complete). Back (Dialog dismiss) → `cancel()` drops the held proceed-callback (navigation aborted, no cooldown set — non-intrusive escape hatch per user). `completeAd()` records the ad + invokes proceed + sets Idle. Single Koin instance — concurrent `requestNavigation` while non-Idle is rejected (returns false). No-browser (ActivityNotFoundException) → fallback complete (don't trap the user).
+- **SmartLinkAdInterstitial.kt** — full-screen Compose `Dialog(properties = DialogProperties(usePlatformDefaultWidth=false, dismissOnBackPress=true, dismissOnClickOutside=false))`. 3 content states via `Crossfade`: AdPending (OpenInNew icon + "Sponsored" + "Continue" button + "Not now" TextButton), AdInProgress (CircularProgressIndicator + "Waiting for you to come back"), AdTryAgain (Refresh icon + "You came back after Xs" + "Try again" button + Cancel). `DisposableEffect` registers `AppLifecycleObserver` on ProcessLifecycleOwner while composed; `LaunchedEffect(state)` collects `onReturnToForeground` while AdInProgress → calls `coordinator.onAppReturnedToForeground()`. Rendered from `:app`'s AppRoot as a sibling of `UpdateBottomSheet`.
+- **Try-again flow (per user):** "If the user just clicks the button and he is redirected and then directly comes back, then what it will say is 'Try again'. After trying again it will open up and then the user can come back again." → `onAppReturnedToForeground` checks `lifecycleObserver.elapsedOutsideMs()` against `SmartLinkConfig.minTimeOutsideMs` (default 15s). `< minTime` → AdTryAgain state. User taps "Try again" → `onTryAgain` re-opens the URL → AdInProgress → loop until success or max-retries safety cap.
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-274 — Navigation interception in MainActivity.kt AppRoot
+- **What (user):** "for the ads I am thinking about showing them when the user clicks on any of the entries from any page at all. If he clicks on any entry from the home page, from the library page, from the search page, or from the more sections page, from anywhere, he tries to go to the details page. He will be shown the proper ad."
+- **Fix (MainActivity.kt AppRoot):** Added `val adsCoordinator = koinInject<AdsCoordinator>()` + `val navigateToDetails: (AnimeDetailsKey) -> Unit = { key -> adsCoordinator.requestNavigation { backstack.add(key) } }` (declared AFTER `backstack` since it closes over `backstack.add`). Converted ALL 10 user-tap navigate-to-Details call sites to route through `navigateToDetails`:
+  - Browse (generic `onNavigate`): `when (navKey) { is AnimeDetailsKey -> navigateToDetails(navKey); else -> backstack.add(navKey) }` — pattern-matches because BrowseScreen constructs the key internally (the only feature module that does).
+  - Library (`onNavigateToDetails`): both AniList + Extension variants → `navigateToDetails(...)`.
+  - Search: both `onNavigateToDetails` (AniList) + `onNavigateToExtensionAnime` (Extension) → `navigateToDetails(...)`.
+  - Downloads/DownloadedFiles, Updates, History, Profile: all `onNavigateToDetails` / `onNavigateToAnime` → `navigateToDetails(...)`.
+- **Notification deep-link EXCLUDED:** the `LaunchedEffect(notifMainId)` block (app-open-from-notification) deliberately keeps `backstack.add(AnimeDetailsKey.*)` directly — a notification tap is system-initiated, NOT a user tap on an entry (per user "when the user clicks on any of the entries from any page"). Also no previous-screen context for the interstitial to float over on a cold start.
+- **Overlay:** `SmartLinkAdInterstitial()` rendered in AppRoot after the `UpdateBottomSheet` block (sibling). Idle = renders nothing.
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-275 — Browse Hero: sharp banner + blurred-cover bottom strip
+- **What (user device feedback on v0.2.52):** "The background banner is apparently blurred out way too much so it should not be blurred out at all so that needs adjustment. I do like the banner image to be shown at the top, which is perfect, but at the bottom it gets an empty area. About that empty area what I would like you to do is make it a blurred-out background of the cover image itself. At the top the banner will show and in the bottom empty area the blurred-out view of the cover image will show. Or maybe we can do this: the blurred-out view of the banner will show but make sure that the blur is exactly how it is implemented on the details page, making sure that it is smooth, perfect, beautiful-looking, and proper."
+- **Root cause (agent 3-a):** The D-262 `BlurredBannerBackdrop` CPU-box-blurred the banner across the WHOLE card (radius 2 on a 160×90 thumbnail) + the heavy bottom scrim (0.22/0/0/0.45/0.82 alpha black) occluded the blurred banner at the bottom → the user saw a near-solid dark strip (the "empty area"). The banner being "blurred out way too much" = the boxBlur applied to the whole backdrop.
+- **Fix (BrowseHero.kt, full rewrite via Write):** New 4-layer HeroCard:
+  1. **Layer 1 — SHARP banner** (D-275): plain `AsyncImage(model = anime.bannerImage ?: anime.coverUrl, contentScale = Crop, fillMaxSize)` — NO blur. Fallback `surfaceVariant` when both URLs null.
+  2. **Layer 1.5 — BLURRED COVER bottom strip** (D-275, NEW): `AsyncImage(model = anime.coverUrl, modifier = align(BottomCenter).fillMaxWidth().height(140.dp).blur(8.dp).scale(1.15f), contentScale = Crop)` — matches the details-page blur EXACTLY (`Modifier.blur(8.dp).scale(1.15f)`, same recipe as `DetailsScreen.kt:1453`). Fills the "bottom empty area" with the cover artwork, blurred. API 31+ uses RenderEffect (same as DetailsScreen); below 31 it's a no-op → sharp cover (still better than the old empty dark strip).
+  3. **Layer 2 — lightened scrim** (D-275): `0.22/0/0/0.45/0.82` → `0.15/0/0/0.30/0.55` so the sharp banner reads at top + the blurred cover reads at bottom + text stays legible.
+  4. **Layer 3 — foreground** (unchanged): cover poster (84×126) + rank pill + title + meta + chips, anchored BottomStart.
+- **Removals:** `BlurredBannerBackdrop` composable (D-262) + `boxBlur` function (D-262) + `HERO_BLUR_W_PX`/`HERO_BLUR_H_PX`/`HERO_BLUR_RADIUS_PX`/`HERO_BLUR_KEY_PREFIX` constants + 13 now-unused imports (`android.graphics.Bitmap`, `foundation.Image`, `produceState`, `ImageBitmap`, `asImageBitmap`, `BitmapPainter`, `LocalContext`, `coil3.imageLoader`/`ImageRequest`/`SuccessResult`/`allowHardware`/`toBitmap`, `Dispatchers`). KDocs updated (top + HeroCard).
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-276 — Version 0.2.53 + docs
+- **What:** AndroidConfig 0.2.52 → **0.2.53** (versionCode 53) with the D-272..D-275 ad-system + Browse-Hero batch; annotated tag `v0.2.53` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.53.apk`, --latest) so a v0.2.52 install updates in-app. New `:core:ads` module → module count 47 (was 46). Dashboard version strings + module count refreshed (full-stack-dev sub-agent, DASHBOARD/webpage/ only). Added `APP/ani-kuta/DOCUMENTATION/ads/` architecture doc.
+- **Status:** ✅ Implemented. Release verification pending CI green.
+- **Date:** 2026-08-26.

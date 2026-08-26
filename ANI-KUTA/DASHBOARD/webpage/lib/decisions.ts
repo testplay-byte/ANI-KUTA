@@ -1,9 +1,12 @@
 /*
- * Architecture Decisions (v7 — Phase WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + D-001..D-186 landed).
+ * Architecture Decisions (v8 — Phase WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + D-001..D-186 landed on `main` + D-272..D-276 on test-feature branch).
  *
- * All decisions D-001..D-186 are CONFIRMED. Each entry shows the question,
- * the chosen option (with pros/cons for context), and a summary of the
- * decision context.
+ * All decisions D-001..D-186 are CONFIRMED on `main`. The D-272..D-276 batch
+ * (smart-link ad system + Browse Hero sharp-banner/blurred-cover fix +
+ * version 0.2.53 + docs) is also CONFIRMED but lives on the
+ * test-feature/video-cache-new-download branch (67 commits ahead of main,
+ * v0.2.53, NOT merged). Each entry shows the question, the chosen option
+ * (with pros/cons for context), and a summary of the decision context.
  *
  * The early decisions (D-001..D-054) cover the foundational choices (repo
  * layout, app ID, base app, extension compat, identity system, DI, DB,
@@ -16,14 +19,21 @@
  * fixes (D-152), DB optimization (D-166), audio-variants (D-167),
  * extension trust (D-168), watch-progress fixes (D-169), ratings +
  * continue-watching UI (D-170), + Profile UI v4–v6 (D-171..D-186).
+ * The D-272..D-276 batch covers the smart-link ad system (D-272 :core:ads
+ * module, D-273 AdsCoordinator + SmartLinkAdInterstitial UI, D-274
+ * navigation interception gating all navigate-to-Details calls) + Browse
+ * Hero sharp-banner/blurred-cover fix (D-275, removed CPU boxBlur) +
+ * version 0.2.53 + docs bump (D-276).
  *
  * NOTE: This file contains representative entries (D-027..D-054 + D-148..D-170
- * + D-186) — NOT all 186 decisions are listed individually. The full set lives
- * in AGENT-CONTEXT/memory/decisions.md. The dashboard's count (186/186
- * confirmed) reflects the canonical record.
+ * + D-186 + D-272..D-276) — NOT all 186 canonical decisions are listed
+ * individually. The full set lives in AGENT-CONTEXT/memory/decisions.md. The
+ * dashboard's count (186/186 confirmed) reflects the canonical main-branch
+ * record; D-187..D-276 are on the test-feature branch + are represented
+ * here as "confirmed" (decided + acted upon, awaiting merge).
  *
  * Sources:
- *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-186)
+ *  - AGENT-CONTEXT/memory/decisions.md (D-001..D-186 + D-187..D-276 on test-feature branch)
  *  - REFERENCES/old-kuta/DOCUMENTATION/10-14 (research findings)
  *  - APP/ani-kuta/DOCUMENTATION/16-phase1-architecture-plan.md
  *  - APP/ani-kuta/DOCUMENTATION/19-phase5-plan.md (Phase 5 — D-053 + D-054)
@@ -797,6 +807,125 @@ export const decisions: Decision[] = [
         ],
         cons: [
           "Polish passes are subjective — what 'looks right' may shift in future audits",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-272",
+    title: ":core:ads module — smart-link ad system (isolated, extensible, bundled config)",
+    status: "confirmed",
+    question: "How to introduce ads without polluting existing modules or adding user-facing toggles prematurely?",
+    context:
+      "Ads were deferred from Phase 1 (originally planned as a Phase 6 module). D-272 ships the foundational :core:ads module on the test-feature/video-cache-new-download branch (v0.2.53, NOT merged to main). Design choices: (1) isolated — :core:ads depends only on :core:common, :core:designsystem, :core:navigation-api, :core:preferences; no other module imports ad code directly; (2) extensible — AdFormat interface + AdKind sealed hierarchy (SmartLink is the first concrete kind; banner/rewarded/native reserved for future); (3) bundled config — ad placements + cooldowns + smart-link URLs live in a JSON config bundled with the app (no user setting exposed in Settings); (4) 6h cooldown + try-again flow — the coordinator enforces a per-placement cooldown + surfaces a 'try again' CTA when the smart-link is unavailable. Date: D-272..D-276 batch on test-feature branch.",
+    options: [
+      {
+        name: "Isolated :core:ads module + bundled JSON config + AdsCoordinator state machine",
+        pros: [
+          "Ad code never leaks into :feature:* or :app — easy to delete or disable for debug/fork builds",
+          "Extensible AdKind sealed hierarchy — adding banner/rewarded/native later is a one-impl addition",
+          "Bundled config (no user setting) keeps the UX honest — ads aren't a hidden toggle",
+          "6h cooldown + try-again flow keeps the smart-link surfacing frequency predictable",
+        ],
+        cons: [
+          "Bundled config means a config change requires an app release (mitigated by versioned JSON in assets/)",
+          "Isolation adds a Koin binding + a navigation interception indirection — small complexity tax",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-273",
+    title: "AdsCoordinator state machine + SmartLinkAdInterstitial UI",
+    status: "confirmed",
+    question: "How to drive the smart-link ad surface from a single source of truth + render it consistently?",
+    context:
+      "D-273 builds on D-272 by adding the AdsCoordinator state machine (Loading → Ready → Showing → Cooldown → Error → TryAgain) + the SmartLinkAdInterstitial Compose UI (an Interstitial dialog rendered via the design system's surfaceVariant + accent palette). The coordinator exposes a Flow<AdState> that the navigation interception layer (D-274) observes; the interstitial itself is a single Composable that consumes the state + emits user actions (Tap / Dismiss / TryAgain). Shipped on test-feature/video-cache-new-download branch (v0.2.53, NOT merged). Date: D-272..D-276 batch.",
+    options: [
+      {
+        name: "Single AdsCoordinator (state machine + Flow<AdState>) + SmartLinkAdInterstitial Composable",
+        pros: [
+          "One source of truth — every caller observes the same state, no race conditions",
+          "State machine makes the cooldown + try-again flow explicit + testable",
+          "Interstitial is theme-aware (accent palette + surfaceVariant) — matches the rest of the app",
+          "Future ad kinds (banner/rewarded) just add new states + new Composables; coordinator stays",
+        ],
+        cons: [
+          "Single coordinator is a shared singleton — must be careful about thread-safety (mitigated by Dispatchers.Main)",
+          "Interstitial is modal — dismiss UX must be very obvious (TryAgain + Dismiss both surfaced)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-274",
+    title: "Navigation interception — all navigate-to-Details calls gated by the ad",
+    status: "confirmed",
+    question: "Where to intercept navigation to gate Details entry points with the smart-link ad?",
+    context:
+      "D-274 wires the AdsCoordinator into the navigation layer so every navigate-to-Details call (Browse card tap, Library card tap, Search result tap, History row tap, Updates row tap) routes through a single interception point. When the coordinator is in the Ready state (cooldown elapsed), the interstitial is shown; on Tap, the original Details navigation proceeds; on Dismiss/TryAgain, navigation is cancelled (or retried after a refresh). The interception lives in :app's AppRoot (the single navigation host), not scattered across :feature:*:impl modules — so feature modules stay ad-unaware. Shipped on test-feature/video-cache-new-download branch (v0.2.53, NOT merged). Date: D-272..D-276 batch.",
+    options: [
+      {
+        name: "Single interception point in :app AppRoot (not in each :feature:*:impl)",
+        pros: [
+          "Feature modules stay ad-unaware — no leak of ad concerns into features",
+          "One place to audit + change the interception policy",
+          "Works for every entry point that routes through AppRoot's NavKey dispatch",
+          "Future ad placements (e.g. before Watch) add a second interception at the same host",
+        ],
+        cons: [
+          "AppRoot gains a small responsibility (ad gating) — slightly larger God-class risk (mitigated by extracting AdsCoordinator into :core:ads)",
+          "Feature modules can't opt-out per entry point (acceptable — placement is policy, not feature-level)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-275",
+    title: "Browse Hero — sharp banner + blurred-cover bottom strip (removed CPU boxBlur)",
+    status: "confirmed",
+    question: "How to render the Browse hero banner backdrop without the boxBlur hardware-bitmap crash + without per-frame CPU blur cost?",
+    context:
+      "D-262 introduced a hero blurred backdrop using a RenderEffect/CPU boxBlur on the banner bitmap — D-266 fixed the HARDWARE-bitmap crash by adding .allowHardware(false) + a defensive getPixels() copy. D-275 rethinks the approach entirely: instead of blurring the banner, the hero now shows the SHARP banner as the main image (no blur) + a separate blurred-cover bottom strip rendered via the existing Coil-3 hardware bitmap pipeline (no CPU blur, no RenderEffect). The bottom strip uses a low-alpha scrim + the same Coil-3 blur-on-decode option (coil3.load.blur()) so the blur happens once at decode time, not per-frame. This eliminates the boxBlur code path entirely + recovers the per-frame CPU cost. Shipped on test-feature/video-cache-new-download branch (v0.2.53, NOT merged). Date: D-272..D-276 batch.",
+    options: [
+      {
+        name: "Sharp banner image + blurred-cover bottom strip (Coil-3 decode-time blur, no per-frame boxBlur)",
+        pros: [
+          "No CPU boxBlur call → no HARDWARE bitmap crash surface + no per-frame jank",
+          "Coil-3 blur happens once at decode time (cached) → effectively free at render time",
+          "Sharp banner reads better at hero scale; the blurred strip provides the depth cue",
+          "boxBlur code path deleted → less code, less risk",
+        ],
+        cons: [
+          "Blurred strip is a separate Coil-3 request — small memory cost (one extra bitmap, mitigated by memoryCacheKey)",
+          "Visual change — the previous full-bleed blurred backdrop is gone (acceptable — sharp banner + blurred strip is a stronger hero)",
+        ],
+        recommended: true,
+      },
+    ],
+  },
+  {
+    id: "D-276",
+    title: "Version 0.2.53 + docs (D-272..D-276 batch release)",
+    status: "confirmed",
+    question: "Bump version to 0.2.53 + document the D-272..D-276 batch?",
+    context:
+      "D-276 is the version-bump + docs decision for the D-272..D-276 batch (smart-link ad system + Browse Hero sharp-banner/blurred-cover fix). It bumps AndroidConfig.versionCode 52 → 53 + versionName 0.2.52 → 0.2.53, refreshes AGENT-CONTEXT (memory/decisions.md + memory/progress.md + memory/master.md) + the DASHBOARD/webpage/ data files (lib/data.ts + lib/decisions.ts + lib/reviewData.ts + the modules/architecture/progress pages). The release APK is built via the GitHub Actions release-apk.yml workflow (debug-signed per the established convention — release signing is deferred to Phase 2). Branch: test-feature/video-cache-new-download (67 commits ahead of main, v0.2.53, NOT merged). Date: D-272..D-276 batch.",
+    options: [
+      {
+        name: "Bump version 0.2.52 → 0.2.53 (versionCode 52 → 53) + refresh dashboard + AGENT-CONTEXT docs",
+        pros: [
+          "Symmetric versionCode/versionName bump follows the D-251 release discipline (parseVersionCode(versionName) scale)",
+          "Docs sync means the next agent can read the current state from the dashboard without re-deriving it",
+          "Release APK is reproducible via CI (CORE_RULES §8 — no local builds)",
+        ],
+        cons: [
+          "Version bump on an unmerged branch means main is now one version behind (acceptable — the branch IS the active state)",
+          "Debug-signed release still — release signing deferred to Phase 2 (documented, deliberate)",
         ],
         recommended: true,
       },

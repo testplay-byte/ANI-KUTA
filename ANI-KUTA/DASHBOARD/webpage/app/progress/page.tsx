@@ -9,10 +9,11 @@ import {
 } from "@/lib/data";
 
 /**
- * Progress page (v8) — ALL PHASES DONE. Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB
+ * Progress page (v9) — ALL PHASES DONE. Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB
  * complete + Profile UI v1–v6 + CI verified GREEN on branch `main` (all feature
- * branches merged + deleted). 46 modules built, 26 DB tables across 15 .sq
- * files, 186 decisions confirmed.
+ * branches merged + deleted). 47 modules built, 26 DB tables across 15 .sq
+ * files, 186 decisions confirmed. :core:ads (D-272..D-276 batch, v0.2.53) is
+ * on the test-feature/video-cache-new-download branch — NOT merged.
  *
  * Sections:
  *  1. Header card + legend.
@@ -59,7 +60,7 @@ export default function ProgressPage() {
           (scaffold — 12 modules), Phase 3 (15 core modules across 4 sub-phases),
           Phase 4 (feature screens + accent palette), Phase 5 (5a–5e — 5f deferred),
           and Phase 10 (post-Phase-5 work: B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL) are
-          all done. 46 modules built (1 app + 26 core + 1 data + 18 feature),
+          all done. 47 modules built (1 app + 27 core + 1 data + 18 feature),
           26 DB tables across 15 .sq files, 186 decisions confirmed
           (D-001..D-186). Nav3 REMOVED (D-150) — hand-rolled nav via
           {`mutableStateListOf<NavKey>`} + {`when(currentKey)`} dispatch (R7
@@ -72,6 +73,45 @@ export default function ProgressPage() {
           <LegendItem color="var(--c-warning)" label="In progress / Next" />
           <LegendItem color="var(--c-danger)" label="Blocked" />
           <LegendItem color="var(--c-text-secondary)" label="Pending" />
+        </div>
+      </Card>
+
+      {/* Active branch callout — D-272..D-276 on test-feature/video-cache-new-download */}
+      <Card>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-medium uppercase tracking-widest text-text-secondary mb-1">
+              Active branch state
+            </div>
+            <h3 className="text-[18px] font-bold tracking-extra-tight text-text-primary mb-1.5">
+              D-272..D-276 on{" "}
+              <code className="font-mono text-[14px] text-text-primary break-all">
+                test-feature/video-cache-new-download
+              </code>
+            </h3>
+            <p className="text-[12.5px] text-text-secondary leading-relaxed max-w-2xl">
+              67 commits ahead of main · v0.2.53 · <strong>NOT merged</strong> —
+              smart-link ad system ({`:core:ads`} module, AdsCoordinator +
+              SmartLinkAdInterstitial UI, navigation interception gating all
+              navigate-to-Details calls) + Browse Hero sharp-banner /
+              blurred-cover fix (removed CPU boxBlur). The merge gate is
+              blocked on the device-verification checklist pass — see the{" "}
+              <a href="/review/" className="text-[var(--c-primary)] hover:underline">
+                Review &amp; Roadmap
+              </a>{" "}
+              page for the full checklist.
+            </p>
+          </div>
+          <span
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium shrink-0 self-start"
+            style={{
+              backgroundColor: "var(--c-warning)1a",
+              color: "var(--c-warning)",
+            }}
+          >
+            <StatusDot color="var(--c-warning)" size="sm" />
+            NOT merged
+          </span>
         </div>
       </Card>
 
@@ -125,7 +165,7 @@ export default function ProgressPage() {
             <li>· Video pipeline working — resolve URL → play via MPV → save progress.</li>
             <li>· Download manager (HTTP + HLS + resume) operational.</li>
             <li>· AniList tracker sync wired (tracker-api + tracker-anilist).</li>
-            <li>· <strong>CI green across all 46 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6).</strong></li>
+            <li>· <strong>CI green across all 47 modules (incl. Phase B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB additions + Profile UI v1–v6; :core:ads on test-feature branch).</strong></li>
           </ul>
         </div>
       </Card>

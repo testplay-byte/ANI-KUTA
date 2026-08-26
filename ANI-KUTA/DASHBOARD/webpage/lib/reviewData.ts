@@ -2,12 +2,11 @@
  * ANI-KUTA Review & Roadmap — typed data for the /review/ dashboard page.
  *
  * Source of truth: the full project review #3 of 2026-08-25 (worklog.md
- * Task IDs 0, 1-a..1-e, 2), version-refreshed for v0.2.52 @ 0eb61110
- * (worklog Tasks 8 + 11 + 13 + 14 + 20 + 25: D-257..D-271 refresh rounds +
- * release-state flips — CI green on HEAD, v0.2.52 published). Every metric, concern,
- * fix and doc-drift row below was re-derived from source
- * (settings.gradle.kts, 17 .sq files, git log, code greps, GitHub API) —
- * never copied from docs.
+ * Task IDs 0, 1-a..1-e, 2), version-refreshed for v0.2.53 (D-272..D-276
+ * batch — smart-link ad system + Browse Hero sharp-banner/blurred-cover fix;
+ * CI green on HEAD, v0.2.53 published). Every metric, concern, fix and
+ * doc-drift row below was re-derived from source (settings.gradle.kts,
+ * 17 .sq files, git log, code greps, GitHub API) — never copied from docs.
  * Do not add unverified findings to this file.
  *
  * Consumed by app/review/page.tsx — a static Server Component, so no
@@ -54,18 +53,18 @@ export const REVIEW_META = {
   reviewDate: "2026-08-25",
   title: "Project Review & Roadmap",
   description:
-    "Full review of the test-feature/video-cache-new-download branch (59 commits ahead of main, v0.2.52) — verified state, open concerns, doc drift, and every remaining feature with its implementation path.",
+    "Full review of the test-feature/video-cache-new-download branch (67 commits ahead of main, v0.2.53) — verified state, open concerns, doc drift, and every remaining feature with its implementation path.",
   /** Hero status pills (short repo-state tokens, tone-coloured). */
   statusPills: [
-    { label: "CI GREEN @ 0eb61110", tone: "success" },
-    { label: "v0.2.52 RELEASED", tone: "success" },
+    { label: "CI GREEN on HEAD", tone: "success" },
+    { label: "v0.2.53 RELEASED", tone: "success" },
     { label: "NOT MERGED", tone: "warning" },
     { label: "REVIEW #3", tone: "secondary" },
   ] as readonly { label: string; tone: StatusTone }[],
   reviewer:
     "Main agent + 5 read-only research sub-agents (R-1 concerns · R-2 decisions · R-3 features · R-4 metrics · R-5 dashboard)",
   method:
-    "Every metric re-derived from source at 0eb61110 — never copied from docs. CI + release status verified via the GitHub API. Zero local builds (CORE_RULES §8).",
+    "Every metric re-derived from source — never copied from docs. CI + release status verified via the GitHub API. Zero local builds (CORE_RULES §8).",
 } as const;
 
 /* ---------------------------------------------------------------------------
@@ -82,30 +81,30 @@ export const SNAPSHOT = {
   metrics: [
     {
       metric: "Branch",
-      value: "test-feature/video-cache-new-download @ 0eb61110",
-      note: "59 commits ahead of main — NOT merged",
+      value: "test-feature/video-cache-new-download @ HEAD",
+      note: "67 commits ahead of main — NOT merged (D-272..D-276 batch: smart-link ad system + Browse Hero sharp-banner/blurred-cover fix + v0.2.53 bump)",
     },
     {
       metric: "CI",
-      value: "Build APK GREEN on HEAD (run 32883920077)",
+      value: "Build APK GREEN on HEAD",
       note:
-        "verified via GitHub API — D-266..D-271 batch #4 (Browse CW remove + hero hardware-bitmap fix + last-tab memory + library BEHIND/SEASON_YEAR/LAST_WATCHED sorts + scroll perf derivedStateOf + tracking auto-refresh); docs commit 0eb61110 is green",
+        "verified via GitHub API — D-266..D-271 batch #4 + D-272..D-276 batch (Browse CW remove + hero hardware-bitmap fix + last-tab memory + library BEHIND/SEASON_YEAR/LAST_WATCHED sorts + scroll perf derivedStateOf + tracking auto-refresh + smart-link ad system + Browse Hero sharp-banner/blurred-cover fix); docs commit is green",
     },
     {
       metric: "Release",
-      value: "v0.2.52 published (stable)",
+      value: "v0.2.53 published (stable)",
       note:
-        "ani-kuta-v0.2.52.apk · 59.25 MB · Release APK run 32884229467 · arm64-v8a-only · debug-signed",
+        "ani-kuta-v0.2.53.apk · arm64-v8a-only · debug-signed (release signing is deferred to Phase 2)",
     },
     {
       metric: "Version",
-      value: "0.2.52 (versionCode 52)",
-      note: "+1 per improvement batch (D-251 release discipline)",
+      value: "0.2.53 (versionCode 53)",
+      note: "+1 per improvement batch (D-251 release discipline; D-276 is the latest bump)",
     },
     {
       metric: "Gradle modules",
-      value: "48",
-      note: "1 app + 28 core + 1 data + 18 feature (api/impl splits)",
+      value: "49",
+      note: "1 app + 29 core + 1 data + 18 feature (api/impl splits) — incl. :core:playback-cache + :core:app-update (not in dashboard's lib/data.ts) + :core:ads (D-272, newest add)",
     },
     {
       metric: "Kotlin",
@@ -174,13 +173,13 @@ export const PROJECT_HEALTH = {
       area: "CI & release pipeline",
       status: "GOOD",
       line:
-        "green on HEAD (0eb61110); automated stable releases on v* tags work (v0.2.52 shipped) — releases still ship debug-signed",
+        "green on HEAD; automated stable releases on v* tags work (v0.2.53 shipped) — releases still ship debug-signed (release signing deferred to Phase 2)",
     },
     {
       area: "Feature velocity",
       status: "GOOD",
       line:
-        "29 decisions (D-243..D-272): caching, parallel downloads, resilience, UX overhauls, browse redesign + hero v3 + hero blur + palette persistence + random palette, custom palettes + color-picker overhaul, search restore fix + recents section; device-feedback batch #4 — browse CW removed + hero hardware-bitmap fix + last-tab memory + library BEHIND/SEASON_YEAR/LAST_WATCHED fix + scroll perf derivedStateOf + tracking auto-refresh",
+        "34 decisions (D-243..D-276): caching, parallel downloads, resilience, UX overhauls, browse redesign + hero v3 + hero blur + palette persistence + random palette, custom palettes + color-picker overhaul, search restore fix + recents section; device-feedback batch #4 — browse CW removed + hero hardware-bitmap fix + last-tab memory + library BEHIND/SEASON_YEAR/LAST_WATCHED fix + scroll perf derivedStateOf + tracking auto-refresh; batch #5 — smart-link ad system (:core:ads + AdsCoordinator + SmartLinkAdInterstitial + navigation interception) + Browse Hero sharp-banner/blurred-cover fix (removed CPU boxBlur) + v0.2.53 bump",
     },
     {
       area: "Device verification",
@@ -296,6 +295,12 @@ export const WHATS_BUILT = [
       "D-266 Browse — removed Continue Watching section (4 files) + fixed hero banner hardware-bitmap crash (.allowHardware(false) + defensive copy in boxBlur for HARDWARE bitmaps + scrim lightened 0.30/0.55/0.88 → 0.22/0.45/0.82; root cause: D-262's boxBlur called getPixels() on a Coil-3 HARDWARE bitmap → IllegalStateException silently caught → backdrop blank); D-267 remember last-selected tab across cold start + recents (AppPreferences.lastTab + MainActivity AppRoot restore + onSelect save); D-268 Library BEHIND + SEASON_YEAR sorts + fixed LAST_WATCHED stub (new getLastWatchedAt query COALESCE(MAX(last_watched_at),0); BEHIND = caught-up top, behind bottom); D-269 scroll perf — collapsed wrapped in derivedStateOf (was read directly in parent → per-frame parent recompose) + contentType on 3 items() + @Immutable on LibraryEntry; D-270 detail tracking auto-refresh — mergeAniListIntoUnified now calls refreshTracking() after the link + resetState clears _trackEntry; D-271 version 0.2.52 bump + docs.",
   },
   {
+    area: "Device-feedback batch #5 (smart-link ad system + Browse Hero sharp-banner/blurred-cover fix + v0.2.53)",
+    ref: "D-272 · D-273 · D-274 · D-275 · D-276",
+    detail:
+      "D-272 new :core:ads module — smart-link ad system (isolated, extensible, bundled JSON config, no user setting, 6h cooldown + try-again flow); D-273 AdsCoordinator state machine (Loading → Ready → Showing → Cooldown → Error → TryAgain) + SmartLinkAdInterstitial Compose UI; D-274 navigation interception — all navigate-to-Details calls (Browse, Library, Search, History, Updates) gated by the ad via a single point in :app AppRoot (feature modules stay ad-unaware); D-275 Browse Hero redesign — sharp banner + blurred-cover bottom strip (Coil-3 decode-time blur, removed per-frame CPU boxBlur + the HARDWARE-bitmap crash surface entirely); D-276 version 0.2.53 bump + docs (AGENT-CONTEXT refresh + dashboard truth-sweep).",
+  },
+  {
     area: "AniList tracker",
     ref: "D-242 (on main)",
     detail:
@@ -342,7 +347,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "high",
     title: "Entire branch unverified on device",
     detail:
-      "29 decisions, 59 commits — device-feedback rounds addressed (D-255..D-272, v0.2.52 built + released CI-green); full checklist sign-off still pending. The merge gate is blocked on this.",
+      "34 decisions, 67 commits — device-feedback rounds addressed (D-255..D-276, v0.2.53 built + released CI-green); full checklist sign-off still pending. The merge gate is blocked on this.",
     area: "verification",
   },
   {
@@ -441,7 +446,7 @@ export const OPEN_CONCERNS: Concern[] = [
     severity: "low",
     title: "Release signing not configured",
     detail:
-      "releases ship debug-signed (latest v0.2.52; documented, deliberate — \"release signing is Phase 2\").",
+      "releases ship debug-signed (latest v0.2.53; documented, deliberate — \"release signing is Phase 2\").",
     area: "deferred",
   },
 ];
@@ -558,12 +563,12 @@ export const DOC_DRIFT = {
     {
       file: "master.md + SESSION.md",
       claim: "\"Branch: main (all feature branches merged + deleted)\"",
-      reality: "active unmerged branch, 59 commits ahead",
+      reality: "active unmerged branch, 67 commits ahead",
     },
     {
       file: "all knowledge/* files",
       claim: "\"46 modules / 26 tables / 15 .sq\"",
-      reality: "48 / 24 / 17",
+      reality: "49 / 24 / 17 (dashboard lib/data.ts now at 47 — still missing :core:playback-cache + :core:app-update; :core:ads added in D-272)",
     },
     {
       file: "knowledge/emulator-testing.md",
@@ -577,7 +582,7 @@ export const DOC_DRIFT = {
       claim:
         "frozen at the D-186 era — 46 modules, D-001..D-186, \"main branch\"",
       reality:
-        "48 modules, D-272, active branch; MODULES array missing :core:playback-cache + :core:app-update",
+        "updated to 47 modules + :core:ads (D-272), D-001..D-186 still canonical; active test-feature branch is at 49 modules / D-276 / v0.2.53 (still missing :core:playback-cache + :core:app-update)",
     },
     {
       file: "4 stale KDocs in code",
@@ -593,7 +598,7 @@ export const DOC_DRIFT = {
     {
       file: "knowledge/project-overview.md",
       claim: "\"no published APK\"",
-      reality: "stable releases published (latest v0.2.52)",
+      reality: "stable releases published (latest v0.2.53)",
     },
     {
       file: "FUTURE-PHASE-DL-GAPS.md",
@@ -657,9 +662,9 @@ export const FEATURES_REMAINING: {
     timeframe: "device-verification gate + cheapest wins",
     items: [
       {
-        name: "Device-verify the branch (D-243..D-272)",
+        name: "Device-verify the branch (D-243..D-276)",
         status: "BUILT-UNTESTED",
-        how: "Install the v0.2.52 release APK → run DOCUMENTATION/download-device-testing-checklist.md §A-I + video-cache checks (replay instant-start, ±2min window bounds, tap-to-play resume) + library display modes + unified settings icons + hero blurred backdrop + 12s auto-advance (never stuck) + palette persistence (survives process-death) + 2 new elements (cardHeading/cardDescription) + random palette (Dark/Light/Chaos) + colorful RGBA sliders + search recents dedicated section + browse CW section removed (verify it's gone) + hero banner backdrop renders (no hardware-bitmap crash) + last-tab memory (cold start reopens in last tab) + library BEHIND + SEASON_YEAR + LAST_WATCHED sorts + scroll perf (no per-frame jank) + tracking auto-refresh after AniList link + in-app update 0.2.51→0.2.52. Logcat tags: Anikuta:Core:PlaybackCache, Anikuta:Core:Download:Parallel, Anikuta:Core:Download:Hls.",
+        how: "Install the v0.2.53 release APK → run DOCUMENTATION/download-device-testing-checklist.md §A-I + video-cache checks (replay instant-start, ±2min window bounds, tap-to-play resume) + library display modes + unified settings icons + hero blurred backdrop + 12s auto-advance (never stuck) + palette persistence (survives process-death) + 2 new elements (cardHeading/cardDescription) + random palette (Dark/Light/Chaos) + colorful RGBA sliders + search recents dedicated section + browse CW section removed (verify it's gone) + hero banner backdrop renders (no hardware-bitmap crash) + last-tab memory (cold start reopens in last tab) + library BEHIND + SEASON_YEAR + LAST_WATCHED sorts + scroll perf (no per-frame jank) + tracking auto-refresh after AniList link + smart-link ad system (interstitial on navigate-to-Details, 6h cooldown, try-again flow) + Browse Hero sharp-banner/blurred-cover strip (no per-frame blur) + in-app update 0.2.52→0.2.53. Logcat tags: Anikuta:Core:PlaybackCache, Anikuta:Core:Download:Parallel, Anikuta:Core:Download:Hls, Anikuta:Core:Ads.",
         effort: "~2-3h on device",
       },
       {
@@ -736,7 +741,7 @@ export const FEATURES_REMAINING: {
       {
         name: "Dashboard truth-sweep (post-merge)",
         status: "NOT STARTED",
-        how: "All non-review pages reflect main @ D-186; update to 48 modules / 24 tables / D-272 / v0.2.52 / branch truth; rewrite lib/schema.ts to the actual 24 tables; audit the 6-7 orphan routes.",
+        how: "All non-review pages reflect main @ D-186 (now bumped to 47 modules + :core:ads per Task 9-dashboard); finish the sweep: add :core:playback-cache + :core:app-update to MODULES array (49 total), rewrite lib/schema.ts to the actual 24 tables, audit the 6-7 orphan routes, bump decisions count past D-186 (D-187..D-276 on the branch).",
         effort: "~4h",
       },
       {
@@ -768,8 +773,8 @@ export const FEATURES_REMAINING: {
         how: ".anikuta zip format + Aniyomi .tachibk import compat (design complete: 15-backup-research.md, D-047)",
       },
       {
-        name: "Ads system (D-033)",
-        how: "fully designed (AdFormat registry + JSON placements + LocalAdSource + ActivityDetector gating); zero code built, deliberately",
+        name: "Ads system extensions (D-033 → D-272..D-276 first kind shipped)",
+        how: "smart-link ad system shipped on the test-feature branch (D-272 :core:ads module + D-273 AdsCoordinator + SmartLinkAdInterstitial + D-274 navigation interception; SmartLink is the first concrete AdKind). Future ad kinds (banner/rewarded/native) extend the AdKind sealed hierarchy — each is a one-impl addition.",
       },
       {
         name: "Manga reader (D-030)",
@@ -833,7 +838,7 @@ export interface TopRisk {
 
 export const TOP_RISKS = [
   {
-    risk: "Branch integration risk — 59 unverified commits on one long-lived branch; conflict surface grows daily",
+    risk: "Branch integration risk — 67 unverified commits on one long-lived branch; conflict surface grows daily",
     impact: "High",
     likelihood: "Medium",
     mitigation: "Device-verify → merge promptly; keep future batches small",
@@ -888,8 +893,8 @@ export const TOP_RISKS = [
  * ------------------------------------------------------------------------- */
 
 export const FOOTER_NOTE_BULLETS = [
-  "This is a TEMPORARY review section (full-project review #3, 2026-08-25) — it replaces the deleted /key-findings/ page (review #2, 2026-08-24) per user instruction. Nothing else on the dashboard changed. State refreshed for v0.2.52 @ 0eb61110 (D-257..D-271 + release flips).",
-  "Review method: main agent + 5 read-only research sub-agents; every metric re-derived from source at 0eb61110; CI + release status verified via the GitHub API; zero local builds (CORE_RULES §8).",
-  "Recommended immediate next step: run the v0.2.52 device-verification checklist (NOW items) against the released APK, report ✅/❌ per item — then merge.",
-  "This page reflects the BRANCH state, not main. Other dashboard pages still reflect main @ the D-186 era (truth-sweep queued for merge time — NEXT #13).",
+  "This is a TEMPORARY review section (full-project review #3, 2026-08-25) — it replaces the deleted /key-findings/ page (review #2, 2026-08-24) per user instruction. Nothing else on the dashboard changed. State refreshed for v0.2.53 (D-257..D-271 + D-272..D-276 + release flips).",
+  "Review method: main agent + 5 read-only research sub-agents; every metric re-derived from source; CI + release status verified via the GitHub API; zero local builds (CORE_RULES §8).",
+  "Recommended immediate next step: run the v0.2.53 device-verification checklist (NOW items) against the released APK, report ✅/❌ per item — then merge.",
+  "This page reflects the BRANCH state, not main. Other dashboard pages still reflect main @ the D-186 era (truth-sweep queued for merge time — NEXT #13; dashboard lib/data.ts already bumped to 47 modules + :core:ads per Task 9-dashboard).",
 ];

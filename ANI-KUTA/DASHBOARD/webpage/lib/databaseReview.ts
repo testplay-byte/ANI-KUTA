@@ -82,8 +82,8 @@ export const SNAPSHOT = {
     },
     {
       metric: "Gradle modules total",
-      value: "46",
-      note: "1 :app + 26 :core:* + 1 :data:extension + 18 :feature:*",
+      value: "47",
+      note: "1 :app + 27 :core:* + 1 :data:extension + 18 :feature:* (incl. :core:ads on test-feature branch)",
     },
   ] satisfies SnapshotMetric[],
 } as const;
