@@ -1,11 +1,9 @@
 package com.confused.anikuta.feature.animebrowse
 
-import android.graphics.Bitmap
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,34 +30,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import coil3.imageLoader
-import coil3.request.ImageRequest
-import coil3.request.SuccessResult
-import coil3.request.allowHardware
-import coil3.toBitmap
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -69,12 +56,12 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /**
- * D-257 / D-262: Browse hero v3 — a padded, rounded, cinematic banner card
+ * D-257 / D-262 / D-275: Browse hero v3 — a padded, rounded, cinematic banner card
  * (evolution of D-256 after device feedback: the hero "looks way too ugly,
  * like a rigid kind of format", the banner felt "forced into a square vibe",
  * and the auto-scroll wraparound was "not smooth, not animated").
  *
- * Changes vs D-256 (D-257) + device-feedback batch #2 (D-262):
+ * Changes vs D-256 (D-257) + device-feedback batch #2 (D-262) + batch #5 (D-275):
  * - **Wider banner aspect**: the hero is an inset 16:9 card (16dp side
  *   margins, 20dp rounded corners, 1dp border — the standard card language)
  *   instead of a full-bleed ~1.2:1 block. 16:9 matches AniList's native banner
@@ -91,12 +78,16 @@ import kotlin.math.abs
  *   misaligned. Dots read `settledPage` (change on settle, not mid-slide).
  * - **12s auto-advance** (D-262 device feedback: "should be doubled...
  *   maybe 12 seconds"). Was 6s.
- * - **Blurred + darkened backdrop** (D-262 device feedback: "the background
- *   banner should be slightly blurred out and darkened"). The backdrop is
- *   now a CPU-blurred small thumbnail (Coil 3 removed the Transformation API
- *   entirely — there is no `coil3.transform.Transformation`; `Modifier.blur`
- *   is a runtime no-op below API 31). See [BlurredBannerBackdrop] + the
- *   stronger scrim stops (0.30 / 0 / 0 / 0.55 / 0.88).
+ * - **Sharp banner + blurred-cover bottom strip** (D-275 device feedback:
+ *   "the background banner is apparently blurred out way too much so it
+ *   should not be blurred out at all" + "in the bottom empty area the
+ *   blurred-out view of the cover image will show"). The backdrop is now a
+ *   SHARP banner (Coil `AsyncImage`, no blur) filling the card, with a
+ *   blurred COVER strip at the bottom — `Modifier.blur(8.dp).scale(1.15f)`,
+ *   matching the details page exactly (same recipe as DetailsScreen.kt's
+ *   banner blur). Scrim lightened (0.15/0/0/0.30/0.55) so the banner reads at
+ *   top + the blurred cover reads at the bottom. The old D-262 CPU box-blur
+ *   (`BlurredBannerBackdrop` + `boxBlur`) is REMOVED — no longer needed.
  * - Cover poster + banner layered as before (D-256 anatomy), rank pill,
  *   2-line title, score/eps/year meta and genre chips, page dots BELOW the
  *   card (centered — never collides with the text block on narrow screens).
@@ -104,8 +95,8 @@ import kotlin.math.abs
  * ```
  * ┌─── 16dp ──────────────────────────────────┐
  * │ ╭───────────────────────────────────────╮ │      ← 16:9, 20dp corners, 1dp border
- * │ │     banner (BLURRED + darkened)        │ │
- * │ │        bottom-heavy scrim               │ │
+ * │ │  SHARP banner (top)                    │ │
+ * │ │  ── blurred cover strip (bottom) ──     │ │      ← Modifier.blur(8.dp).scale(1.15f)
  * │ │ ┌────┐  #1 TRENDING                   │ │
  * │ │ │cover│  Title (18sp ExtraBold)       │ │
  * │ │ │2:3 │  ★ 85 · 24 eps · 2024          │ │
@@ -241,7 +232,24 @@ private fun HeroDot(active: Boolean) {
     )
 }
 
-/** A single hero card — blurred banner backdrop + scrim + cover-and-text foreground. */
+/**
+ * A single hero card — sharp banner + blurred-cover bottom strip + scrim +
+ * cover-and-text foreground (D-275).
+ *
+ * Layering (bottom → top render order):
+ * 1. SHARP banner — `AsyncImage` filling the card (no blur; D-275 device
+ *    feedback: "should not be blurred out at all"). Falls back to the cover
+ *    when no banner URL.
+ * 1.5. BLURRED COVER strip — `AsyncImage` at the bottom 140dp with
+ *    `Modifier.blur(8.dp).scale(1.15f)` — matches the details-page blur
+ *    EXACTLY (D-275 device feedback: "in the bottom empty area the
+ *    blurred-out view of the cover image will show" + "the blur is exactly
+ *    how it is implemented on the details page"). Fills the "empty area" the
+ *    user saw (where the old heavy scrim occluded the blurred banner).
+ * 2. Lightened gradient scrim (0.15/0/0/0.30/0.55) — banner reads at top +
+ *    blurred cover reads at bottom; text still legible.
+ * 3. Foreground Row — cover poster (84×126) + rank pill + title + meta + chips.
+ */
 @Composable
 private fun HeroCard(
     anime: AniListAnime,
@@ -259,31 +267,61 @@ private fun HeroCard(
             )
             .clickable(onClick = onClick),
     ) {
-        // ── Layer 1: BLURRED banner backdrop (D-262 — falls back to the cover) ──
-        // D-262: the backdrop is now blurred + darkened per device feedback.
-        // See BlurredBannerBackdrop for the CPU-blur approach (works on every
-        // API — Coil 3 has no Transformation API; Modifier.blur is API 31+).
-        BlurredBannerBackdrop(
-            url = anime.bannerImage ?: anime.coverUrl,
-            contentDescription = anime.displayName,
-            modifier = Modifier.fillMaxSize(),
-        )
+        // ── Layer 1: SHARP banner backdrop (D-275 — un-blurred per device feedback
+        // "the background banner is apparently blurred out way too much so it
+        // should not be blurred out at all"; falls back to the cover when no
+        // banner). Fills the whole card so the top shows the sharp banner artwork. ──
+        if (!anime.bannerImage.isNullOrBlank() || !anime.coverUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = anime.bannerImage ?: anime.coverUrl,
+                contentDescription = anime.displayName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            // No banner + no cover → tinted surface fill (rare; e.g. placeholder items).
+            Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+        }
 
-        // ── Layer 2: bottom-heavy gradient scrim (D-262: darkened — was
-        // 0.18/0/0/0.45/0.82; now 0.30/0/0/0.55/0.88 so the white text block
-        // reads over the blurred artwork). A subtle top scrim keeps the card's
-        // top edge soft. ──
+        // ── Layer 1.5: BLURRED COVER at the bottom strip (D-275 — "in the bottom
+        // empty area the blurred-out view of the cover image will show"). Matches
+        // the details-page blur EXACTLY: `Modifier.blur(8.dp) + scale(1.15f)` so the
+        // pan never reveals edges (same recipe as DetailsScreen.kt's banner). The
+        // bottom strip fills the "empty area" the user saw (where the heavy scrim
+        // occluded the blurred banner). Now it shows the cover artwork, blurred — a
+        // beautiful backdrop for the foreground cover poster + text. `Modifier.blur`
+        // uses RenderEffect on API 31+ (same as DetailsScreen); below 31 it's a
+        // no-op → the sharp cover shows (still better than the old empty dark strip).
+        // ──
+        if (!anime.coverUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = anime.coverUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(140.dp)
+                    .blur(8.dp)
+                    .scale(1.15f),
+            )
+        }
+
+        // ── Layer 2: bottom-heavy gradient scrim (D-275 — lightened so the sharp
+        // banner reads at the top + the blurred cover reads at the bottom; was
+        // 0.22/0/0/0.45/0.82 which occluded the cover entirely). A subtle top
+        // scrim keeps the card's top edge soft. ──
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.22f),
+                            Color.Black.copy(alpha = 0.15f),
                             Color.Transparent,
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.45f),
-                            Color.Black.copy(alpha = 0.82f),
+                            Color.Black.copy(alpha = 0.30f),
+                            Color.Black.copy(alpha = 0.55f),
                         ),
                         startY = 0f,
                         endY = Float.POSITIVE_INFINITY,
@@ -403,134 +441,6 @@ private fun HeroCard(
     }
 }
 
-/**
- * D-262: the blurred banner backdrop. Works on every API level (minSdk 24).
- *
- * Coil 3 removed the `Transformation` API entirely — there is no
- * `coil3.transform.Transformation`. `Modifier.blur()` uses `RenderEffect`
- * (API 31+ only; silent no-op below). The user's device API is unknown → the
- * blur must work on minSdk 24.
- *
- * Approach: load a small (HERO_BLUR_W_PX × HERO_BLUR_H_PX) thumbnail via the
- * singleton ImageLoader on Dispatchers.IO, namespaced under a custom
- * `memoryCacheKey` so it never collides with the sharp cover/poster requests
- * for the same URL (when banner is null, the cover serves as the backdrop AND
- * as the sharp 84×126 poster — the custom key keeps them separate). Run a
- * 3-pass... actually single-pass box blur on the tiny bitmap (~1ms on IO),
- * then render it full-size via ContentScale.Crop (the GPU upscales
- * bilinearly → the soft backdrop). Result cached in Coil's memory under
- * `"hero-blur:$url"` → instant on adjacent-page preload (SectionPreloader
- * enqueues the same request) and recompose.
- */
-@Composable
-private fun BlurredBannerBackdrop(
-    url: String?,
-    contentDescription: String?,
-    modifier: Modifier,
-) {
-    val context = LocalContext.current
-    val loader = remember { context.imageLoader }
-    val blurred by produceState<ImageBitmap?>(initialValue = null, url) {
-        value = null
-        if (url.isNullOrBlank()) return@produceState
-        value = withContext(Dispatchers.IO) {
-            try {
-                val req = ImageRequest.Builder(context)
-                    .data(url)
-                    .size(HERO_BLUR_W_PX, HERO_BLUR_H_PX)
-                    .allowHardware(false) // D-266: prevent HARDWARE bitmaps — getPixels() throws on them
-                    .memoryCacheKey("$HERO_BLUR_KEY_PREFIX$url")
-                    .build()
-                val r = loader.execute(req)
-                // D-262: SuccessResult.image is non-null (ImageResult.image is
-                // nullable on the sealed interface; SuccessResult overrides it
-                // non-null). The `as?` cast + null-coalescing returns null on
-                // any non-success result (network error, etc.) → backdrop
-                // stays blank until next try.
-                val src = (r as? SuccessResult)?.image
-                    ?.toBitmap(HERO_BLUR_W_PX, HERO_BLUR_H_PX)
-                    ?: return@withContext null
-                // Safety net: guarantee the bitmap is at the target decode size
-                // (Coil's toBitmap SHOULD scale, but be explicit so the box
-                // blur runs on the exact dims we expect).
-                val sized = if (src.width == HERO_BLUR_W_PX && src.height == HERO_BLUR_H_PX) {
-                    src
-                } else {
-                    Bitmap.createScaledBitmap(src, HERO_BLUR_W_PX, HERO_BLUR_H_PX, true)
-                }
-                boxBlur(sized, HERO_BLUR_RADIUS_PX).asImageBitmap()
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
-    Box(modifier.fillMaxSize()) {
-        val current = blurred
-        if (current != null) {
-            Image(
-                painter = BitmapPainter(current),
-                contentDescription = contentDescription,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-    }
-}
-
-/**
- * D-262: a simple in-place-safe box blur (moving-average over a
- * (2*radius+1)² window). Naive O(w*h*radius²) — fine for the 160×90 backdrop
- * (~360k ops per pass; <1ms on IO). Allocates a fresh output bitmap (the
- * input is Coil-owned and must not be recycled here).
- */
-private fun boxBlur(src: Bitmap, radius: Int): Bitmap {
-    if (radius <= 0) return src
-    // D-266: Coil 3 returns HARDWARE bitmaps by default on API 26+; getPixels()
-    // on a hardware bitmap throws IllegalStateException (silently caught by the
-    // outer try/catch in produceState -> backdrop rendered blank -> user saw
-    // only the dark scrim). Copy to ARGB_8888 so getPixels succeeds. Safety net
-    // for the .allowHardware(false) on the ImageRequest (which should already
-    // prevent this, but defends against any future config drift).
-    val safeSrc = if (src.config == Bitmap.Config.HARDWARE) {
-        src.copy(Bitmap.Config.ARGB_8888, true) ?: return src
-    } else {
-        src
-    }
-    val w = safeSrc.width
-    val h = safeSrc.height
-    if (w <= 1 || h <= 1) return src
-    val pixels = IntArray(w * h)
-    safeSrc.getPixels(pixels, 0, w, 0, 0, w, h)
-    val result = IntArray(w * h)
-    val window = radius * 2 + 1
-    val div = (window * window).toFloat()
-    for (y in 0 until h) {
-        for (x in 0 until w) {
-            var a = 0; var r = 0; var g = 0; var b = 0
-            for (dy in -radius..radius) {
-                val yy = (y + dy).coerceIn(0, h - 1)
-                for (dx in -radius..radius) {
-                    val xx = (x + dx).coerceIn(0, w - 1)
-                    val p = pixels[yy * w + xx]
-                    a += (p ushr 24) and 0xFF
-                    r += (p ushr 16) and 0xFF
-                    g += (p ushr 8) and 0xFF
-                    b += p and 0xFF
-                }
-            }
-            result[y * w + x] = (
-                ((a / div).toInt() shl 24) or
-                    ((r / div).toInt() shl 16) or
-                    ((g / div).toInt() shl 8) or
-                    (b / div).toInt()
-                )
-        }
-    }
-    val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-    out.setPixels(result, 0, w, 0, 0, w, h)
-    return out
-}
-
 /** A genre tag chip — translucent dark pill (readable on any artwork). */
 @Composable
 private fun HeroGenreChip(label: String, emphasized: Boolean = true) {
@@ -575,15 +485,3 @@ private const val HERO_MAX_GENRE_CHIPS = 3
  * staying a trivial integer for the modulo math.
  */
 private const val HERO_VIRTUAL_COPIES = 200
-
-// ── D-262: blurred-backdrop decode size + blur params + cache key ──────────
-// 160×90 is a 16:9 thumbnail; the GPU upscales it bilinearly to the full card
-// (~1080×590) → the soft backdrop. Box-blur radius 2 on the small bitmap
-// adds gaussian-like smoothness. The custom memoryCacheKey namespaces the
-// blurred request so it never collides with the sharp cover/poster requests
-// for the same URL (per the D-257 lesson: the Android memory-cache key
-// excludes size when there are no transformations).
-private const val HERO_BLUR_W_PX = 160
-private const val HERO_BLUR_H_PX = 90
-private const val HERO_BLUR_RADIUS_PX = 2
-private const val HERO_BLUR_KEY_PREFIX = "hero-blur:"

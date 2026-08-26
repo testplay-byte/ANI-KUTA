@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.cash.sqldelight.db.SqlDriver
 import com.confused.anikuta.core.activitytracker.activityTrackerModule
+import com.confused.anikuta.core.ads.di.adsModule  // D-272: smart-link ad system
 import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
 import com.confused.anikuta.core.common.Logger
@@ -111,6 +112,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 notificationsModule,
                 activityTrackerModule,
                 appUpdateModule,
+                adsModule,  // D-272: smart-link ad system
                 extensionModule,
                 playerModule,
                 videoResolverModule,

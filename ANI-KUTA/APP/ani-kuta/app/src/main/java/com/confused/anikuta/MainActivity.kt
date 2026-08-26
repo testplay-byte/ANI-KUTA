@@ -48,6 +48,8 @@ import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.appupdate.AppUpdateManager
+import com.confused.anikuta.core.ads.AdsCoordinator  // D-272: smart-link ad coordinator
+import com.confused.anikuta.core.ads.SmartLinkAdInterstitial  // D-272: ad interstitial overlay
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
 import com.confused.anikuta.core.designsystem.theme.AccentPreset
@@ -401,6 +403,16 @@ fun AppRoot() {
     }
     val currentKey = backstack.last()
 
+    // D-272: smart-link ad coordinator. Wraps every navigate-to-Details call so
+    // the ad interstitial can gate it (one ad per 6h, try-again flow, time-spent-
+    // outside verification). Declared AFTER `backstack` because it closes over
+    // `backstack.add`. Notification deep-links (LaunchedEffect above) deliberately
+    // bypass the gate — they're system-initiated, not a user tap on an entry.
+    val adsCoordinator = koinInject<AdsCoordinator>()
+    val navigateToDetails: (AnimeDetailsKey) -> Unit = { key ->
+        adsCoordinator.requestNavigation { backstack.add(key) }
+    }
+
     // D-222: AniList OAuth redirect — auto-navigate to the Trackers page
     // after a successful login (the redirect opens the app fresh on Browse).
     // Also show a snackbar confirmation.
@@ -515,7 +527,16 @@ fun AppRoot() {
         ) {
         when (currentKey) {
             is AnimeBrowseKey -> BrowseScreen(
-                onNavigate = { navKey -> backstack.add(navKey) },
+                onNavigate = { navKey ->
+                    // D-272: route Details navigations through the ad gate;
+                    // everything else (e.g. Watch from a Continue-Watching card,
+                    // which Browse no longer surfaces but the contract holds)
+                    // pushes directly onto the backstack.
+                    when (navKey) {
+                        is AnimeDetailsKey -> navigateToDetails(navKey)
+                        else -> backstack.add(navKey)
+                    }
+                },
             )
             is AnimeDetailsKey -> {
                 // Handle both AniList and Extension variants of the sealed key.
@@ -598,9 +619,9 @@ fun AppRoot() {
                     // If it has an anilistId → open via AniList.
                     // If it only has an extension source → open via Extension.
                     if (entry.hasAniListId) {
-                        backstack.add(AnimeDetailsKey.AniList(entry.anilistId!!))
+                        navigateToDetails(AnimeDetailsKey.AniList(entry.anilistId!!))
                     } else if (entry.hasExtensionSource) {
-                        backstack.add(
+                        navigateToDetails(
                             AnimeDetailsKey.Extension(
                                 entry.sourceId!!,
                                 entry.animeUrl!!,
@@ -616,10 +637,10 @@ fun AppRoot() {
             )
             is AnimeSearchKey -> SearchScreen(
                 onNavigateToDetails = { animeId ->
-                    backstack.add(AnimeDetailsKey.AniList(animeId))
+                    navigateToDetails(AnimeDetailsKey.AniList(animeId))
                 },
                 onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
-                    backstack.add(AnimeDetailsKey.Extension(sourceId, animeUrl, title, thumbnailUrl))
+                    navigateToDetails(AnimeDetailsKey.Extension(sourceId, animeUrl, title, thumbnailUrl))
                 },
                 // D-209: Cloudflare manual solver — launched from the Search error card.
                 onOpenCloudflareWebView = { url, sourceName ->
@@ -679,11 +700,11 @@ fun AppRoot() {
                         val details = contentRepository.getContentDetails(mainId)
                         val anilistId = details?.anilistId
                         if (anilistId != null) {
-                            backstack.add(AnimeDetailsKey.AniList(anilistId))
+                            navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                         } else {
                             // Extension-only entry.
                             if (details != null) {
-                                backstack.add(AnimeDetailsKey.Extension(
+                                navigateToDetails(AnimeDetailsKey.Extension(
                                     sourceId = details.sourceId ?: 0L,
                                     animeUrl = details.animeUrl ?: content.animeUrl ?: "",
                                     title = content.title,
@@ -802,7 +823,7 @@ fun AppRoot() {
             is ProfileKey -> com.confused.anikuta.profile.ProfileScreen(
                 onBack = pop,
                 onNavigateToAnime = { anilistId ->
-                    backstack.add(AnimeDetailsKey.AniList(anilistId))
+                    navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                 },
             )
             is WatchKey -> WatchScreen(
@@ -819,10 +840,10 @@ fun AppRoot() {
                             val details = contentRepository.getContentDetails(mainId)
                             val anilistId = details?.anilistId
                             if (anilistId != null) {
-                                backstack.add(AnimeDetailsKey.AniList(anilistId))
+                                navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                             } else {
                                 if (details != null) {
-                                    backstack.add(AnimeDetailsKey.Extension(
+                                    navigateToDetails(AnimeDetailsKey.Extension(
                                         details.sourceId ?: 0L,
                                         details.animeUrl ?: content.animeUrl ?: "",
                                         content.title,
@@ -845,11 +866,11 @@ fun AppRoot() {
                             val details = contentRepository.getContentDetails(mainId)
                             val anilistId = details?.anilistId
                             if (anilistId != null) {
-                                backstack.add(AnimeDetailsKey.AniList(anilistId))
+                                navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                             } else {
                                 // Extension-only content — use the source ID + URL.
                                 if (details != null) {
-                                    backstack.add(AnimeDetailsKey.Extension(
+                                    navigateToDetails(AnimeDetailsKey.Extension(
                                         details.sourceId ?: 0L,
                                         details.animeUrl ?: content.animeUrl ?: "",
                                         content.title,
@@ -938,6 +959,11 @@ fun AppRoot() {
                 onDismiss = { },
             )
         }
+
+        // D-272: smart-link ad interstitial overlay. Renders on top of every screen
+        // when AdsCoordinator.state is active (AdPending / AdInProgress / AdTryAgain).
+        // Idle = no-op (renders nothing). Sibling of UpdateBottomSheet above.
+        SmartLinkAdInterstitial()
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }
