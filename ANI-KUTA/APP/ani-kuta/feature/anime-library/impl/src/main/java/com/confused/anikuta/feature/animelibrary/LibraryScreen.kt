@@ -2913,7 +2913,16 @@ private fun LibraryGridCard(
     // cover Box (not the outer card). In all other cases, border wraps the
     // entire card.
     val isDark = isSystemInDarkTheme()
-    val adaptiveColor = rememberCoverAccentColor(anime.coverUrl)
+    // D-292: extract the adaptive color ONLY when it can actually be used —
+    // this used to run UNCONDITIONALLY for every card entering the viewport
+    // (a 100×100 Coil load + Palette per card during scroll, with generate()
+    // on the main thread before the D-292 off-main fix — a major scroll-jank
+    // source in the 653-item grid even with borders disabled).
+    val adaptiveColor = if (coverBorderEnabled && coverBorderColor == CoverBorderColor.ADAPTIVE) {
+        rememberCoverAccentColor(anime.coverUrl)
+    } else {
+        null
+    }
     val resolvedBorderColor = when (coverBorderColor) {
         CoverBorderColor.THEME_ADAPTIVE -> if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
         CoverBorderColor.ADAPTIVE -> adaptiveColor ?: MaterialTheme.colorScheme.outline
@@ -3395,7 +3404,13 @@ private fun LibraryListRow(
 
     // D-242-fix19: Resolve border color — ADAPTIVE extracts per-cover color.
     val isDark = isSystemInDarkTheme()
-    val adaptiveColor = rememberCoverAccentColor(anime.coverUrl)
+    // D-292: extract ONLY when the ADAPTIVE border is actually enabled (same
+    // unconditional-per-card scroll cost as the grid card above).
+    val adaptiveColor = if (coverBorderEnabled && coverBorderColor == CoverBorderColor.ADAPTIVE) {
+        rememberCoverAccentColor(anime.coverUrl)
+    } else {
+        null
+    }
     val resolvedBorderColor = when (coverBorderColor) {
         CoverBorderColor.THEME_ADAPTIVE -> if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
         CoverBorderColor.ADAPTIVE -> adaptiveColor ?: MaterialTheme.colorScheme.outline
