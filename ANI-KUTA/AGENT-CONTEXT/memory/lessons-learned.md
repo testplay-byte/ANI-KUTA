@@ -261,3 +261,15 @@ The ImageLoader's global `crossfade(true)` applies to EVERY AsyncImage. In a den
 ### Brush.verticalGradient takes a vararg — a List in named form won't compile
 **Date:** 2026-08-26 (D-284) · **Cost:** one wasted CI round
 `Brush.verticalGradient(colorStops = someList)` fails with "Argument type mismatch: List<Pair<Float, Color>> vs Array<out Pair<Float, Color>>" + "Assigning single elements to varargs in named form is prohibited". **Rule:** pass a spread — `*list.toTypedArray()` or `*arrayOf(a to b, c to d)`. (The dynamic-colors overload that takes a List exists, but NOT for the colorStops variant.)
+
+### Never emit intermediate state orderings — LazyGrid key-anchoring turns them into scroll jumps
+**Date:** 2026-08-26 (D-290) · **Cost:** the user's "library scrolled to the middle by itself" bug across two releases
+`_state.value = Success(unsorted)` followed by `_state.value = Success(sorted)` LOOKS harmless (StateFlow conflates, no suspension between the writes). But the writes happen on Dispatchers.Default — a GC pause or scheduler preemption between them lets Main compose the UNSORTED list. LazyGrid/LazyList anchor scroll to the first visible item's KEY (items have `key = mainId`), so the grid silently follows that item to its new index — the middle of the list. **Rule:** compute the FINAL transformed value before ANY state write; emit exactly once. Any "emit raw, then refine" pattern in a scrolling list is a latent scroll-jump.
+
+### produceState producers inherit the Main dispatcher — suspend ≠ off-main
+**Date:** 2026-08-26 (D-292) · **Cost:** persistent library scroll jank reported across two device tests
+`imageLoader.execute()` inside produceState properly suspends (the LOAD is off-main). But the lines AFTER it — bitmap.copy, Palette.from().generate(), any CPU transform — run on the producer coroutine's dispatcher, which is the composition's Main dispatcher. "It's inside a suspend fun" is NOT a thread hop. **Rule:** wrap every CPU-bound block in `withContext(Dispatchers.Default)`, even inside suspend funs that already suspend elsewhere. Symptom: jank proportional to the number of NEW cells entering the viewport (per-card work on main), not to the total list size.
+
+### Composable helpers can hide per-cell costs — audit what runs when a cell ENTERS composition
+**Date:** 2026-08-26 (D-292)
+`rememberCoverAccentColor(anime.coverUrl)` was called unconditionally at the top of every grid card — a Coil 100×100 request + Palette extraction for EVERY card entering the viewport, even though the result was only used when the user had enabled ADAPTIVE borders (off by default). The cost was invisible in the call site (one innocent-looking line). **Rule:** when a composable helper does real work (IO/CPU), check whether its CONSUMER actually needs it — gate expensive helpers on the setting that makes their result observable, and memoize (LruCache) so re-entering cells are free.

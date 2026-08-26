@@ -2212,3 +2212,60 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Files:** LibraryScreen.kt.
 - **Status:** ✅ Implemented (commit 1e963f3; CI on 0809551 pending at doc time).
 - **Date:** 2026-08-26.
+
+---
+
+### D-289 — Browse hero v6 (compact fixed height + banner-as-background + abstract splash)
+- **What (user, device test on v0.2.55):** "The hero section height is very bad… way too tall. I need you to make it less tall." / "The top banner area… could be in the background, over the cover image and the background of the text… make sure that the hero section is a little bit taller than the cover image itself." / "I did not want you to quite literally go with a gradient… a random splash of colors… not a smooth gradient… some splash of colors which blend in together with each other randomly… an abstract splash kind of vibe." / "The cover image's colors would blend in smoothly around it. Also the top banner section would blend in smoothly towards it too. The difference between where the top banner ends and the bottom section starts would be minimal."
+- **Fix (BrowseHero.kt — HeroCard internals redone):**
+  1. **Fixed `HERO_HEIGHT = 148dp`** replacing the 1.4:1 aspect ratio (~234dp on a 360dp-wide screen): a little taller than the 114dp cover poster it frames (+12dp bottom padding + ~22dp airy strip above).
+  2. **Banner as full-bleed background** — `ContentScale.Crop` + `Alignment.Center` over the whole card (atmosphere behind everything; the "uncropped showcase banner" requirement is superseded by the user's new "in the background" instruction).
+  3. **SplashOverlay** — 8 soft-edged radial-gradient blobs drawn via `drawBehind` in the cover's own 6-color palette (D-284 extractor): 2 airy low-alpha top blobs (banner still reads), 5 denser bottom-zone blobs (0.32–0.55 alpha, overlapping = organic SRC_OVER blending), 1 poster-echo blob (lightest palette color behind the cover = "cover colors blend around it"). Blob layout seeded by `coverUrl.hashCode()` — stable per item, different per banner. NO linear gradient anywhere.
+  4. **Unifying veil** — smooth 0.06 → 0.52 black ramp over everything. Because the banner never "ends" (spans the full card) and every blob edge is a radial falloff, there is no detectable banner↔content boundary — the seamless-blend requirement is structural, not cosmetic.
+- **Files:** BrowseHero.kt.
+- **Status:** ✅ Implemented (commit 8fa46be; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
+
+---
+
+### D-290 — Library scroll-jump fix (single-emission state pipeline + staggered hoist + dataset-change resets)
+- **What (user):** "Sometimes the library page would automatically scroll to the bottom or some middle area… even though previously I was at the very top. When I refreshed the library page, the library page did not stay at the very top… It scrolled way too much down automatically by itself… about the middle."
+- **Root cause (R-1 research sub-agent):** `loadLibraryImpl` emitted `Success(entries)` in DATE_ADDED order and THEN `applyFilters()` re-emitted the sorted list. If a recomposition landed between the two writes (preemption/GC-pause window on Dispatchers.Default), the grid composed the UNSORTED list and LazyGrid's key-based anchoring (`key = mainId`) followed the previously first-visible item to its DATE_ADDED rank — the middle of the 653-item list. Additional contributors: COMFORTABLE_GRID's `rememberLazyStaggeredGridState()` was NOT VM-held (died on tab switch while gridState went stale), and dataset changes (category switch, search) kept a stale retained index.
+- **Fix (LibraryViewModel + LibraryScreen):**
+  1. **Single emission:** the final filtered+sorted list is computed BEFORE any state write (`filterAndSort` pure function shared by loadLibraryImpl and applyFilters) — no unsorted intermediate ordering can ever be composed; the whole bug class is gone.
+  2. **`masterEntries`** (unfiltered, unsorted) held in the VM; `applyFilters` re-derives from it — also fixes a LATENT BUG: the old applyFilters re-filtered the ALREADY-filtered state, so clearing a search query could never restore removed entries until a full reload.
+  3. **`staggeredState` hoisted to the VM** — Comfortable mode now retains scroll exactly like grid/list modes.
+  4. **`resetScrollToTop()`** (non-suspend `requestScrollToItem(0, 0)` on all three states, foundation 1.7+) on category switch and search-query change — a changed dataset presents from its top; no stale-index mid-list landings.
+  5. **Resume refresh now invisible:** with single-emission + structural-equality conflation (`LibraryEntry` is a @Immutable data class), the `LaunchedEffect(Unit) { loadLibrary() }` on tab re-entry produces an EQUAL Success that StateFlow DROPS — no flash, no grid teardown, no scroll disturbance; genuinely changed data still swaps in.
+- **Files:** LibraryViewModel.kt, LibraryScreen.kt.
+- **Status:** ✅ Implemented (commit 8fa46be; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
+
+---
+
+### D-291 — Reveal-once cover animations (velocity-adaptive, one fade per cover, ever)
+- **What (user):** "The loading of the images is not smooth. All the images just outright jump into it… I wanted a smoother experience… they would all show up one by one with a smoother animation… The speed of them will be faster as the users scroll faster… if the user jumps into some area directly then it will slow down that area smoothly… If I scroll one time to the very top and then to the very bottom… it should not be loading any images [on the way back]… It should only work if they were not loaded. If previously loaded then no need to reload them completely unless the user refreshes the whole page again."
+- **Fix (LibraryScreen + LibraryViewModel):**
+  1. **`CoverRevealController`** threaded screen → LibraryGrid/LibraryList → cards → `LibraryCoverImage`: a `State<Float>` velocity factor + isRevealed/markRevealed lambdas backed by the VM's `revealedCoverKeys` set (Activity-scoped — survives tab switches; cleared ONLY by `refreshLibrary()` — pull-to-refresh is the user's explicit "reload everything" signal).
+  2. **Reveal-once gate:** an unrevealed cover starts at alpha 0 (soft surfaceVariant@0.35 placeholder reads as reserved space) and fades 0→1 on its FIRST load success; a revealed cover renders at full alpha INSTANTLY — scroll-back and tab-return never re-animate.
+  3. **Velocity-adaptive duration:** `rememberScrollVelocityFactor` tracks an EMA over a `snapshotFlow` of the active list's `index*4096 + offset` signal, with a 150ms decay loop (post-fling loads get the calm fade). Sampled NON-reactively at load completion: 240ms calm → 70ms hard fling. Reading it reactively in cells would recompose every cell on every scroll frame — the exact churn D-287 removed.
+  4. **Draw-phase animation:** the fade alpha is read inside `graphicsLayer { alpha = revealAlpha.value }` — animating re-DRAWS only the cell's layer; zero recomposition churn (safe for 10+ concurrent fades in 5-column mode).
+  5. `crossfade(false)` + `bitmapConfig(RGB_565)` kept from D-287 — the reveal system owns ALL animation.
+- **Files:** LibraryScreen.kt, LibraryViewModel.kt.
+- **Status:** ✅ Implemented (commit 8fa46be; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
+
+---
+
+### D-292 — Cover accent palette off main thread + extraction gating (scroll-jank fix)
+- **What (user):** Library scrolling "was not smooth, it was not proper" — persistent jank in the 653-item grid.
+- **Root causes (both found this session):**
+  1. `rememberCoverAccentColor`'s `Palette.from(bitmap).generate()` ran ON THE MAIN THREAD — produceState's producer coroutine inherits the composition's Main dispatcher, and `imageLoader.execute()` only suspends for the LOAD; the synchronous generate() (5–20ms per cover) blocked main for every new card entering the viewport.
+  2. The call ran UNCONDITIONALLY in LibraryGridCard + LibraryListRow — every card did a 100×100 Coil load + Palette even with cover borders disabled (the default). This was likely the PRIMARY scroll-jank source all along.
+- **Fix (CoverAccentColor.kt + LibraryScreen.kt):**
+  1. HARDWARE bitmap copy + Palette.generate() + swatch pick now inside `withContext(Dispatchers.Default)`.
+  2. 256-entry `LruCache<String, Int>` keyed `url|isDark`, with a `FAILED_EXTRACTION` sentinel so failures are cached too (no retry storms for covers that can't produce a swatch).
+  3. Extraction gated on `coverBorderEnabled && coverBorderColor == ADAPTIVE` in BOTH card sites — zero extraction work in the default configuration.
+- **Files:** CoverAccentColor.kt, LibraryScreen.kt.
+- **Status:** ✅ Implemented (commits 8fa46be + 26beba9; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
