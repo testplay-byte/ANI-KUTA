@@ -249,10 +249,12 @@ class SqlDelightWatchProgressStore(
 
     // D-285: one GROUP BY for the whole table — the Library's batch loader
     // replaces N per-entry getLastWatchedAt calls with this single read.
-    // Rows only exist for main_ids with at least one watched episode.
+    // Rows only exist for main_ids with at least one watched episode. A NULL
+    // MAX(last_watched_at) (progress rows without timestamps) is dropped — the
+    // same "no timestamp" contract as the per-entry getLastWatchedAt (null).
     override suspend fun getAllLastWatchedAt(): Map<String, Long> = withContext(dispatchers) {
         database.watchQueries.getAllLastWatchedAt().executeAsList()
-            .associate { it.main_id to it.last_watched_at }
+            .mapNotNull { row -> row.last_watched_at?.let { row.main_id to it } }
     }
 
     /**

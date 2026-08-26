@@ -116,6 +116,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.bitmapConfig
 import coil3.request.crossfade
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.common.HapticHelper
