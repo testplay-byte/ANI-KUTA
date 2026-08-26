@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
+    implementation(project(":core:data-cache"))  // D-278: offline trending fallback (browse_cache)
     implementation(project(":core:navigation-api"))
     implementation(project(":core:preferences"))
     implementation(project(":core:source-api"))

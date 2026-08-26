@@ -3,8 +3,10 @@ package com.confused.anikuta.feature.animesearch
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.confused.anikuta.core.anilist.api.AniListApi
+import com.confused.anikuta.core.anilist.api.BrowseCacheCodec
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
@@ -43,6 +45,7 @@ import kotlinx.coroutines.withContext
  */
 class SearchViewModel(
     private val anilistApi: AniListApi,
+    private val dataCacheRepository: DataCacheRepository,
     private val preferenceStore: PreferenceStore,
     private val extensionManager: ExtensionManager,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
@@ -360,11 +363,44 @@ class SearchViewModel(
     }
 
     /**
-     * Load trending anime from AniList (shown when AniList source is active + query is blank).
+     * Load trending anime from AniList (shown when AniList source is active +
+     * query is blank).
+     *
+     * D-278: cache-first. The Browse screen already caches the EXACT same
+     * AniList TRENDING query (shared [BrowseCacheCodec] + `browse_cache` table).
+     * So we serve that cached payload INSTANTLY (a user who opened Browse once
+     * already has it populated), then refresh from network. Lets the search
+     * page "show default results without internet" per the user's request —
+     * no blank screen, no 30s network timeout before content appears offline.
+     *
+     * Flow: Loading → (cache hit → Success(cached)) → network refresh →
+     *   (success → Success(fresh)) / (fail + cache was shown → keep cache) /
+     *   (fail + no cache → Idle).
      */
     private fun loadTrending(): Job {
         _uiState.value = SearchUiState.Loading
         return viewModelScope.launch {
+            // D-278: serve the cached trending payload first (instant, offline).
+            if (_query.value.isBlank()) {
+                val cachedTrending = withContext(Dispatchers.IO) {
+                    dataCacheRepository.getBrowseCache(BrowseCacheCodec.SECTION_TRENDING)
+                }
+                if (cachedTrending != null && _query.value.isBlank()) {
+                    val cachedResults = try {
+                        BrowseCacheCodec.decode(cachedTrending.dataJson)
+                    } catch (parseErr: Exception) {
+                        Logger.w(TAG) { "Trending cache parse failed: ${parseErr.message}" }
+                        emptyList()
+                    }
+                    if (cachedResults.isNotEmpty() && _query.value.isBlank()) {
+                        Logger.i(TAG) { "Serving ${cachedResults.size} cached trending as default" }
+                        showingDefaults = true
+                        _uiState.value = SearchUiState.Success(results = cachedResults)
+                    }
+                }
+            }
+            // Then refresh from network (populates/refreshes the cache for the
+            // NEXT offline open + shows fresh trending when online).
             try {
                 Logger.i(TAG) { "Loading trending anime from AniList" }
                 val results = anilistApi.fetchTrending(perPage = 30)
@@ -372,7 +408,9 @@ class SearchViewModel(
                 // trending fetch was in flight — don't clobber the search.
                 if (_query.value.isNotBlank()) return@launch
                 if (results.isEmpty()) {
-                    _uiState.value = SearchUiState.Idle
+                    // Network returned empty — only fall to Idle if we have
+                    // NO cached fallback already showing (D-278).
+                    if (!showingDefaults) _uiState.value = SearchUiState.Idle
                 } else {
                     showingDefaults = true
                     _uiState.value = SearchUiState.Success(results = results)
@@ -380,7 +418,10 @@ class SearchViewModel(
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Trending load failed: ${e.message}" }
                 if (_query.value.isNotBlank()) return@launch
-                _uiState.value = SearchUiState.Idle
+                // D-278: if cache already served (showingDefaults), keep it —
+                // don't clobber with Idle. Only fall to Idle when we have
+                // nothing cached to show.
+                if (!showingDefaults) _uiState.value = SearchUiState.Idle
             }
         }
     }
