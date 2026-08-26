@@ -129,13 +129,13 @@ repo-root/
 - **NEVER** install the Android SDK, JDK (with javac), or any Android build tooling in the local environment. The local environment does NOT have these and MUST NOT acquire them. GitHub Actions provides everything needed.
 - **NEVER** run `./gradlew compileDebugKotlin`, `./gradlew assembleDebug`, or ANY Gradle build task locally. Not even for "just checking compilation". Not even for "just finding the error".
 - **NEVER** write `sdk.dir=...` to `local.properties`. Do not create `local.properties` at all.
-- **How to find compile errors WITHOUT building locally:**
-  1. Read the code carefully, line by line, checking every import, type, and API call.
-  2. Use sub-agents (Explore type) to review the code for compile errors — they can read files and compare against reference code.
-  3. Cross-reference against the OLD project (in `REFERENCES/old-kuta/ANIKUTA/`) which compiles successfully.
-  4. Cross-reference against the Animiru documentation (in `REFERENCES/animiru/documentation/`).
-  5. Push to CI and read the failure annotations from the GitHub API (`/repos/{owner}/{repo}/check-runs/{id}/annotations`).
-  6. Iterate: fix → push → read CI annotations → fix again. This is the ONLY loop.
+- **How to find compile errors WITHOUT building locally — CI-FIRST (user instruction, D-281):**
+  1. Write the change carefully, reading the touched files and the immediate call sites (imports, types, API signatures).
+  2. **Commit + push → let GitHub Actions build the APK** — this is the primary and preferred verification step. Do NOT dispatch sub-agents to pre-review code for compile errors; that is unnecessary before the build has even run.
+  3. Poll the workflow run via the GitHub API. **If it fails**, read the failure (the check-run annotations endpoint `/repos/{owner}/{repo}/check-runs/{id}/annotations` + the job logs) and analyze the compile errors there.
+  4. Iterate: fix → push → read CI results → repeat until green. This is the ONLY loop.
+  5. Cross-reference against the OLD project (`REFERENCES/old-kuta/ANIKUTA/`) or the Animiru docs (`REFERENCES/animiru/documentation/`) only when a CI error needs design context to fix.
+  - **Rationale (user, D-281):** "Utilizing sub-agents to find the compile errors is not a great option. It is unnecessary to utilize sub-agents to find the errors before even trying to build it. We can directly build the APK using GitHub Actions and after building it we can check out the results." Sub-agent compile review was REMOVED as a workflow step by this instruction — CI is the compiler of record.
 - **ONLY** `arm64-v8a` ABI in SHIPPED APKs (updated D-251 per user instruction — armeabi-v7a dropped). No x86/x86_64.
   - Set in `build-logic/.../AndroidConfig.kt` (`abiFilters`), applied via the `anikuta.android.application` convention plugin.
   - Verified post-build in CI (the `build-apk.yml` "Verify ABIs" step inspects the SHIPPED APK's `lib/` folder and fails on any forbidden `lib/<abi>/`).
