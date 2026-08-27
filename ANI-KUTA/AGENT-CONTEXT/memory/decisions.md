@@ -2269,3 +2269,79 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Files:** CoverAccentColor.kt, LibraryScreen.kt.
 - **Status:** ✅ Implemented (commits 8fa46be + 26beba9; CI GREEN run 32993791653).
 - **Date:** 2026-08-26.
+
+### D-294 — Parent-first extension classloader (ROOT FIX: "extensions disappear after trust")
+
+**Context:** User device-report: extensions from salmanbappi/extensions-repo show up UNTRUSTED but vanish from every list the moment they're trusted. 82 extensions (80× lib-16, 2× lib-14), none load.
+
+**Root cause (verified via custom AXML/DEX parsing of the APKs, no Android tooling needed):**
+1. *(Loader)* Our `ChildFirstPathClassLoader` let an extension's PARTIAL bundled kotlin-stdlib shadow the host's complete stdlib (app ships kotlin 2.2.0; the template family bundles kotlin 2.0.x partials — 600+ `kotlin.*` classes). Mixed-stdlib class-identity breakage throws during source instantiation (the sb-template's `AnikotoTheme` even has an EAGER `client = network.client.newBuilder()...` initializer that runs at construction). The WORKING extension (anikoto v14.4) is R8-MINIFIED with ZERO kotlin bundled — which is exactly why it never hit the issue.
+2. *(UI)* `ExtensionManager.trustExtension` removed the extension from `_untrustedExtensions` and, when `loadExtension` returned `Error`, did NOTHING — the extension vanished from every list. `loadAll`'s `Error` branch only logged.
+
+**Fix:** `ExtensionLoader` now builds a plain **parent-first `PathClassLoader`** — EXACTLY like reference Aniyomi (extensions never shadow host classes; their bundled kotlin is inert dead weight, resolving instead to the host's binary-compatible stdlib). `ChildFirstPathClassLoader` deleted. All host-API refs the failing extensions use were verified compatible first (Video 16-param synthetic ctor, Hoster, AnimesPage 2-arg, AnimeFilter.Select/Separator synthetic ctors, Track(url, lang), rateLimitHost, androidx.preference typealias, Injekt registration) — the classloader was the only incompatibility.
+- **Files:** ExtensionLoader.kt (+ ChildFirstPathClassLoader.kt deleted).
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-295 — LoadResult.Error carries the real failure reason
+
+`instantiateSource` now returns Success/Failure per declared source class; failures include the exception class + message ("MovieBox: java.lang.NoSuchMethodError: ..."). `LoadResult.Error` gained a `name` field for display. No more generic "No sources instantiated".
+- **Files:** ExtensionLoader.kt, LoadResult.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-296 — Errored extensions are VISIBLE (never silently dropped)
+
+New `AnimeExtension.Errored` state + `ExtensionManager.erroredExtensions` StateFlow. `trustExtension`/`retryExtension` share `applyLoadResult` which routes EVERY LoadResult branch (Success → installed + sources registered; Error → errored with reason; Untrusted → back to untrusted). `loadAll` populates the errored list too. The extensions screen gets a "Failed to Load" section with per-row failure message + Retry / Untrust / Uninstall. `untrustExtension` widened to accept any AnimeExtension (errored rows can go back to untrusted). Trust-time classloading moved off the main thread (Dispatchers.Default).
+- **Files:** AnimeExtension.kt, ExtensionManager.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-297 — Extension lib-version policy (17.0 known-good, attempt everything)
+
+`LIB_VERSION_MAX` 16.0 → 17.0 (lib-17 APIs — `server`, `getVideoThumbnails`, `getImageTile` — already exist in :core:source-api). Out-of-range versions (older OR newer than known-good) are **attempted anyway** — if the load fails the user sees the visible Errored row with the reason (D-296), never a silent drop. The range is documentation, not a gate.
+- **Files:** ExtensionLoader.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-298 — Installed.lang populated + language filter
+
+`Installed.lang` was ALWAYS null (loader gap). Now populated from the instantiated sources (most common non-blank source lang, fallback to first). The extensions screen gains a language filter (globe icon in the filters bar; All + the distinct languages across installed/errored/untrusted/available) applied to every section.
+- **Files:** ExtensionLoader.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-299 — Virtualized extensions list
+
+All sections previously rendered EVERY row inside one non-virtualized `Column`-in-`item` (the Available section = 80+ rows composed eagerly + 80 icon fetches). Now every section header is its own item (`SectionHeader`, rounded-top card) and every row is its own item with `key` + `contentType` — full LazyColumn virtualization.
+- **Files:** ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-300 — Single canonical install path
+
+`ExtensionManager.installExtension` previously duplicated `ExtensionInstaller.downloadAndInstall`'s entire download + service-dispatch pipeline (a drift hazard). The manager now delegates to the installer (keeping install-state tracking + its own mutex) and its private `downloadApk` + service dispatch were deleted; the unused `okhttpClient` constructor param removed (Koin module updated).
+- **Files:** ExtensionManager.kt, ExtensionModule.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-301 — Auto update-checking (GitHub-repo based)
+
+Entering the extensions page now triggers `checkForUpdates()` automatically — throttled to once per 30 min (repeated entries are no-ops), non-blocking, with a subtle Checking state (`UpdateCheckState` StateFlow) that shows the spinner only when the Available list is still empty. Repo-set changes force a fresh check. `hasUpdate` (versionCode comparison against the repo index, computed since D-285-era but inert) now surfaces as an **Update button** on installed rows → installs the newer Available entry via the canonical installer (PackageInstaller replace → PACKAGE_REPLACED broadcast → re-scan).
+- **Files:** ExtensionManager.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-302 — provider-api made real (VideoExtensionProvider + AniyomiExtensionProvider)
+
+:core:provider-api was a sealed `ExtensionProvider` interface with ZERO implementations (D-031 scaffolding). Now: `VideoExtensionProvider` (sources StateFlow, findSource, install/uninstall/setEnabled/checkForUpdates) + app-owned `SourceDescriptor` model (no third-party types cross the boundary) + `AniyomiExtensionProvider` facade over ExtensionManager, registered in Koin. Existing consumers unchanged (they keep using the manager directly); NEW consumers program against the provider interface so a second ecosystem (Mangayomi/Sora/CloudStream/Kotatsu) can be added without touching feature code.
+- **Files:** ExtensionProvider.kt, AniyomiExtensionProvider.kt (new), ExtensionModule.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-303 — Version 0.2.57 (versionCode 57)
+
+Extension-system overhaul release: D-294..D-302.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.57 + release after CI green.
+- **Date:** 2026-08-27.

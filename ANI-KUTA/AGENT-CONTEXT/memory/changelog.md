@@ -1471,3 +1471,14 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 - **D-292 (palette scroll-jank):** TWO root causes found: Palette.generate() ran ON MAIN per card (produceState producer inherits Main dispatcher) AND rememberCoverAccentColor ran UNCONDITIONALLY per card even with borders off (the default) — every card entering viewport did a Coil 100×100 load + Palette during scroll. Fixed: withContext(Dispatchers.Default) + 256-entry LruCache (failures cached) + extraction gated on coverBorderEnabled && ADAPTIVE.
 - **D-293:** version 0.2.55 → **0.2.56** (versionCode 56); tag/release after CI green.
 - Workflow: R-1 Explore research agent (scroll-jump root cause + Coil config + call-site map — found the on-main Palette too) → implement → push → CI GREEN first try (run 32993791653 on 8fa46be+26beba9; the guard follow-up rode the same run via the workflow's concurrency group).
+
+## v0.2.57 — Extension system overhaul (D-294..D-303, 2026-08-27)
+
+- **FIX (critical): extensions no longer disappear after trusting them.** Root cause was twofold: (1) our child-first classloader let unminified extensions (e.g. everything from salmanbappi/extensions-repo) shadow the app's kotlin-stdlib with their own PARTIAL bundled copy — a mixed-stdlib breakage that crashed source instantiation; (2) load failures were silently dropped from every list. The loader now uses a plain parent-first PathClassLoader (reference-Aniyomi-exact — bundled kotlin becomes inert dead weight) and every load failure is VISIBLE.
+- **NEW: "Failed to Load" section** on the extensions page showing the exact failure reason per source class, with Retry / Untrust / Uninstall actions. Nothing ever vanishes silently again.
+- **NEW: auto update-checking.** Entering the extensions page checks the configured repos for newer extension versions (throttled to once per 30 min, non-blocking). Extensions with updates get an Update button right on their row.
+- **NEW: language filter** on the extensions page (globe icon in the filters bar) across all sections — installed, untrusted, errored and available.
+- **Lib version 17 support** (known-good range now 12.0..17.0) + versions outside the range are still attempted — incompatibility now means a visible error row, never a silent rejection.
+- **Perf: the extensions list is fully virtualized** — sections previously composed ALL their rows inside single non-virtualized items (the Available section of a full repo = 80+ rows composed eagerly).
+- **Architecture: the multi-ecosystem provider abstraction is real** — VideoExtensionProvider + AniyomiExtensionProvider facade registered in Koin; new consumers no longer bind directly to Aniyomi internals.
+- **Code health: single canonical install path** (the manager's duplicate of the installer pipeline removed), richer load diagnostics (per-source exception class + message), trust-time classloading moved off the main thread.
