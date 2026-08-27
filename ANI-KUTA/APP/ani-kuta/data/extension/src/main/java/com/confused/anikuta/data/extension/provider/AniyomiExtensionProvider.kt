@@ -8,6 +8,7 @@ import com.confused.anikuta.core.providerapi.SourceEpisode
 import com.confused.anikuta.core.providerapi.SourceVideo
 import com.confused.anikuta.core.providerapi.VideoExtensionProvider
 import com.confused.anikuta.data.extension.manager.ExtensionManager
+import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -50,11 +51,13 @@ class AniyomiExtensionProvider(
         }
 
     override fun fetchContentList(source: Source, page: Int, query: String?): Flow<List<SourceContent>> = flow {
-        val animeSource = manager.getSource(source.sourceId.toLongOrNull() ?: return@flow) ?: return@flow
+        // Browse/search live on AnimeCatalogueSource (not the base AnimeSource).
+        val catalogue = manager.getSource(source.sourceId.toLongOrNull() ?: return@flow)
+            as? AnimeCatalogueSource ?: return@flow
         val result = if (query.isNullOrBlank()) {
-            animeSource.getPopularAnime(page)
+            catalogue.getPopularAnime(page)
         } else {
-            animeSource.getSearchAnime(page, query, AnimeFilterList())
+            catalogue.getSearchAnime(page, query, AnimeFilterList())
         }
         emit(result.animes.map { anime ->
             SourceContent(
