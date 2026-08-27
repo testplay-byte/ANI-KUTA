@@ -4,7 +4,6 @@ import android.content.Context
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.data.extension.api.AnimeExtensionApi
 import com.confused.anikuta.data.extension.installer.ExtensionInstallReceiver
-import com.confused.anikuta.data.extension.installer.ExtensionInstallService
 import com.confused.anikuta.data.extension.installer.ExtensionInstaller
 import com.confused.anikuta.data.extension.installer.InstallStep
 import com.confused.anikuta.data.extension.loader.ExtensionLoader
@@ -23,8 +22,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
-import okhttp3.OkHttpClient
-import java.io.File
 
 /**
  * Manages installed extensions and their sources.
@@ -46,12 +43,14 @@ class ExtensionManager(
     private val trustService: TrustService,
     private val api: AnimeExtensionApi,
     val installer: ExtensionInstaller,
-    private val okhttpClient: OkHttpClient,
     private val appPreferences: com.confused.anikuta.core.preferences.AppPreferences,
 ) {
 
     companion object {
         private const val TAG = "Anikuta:Data:Extension:Manager"
+
+        /** D-301: auto update-check throttle — at most one check per 30 minutes. */
+        private const val UPDATE_CHECK_THROTTLE_MS = 30L * 60 * 1000
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -64,6 +63,10 @@ class ExtensionManager(
 
     private val _untrustedExtensions = MutableStateFlow<List<AnimeExtension.Untrusted>>(emptyList())
     val untrustedExtensions: StateFlow<List<AnimeExtension.Untrusted>> = _untrustedExtensions.asStateFlow()
+
+    /** D-296: trusted-but-failed-to-load extensions — VISIBLE, never silently dropped. */
+    private val _erroredExtensions = MutableStateFlow<List<AnimeExtension.Errored>>(emptyList())
+    val erroredExtensions: StateFlow<List<AnimeExtension.Errored>> = _erroredExtensions.asStateFlow()
 
     private val _availableExtensions = MutableStateFlow<List<AnimeExtension.Available>>(emptyList())
     val availableExtensions: StateFlow<List<AnimeExtension.Available>> = _availableExtensions.asStateFlow()
@@ -118,6 +121,7 @@ class ExtensionManager(
         }
         val trusted = mutableListOf<AnimeExtension.Installed>()
         val untrusted = mutableListOf<AnimeExtension.Untrusted>()
+        val errored = mutableListOf<AnimeExtension.Errored>()
         val sourceMap = mutableMapOf<Long, AnimeSource>()
 
         for (result in results) {
@@ -144,7 +148,10 @@ class ExtensionManager(
                     untrusted.add(result.extension)
                 }
                 is LoadResult.Error -> {
+                    // D-296: surface load failures instead of dropping them — the
+                    // user sees a "Failed to Load" row with the reason + Retry.
                     Logger.e(TAG) { "Failed to load ${result.packageName}: ${result.message}" }
+                    errored.add(result.toErrored())
                 }
                 is LoadResult.UnrecognizedExtension -> {
                     // Skip — not a valid extension.
@@ -154,6 +161,7 @@ class ExtensionManager(
 
         _installedExtensions.value = trusted
         _untrustedExtensions.value = untrusted
+        _erroredExtensions.value = errored
         _sources.value = sourceMap
 
         // Clear install states for extensions that have now appeared (installed or untrusted).
@@ -207,6 +215,10 @@ class ExtensionManager(
 
     /**
      * Trust an untrusted extension and load its sources.
+     *
+     * D-296: if the load FAILS the extension now lands in [_erroredExtensions]
+     * (visible "Failed to Load" row with the reason) instead of silently
+     * vanishing from every list.
      */
     fun trustExtension(extension: AnimeExtension.Untrusted) {
         Logger.i(TAG) { "Trusting extension: ${extension.name} (pkg: ${extension.pkgName})" }
@@ -219,33 +231,85 @@ class ExtensionManager(
         // Remove from untrusted.
         _untrustedExtensions.value = _untrustedExtensions.value.filter { it.pkgName != extension.pkgName }
 
-        // Re-load the extension to get its sources.
-        val result = loader.loadExtension(extension.pkgName)
-        if (result is LoadResult.Success) {
-            val installed = result.extension.copy(isEnabled = true)
-            _installedExtensions.value = _installedExtensions.value + installed
-            val sourceMap = _sources.value.toMutableMap()
-            installed.sources.forEach { source ->
-                sourceMap[source.id] = source
-            }
-            _sources.value = sourceMap
+        // Re-load the extension to get its sources. Classloading can take a few
+        // hundred ms — run off the main thread.
+        scope.launch(Dispatchers.Default) {
+            applyLoadResult(loader.loadExtension(extension.pkgName))
         }
     }
 
     /**
-     * Revoke trust for an extension (moves it back to untrusted).
+     * D-296: apply a single-extension load result to the reactive state. Shared by
+     * [trustExtension] + [retryExtension]. Never drops a result silently.
      */
-    fun untrustExtension(extension: AnimeExtension.Installed) {
+    private fun applyLoadResult(result: LoadResult) {
+        when (result) {
+            is LoadResult.Success -> {
+                val installed = result.extension.copy(isEnabled = true)
+                _installedExtensions.value = _installedExtensions.value
+                    .filter { it.pkgName != installed.pkgName } + installed
+                _erroredExtensions.value = _erroredExtensions.value.filter { it.pkgName != installed.pkgName }
+                val sourceMap = _sources.value.toMutableMap()
+                installed.sources.forEach { source ->
+                    sourceMap[source.id] = source
+                }
+                _sources.value = sourceMap
+                updateInstalledStatuses()
+            }
+            is LoadResult.Error -> {
+                Logger.e(TAG) { "Extension ${result.packageName} failed to load: ${result.message}" }
+                val errored = result.toErrored()
+                _erroredExtensions.value = _erroredExtensions.value
+                    .filter { it.pkgName != errored.pkgName } + errored
+                // Make sure it's not lingering in the installed list either.
+                _installedExtensions.value = _installedExtensions.value.filter { it.pkgName != errored.pkgName }
+            }
+            is LoadResult.Untrusted -> {
+                // Shouldn't happen (trust was just granted) — but never drop it.
+                _untrustedExtensions.value = _untrustedExtensions.value + result.extension
+            }
+            is LoadResult.UnrecognizedExtension -> Unit
+        }
+    }
+
+    /**
+     * D-296: retry loading a previously-errored extension (e.g. after the user
+     * updated the app / cleared state, or just to re-attempt).
+     */
+    fun retryExtension(extension: AnimeExtension.Errored) {
+        Logger.i(TAG) { "Retrying extension: ${extension.name} (pkg: ${extension.pkgName})" }
+        scope.launch(Dispatchers.Default) {
+            applyLoadResult(loader.loadExtension(extension.pkgName))
+        }
+    }
+
+    /** Convert a loader [LoadResult.Error] into the UI-facing [AnimeExtension.Errored]. */
+    private fun LoadResult.Error.toErrored(): AnimeExtension.Errored = AnimeExtension.Errored(
+        name = name,
+        pkgName = packageName,
+        versionName = "",
+        versionCode = 0L,
+        libVersion = 0.0,
+        message = message,
+    )
+
+    /**
+     * Revoke trust for an extension (moves it back to untrusted).
+     * Also accepts [AnimeExtension.Errored] rows (D-296) — an extension that
+     * failed to load can still be untrusted again.
+     */
+    fun untrustExtension(extension: AnimeExtension) {
         Logger.i(TAG) { "Untrusting: ${extension.name} (pkg: ${extension.pkgName})" }
         // Phase 3: revoke trust PER-PACKAGE. Only this extension gets untrusted —
         // other same-signer extensions are unaffected.
         trustService.revoke(extension.pkgName)
         appPreferences.disableExtension(extension.pkgName)
 
-        // Remove from installed + remove its sources.
+        // Remove from installed + errored + remove its sources.
         _installedExtensions.value = _installedExtensions.value.filter { it.pkgName != extension.pkgName }
+        _erroredExtensions.value = _erroredExtensions.value.filter { it.pkgName != extension.pkgName }
         val sourceMap = _sources.value.toMutableMap()
-        extension.sources.forEach { source -> sourceMap.remove(source.id) }
+        (extension as? AnimeExtension.Installed)?.sources?.forEach { source -> sourceMap.remove(source.id) }
         _sources.value = sourceMap
 
         // Reload to populate the untrusted list with this extension.
@@ -315,43 +379,21 @@ class ExtensionManager(
     /**
      * Install an available extension. Returns a flow of [InstallStep].
      * Also tracks state in [_installStates] so the UI can show a spinner.
+     *
+     * D-300: delegates the actual download+install to [ExtensionInstaller] — the
+     * single canonical install path (this manager previously had a near-duplicate
+     * copy of the whole download+service-dispatch pipeline).
      */
     fun installExtension(extension: AnimeExtension.Available): Flow<InstallStep> {
         val apkUrl = api.getApkUrl(extension)
         return flow {
             installMutex.withLock {
                 setInstallState(extension.pkgName, InstallStep.Pending)
-                emit(InstallStep.Pending)
-
-                // Download
-                setInstallState(extension.pkgName, InstallStep.Downloading)
-                emit(InstallStep.Downloading)
-                val tempFile = File(context.cacheDir, "ext-${extension.pkgName}-${extension.apkName}")
-                val downloaded = downloadApk(apkUrl, tempFile)
-                if (!downloaded) {
-                    tempFile.delete()
-                    setInstallState(extension.pkgName, InstallStep.Error)
-                    emit(InstallStep.Error)
-                    return@withLock
-                }
-
-                // Dispatch to install service
-                setInstallState(extension.pkgName, InstallStep.Installing)
-                emit(InstallStep.Installing)
-                val serviceIntent = ExtensionInstallService.newIntent(
-                    context,
-                    tempFile.absolutePath,
-                    extension.pkgName,
-                    downloadId = extension.versionCode,
-                )
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    context.startForegroundService(serviceIntent)
-                } else {
-                    context.startService(serviceIntent)
-                }
-                // Terminal state (Installed/Error) arrives via the package-change
-                // broadcast → loadAll() re-scan. Clear the install state when the
-                // extension appears in the installed/untrusted list.
+                installer.downloadAndInstall(apkUrl, extension)
+                    .collect { step ->
+                        setInstallState(extension.pkgName, step)
+                        emit(step)
+                    }
             }
         }.flowOn(Dispatchers.IO)
     }
@@ -362,31 +404,44 @@ class ExtensionManager(
         _installStates.value = _installStates.value + (pkgName to step)
     }
 
-    private suspend fun downloadApk(url: String, dest: File): Boolean {
-        return runCatching {
-            dest.parentFile?.mkdirs()
-            val response = okhttpClient.newCall(
-                okhttp3.Request.Builder().url(url).build()
-            ).execute()
-            if (!response.isSuccessful) {
-                Logger.e(TAG) { "Download failed: HTTP ${response.code}" }
-                return false
-            }
-            response.body?.byteStream()?.use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
-            } ?: return false
-            true
-        }.getOrElse { e ->
-            Logger.e(TAG, e) { "Download failed" }
-            false
-        }
-    }
-
     /**
      * Uninstall an extension.
      */
     fun uninstallExtension(extension: AnimeExtension) {
         installer.uninstallApk(extension.pkgName)
+    }
+
+    // ── D-301: update checking ─────────────────────────────────────────────
+
+    /** State of an on-demand update check (for subtle UI indication). */
+    enum class UpdateCheckState { Idle, Checking }
+
+    private val _updateCheckState = MutableStateFlow(UpdateCheckState.Idle)
+    val updateCheckState: StateFlow<UpdateCheckState> = _updateCheckState.asStateFlow()
+
+    @Volatile
+    private var lastUpdateCheckAtMs: Long = 0L
+
+    /**
+     * D-301: auto update-check used when the user enters the extensions page.
+     * Throttled to once per [UPDATE_CHECK_THROTTLE_MS] — repeated page entries
+     * within the window are no-ops ("smoothly", no network hammering).
+     */
+    fun checkForUpdates(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastUpdateCheckAtMs < UPDATE_CHECK_THROTTLE_MS) {
+            Logger.d(TAG) { "Update check throttled (last ${now - lastUpdateCheckAtMs}ms ago)" }
+            return
+        }
+        lastUpdateCheckAtMs = now
+        scope.launch(Dispatchers.IO) {
+            _updateCheckState.value = UpdateCheckState.Checking
+            try {
+                findAvailableExtensions()
+            } finally {
+                _updateCheckState.value = UpdateCheckState.Idle
+            }
+        }
     }
 
     // ── Source lookup ──────────────────────────────────────────────────────────

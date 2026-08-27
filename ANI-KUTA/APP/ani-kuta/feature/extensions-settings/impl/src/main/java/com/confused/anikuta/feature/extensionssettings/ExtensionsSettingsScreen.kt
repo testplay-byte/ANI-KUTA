@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -115,16 +117,18 @@ fun ExtensionsSettingsScreen(
 ) {
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
     val untrustedExtensions by extensionManager.untrustedExtensions.collectAsState()
+    val erroredExtensions by extensionManager.erroredExtensions.collectAsState()
     val availableExtensions by extensionManager.availableExtensions.collectAsState()
     val repos by repoRepository.repos.collectAsState()
     val installStates by extensionManager.installStates.collectAsState()
+    val updateCheckState by extensionManager.updateCheckState.collectAsState()
 
     val scope = rememberCoroutineScope()
-    var isRefreshing by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf(ExtensionSortMode.NAME) }
     var showNsfw by remember { mutableStateOf(true) }
+    var langFilter by remember { mutableStateOf<String?>(null) }
     var reorderMode by remember { mutableStateOf(false) }
     var reorderedInstalled by remember { mutableStateOf<List<AnimeExtension.Installed>>(emptyList()) }
 
@@ -132,12 +136,16 @@ fun ExtensionsSettingsScreen(
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
 
-    // Fetch available extensions when repos exist (auto-refresh on repo changes).
+    // D-301: auto update-check when the user enters the extensions page — smooth
+    // (throttled to once per 30 min inside the manager) + non-blocking.
+    LaunchedEffect(Unit) {
+        extensionManager.checkForUpdates()
+    }
+
+    // Force a fresh check whenever the repo set changes.
     LaunchedEffect(repos.size) {
         if (repos.isNotEmpty()) {
-            isRefreshing = true
-            extensionManager.findAvailableExtensions()
-            isRefreshing = false
+            extensionManager.checkForUpdates(force = true)
         }
     }
 
@@ -149,23 +157,43 @@ fun ExtensionsSettingsScreen(
     val installedPkgs = installedExtensions.map { it.pkgName }.toSet()
     val untrustedPkgs = untrustedExtensions.map { it.pkgName }.toSet()
 
+    // D-298: language filter — the distinct set of languages across all sections.
+    val allLanguages = remember(installedExtensions, untrustedExtensions, erroredExtensions, availableExtensions) {
+        (installedExtensions.mapNotNull { it.lang } +
+            untrustedExtensions.mapNotNull { it.lang } +
+            erroredExtensions.mapNotNull { it.lang } +
+            availableExtensions.mapNotNull { it.lang })
+            .distinct()
+            .sorted()
+    }
+
     // ── Filtering + sorting ──
     val filteredInstalled = reorderedInstalled.filter { ext ->
-        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
+        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+            (langFilter == null || ext.lang == langFilter)
     }.let { if (reorderMode) it else sortExtensions(it, sortMode) }
         // Phase 2d: disabled extensions sorted to the bottom (enabled first).
         .let { sorted -> if (reorderMode) sorted else sorted.sortedBy { !it.isEnabled } }
 
+    val filteredErrored = erroredExtensions.filter { ext ->
+        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+            (langFilter == null || ext.lang == langFilter)
+    }.let { sortExtensions(it, sortMode) }
+
     val filteredUntrusted = untrustedExtensions.filter { ext ->
-        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
+        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+            (langFilter == null || ext.lang == langFilter)
     }.let { sortExtensions(it, sortMode) }
 
     val filteredAvailable = availableExtensions
         .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
         .filter { ext ->
-            matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
+            matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+                (langFilter == null || ext.lang == langFilter)
         }
         .let { sortExtensions(it, sortMode) }
+
+    val isCheckingUpdates = updateCheckState == ExtensionManager.UpdateCheckState.Checking
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -215,6 +243,9 @@ fun ExtensionsSettingsScreen(
                     onSortModeChange = { sortMode = it },
                     showNsfw = showNsfw,
                     onToggleNsfw = { showNsfw = !showNsfw },
+                    languages = allLanguages,
+                    langFilter = langFilter,
+                    onLangFilterChange = { langFilter = it },
                 )
             }
 
@@ -223,17 +254,29 @@ fun ExtensionsSettingsScreen(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // D-299: every section header is its own item and every row is its
+                    // own item (keys + contentType) — the Available section (80+ rows
+                    // from a full repo) previously composed ALL rows inside a single
+                    // non-virtualized item.
+
                     // ── Trusted Sources ──
-                    item {
-                        ExtensionSectionCard(title = "Trusted Sources", count = filteredInstalled.size) {
-                            if (filteredInstalled.isEmpty()) {
-                                EmptySectionBody("No trusted sources. Install an extension to get started.")
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    filteredInstalled.forEachIndexed { index, ext ->
-                                        InstalledExtensionRow(
+                    item(key = "header-installed", contentType = "sectionHeader") {
+                        SectionHeader(
+                            title = "Trusted Sources",
+                            count = filteredInstalled.size,
+                            isEmpty = filteredInstalled.isEmpty(),
+                            emptyMessage = "No trusted sources. Install an extension to get started.",
+                        )
+                    }
+                    items(
+                        filteredInstalled,
+                        key = { "installed-${it.pkgName}" },
+                        contentType = { "installedRow" },
+                    ) { ext ->
+                        val index = filteredInstalled.indexOf(ext)
+                        InstalledExtensionRow(
                                         extension = ext,
                                         isReordering = reorderMode,
                                         canMoveUp = reorderMode && index > 0,
@@ -260,59 +303,93 @@ fun ExtensionsSettingsScreen(
                                             if (ext.isEnabled) extensionManager.disableExtension(ext.pkgName)
                                             else extensionManager.enableExtension(ext.pkgName)
                                         },
-                                        onUntrust = { extensionManager.untrustExtension(ext) },
-                                        onDelete = { extensionManager.uninstallExtension(ext) },
-                                    )
+                            onUntrust = { extensionManager.untrustExtension(ext) },
+                            onDelete = { extensionManager.uninstallExtension(ext) },
+                            // D-301: direct update action when a newer version is
+                            // available from the configured repos.
+                            onUpdate = if (ext.hasUpdate) {
+                                {
+                                    availableExtensions.find { it.pkgName == ext.pkgName }?.let { latest ->
+                                        scope.launch {
+                                            extensionManager.installExtension(latest).collectLatest { }
+                                        }
+                                    }
                                 }
-                            }
+                            } else null,
+                        )
+                    }
+
+                    // ── Failed to Load (D-296) ──
+                    if (filteredErrored.isNotEmpty()) {
+                        item(key = "header-errored", contentType = "sectionHeader") {
+                            SectionHeader(title = "Failed to Load", count = filteredErrored.size, isEmpty = false)
+                        }
+                        items(
+                            filteredErrored,
+                            key = { "errored-${it.pkgName}" },
+                            contentType = { "erroredRow" },
+                        ) { ext ->
+                            ErroredExtensionRow(
+                                extension = ext,
+                                onRetry = { extensionManager.retryExtension(ext) },
+                                onUntrust = { extensionManager.untrustExtension(ext) },
+                                onDelete = { extensionManager.uninstallExtension(ext) },
+                            )
                         }
                     }
-                }
 
-                // ── Untrusted ──
-                if (filteredUntrusted.isNotEmpty()) {
-                    item {
-                        ExtensionSectionCard(title = "Untrusted", count = filteredUntrusted.size) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                filteredUntrusted.forEach { ext ->
-                                    UntrustedExtensionRow(
-                                        extension = ext,
-                                        onTrust = { extensionManager.trustExtension(ext) },
-                                        onDelete = { extensionManager.uninstallExtension(ext) },
-                                    )
-                                }
-                            }
+                    // ── Untrusted ──
+                    if (filteredUntrusted.isNotEmpty()) {
+                        item(key = "header-untrusted", contentType = "sectionHeader") {
+                            SectionHeader(title = "Untrusted", count = filteredUntrusted.size, isEmpty = false)
+                        }
+                        items(
+                            filteredUntrusted,
+                            key = { "untrusted-${it.pkgName}" },
+                            contentType = { "untrustedRow" },
+                        ) { ext ->
+                            UntrustedExtensionRow(
+                                extension = ext,
+                                onTrust = { extensionManager.trustExtension(ext) },
+                                onDelete = { extensionManager.uninstallExtension(ext) },
+                            )
                         }
                     }
-                }
 
-                // ── Available Extensions ──
-                item {
-                    ExtensionSectionCard(title = "Available Extensions", count = filteredAvailable.size) {
-                        when {
-                            repos.isEmpty() -> EmptySectionBody("No repositories configured. Tap the settings icon to add one.")
-                            isRefreshing && filteredAvailable.isEmpty() -> Box(
+                    // ── Available Extensions ──
+                    item(key = "header-available", contentType = "sectionHeader") {
+                        SectionHeader(title = "Available Extensions", count = filteredAvailable.size, isEmpty = false)
+                    }
+                    when {
+                        repos.isEmpty() -> item(key = "available-empty-repos", contentType = "availableBody") {
+                            EmptySectionBody("No repositories configured. Tap the settings icon to add one.")
+                        }
+                        isCheckingUpdates && filteredAvailable.isEmpty() -> item(key = "available-loading", contentType = "availableBody") {
+                            Box(
                                 modifier = Modifier.fillMaxWidth().padding(32.dp),
                                 contentAlignment = Alignment.Center,
                             ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
-                            filteredAvailable.isEmpty() -> EmptySectionBody("No extensions found in your repositories.")
-                            else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                filteredAvailable.forEach { ext ->
-                                    val installStep = installStates[ext.pkgName]
-                                    AvailableExtensionRow(
-                                        extension = ext,
-                                        installStep = installStep,
-                                        onInstall = {
-                                            scope.launch {
-                                                extensionManager.installExtension(ext).collectLatest { }
-                                            }
-                                        },
-                                    )
-                                }
-                            }
+                        }
+                        filteredAvailable.isEmpty() -> item(key = "available-empty", contentType = "availableBody") {
+                            EmptySectionBody("No extensions found in your repositories.")
+                        }
+                        else -> items(
+                            filteredAvailable,
+                            key = { "available-${it.pkgName}-${it.versionCode}" },
+                            contentType = { "availableRow" },
+                        ) { ext ->
+                            val installStep = installStates[ext.pkgName]
+                            AvailableExtensionRow(
+                                extension = ext,
+                                installStep = installStep,
+                                onInstall = {
+                                    scope.launch {
+                                        extensionManager.installExtension(ext).collectLatest { }
+                                    }
+                                },
+                            )
                         }
                     }
-                }
                 }
 
                 // Phase 3: scroll blur overlay inside the Box (below the header, on top of the list).
@@ -341,8 +418,12 @@ private fun ExtensionFiltersBar(
     onSortModeChange: (ExtensionSortMode) -> Unit,
     showNsfw: Boolean,
     onToggleNsfw: () -> Unit,
+    languages: List<String>,
+    langFilter: String?,
+    onLangFilterChange: (String?) -> Unit,
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
+    var showLangMenu by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -371,6 +452,34 @@ private fun ExtensionFiltersBar(
                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = RobotoFamily, fontSize = 13.sp),
             )
             Spacer(Modifier.width(8.dp))
+            // D-298: language filter — All + the distinct languages across every section.
+            if (languages.isNotEmpty()) {
+                Box {
+                    HeaderIconButton(
+                        icon = Icons.Filled.Language,
+                        contentDescription = "Filter by language",
+                        onClick = { showLangMenu = !showLangMenu },
+                    )
+                    DropdownMenu(expanded = showLangMenu, onDismissRequest = { showLangMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("All languages", fontFamily = RobotoFamily) },
+                            onClick = { onLangFilterChange(null); showLangMenu = false },
+                            trailingIcon = if (langFilter == null) {
+                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                        )
+                        languages.forEach { lang ->
+                            DropdownMenuItem(
+                                text = { Text(lang, fontFamily = RobotoFamily) },
+                                onClick = { onLangFilterChange(lang); showLangMenu = false },
+                                trailingIcon = if (langFilter == lang) {
+                                    { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                            )
+                        }
+                    }
+                }
+            }
             Box {
                 HeaderIconButton(
                     icon = Icons.Filled.FilterList,
@@ -399,18 +508,20 @@ private fun ExtensionFiltersBar(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Section card (dedicated background with clear separation)
+//  Section header (D-299 — standalone item so section ROWS can be virtualized
+//  as individual LazyColumn items instead of one giant Column-in-item)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun ExtensionSectionCard(
+private fun SectionHeader(
     title: String,
     count: Int,
-    content: @Composable () -> Unit,
+    isEmpty: Boolean,
+    emptyMessage: String? = null,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp),
+        shape = if (isEmpty) RoundedCornerShape(16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         tonalElevation = 1.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -438,8 +549,10 @@ private fun ExtensionSectionCard(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                 thickness = 0.5.dp,
             )
-            Box(modifier = Modifier.padding(12.dp)) {
-                content()
+            if (isEmpty && emptyMessage != null) {
+                Box(modifier = Modifier.padding(12.dp)) {
+                    EmptySectionBody(emptyMessage)
+                }
             }
         }
     }
@@ -462,6 +575,7 @@ private fun InstalledExtensionRow(
     onToggleEnabled: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
+    onUpdate: (() -> Unit)? = null,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -527,6 +641,15 @@ private fun InstalledExtensionRow(
             }
             if (!isReordering) {
                 // Phase 2c: enable/disable toggle removed from list — moved to detail page.
+                // D-301: update button when a newer version is available in the repos.
+                if (onUpdate != null) {
+                    ActionIconButton(
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Update",
+                        onClick = onUpdate,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 ActionIconButton(
                     icon = Icons.Filled.VerifiedUser,
                     contentDescription = "Untrust",
@@ -610,6 +733,100 @@ private fun UntrustedExtensionRow(
                 contentDescription = "Delete",
                 onClick = { showDeleteConfirm = true },
                 tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Uninstall extension?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = { Text("This will uninstall ${extension.name} from your device.", fontFamily = RobotoFamily) },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onDelete() }) {
+                    Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ErroredExtensionRow(
+    extension: AnimeExtension.Errored,
+    onRetry: () -> Unit,
+    onUntrust: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ExtensionIcon(extension.icon, extension.name)
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = extension.name,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "Failed to load · v${extension.versionName}".ifEmpty { "Failed to load" },
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                // D-296: Retry (re-attempt the load — e.g. after an app update
+                // shipped the missing APIs), Untrust (back to the untrusted list),
+                // Delete (uninstall).
+                ActionIconButton(
+                    icon = Icons.Filled.Refresh,
+                    contentDescription = "Retry",
+                    onClick = onRetry,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                ActionIconButton(
+                    icon = Icons.Filled.VerifiedUser,
+                    contentDescription = "Untrust",
+                    onClick = onUntrust,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ActionIconButton(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Delete",
+                    onClick = { showDeleteConfirm = true },
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+            // The actual failure reason straight from the loader (exception class
+            // + message per source class) — no more silent vanishing.
+            Text(
+                text = extension.message,
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 52.dp, top = 4.dp),
             )
         }
     }

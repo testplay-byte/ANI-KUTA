@@ -26,7 +26,13 @@ val extensionModule = module {
     single { ExtensionRepoApi(get(named("extensionRepo"))) }
     single { AnimeExtensionApi(get(), get()) }
     single { ExtensionInstaller(get(), get(named("extensionRepo"))) }
-    single { ExtensionManager(get(), get(), get(), get(), get(named("extensionRepo")), get()) }
+    single { ExtensionManager(get(), get(), get(), get(), get()) }
+
+    // D-302: the provider-api facade — the app-owned abstraction over the Aniyomi
+    // ecosystem. New consumers depend on VideoExtensionProvider, not the manager.
+    single<com.confused.anikuta.core.providerapi.VideoExtensionProvider> {
+        com.confused.anikuta.data.extension.provider.AniyomiExtensionProvider(get())
+    }
 
     // Register ExtensionDetailsProvider (injected by DetailsViewModel directly)
     single { ExtensionDetailsProvider(get()) }
