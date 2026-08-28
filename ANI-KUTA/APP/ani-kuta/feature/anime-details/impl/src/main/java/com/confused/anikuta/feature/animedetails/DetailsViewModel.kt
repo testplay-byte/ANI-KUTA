@@ -1022,7 +1022,7 @@ class DetailsViewModel(
         _nextEpisodeInfo.value = null
         _showCategorySheet.value = false
         _isRefreshing.value = false
-        _refreshState.value = RefreshState.Idle
+        // D-314: _refreshState reset removed with the legacy multi-stage refresh API.
         currentMainId = null; _mainIdFlow.value = null
         currentAnimeId = 0
         extensionBase = null
@@ -1068,7 +1068,7 @@ class DetailsViewModel(
         _nextEpisodeInfo.value = null
         _showCategorySheet.value = false
         _isRefreshing.value = false
-        _refreshState.value = RefreshState.Idle
+        // D-314: _refreshState reset removed with the legacy multi-stage refresh API.
         // D-242: Reset tracking state.
         _trackEntry.value = null
         _pendingRemoteTrackEntry.value = null // D-242-fix: prevent stale entry from applying to wrong anime
@@ -1662,45 +1662,18 @@ class DetailsViewModel(
         }
     }
 
-    /** Refresh state for the D.3 multi-stage refresh UI. */
-    private val _refreshState = MutableStateFlow<RefreshState>(RefreshState.Idle)
-    val refreshState: StateFlow<RefreshState> = _refreshState.asStateFlow()
-
     /** D-146: Whether a refresh is in progress (for visual feedback). */
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    /** Called by the DetailsScreen when the user scrolls past a refresh threshold. */
-    fun setRefreshStage(stage: RefreshStage) {
-        _refreshState.value = RefreshState.StageReached(stage)
-    }
-
-    /** Called when the user releases at a refresh threshold. */
-    fun executeRefresh(stage: RefreshStage) {
-        _refreshState.value = RefreshState.Refreshing(stage)
-        when (stage) {
-            RefreshStage.EPISODES -> {
-                refreshEpisodesList()
-                _refreshState.value = RefreshState.Idle
-            }
-            RefreshStage.METADATA -> {
-                refreshMetadata()
-                _refreshState.value = RefreshState.Idle
-            }
-            RefreshStage.ALL -> {
-                refreshAll()
-                _refreshState.value = RefreshState.Idle
-            }
-        }
-    }
-
-    fun clearRefreshState() {
-        _refreshState.value = RefreshState.Idle
-    }
+    // D-314: the legacy D.3 multi-stage refresh API (setRefreshStage /
+    // executeRefresh / clearRefreshState + RefreshStage/RefreshState) is DELETED —
+    // pull-to-refresh is now a simple full refresh (Material 3 PullToRefreshBox →
+    // refreshAll), exactly like the three-dot Refresh button.
 
     /**
      * D-141: Refresh the current anime's data.
-     * Delegates to [refreshAll] (stage 3 — full refresh).
+     * Delegates to [refreshAll] (full refresh).
      */
     fun refresh() = refreshAll()
 
@@ -1734,7 +1707,7 @@ class DetailsViewModel(
         _nextEpisodeInfo.value = null
         _showCategorySheet.value = false
         _isRefreshing.value = false
-        _refreshState.value = RefreshState.Idle
+        // D-314: _refreshState reset removed with the legacy multi-stage refresh API.
         // D-242: Reset tracking state.
         _trackEntry.value = null
         _pendingRemoteTrackEntry.value = null // D-242-fix: prevent stale entry from applying to wrong anime
@@ -3664,21 +3637,10 @@ sealed interface EpisodeState {
     data class CloudflareBlocked(val url: String, val sourceName: String) : EpisodeState
 }
 
-// ── D.3: Multi-stage refresh types ──
-
-/** The three refresh stages (triggered by scroll position). */
-enum class RefreshStage(val label: String) {
-    EPISODES("Refresh episodes list"),
-    METADATA("Refresh metadata"),
-    ALL("Refresh all"),
-}
-
-/** State of the multi-stage refresh. */
-sealed interface RefreshState {
-    data object Idle : RefreshState
-    data class StageReached(val stage: RefreshStage) : RefreshState
-    data class Refreshing(val stage: RefreshStage) : RefreshState
-}
+// ── D.3 refresh types ──
+// D-314: RefreshStage + RefreshState (the multi-stage pull-to-refresh types)
+// are DELETED — pull-to-refresh is now a simple full refresh. See the D-314
+// note at the old refresh-state declaration.
 
 /** Video resolution state (for the resolver sheet). */
 sealed interface ResolverState {

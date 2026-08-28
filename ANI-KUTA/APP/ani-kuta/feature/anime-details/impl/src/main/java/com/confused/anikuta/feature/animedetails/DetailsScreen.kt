@@ -4,11 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -51,6 +49,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox  // D-314: simple pull-to-refresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -71,24 +71,21 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.layout.onGloballyPositioned  // D-315: cover bounds
+import androidx.compose.ui.layout.boundsInRoot  // D-315: cover bounds
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.common.Logger
@@ -317,6 +314,10 @@ fun DetailsScreen(
     var showResolverSheet by remember { mutableStateOf(false) }
     var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
+
+    // D-315: full-screen cover viewer (opened by tapping the banner cover).
+    var showCoverViewer by remember { mutableStateOf(false) }
+    var coverViewerBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
 
     // D-230: Episode list settings sheet + search state.
     var showEpisodeSettingsSheet by remember { mutableStateOf(false) }
@@ -644,137 +645,24 @@ fun DetailsScreen(
                 val anime = s.anime
                 val lazyListState = detailsLazyListState // D-231: use hoisted state.
 
-                // ── 3-stage pull-to-refresh state ──
-                // A custom NestedScrollConnection cooperates with the LazyColumn's
-                // own scroll: the pull gesture ONLY activates when the list is at
-                // the top AND the user keeps dragging down. No spinner on normal
-                // upward scroll, no fling jank (unlike the buggy pointerInput /
-                // detectVerticalDragGestures approach that was reverted).
-                //
-                // ARCHITECTURE (fixed from PTR-5 — eliminates the stale-read race):
-                //  - pullPx: a synchronous mutableFloatStateOf — the SOURCE OF TRUTH
-                //    during a drag. Written and read synchronously in onPreScroll, so
-                //    stage detection + haptics are always computed from the CURRENT
-                //    pull distance (no stale Animatable.value reads from a pending
-                //    coroutine snapTo).
-                //  - snapAnim: an Animatable<Float> used ONLY for the spring snap-back
-                //    animation in onPreFling. During the snap-back, it drives pullPx
-                //    via a snapTo-per-frame pattern so the indicator visual tracks the
-                //    spring. When no animation is running, pullPx is the live value.
-                val density = LocalDensity.current
-                val context = LocalContext.current
-                val thresholdPx1 = with(density) { 120.dp.toPx() } // stage 1: episodes
-                val thresholdPx2 = with(density) { 240.dp.toPx() } // stage 2: metadata
-                val thresholdPx3 = with(density) { 360.dp.toPx() } // stage 3: all
-
-                var pullPx by remember { mutableFloatStateOf(0f) }
-                val currentStage = remember { mutableIntStateOf(0) }
-                var isAnimatingSnapBack by remember { mutableStateOf(false) }
-
-                fun stageFor(d: Float): Int = when {
-                    d >= thresholdPx3 -> 3
-                    d >= thresholdPx2 -> 2
-                    d >= thresholdPx1 -> 1
-                    else -> 0
-                }
-
-                val nestedScrollConnection = remember(
-                    context, thresholdPx1, thresholdPx2, thresholdPx3, isRefreshing,
-                ) {
-                    // prevStage is captured by reference — persists for the lifetime
-                    // of this connection instance. Used to fire the haptic exactly
-                    // once per stage-UP crossing.
-                    var prevStage = 0
-                    object : NestedScrollConnection {
-                        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                            // (1) Disable pull while a refresh is in flight or while
-                            //     the snap-back spring is animating.
-                            if (isRefreshing || isAnimatingSnapBack) return Offset.Zero
-                            val delta = available.y
-                            if (delta == 0f) return Offset.Zero
-                            // (2) Only consume when the LazyColumn is at the very top.
-                            val atTop = lazyListState.firstVisibleItemIndex == 0 &&
-                                lazyListState.firstVisibleItemScrollOffset == 0
-                            if (!atTop) return Offset.Zero
-                            // (3) If dragging up with no pull distance, let the
-                            //     LazyColumn handle it (normal scroll).
-                            if (delta < 0f && pullPx <= 0f) return Offset.Zero
-
-                            // (4) Apply damping past stage 1 for the iOS/M3
-                            //     "resistance" feel.
-                            val current = pullPx
-                            val damping = if (current > thresholdPx1 && delta > 0f) 0.5f else 1.0f
-                            val newPx = (current + delta * damping).coerceAtLeast(0f)
-
-                            // (5) Stage detection + haptic — SYNCHRONOUS, using the
-                            //     live pullPx (not a stale Animatable.value). The
-                            //     haptic fires exactly once per stage-UP crossing.
-                            val newStage = stageFor(newPx)
-                            if (newStage > prevStage) {
-                                HapticHelper.stageCross(context)
-                            }
-                            if (newStage != prevStage) {
-                                prevStage = newStage
-                                currentStage.intValue = newStage
-                            }
-
-                            // (6) Write the new pull distance synchronously — the
-                            //     indicator (which reads pullPx via the composable)
-                            //     will recompose immediately.
-                            pullPx = newPx
-                            // (7) Consume the entire delta so the LazyColumn
-                            //     doesn't try to scroll past the top.
-                            return Offset(0f, available.y)
-                        }
-
-                        override fun onPostScroll(
-                            consumed: Offset,
-                            available: Offset,
-                            source: NestedScrollSource,
-                        ): Offset = Offset.Zero
-
-                        override suspend fun onPreFling(available: Velocity): Velocity {
-                            val stage = stageFor(pullPx)
-                            // (8) Dispatch the action for the CURRENT stage at release.
-                            when (stage) {
-                                1 -> {
-                                    viewModel.refreshEpisodesList()
-                                    HapticHelper.releaseConfirm(context)
-                                }
-                                2 -> {
-                                    viewModel.refreshMetadata()
-                                    HapticHelper.releaseConfirm(context)
-                                }
-                                3 -> {
-                                    viewModel.refreshAll()
-                                    HapticHelper.releaseConfirm(context)
-                                }
-                                // 0 → no action, no haptic
-                            }
-                            // (9) Spring snap-back to 0. We animate pullPx directly
-                            //     frame-by-frame so the indicator visual tracks the
-                            //     spring smoothly. isAnimatingSnapBack prevents
-                            //     onPreScroll from interfering during the spring.
-                            isAnimatingSnapBack = true
-                            val anim = Animatable(pullPx)
-                            anim.animateTo(
-                                targetValue = 0f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                            ) {
-                                pullPx = value
-                            }
-                            pullPx = 0f
-                            isAnimatingSnapBack = false
-                            currentStage.intValue = 0
-                            prevStage = 0
-                            return Velocity.Zero
-                        }
-
-                        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-                            Velocity.Zero
+                // ── D-314: SIMPLE pull-to-refresh ──
+                // Replaced the custom 3-stage NestedScrollConnection (stage 1 =
+                // refresh episodes, stage 2 = metadata, stage 3 = everything) with
+                // the official Material 3 PullToRefreshBox — the same pattern Browse
+                // + Library already use. ONE gesture, ONE action: a full
+                // viewModel.refreshAll(), EXACTLY like the three-dot "Refresh"
+                // button (user spec 2026-08-28: "a simple pull-to-refresh … it
+                // will refresh the whole page exactly like how it will be
+                // refreshed using the refresh button"). The themed M3 indicator
+                // appears while isRefreshing is true (driven by refreshAll).
+                val ptrState = rememberPullToRefreshState()
+                val ptrContext = LocalContext.current
+                // One haptic the moment the pull first crosses the refresh
+                // threshold (LaunchedEffect re-runs only on false→true).
+                val ptrThresholdCrossed = ptrState.distanceFraction >= 1f
+                LaunchedEffect(ptrThresholdCrossed) {
+                    if (ptrThresholdCrossed) {
+                        HapticHelper.stageCross(ptrContext)
                     }
                 }
 
@@ -782,9 +670,11 @@ fun DetailsScreen(
                 // MaterialTheme) so both the Success branch + EpisodeSearchSheet
                 // (outside MaterialTheme) can use it.
 
-                Box(modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(nestedScrollConnection)
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshAll() },
+                    state = ptrState,
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     LazyColumn(
                         state = lazyListState,
@@ -796,6 +686,11 @@ fun DetailsScreen(
                             DetailBanner(
                                 anime = anime,
                                 onBack = onBack,
+                                // D-315: cover tap → full-screen viewer.
+                                onCoverClick = { bounds ->
+                                    coverViewerBounds = bounds
+                                    showCoverViewer = true
+                                },
                                 saved = isInLibrary,
                                 onToggleSave = { viewModel.toggleLibrary() },
                                 onLongPressSave = { viewModel.openCategorySheet() },
@@ -1083,58 +978,26 @@ fun DetailsScreen(
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
 
-                    // D-146: Refresh overlay — shows a spinner when refreshing.
-                    if (isRefreshing) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 80.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    CircularProgressIndicator(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = "Refreshing...",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // ── 3-stage pull-to-refresh indicator ──
-                    // Visible only while actively pulling (pullPx > 0) AND
-                    // not currently refreshing (avoids overlap with the D-146 pill
-                    // above, which takes over after a stage-3 release).
-                    if (pullPx > 0f && !isRefreshing) {
-                        ThreeStagePullIndicator(
-                            pullDistancePx = pullPx,
-                            stage = currentStage.intValue,
-                            thresholdPx1 = thresholdPx1,
-                            thresholdPx3 = thresholdPx3,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 80.dp),
-                        )
-                    }
+                    // D-314: the D-146 "Refreshing..." pill + the 3-stage pull
+                    // indicator are GONE — the Material 3 PullToRefreshBox's own
+                    // themed indicator covers ALL refresh feedback (pull-triggered
+                    // AND button-triggered, via isRefreshing).
                 }
             }
+        }
+
+        // D-315: full-screen cover viewer — rendered as the LAST child of the
+        // root Box so it layers over the entire details page (inside the
+        // adaptive MaterialTheme so its buttons pick up the per-anime accent).
+        val viewerBounds = coverViewerBounds
+        val viewerCoverUrl = (state as? DetailsState.Success)?.anime?.coverUrl
+        if (showCoverViewer && viewerBounds != null && viewerCoverUrl != null) {
+            CoverViewerOverlay(
+                imageUrl = viewerCoverUrl,
+                contentDescription = (state as? DetailsState.Success)?.anime?.displayName,
+                originBounds = viewerBounds,
+                onDismiss = { showCoverViewer = false },
+            )
         }
     }
     } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
@@ -1457,6 +1320,9 @@ private fun DetailBanner(
     onDismissMenu: () -> Unit,
     onRefresh: () -> Unit = {},
     onLongPressSave: () -> Unit = {},
+    // D-315: cover tap → full-screen viewer (carries the cover's on-screen
+    // bounds so the viewer can expand from the exact position).
+    onCoverClick: (androidx.compose.ui.geometry.Rect) -> Unit = {},
     // Phase B: AniList link state + callbacks
     isExtensionEntry: Boolean = false,
     isAniListLinked: Boolean = false,
@@ -1688,12 +1554,19 @@ private fun DetailBanner(
             verticalAlignment = Alignment.Bottom,
         ) {
             if (coverUrl != null) {
+                // D-315: track the cover's on-screen bounds so the full-screen
+                // viewer can expand from this exact position.
+                var coverBounds by remember {
+                    mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
+                }
                 AsyncImage(
                     model = coverUrl,
                     contentDescription = anime.displayName,
                     modifier = Modifier
                         .size(width = 100.dp, height = 150.dp)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .clip(RoundedCornerShape(12.dp))
+                        .onGloballyPositioned { coverBounds = it.boundsInRoot() }
+                        .clickable { onCoverClick(coverBounds) },
                     contentScale = ContentScale.Crop,
                 )
             }
@@ -3404,66 +3277,6 @@ private fun ErrorState(message: String) {
                 }
             }
         }
-    }
-}
-
-/**
- * 3-stage pull-to-refresh indicator overlay for the Details screen (PTR-5).
- *
- * Shows a small progress ring that fills as [pullDistancePx] grows from 0 →
- * [thresholdPx3], plus a stage-dependent label:
- *   - stage 0 (pull < thresholdPx1): "Pull to refresh episodes" + onSurfaceVariant.
- *   - stage 1 (≥ thresholdPx1): "Release to refresh episodes" + primary.
- *   - stage 2 (≥ thresholdPx2): "Release to refresh metadata" + tertiary.
- *   - stage 3 (≥ thresholdPx3): "Release to refresh everything" + error.
- *
- * The per-stage color (primary → tertiary → error) gives a clear visual cue of
- * which refresh action will fire on release. Drawn ABOVE the LazyColumn in a
- * Box overlay aligned TopCenter.
- *
- * Haptic feedback is handled in the NestedScrollConnection (not here) — fires
- * exactly once per stage-UP crossing via HapticHelper.stageCross().
- */
-@Composable
-private fun ThreeStagePullIndicator(
-    pullDistancePx: Float,
-    stage: Int,
-    thresholdPx1: Float,
-    thresholdPx3: Float,
-    modifier: Modifier = Modifier,
-) {
-    val (label, color) = when (stage) {
-        3 -> "Release to refresh everything" to MaterialTheme.colorScheme.error
-        2 -> "Release to refresh metadata" to MaterialTheme.colorScheme.tertiary
-        1 -> "Release to refresh episodes" to MaterialTheme.colorScheme.primary
-        else -> "Pull to refresh episodes" to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    // Progress fills proportionally up to thresholdPx3 (the stage-3 ceiling).
-    val progress = (pullDistancePx / thresholdPx3).coerceIn(0f, 1f)
-
-    Column(
-        modifier = modifier
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        CircularProgressIndicator(
-            progress = { progress },
-            color = color,
-            strokeWidth = 2.dp,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = label,
-            color = color,
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-        )
     }
 }
 
