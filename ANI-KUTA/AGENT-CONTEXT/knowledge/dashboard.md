@@ -26,7 +26,7 @@ A visual documentation site the **user** reads to understand the system: modules
 ## Pages (14 total)
 | Page | Route | Content |
 |------|-------|---------|
-| Overview | `/` | Project summary, metrics (46 modules, D-001..D-193, 26 tables), phase timeline |
+| Overview | `/` | Project summary, metrics (see lib/ data files for the CURRENT counts — 50 modules, D-001..D-326, 25 tables), phase timeline |
 | Architecture | `/architecture/` | Module tree, dependency rules, data flow, identity, multi-extension (D-150: Nav3 removed) |
 | Modules | `/modules/` | 46-module hierarchy + tree view |
 | Database | `/database/` | 26 tables (15 .sq files), ER diagram, indexes, FK relationships |
@@ -35,7 +35,7 @@ A visual documentation site the **user** reads to understand the system: modules
 | Progress | `/progress/` | All phases done (0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DB) |
 | Analytics | `/analytics/` | Module size distribution, build times, docs coverage |
 | Planning | `/planning/` | Gantt chart, task board, phase checklists |
-| Decisions | `/decisions/` | Decision log D-001..D-193 (representative entries + range) |
+| Decisions | `/decisions/` | Decision log (representative entries + range; the dashboard's lib data was last refreshed at D-193 — a future dashboard session should sync it to D-326) |
 | Downloads-Plan | `/downloads-plan/` | Download system research + implementation plan |
 | Phase-D | `/phase-d/` | Data-management phase plan |
 | Debug-Bubble | `/debug-bubble/` | Debug bubble feature plan + implementation |
@@ -45,7 +45,7 @@ A visual documentation site the **user** reads to understand the system: modules
 | File | Content |
 |------|---------|
 | `lib/data.ts` | NAV_ITEMS, MODULES, MODULE_TREE, DATA_FLOW_STEPS, phases, metrics, tasks, ADRs |
-| `lib/decisions.ts` | Decision entries (representative subset of D-001..D-193) |
+| `lib/decisions.ts` | Decision entries (representative subset — data last refreshed at D-193) |
 | `lib/schema.ts` | Database schema tables (28) + summary stats |
 | `lib/testingData.ts` | Device-testing checklist data |
 | `lib/downloadsPlan.ts` | Download-system plan data |
@@ -71,6 +71,6 @@ A visual documentation site the **user** reads to understand the system: modules
 ## Status
 - ✅ **Design language (`DESIGN.md`)**: saved (MEMORY OS + dark mode section).
 - ✅ **14 pages**: all built + deployed.
-- ✅ **Data updated** (this session): 46 modules / 26 core / 18 feature / D-001..D-193 / 26 tables / 15 .sq files / Nav3 removed / `main` branch — across all 14 pages + Footer.
+- ⚠ **Dashboard data is STALE as of D-326** (last refreshed at D-193: says 46 modules / `main` branch — reality: 50 modules, `test-feature/video-cache-new-download` active, v0.2.62). A dedicated dashboard session should refresh the lib/ data files.
 - ✅ **GitHub Pages**: live at `https://testplay-byte.github.io/ANI-KUTA/`.
 - 🔄 **Next**: keep the dashboard updated as the project evolves. Sub-agents build page updates; main agent owns AGENT-CONTEXT.

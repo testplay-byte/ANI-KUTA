@@ -8,7 +8,7 @@
 | Layer | Technology | Version | Status |
 |-------|-----------|---------|--------|
 | Language | Kotlin | 2.2.0 | ✅ in use |
-| UI | Jetpack Compose (BOM) | 2025.03.00 | ✅ in use |
+| UI | Jetpack Compose (explicit pins — BOM removed D-322) | 1.10.4 line (material3 1.3.1, icons 1.7.8) | ✅ in use |
 | DI (primary) | Koin + Koin Annotations | 4.2.2 | ✅ in use (D-034) |
 | DI (ext compat) | Injekt (isolated) | commit `91edab2317` | ✅ in use (Aniyomi ext binary-compat only) |
 | Persistence | SQLDelight | 2.0.2 | ✅ in use (D-035 — NOT Room) |
@@ -30,10 +30,10 @@
 | AGP | 8.9.1 | `libs.versions.toml` |
 | Gradle | 8.11.1 | `libs.versions.toml` |
 | JDK | 17 | CI (`setup-java@v4`) |
-| compileSdk | 36 | `AndroidConfig.kt` (kept at 36 for Compose BOM 2025.03 + future-proofing; was originally for Nav3, Nav3 removed D-150) |
+| compileSdk | 36 | `AndroidConfig.kt` (kept at 36 for the compose 1.10 line + future-proofing; was originally for Nav3, Nav3 removed D-150) |
 | targetSdk | 36 | `AndroidConfig.kt` |
 | minSdk | 24 (Android 7.0) | `AndroidConfig.kt` |
-| ABIs | `arm64-v8a` + `armeabi-v7a` ONLY | `AndroidConfig.abiFilters` (CORE_RULES §8 — CI-verified) |
+| ABIs | `arm64-v8a` ONLY (test-only x86_64 emulator builds never ship) | `AndroidConfig.abiFilters` (CORE_RULES §8, D-251 — CI-verified) |
 | App ID | `com.confused.anikuta` | `AndroidConfig.kt` |
 | Build system | `:build-logic` composite build (4 convention plugins) | `settings.gradle.kts` |
 | Convention plugins | `anikuta.android.application`, `anikuta.android.application.compose`, `anikuta.library`, `anikuta.library.compose` | `build-logic/src/main/kotlin/` |
@@ -77,7 +77,7 @@ The original graph-based `ContentUID + ExternalReference` design was simplified 
 ## CI
 | Workflow | Purpose | File |
 |----------|---------|------|
-| `build-apk.yml` | Build debug APK + verify ABIs (arm64-v8a + armeabi-v7a only). Triggers on `main` + `feature/**` + tags. | `.github/workflows/build-apk.yml` |
+| `build-apk.yml` | Build debug APK + verify ABIs (arm64-v8a ONLY — D-251). Triggers on `main` + `feature/**` + tags. | `.github/workflows/build-apk.yml` |
 | `deploy-dashboard.yml` | Build Next.js dashboard + deploy to GitHub Pages. Triggers on `main`. | `.github/workflows/deploy-dashboard.yml` |
 
 ## Research Documents (historical — in `APP/ani-kuta/DOCUMENTATION/`)

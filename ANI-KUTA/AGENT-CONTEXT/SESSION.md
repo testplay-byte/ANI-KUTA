@@ -7,19 +7,19 @@
 
 ## ⚡ Who You Are
 You are the AI agent for **ANI-KUTA** (Android app rebuild + companion web dashboard).
-GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active branch: `main` (all feature branches merged + deleted).
+GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active branch: `test-feature/video-cache-new-download` (long-lived; all shipped versions since v0.2.48 built here; NOT merged into `main` — user gate per CORE_RULES §8).
 
 ## 📂 If The Environment Was Just Cloned
-1. `cd /home/z/my-project/ANI-KUTA` (if missing → re-clone from GitHub; the wrapper folder is `ANI-KUTA/ANI-KUTA/` inside).
+1. Clone to `/home/z/ANI-KUTA-WORK/ANI-KUTA` and `git checkout test-feature/video-cache-new-download` (the repo is public — read access works without a token; PUSH needs the GitHub token in the remote URL, ask the user if it was lost in a sandbox wipe).
 2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers + **Deferred Concerns** (read the top sections first).
-3. Read `AGENT-CONTEXT/memory/decisions.md` → "Pending Decisions" section (latest = D-193; all pending items answered).
+3. Read `AGENT-CONTEXT/memory/decisions.md` → latest = D-326 (v0.2.62 batch; all pending items answered).
 4. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task.
 
 ## 🔑 Key Rules (full detail in `CORE_RULES.md` — 30 sections)
 - **No assumptions.** Unsure → ask the user. Never guess.
 - **Don't sugarcoat.** If a request has an issue, flag it directly. Don't blindly agree.
 - **User uses speech-to-text.** If a request feels off, correct obvious errors from context; if still unclear → stop and ask.
-- **APK builds: GitHub Actions only.** ABIs: `arm64-v8a` + `armeabi-v7a` only. Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
+- **APK builds: GitHub Actions only.** ABIs: `arm64-v8a` ONLY in shipped APKs (D-251; test-only x86_64 emulator builds via `-PemulatorX64Build=true`, never shipped). Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
 - **Debug builds = schema freedom** (CORE_RULES §30). No migration scripts needed. Old DBs get deleted + recreated. Don't worry about preserving existing dev data.
 - **Sub-agents for webpage work** → they work ONLY in `DASHBOARD/webpage/`, never `AGENT-CONTEXT/` (CORE_RULES §14, §19).
 - **Keep it simple.** Stdlib/native before new deps. No over-engineering. (See `skills/ponytail.md`.)
@@ -68,20 +68,17 @@ adb, input-text limits, the 4GB memory ceiling) + full setup + workflow + tricks
 ANI-KUTA/                        ← repo root (git)
 ├── ANI-KUTA/                    ← wrapper folder (all zones inside)
 │   ├── AGENT-CONTEXT/           # YOUR memory + rules (you maintain this)
-│   ├── APP/ani-kuta/            # Android app (46 Gradle modules: 1 app + 26 core + 1 data + 18 feature)
+│   ├── APP/ani-kuta/            # Android app (50 Gradle modules: 1 app + 30 core + 1 data + 18 feature)
 │   ├── DASHBOARD/webpage/       # Next.js dashboard (14 pages → GitHub Pages; sub-agents build this)
 │   └── REFERENCES/              # old-kuta + animiru (read-only)
 └── .github/workflows/          # CI
 ```
 
 ## ❓ Currently Blocked On / Open Items
-- **Library badge customization system** (D-242, fix9–fix14) — ✅ IMPLEMENTED + CI GREEN on `functionality/improvements` (commit `b4c75ba3`, version 0.2.38). APK artifact built (55.3 MB). **Ready for device testing.** Advanced RELEASED options (sub/dub/both + unwatched + SVG icons) + scroll-to-minimize header.
-- **Database management + quality** (next focus after library badge testing) — user will provide a fresh DB export after a clean-install test run. Agent will analyze for flaws.
-- **Download system device testing** (Phase DL.0-DL.8 implemented; needs on-device verification).
-- **Download system future-phase gaps** (D-149, D-151) — proxy-churn re-resolve wiring + 2 re-resolve bugs + outer retry loop + DownloadVideoPickerSheet cleanup. All DEFERRED per user. Full plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
-- **Nav3** — ✅ DECIDED (D-150): keep hand-rolled nav; Nav3 fully REMOVED from all build files. R7 (process-death backstack recreation) accepted as known limitation.
-- **Doc-debt sweep** — ✅ DONE (all knowledge/*, master.md, SESSION.md, navigation.md, dashboard data updated; code comments cleaned).
-- See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list.
+- **v0.2.62 push (2026-08-29):** the sandbox was wiped (3rd time) and the GitHub token — which lived only in the old clone's remote URL — was lost. The complete v0.2.62 work (D-324 smoother shared-element morph + D-325 multi-season-only episode tags) is committed locally on `test-feature/video-cache-new-download`; push + CI + tag + release resume the moment the token is re-provided.
+- **Ongoing device-feedback loop:** the user tests every release on a real OnePlus device and reports back; each session = fix/polish batch + version bump + release. v0.2.61 (compose 1.10.4 alignment — D-322) verified working on device.
+- **Branch merge into `main`:** user-gated (CORE_RULES §8); the long-lived branch is 100+ commits ahead.
+- See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list (older items like library-badge testing, download-system device testing, Nav3, doc-debt are all resolved/historical — see decisions.md).
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*

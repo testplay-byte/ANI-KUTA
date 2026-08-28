@@ -143,7 +143,7 @@ repo-root/
 - **RELEASES (user instruction, D-251):** versioned releases are published via the `release-apk.yml` workflow on `v*` tag push — the release APK is arm64-v8a-only and the release must NOT be marked prerelease (the in-app updater relies on stable releases being visible). Bump `versionCode`/`versionName` by exactly +1 per improvement batch (e.g. 0.2.47 → 0.2.48), keep the tag `v{versionName}` in sync with `AndroidConfig.kt`, and the release workflow verifies the match.
 - **Sandbox emulator tooling (user-authorized, D-246):** the agent MAY install the Android SDK command-line tools + platform-tools + emulator + system images in the sandbox to RUN and INSPECT the CI-built APK on a local AVD (x86_64 TCG, no KVM). This is an inspection/runtime-testing allowance ONLY — Gradle builds, `javac`, and Android build-tools remain FORBIDDEN locally (§8's build prohibition is unchanged: the APK always comes from CI).
 - App ID: `com.confused.anikuta`.
-- **compileSdk = 36** (kept at 36 for Compose BOM 2025.03.00 + future-proofing; was originally bumped for Nav3, but Nav3 was removed in D-150 — the SDK stays at 36 because reverting would touch `AndroidConfig.kt` only + provides no benefit).
+- **compileSdk = 36** (kept at 36 for the compose 1.10 line — BOM removed D-322, explicit 1.10.4 pins — + future-proofing; was originally bumped for Nav3, but Nav3 was removed in D-150 — the SDK stays at 36 because reverting would touch `AndroidConfig.kt` only + provides no benefit).
 
 ---
 

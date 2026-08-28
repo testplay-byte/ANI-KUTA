@@ -3,7 +3,7 @@
 > Every Gradle module: name, job, dependencies. Verified against `settings.gradle.kts` + `build.gradle.kts` files.
 > The architecture **design/concept** (layer diagrams, module graph) lives in `architecture.md`.
 
-## Status: 46 modules — ALL BUILT ✅
+## Status: 50 modules — ALL BUILT ✅
 
 ```
 :app  ──→  :feature:*:{api,impl}  ──→  :core:*  ──→  :core:common
@@ -77,7 +77,7 @@
 | Layer | Count |
 |-------|-------|
 | `:app` | 1 |
-| `:core:*` | 26 |
+| `:core:*` | 30 |
 | `:data:*` | 1 |
 | `:feature:*` (api+impl splits) | 18 |
-| **Total** | **46** |
+| **Total** | **50** |

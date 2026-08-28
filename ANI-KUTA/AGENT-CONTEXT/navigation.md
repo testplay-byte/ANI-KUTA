@@ -28,9 +28,9 @@
 |------|---------|
 | `knowledge/project-overview.md` | What ANI-KUTA is, goals, scope, current status. |
 | `knowledge/tech-stack.md` | Actual technologies + versions (verified against `libs.versions.toml`). |
-| `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, actual 46-module graph, nav, DB, DI wiring, known debt. |
+| `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, actual 50-module graph, nav, DB, DI wiring, known debt. |
 | `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's UI design language (canonical ~140 lines — lime accent, warm darks, translucent cards, floating pill nav, scroll blur). |
-| `knowledge/module-map.md` | All 46 modules: name, job, dependencies, key files. |
+| `knowledge/module-map.md` | All 50 modules: name, job, dependencies, key files. |
 | `knowledge/ui-customization.md` | How UI customization works (theme tokens, component variants, layout, behavior toggles, subtitle settings). |
 | `knowledge/dashboard.md` | Dashboard approach: 14 pages, data files, deployment, update process, sub-agent rules. |
 | `knowledge/old-vs-new.md` | Old project (REFERENCES/old-kuta/) vs new project comparison + migration notes. |
