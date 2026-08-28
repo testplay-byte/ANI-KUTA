@@ -214,14 +214,11 @@ fun groupEpisodesBySeason(episodes: List<SEpisode>): List<SeasonGroup>? {
     val seasonNumbers = tags.mapNotNull { it?.season }.distinct().sorted()
     if (seasonNumbers.size < 2) return null
 
-    val groups = seasonNumbers.map { season ->
+    val seasonBuckets = seasonNumbers.map { season ->
         SeasonGroup(season, episodes.filterIndexed { i, _ -> tags[i]?.season == season })
     }
     val untagged = episodes.filterIndexed { i, _ -> tags[i] == null }
-    if (untagged.isNotEmpty()) {
-        groups += SeasonGroup(null, untagged)
-    }
-    return groups
+    return if (untagged.isNotEmpty()) seasonBuckets + SeasonGroup(null, untagged) else seasonBuckets
 }
 
 // ════════════════════════════════════════════════════════════════════════════

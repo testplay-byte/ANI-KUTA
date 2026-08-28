@@ -6,7 +6,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateScrollBy
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -2580,14 +2579,12 @@ private fun SeasonSelectorRow(
         val viewportWidth = layoutInfo.viewportSize.width
         val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
         if (item != null && viewportWidth > 0) {
-            // Scroll delta that moves the item's center to the viewport center.
-            val delta = (item.offset + item.size / 2) - viewportWidth / 2
-            if (delta != 0) {
-                listState.animateScrollBy(
-                    delta.toFloat(),
-                    tween(Motion.DurationStandard, easing = Motion.EasingStandard),
-                )
-            }
+            // Center the chip: its start should land at viewportCenter - width/2.
+            // animateScrollToItem's scrollOffset positions the item relative to
+            // the viewport start — a negative value pulls it INTO the viewport
+            // (the standard centering recipe). Clamped naturally at the row ends.
+            val targetOffset = -(viewportWidth / 2 - item.size / 2)
+            listState.animateScrollToItem(selectedIndex, targetOffset)
         }
     }
 
