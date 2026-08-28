@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle  // D-311: install-success indicator
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -596,6 +597,18 @@ private enum class UpdateControlPhase {
 
     /** PackageInstaller session open (OS prompt imminent). */
     INSTALLING,
+
+    /**
+     * D-311: install SUCCEEDED — brief success state while the manager's
+     * post-install refresh ([ExtensionManager.onInstallResult] → `loadAll`)
+     * lands. Previously this terminal state fell into READY, which resurrected
+     * the Update pill on the STALE `hasUpdate = true` row for a moment (the
+     * user saw "Update" again right after installing), and worse: when the
+     * refresh then flipped `onUpdate` to null mid-AnimatedContent-transition,
+     * the exiting READY slot recomposed with `onUpdate!!` → NPE CRASH
+     * (ExtensionsSettingsScreen.kt:621, device report 2026-08-28 13:59).
+     */
+    INSTALLED,
 }
 
 @Composable
@@ -607,7 +620,10 @@ private fun ExtensionUpdateControl(
         is InstallStep.Pending -> UpdateControlPhase.PENDING
         is InstallStep.Downloading -> UpdateControlPhase.DOWNLOADING
         is InstallStep.Installing -> UpdateControlPhase.INSTALLING
-        // Terminal / null / Idle → the button (when an update is available).
+        // D-311: success is its OWN phase (see UpdateControlPhase.INSTALLED) — it
+        // must NOT fall through to READY and resurrect the Update pill.
+        is InstallStep.Installed -> UpdateControlPhase.INSTALLED
+        // Terminal / null / Idle / Error → the button (when an update is available).
         else -> if (onUpdate != null) UpdateControlPhase.READY else UpdateControlPhase.HIDDEN
     }
 
@@ -618,7 +634,19 @@ private fun ExtensionUpdateControl(
     ) { target ->
         when (target) {
             UpdateControlPhase.HIDDEN -> Spacer(Modifier.width(0.dp))
-            UpdateControlPhase.READY -> UpdatePillButton(onClick = onUpdate!!)
+            UpdateControlPhase.READY -> {
+                // D-311 CRASH FIX: NEVER `onUpdate!!` here. During a READY→HIDDEN
+                // fade-out, the EXITING slot recomposes with the LATEST captured
+                // onUpdate — which is null once the post-install refresh flips
+                // hasUpdate to false. Render nothing in that window instead of
+                // crashing with a NullPointerException on the main thread.
+                val click = onUpdate
+                if (click != null) {
+                    UpdatePillButton(onClick = click)
+                } else {
+                    Spacer(Modifier.width(0.dp))
+                }
+            }
             UpdateControlPhase.PENDING -> InstallProgressIndicator(
                 label = null,
                 progress = null,
@@ -638,7 +666,36 @@ private fun ExtensionUpdateControl(
                 progress = null,
                 pulsing = true,
             )
+            UpdateControlPhase.INSTALLED -> InstallSuccessIndicator()
         }
+    }
+}
+
+/**
+ * D-311: brief post-install success state — a check + "Done" shown between the
+ * OS install completing and the manager's `loadAll()` refresh clearing the
+ * install state (the row then shows the new version with no Update pill).
+ */
+@Composable
+private fun InstallSuccessIndicator() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.CheckCircle,
+            contentDescription = "Updated",
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "Done",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 

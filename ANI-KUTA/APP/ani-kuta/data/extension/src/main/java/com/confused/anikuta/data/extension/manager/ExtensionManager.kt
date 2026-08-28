@@ -418,10 +418,21 @@ class ExtensionManager(
      * [ExtensionInstallService] — the OS-prompt-DENIED (user aborted → Idle) and
      * PackageInstaller-failure paths never fire the PACKAGE_ADDED broadcast,
      * so without this the row would stick on a pulsing "Installing" forever.
+     *
+     * D-311 (post-update refresh system): on SUCCESS the manager now also
+     * triggers a [loadAll] re-scan IMMEDIATELY — the row's version text,
+     * `hasUpdate` flag, and install state all refresh at once instead of
+     * waiting for the (racy, later-arriving) PACKAGE_ADDED broadcast. This is
+     * what lets the UI settle on "new version, no Update pill" cleanly; the
+     * UI-side INSTALLED phase covers the brief window in between.
      */
     fun onInstallResult(pkgName: String, step: InstallStep) {
         if (step is InstallStep.Installed || step is InstallStep.Error || step is InstallStep.Idle) {
             setInstallState(pkgName, step)
+            if (step is InstallStep.Installed) {
+                Logger.i(TAG) { "Install succeeded for $pkgName — triggering post-install refresh (loadAll)" }
+                loadAll()
+            }
         }
     }
 
