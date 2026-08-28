@@ -1291,8 +1291,16 @@ class DetailsViewModel(
      * D.3: Refresh stage 1 — refresh episodes list only (from extension source).
      * Only fetches the episode list from the extension. Does NOT touch metadata.
      * If new episodes are found, auto-fetch their metadata.
+     *
+     * D-318: the body is a suspend core ([refreshEpisodesListNow]) so
+     * [refreshAll] can AWAIT real completion — the pull-to-refresh indicator
+     * must spin until the refresh has actually finished, not a fixed 500ms.
      */
     fun refreshEpisodesList() {
+        viewModelScope.launch { refreshEpisodesListNow() }
+    }
+
+    private suspend fun refreshEpisodesListNow() {
         val anime = (_state.value as? DetailsState.Success)?.anime ?: return
         val sourceId = anime.sourceId ?: run {
             Logger.w(TAG) { "refreshEpisodesList: no sourceId" }
@@ -1308,12 +1316,11 @@ class DetailsViewModel(
             return
         }
         val animeTitle = anime.displayName
-        viewModelScope.launch {
-            // D-313: generation guard — a manual refresh of anime A that lands
-            // after the user opened anime B must never overwrite B's state.
-            val refreshGen = loadGeneration
-            fun stale() = refreshGen != loadGeneration
-            try {
+        // D-313: generation guard — a manual refresh of anime A that lands
+        // after the user opened anime B must never overwrite B's state.
+        val refreshGen = loadGeneration
+        fun stale() = refreshGen != loadGeneration
+        try {
                 val sAnime = eu.kanade.tachiyomi.animesource.model.SAnime.create().apply {
                     url = animeUrl
                     title = animeTitle
@@ -1438,9 +1445,8 @@ class DetailsViewModel(
                         }
                     }
                 }
-            } catch (e: Throwable) {
-                Logger.e(TAG, e) { "D.3 Stage 1: Episodes refresh failed: ${e.message}" }
-            }
+        } catch (e: Throwable) {
+            Logger.e(TAG, e) { "D.3 Stage 1: Episodes refresh failed: ${e.message}" }
         }
     }
 
@@ -1448,19 +1454,24 @@ class DetailsViewModel(
      * D.3: Refresh stage 2 — refresh metadata only (from data source).
      * Only fetches metadata (synopsis, score, etc.) from AniList/extension.
      * Does NOT touch the episodes list.
+     *
+     * D-318: suspend core pattern — see [refreshEpisodesListNow].
      */
     fun refreshMetadata() {
+        viewModelScope.launch { refreshMetadataNow() }
+    }
+
+    private suspend fun refreshMetadataNow() {
         val anime = (_state.value as? DetailsState.Success)?.anime ?: return
         Logger.i(TAG) { "D.3 Stage 2: Refreshing metadata for ${anime.displayName}" }
 
         if (anime.anilistId != null) {
             val anilistId = anime.anilistId!!
-            viewModelScope.launch {
-                // D-313: generation guard — a metadata refresh of anime A landing
-                // after anime B opened must not remerge A's bases over B's screen.
-                val metaGen = loadGeneration
-                try {
-                    val fresh = anilistApi.fetchAnimeDetails(anilistId)
+            // D-313: generation guard — a metadata refresh of anime A landing
+            // after anime B opened must not remerge A's bases over B's screen.
+            val metaGen = loadGeneration
+            try {
+                val fresh = anilistApi.fetchAnimeDetails(anilistId)
                     if (metaGen == loadGeneration) {
                         anilistBase = fresh.toUnifiedAnime()
                         remergeBases(
@@ -1511,17 +1522,15 @@ class DetailsViewModel(
                 } catch (e: Exception) {
                     Logger.e(TAG, e) { "D.3 Stage 2: Metadata refresh failed: ${e.message}" }
                 }
-            }
         } else if (anime.sourceId != null && anime.animeUrl != null) {
             val sourceId = anime.sourceId!!
             val animeUrl = anime.animeUrl!!
-            viewModelScope.launch {
-                // D-313: generation guard (same as the AniList branch above).
-                val metaGen = loadGeneration
-                try {
-                    val enriched = extensionProvider.fetchFromExtension(
-                        sourceId, animeUrl, anime.displayName, anime.coverUrl,
-                    )
+            // D-313: generation guard (same as the AniList branch above).
+            val metaGen = loadGeneration
+            try {
+                val enriched = extensionProvider.fetchFromExtension(
+                    sourceId, animeUrl, anime.displayName, anime.coverUrl,
+                )
                     if (enriched != null) {
                         if (metaGen == loadGeneration) {
                             extensionBase = enriched
@@ -1556,10 +1565,9 @@ class DetailsViewModel(
                             )
                         }
                     }
-                    Logger.i(TAG) { "D.3 Stage 2: Refreshed extension metadata" }
-                } catch (e: Exception) {
-                    Logger.e(TAG, e) { "D.3 Stage 2: Extension metadata refresh failed: ${e.message}" }
-                }
+                Logger.i(TAG) { "D.3 Stage 2: Refreshed extension metadata" }
+            } catch (e: Exception) {
+                Logger.e(TAG, e) { "D.3 Stage 2: Extension metadata refresh failed: ${e.message}" }
             }
         }
     }
@@ -1571,17 +1579,30 @@ class DetailsViewModel(
     fun refreshAll() {
         Logger.i(TAG) { "D.3 Stage 3: Full refresh" }
         _isRefreshing.value = true
+        // D-318: the indicator must stay until the refresh has ACTUALLY
+        // finished (user report: "it goes away way too quickly, even before the
+        // refresh has finished"). The old code fired the three refreshes as
+        // independent coroutines + a fixed 500ms delay — the indicator vanished
+        // while the fetches were still running. Now all three run concurrently
+        // and are AWAITED; isRefreshing only clears when they complete.
         val refreshAllGen = loadGeneration
         viewModelScope.launch {
-            refreshMetadata()
-            refreshEpisodesList()
-            // D-242: also refresh the tracking data from AniList (if linked).
-            refreshTracking()
-            kotlinx.coroutines.delay(500) // Brief delay so the spinner is visible
-            // D-313: only clear the indicator when this refresh still owns the screen.
-            if (refreshAllGen == loadGeneration) {
-                _isRefreshing.value = false
-                Logger.i(TAG) { "D.3 Stage 3: Refresh complete" }
+            try {
+                kotlinx.coroutines.coroutineScope {
+                    launch { refreshMetadataNow() }
+                    launch { refreshEpisodesListNow() }
+                    // D-242: also refresh the tracking data from AniList (if linked).
+                    launch { runCatching { refreshTracking() } }
+                }
+            } catch (e: Exception) {
+                Logger.w(TAG) { "D.3 Stage 3: refresh error (non-fatal): ${e.message}" }
+            } finally {
+                // D-313: only clear the indicator when this refresh still owns
+                // the screen (resetState/loadFrom* clears it otherwise).
+                if (refreshAllGen == loadGeneration) {
+                    _isRefreshing.value = false
+                    Logger.i(TAG) { "D.3 Stage 3: Refresh complete" }
+                }
             }
         }
     }

@@ -14,11 +14,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,20 +52,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.common.Logger
@@ -121,9 +129,54 @@ fun CoverViewerOverlay(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val okHttpClient: OkHttpClient = koinInject()
+    // D-319: the shared Coil loader — the cover was ALREADY loaded through it
+    // (AsyncImage), so its disk cache usually holds the original bytes and the
+    // save no longer needs a network round-trip.
+    val imageLoader: ImageLoader = koinInject()
 
     var closing by remember { mutableStateOf(false) }
     var saveState by remember { mutableStateOf(CoverSaveState.IDLE) }
+
+    // ── D-319: pinch-to-zoom with auto-reset ──
+    // Pinch/pan to inspect any part of the cover; when the fingers lift, the
+    // zoom + pan animate back to rest (user spec: "The zoom-in will not stay;
+    // it will automatically zoom out after the user lifts his fingers").
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var zoomPanX by remember { mutableFloatStateOf(0f) }
+    var zoomPanY by remember { mutableFloatStateOf(0f) }
+    var imageBoxSize by remember { mutableStateOf(IntSize.Zero) }
+    val zoomResetSpec = tween<Float>(Motion.DurationStandard, easing = Motion.EasingStandard)
+    val transformState = rememberTransformableState(
+        onGestureEnd = {
+            // Auto zoom-out on release.
+            scope.launch {
+                kotlinx.coroutines.coroutineScope {
+                    launch {
+                        animate(zoomScale, 1f, animationSpec = zoomResetSpec) { v, _ -> zoomScale = v }
+                    }
+                    launch {
+                        animate(zoomPanX, 0f, animationSpec = zoomResetSpec) { v, _ -> zoomPanX = v }
+                    }
+                    launch {
+                        animate(zoomPanY, 0f, animationSpec = zoomResetSpec) { v, _ -> zoomPanY = v }
+                    }
+                }
+            }
+        },
+    ) { zoomChange, panChange, _ ->
+        val newScale = (zoomScale * zoomChange).coerceIn(1f, 6f)
+        zoomScale = newScale
+        if (newScale > 1f && imageBoxSize != IntSize.Zero) {
+            // Clamp the pan so the image always covers the viewport.
+            val maxX = imageBoxSize.width * (newScale - 1f) / 2f
+            val maxY = imageBoxSize.height * (newScale - 1f) / 2f
+            zoomPanX = (zoomPanX + panChange.x).coerceIn(-maxX, maxX)
+            zoomPanY = (zoomPanY + panChange.y).coerceIn(-maxY, maxY)
+        } else {
+            zoomPanX = 0f
+            zoomPanY = 0f
+        }
+    }
 
     fun close() {
         if (closing) return
@@ -179,7 +232,7 @@ fun CoverViewerOverlay(
             saveState = CoverSaveState.SAVING
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
-                    runCatching { saveImageToGallery(context, okHttpClient, imageUrl) }
+                    runCatching { saveImageToGallery(context, imageLoader, okHttpClient, imageUrl) }
                         .onFailure { e ->
                             // Let cancellation propagate (viewer closed mid-save).
                             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -266,7 +319,16 @@ fun CoverViewerOverlay(
                     model = imageUrl,
                     contentDescription = contentDescription,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { imageBoxSize = it }
+                        .transformable(transformState)
+                        .graphicsLayer {
+                            scaleX = zoomScale
+                            scaleY = zoomScale
+                            translationX = zoomPanX
+                            translationY = zoomPanY
+                        },
                 )
             }
 
@@ -373,57 +435,94 @@ private fun ViewerActionButton(
 private fun lerpF(a: Float, b: Float, t: Float) = a + (b - a) * t
 
 /**
- * Streams [url] into the device gallery (Pictures/ANI-KUTA) — original bytes,
- * no re-encode. API 29+: MediaStore RELATIVE_PATH. API 24–28: direct file +
- * media scan (caller must hold WRITE_EXTERNAL_STORAGE).
+ * D-319: Fetches the cover's ORIGINAL bytes as fast as possible.
+ *
+ * 1. Coil's disk cache first — the cover was already loaded through the shared
+ *    loader (AsyncImage), which caches the raw response body verbatim. Copying
+ *    the cached file is instant + lossless. This was the user's save-speed
+ *    complaint: the old path ALWAYS re-downloaded (multi-second saves).
+ * 2. Network fallback via the shared Koin OkHttpClient (same client/headers
+ *    Coil uses — any URL that renders can be fetched).
  */
-private fun saveImageToGallery(context: Context, client: OkHttpClient, url: String) {
+private suspend fun fetchCoverBytes(imageLoader: ImageLoader, client: OkHttpClient, url: String): ByteArray {
+    imageLoader.diskCache?.let { diskCache ->
+        val entry = diskCache.get(url)
+        val file = entry?.file
+        if (file != null && file.exists() && file.length() > 0) {
+            Logger.d(COVER_VIEWER_TAG) { "Save: using cached bytes (${file.length()}B) for $url" }
+            return file.readBytes()
+        }
+    }
+    Logger.d(COVER_VIEWER_TAG) { "Save: disk cache miss — fetching $url over network" }
     val request = Request.Builder().url(url).build()
     client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
         val body = response.body ?: throw IOException("Empty response body")
-        val contentType = body.contentType()?.toString()?.lowercase()
-        val ext = when {
-            contentType?.contains("png") == true -> "png"
-            contentType?.contains("webp") == true -> "webp"
-            contentType?.contains("gif") == true -> "gif"
-            else -> "jpg"
-        }
-        val mime = "image/$ext"
-        val name = "anikuta_cover_${System.currentTimeMillis()}.$ext"
+        return body.bytes()
+    }
+}
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val resolver = context.contentResolver
-            val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                put(MediaStore.Images.Media.MIME_TYPE, mime)
-                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/ANI-KUTA")
-                put(MediaStore.Images.Media.IS_PENDING, 1)
-            }
-            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                ?: throw IOException("MediaStore insert failed")
-            try {
-                resolver.openOutputStream(uri)?.use { out ->
-                    body.byteStream().copyTo(out)
-                } ?: throw IOException("Could not open output stream")
-                values.clear()
-                values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
-            } catch (e: Exception) {
-                // Never leave an orphaned IS_PENDING=1 row in MediaStore.
-                runCatching { resolver.delete(uri, null, null) }
-                throw e
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            val dir = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                "ANI-KUTA",
-            )
-            if (!dir.exists() && !dir.mkdirs()) throw IOException("Could not create ${dir.absolutePath}")
-            val file = File(dir, name)
-            file.outputStream().use { out -> body.byteStream().copyTo(out) }
-            MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(mime), null)
+/** Sniffs the image format from magic bytes (no Content-Type dependency). */
+private fun sniffImageExt(bytes: ByteArray): String = when {
+    bytes.size >= 3 &&
+        (bytes[0].toInt() and 0xFF) == 0xFF && (bytes[1].toInt() and 0xFF) == 0xD8 -> "jpg"
+    bytes.size >= 8 &&
+        (bytes[0].toInt() and 0xFF) == 0x89 && bytes[1].toInt() == 'P'.code -> "png"
+    bytes.size >= 12 &&
+        String(bytes, 0, 4) == "RIFF" && String(bytes, 8, 4) == "WEBP" -> "webp"
+    bytes.size >= 6 && String(bytes, 0, 3) == "GIF" -> "gif"
+    else -> "jpg"
+}
+
+/**
+ * Writes the cover into the device gallery (Pictures/ANI-KUTA) — original
+ * bytes, no re-encode. API 29+: MediaStore RELATIVE_PATH. API 24–28: direct
+ * file + media scan (caller must hold WRITE_EXTERNAL_STORAGE).
+ */
+private suspend fun saveImageToGallery(
+    context: Context,
+    imageLoader: ImageLoader,
+    client: OkHttpClient,
+    url: String,
+) {
+    val bytes = fetchCoverBytes(imageLoader, client, url)
+    if (bytes.isEmpty()) throw IOException("Fetched 0 bytes")
+    val ext = sniffImageExt(bytes)
+    val mime = "image/$ext"
+    val name = "anikuta_cover_${System.currentTimeMillis()}.$ext"
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(MediaStore.Images.Media.MIME_TYPE, mime)
+            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/ANI-KUTA")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
         }
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IOException("MediaStore insert failed")
+        try {
+            resolver.openOutputStream(uri)?.use { out ->
+                out.write(bytes)
+                out.flush()
+            } ?: throw IOException("Could not open output stream")
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        } catch (e: Exception) {
+            // Never leave an orphaned IS_PENDING=1 row in MediaStore.
+            runCatching { resolver.delete(uri, null, null) }
+            throw e
+        }
+    } else {
+        @Suppress("DEPRECATION")
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "ANI-KUTA",
+        )
+        if (!dir.exists() && !dir.mkdirs()) throw IOException("Could not create ${dir.absolutePath}")
+        val file = File(dir, name)
+        file.writeBytes(bytes)
+        MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(mime), null)
     }
 }

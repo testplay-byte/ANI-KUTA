@@ -79,6 +79,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle  // D-317: S-n/E-m compound tag spans
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -679,11 +680,24 @@ fun DetailsScreen(
                 // MaterialTheme) so both the Success branch + EpisodeSearchSheet
                 // (outside MaterialTheme) can use it.
 
+                // D-318: custom themed indicator — a surface pill that slides
+                // down + scales in with the pull, fills a determinate arc while
+                // pulling, then spins indeterminately for the WHOLE refresh
+                // (isRefreshing now clears only when the refreshes complete —
+                // see DetailsViewModel.refreshAll). Default M3 indicator was too
+                // plain + vanished while the fetch was still running.
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = { viewModel.refreshAll() },
                     state = ptrState,
                     modifier = Modifier.fillMaxSize(),
+                    indicator = {
+                        PullToRefreshIndicator(
+                            state = ptrState,
+                            isRefreshing = isRefreshing,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    },
                 ) {
                     LazyColumn(
                         state = lazyListState,
@@ -3364,6 +3378,74 @@ private fun ErrorState(message: String) {
                 }) {
                     Text("Copy error", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
                 }
+            }
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-318: Custom pull-to-refresh indicator (details page)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * D-318: A themed refresh indicator that REPLACES the default M3 one (user
+ * report: "it should show a better-looking refresh one coming down, and the
+ * refresh animation should play until it is refreshed properly").
+ *
+ * Behavior (all values derived from [state], no extra recomposition):
+ * - Rest: fully transparent (nothing visible).
+ * - Pulling: slides down from the top edge, scales 0.55→1 with the pull, and a
+ *   determinate arc fills 0→100% of the pull distance (theme primary on a
+ *   floating surface disc with a soft shadow).
+ * - Refreshing: full-size disc with an indeterminate spinner — stays for the
+ *   WHOLE refresh ([isRefreshing] is driven by refreshAll's real completion).
+ *
+ * All per-frame values are read inside graphicsLayer — the composition itself
+ * never invalidates during a pull.
+ */
+@Composable
+private fun PullToRefreshIndicator(
+    state: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    isRefreshing: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 6.dp,
+        modifier = modifier
+            .padding(top = 18.dp)
+            .graphicsLayer {
+                val fraction = state.distanceFraction.coerceAtLeast(0f)
+                val appear = fraction.coerceIn(0f, 1f)
+                // While refreshing M3 snaps distanceFraction to 1 → fully shown.
+                val shown = if (isRefreshing) 1f else appear
+                scaleX = 0.55f + 0.45f * shown
+                scaleY = 0.55f + 0.45f * shown
+                alpha = shown
+                // Slide down as the pull grows (subtle — stays near the top).
+                translationY = 10.dp.toPx() * shown
+            },
+    ) {
+        Box(
+            modifier = Modifier.padding(9.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isRefreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.5.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+            } else {
+                CircularProgressIndicator(
+                    progress = { state.distanceFraction.coerceIn(0f, 1f) },
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.5.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                )
             }
         }
     }
