@@ -7,10 +7,11 @@ gradle = "8.11.1"
 # AndroidX
 coreKtx = "1.15.0"
 activityCompose = "1.10.1"
-# D-322: lifecycle pinned to what the packaged runtime really resolves — the
-# koin-compose 4.2.2 graph (JB lifecycle fork 2.9.6 → androidx 2.9.4) has been
-# silently raising this above the old 2.8.7 pin in every shipped release.
-lifecycle = "2.9.4"
+# D-322: lifecycle pinned to what the packaged runtime really resolves —
+# koin-android 4.2.2 requires androidx lifecycle 2.10.0 (the JB lifecycle fork
+# path through koin-compose lands at 2.9.4; max-wins → 2.10.0). The alignment
+# guard caught the first pin attempt (2.9.4) being wrong in one CI round.
+lifecycle = "2.10.0"
 palette = "1.0.0"  # D-223: adaptive color extraction from cover images
 
 # Compose — D-322: pinned EXPLICITLY, compose BOM REMOVED.
