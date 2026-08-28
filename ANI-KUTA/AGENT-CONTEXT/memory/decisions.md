@@ -2394,3 +2394,45 @@ Device-feedback batch: D-304..D-309.
 - **Files:** AndroidConfig.kt.
 - **Status:** ✅ Implemented; tag v0.2.58 + release after CI green.
 - **Date:** 2026-08-28.
+
+### D-311 — Post-update NPE crash + Update-pill resurrection (extensions page)
+
+Device crash report (2026-08-28 13:59, ExtensionsSettingsScreen.kt:621, main thread): after an extension update finished installing, the Update pill reappeared (on the stale `hasUpdate=true` row), then the app crashed with NPE. Root cause chain: `InstallStep.Installed` (terminal) fell into the READY phase → the pill resurrected; when the package-broadcast `loadAll()` then flipped `hasUpdate=false` (⇒ `onUpdate=null`) mid-`AnimatedContent`-transition, the EXITING READY slot recomposed with the latest captured null lambda and `onUpdate!!` threw. Fix: (a) READY branch is null-safe (renders nothing when the capture flips null during the fade-out); (b) new INSTALLED phase — a check+"Done" success state instead of the resurrected pill; (c) `ExtensionManager.onInstallResult(Installed)` now triggers `loadAll()` immediately (the post-update refresh system the user asked for: version text + hasUpdate + install state settle together instead of waiting for the racy broadcast).
+- **Files:** ExtensionsSettingsScreen.kt, ExtensionManager.kt.
+- **Status:** ✅ Implemented (commit 43bd5d5f).
+- **Date:** 2026-08-28.
+
+### D-312 — :core:seasons module (pattern registry + provider-hint fusion)
+
+User: seasons "somewhat working" but glitchy for some extensions; wants "a separate module which processes things separately and allows me to easily and properly configure things… adapt to various extensions, various formats". `SeasonDetector` promoted from :core:common into its own zero-dependency Gradle module. Architecture: `SeasonPatterns` = ordered, extensible pattern registry (season-episode / compact S5E12 / season-only; `register()` is the future per-extension hook); `SeasonDetector.analyze(names, providerHints?)` = whole-list analysis (per-episode assignments, season inventory, confidence, activation decision owned by the module); fusion rules — an explicit name tag ALWAYS wins, AniZip/Kitsu `seasonNumber` metadata fills the gaps, unassigned → "Other" bucket. `groupEpisodesBySeason` consumes the analysis (activation: ≥2 seasons AND ≥50% coverage, unchanged from D-307); `DetailsScreen` wires episodeMetadata seasonNumber hints (season structure now ALSO works for clean-named extensions when the provider knows the split). Module README documents formats, fusion, and the add-a-format recipe (verify against REAL EpisodeDump logs first).
+- **Files:** core/seasons/** (new module), EpisodeTitleParser.kt, EpisodeListProcessor.kt, DetailsScreen.kt, settings.gradle.kts, 2× build.gradle.kts.
+- **Status:** ✅ Implemented (commit 1713e7ce + CI fix 883090a9).
+- **Date:** 2026-08-28.
+
+### D-313 — Episode-list normalization + raw dump logging + cross-anime state-bleed guards
+
+Three stacked device reports: (a) "multiple episodes showing with the exact same title and the exact same episode tag"; (b) episode thumbnails/metadata "bleeding into each other" across details pages; (c) request for highly detailed, filterable console logging of raw episode lists. Root causes: (a) extensions return unset (-1) / duplicated / timestamp-like episode numbers — the EP badge, the `(main_id, episode_number)` cache PK (INSERT OR REPLACE collapses rows!), and the number-keyed metadata map all break; (b) the Activity-scoped shared DetailsViewModel had NO generation guards on episode-state/metadata writes — anime A's in-flight fetches (multi-second) landed after anime B opened, overwriting B's list and MERGING into B's metadata map (B's rows rendered A's thumbnails); (c) existing logging was count-only. Fixes: `EpisodeListNormalizer` (URL dedupe with per-instance blank-URL fallback keys + atomic renumber 1..N when numbers are unusable — extension order = intended order; numbers kept EXACTLY when valid+distinct so watch-progress/cache keys stay stable); `EpisodeListDumper` (full raw dump — name/parsedTitle/patternId/seasonTag/num/date/filler/scanlator/summary/preview/url + number + season analysis footers — via `android.util.Log` tag `Anikuta:EpisodeDump` so it reaches logcat in RELEASE builds, suspend on Dispatchers.Default, one line per episode, runCatching-wrapped, at all 3 fetch sites); generation guards on EVERY episode-state/metadata write across fetchEpisodes / refreshEpisodesList / refreshMetadata / refreshAll / loadFromAniList network path / loadFromExtension (network-first, background refresh, offline-catch) / mergeAniListIntoUnified (auto-link — the longest async window, review round) / loadLinkedSource enrichment. Cache writes with the captured mainId are intentionally NOT blocked — they still correctly enrich the OLD anime's cache.
+- **Files:** EpisodeListNormalizer.kt (new), EpisodeListDumper.kt (new), DetailsViewModel.kt, Logger.kt (isEnabled accessor).
+- **Status:** ✅ Implemented (commit eab206e8 + CI fix c8c21d20 + review round 6b3c6ecc).
+- **Date:** 2026-08-28.
+
+### D-314 — Simple pull-to-refresh
+
+User: "turn that pull-to-refresh into a simple pull-to-refresh… a beautifully themed refresh toggle will show up, and it will refresh the whole page exactly like how it will be refreshed using the refresh button. Remove the functionality of the advanced pull-to-refresh (episodes / metadata)." The custom 3-stage NestedScrollConnection (120/240/360dp thresholds → episodes/metadata/all) + ThreeStagePullIndicator + the D-146 "Refreshing..." pill are REPLACED by the official Material 3 `PullToRefreshBox` (the pattern Browse + Library already use): one gesture → `refreshAll()` (identical to the three-dot Refresh button), themed M3 indicator driven by `isRefreshing` (auto-dismisses when it flips false), one haptic at the pull threshold (derivedStateOf + !isRefreshing gate — no whole-branch invalidation per pull frame, no haptic on button-triggered refreshes). The dead legacy D.3 multi-stage refresh API (setRefreshStage/executeRefresh/clearRefreshState + RefreshStage/RefreshState enums) is deleted outright.
+- **Files:** DetailsScreen.kt, DetailsViewModel.kt.
+- **Status:** ✅ Implemented (commit 2fafca85 + review round 6b3c6ecc).
+- **Date:** 2026-08-28.
+
+### D-315 — Full-screen cover viewer (expand-from-position + save to gallery)
+
+User spec: tapping the details cover "smoothly become[s] bigger from the place it is currently at… take up the whole width of the screen, just leaving a slight gap on the right and left sides. Below it… close and the option to save. When the user clicks save, it will be saved to the user's gallery… close… smoothly close[s] away with the same animation." New `CoverViewerOverlay`: the banner cover tracks its on-screen bounds (`onGloballyPositioned`/`boundsInRoot`); the overlay expands from those EXACT bounds to a centered 2:3 target (16dp side gaps, 70% height cap) driven by ONE Animatable with deferred state reads (offset{}/layout{}/graphicsLayer{}/drawBehind{} — zero per-frame recomposition; corner radius 12→22dp + shadow rise interpolated too). Close collapses back with the same easing; scrim tap + BackHandler close; drags swallowed so the list can't scroll underneath. Save streams the ORIGINAL bytes (no re-encode) through the shared Koin OkHttpClient into Pictures/ANI-KUTA — MediaStore RELATIVE_PATH on API 29+ (orphaned IS_PENDING rows cleaned on failure), WRITE_EXTERNAL_STORAGE runtime request + media scan on API 24–28 (manifest permission with maxSdkVersion=28 + tools:replace — the bundled aniyomi-mpv-lib declares the same permission with maxSdkVersion=32). Button shows spinner → "Saved ✓"; result toast.
+- **Files:** CoverViewerOverlay.kt (new), DetailsScreen.kt, AndroidManifest.xml.
+- **Status:** ✅ Implemented (commit 2fafca85 + review round 6b3c6ecc).
+- **Date:** 2026-08-28.
+
+### D-316 — Version 0.2.59 (versionCode 59)
+
+Device-feedback batch: D-311..D-315.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.59 + release after CI green.
+- **Date:** 2026-08-28.
