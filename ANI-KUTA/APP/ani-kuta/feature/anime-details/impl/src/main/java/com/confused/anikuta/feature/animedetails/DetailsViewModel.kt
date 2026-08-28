@@ -1132,6 +1132,12 @@ class DetailsViewModel(
                     // No cache — fetch from network.
                     val anime = anilistApi.fetchAnimeDetails(animeId)
                     Logger.i(TAG) { "Loaded AniList details for $animeId (network)" }
+                    // D-313: stale guard — the network fetch can outlive this screen;
+                    // never remerge the OLD anime's bases over a NEW anime.
+                    if (gen != loadGeneration) {
+                        Logger.d(TAG) { "AniList network load discarded (stale generation)" }
+                        return@launch
+                    }
                     anilistBase = anime.toUnifiedAnime()
                     remergeBases(com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST)
 
@@ -1164,7 +1170,10 @@ class DetailsViewModel(
                     } catch (netErr: Exception) {
                         // D-146: Network failed — if we have cached data, show it.
                         // Don't show an error if the cache already displayed data.
-                        if (_state.value !is DetailsState.Success) {
+                        // D-313: …and never show a stale error over a NEW anime.
+                        if (gen != loadGeneration) {
+                            Logger.d(TAG) { "AniList network failure discarded (stale generation): ${netErr.message}" }
+                        } else if (_state.value !is DetailsState.Success) {
                             Logger.w(TAG) { "Network failed, no cache available: ${netErr.message}" }
                             _state.value = DetailsState.Error(netErr.message ?: "Unknown error")
                         } else {
@@ -1300,14 +1309,38 @@ class DetailsViewModel(
         }
         val animeTitle = anime.displayName
         viewModelScope.launch {
+            // D-313: generation guard — a manual refresh of anime A that lands
+            // after the user opened anime B must never overwrite B's state.
+            val refreshGen = loadGeneration
+            fun stale() = refreshGen != loadGeneration
             try {
                 val sAnime = eu.kanade.tachiyomi.animesource.model.SAnime.create().apply {
                     url = animeUrl
                     title = animeTitle
                     initialized = false
                 }
-                val episodes = withContext(Dispatchers.IO) { source.getEpisodeList(sAnime) }
+                val rawEpisodes = withContext(Dispatchers.IO) { source.getEpisodeList(sAnime) }
+                // D-313: raw dump (pre-normalization) + normalization — the SAME
+                // treatment the other two fetch sites get.
+                EpisodeListDumper.dump(
+                    sourceName = source.name,
+                    animeTitle = animeTitle,
+                    episodes = rawEpisodes,
+                    site = "manual-refresh",
+                )
+                val normalization = EpisodeListNormalizer.normalize(rawEpisodes)
+                val episodes = normalization.episodes
+                if (normalization.renumbered || normalization.duplicateUrlsDropped > 0) {
+                    Logger.i(TAG) {
+                        "D.3 Stage 1: normalized episode list (renumbered=${normalization.renumbered}, " +
+                            "duplicateUrlsDropped=${normalization.duplicateUrlsDropped})"
+                    }
+                }
                 Logger.i(TAG) { "D.3 Stage 1: Fetched ${episodes.size} fresh episodes" }
+                if (stale()) {
+                    Logger.d(TAG) { "D.3 Stage 1: refresh result discarded (stale generation)" }
+                    return@launch
+                }
                 val sorted = episodes.sortedByDescending { it.episode_number }
                 _episodeState.value = if (episodes.isEmpty()) EpisodeState.Empty else EpisodeState.Loaded(sorted)
 
@@ -1356,6 +1389,12 @@ class DetailsViewModel(
                             episodeCount = episodesForCache.size,
                         )
                         if (metadata.isNotEmpty()) {
+                            // D-313: never replace the CURRENT anime's metadata with a
+                            // stale refresh's result (thumbnail-bleed fix).
+                            if (stale()) {
+                                Logger.d(TAG) { "D.3 Stage 1: metadata result discarded (stale generation)" }
+                                return@launch
+                            }
                             _episodeMetadata.value = metadata
                             Logger.i(TAG) { "D.3 Stage 1: Auto-fetched ${metadata.size} episode metadata entries" }
 
@@ -1417,13 +1456,20 @@ class DetailsViewModel(
         if (anime.anilistId != null) {
             val anilistId = anime.anilistId!!
             viewModelScope.launch {
+                // D-313: generation guard — a metadata refresh of anime A landing
+                // after anime B opened must not remerge A's bases over B's screen.
+                val metaGen = loadGeneration
                 try {
                     val fresh = anilistApi.fetchAnimeDetails(anilistId)
-                    anilistBase = fresh.toUnifiedAnime()
-                    remergeBases(
-                        (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
-                            ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
-                    )
+                    if (metaGen == loadGeneration) {
+                        anilistBase = fresh.toUnifiedAnime()
+                        remergeBases(
+                            (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                                ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
+                        )
+                    } else {
+                        Logger.d(TAG) { "D.3 Stage 2: AniList metadata discarded (stale generation)" }
+                    }
                     // D.1: Update the cache.
                     // D-198: anime_metadata_cache → content_details (data-source axis).
                     // D-248 FIX (user-reported: refreshed covers/metadata never reach
@@ -1459,7 +1505,7 @@ class DetailsViewModel(
                     }
                     Logger.i(TAG) { "D.3 Stage 2: Refreshed AniList metadata" }
                     // D-235: Also refresh the airing schedule data.
-                    if (mainId != null) {
+                    if (mainId != null && metaGen == loadGeneration) {
                         triggerNextEpisodeInfo(mainId, fresh.nextAiringEpisode, fresh.status)
                     }
                 } catch (e: Exception) {
@@ -1470,16 +1516,22 @@ class DetailsViewModel(
             val sourceId = anime.sourceId!!
             val animeUrl = anime.animeUrl!!
             viewModelScope.launch {
+                // D-313: generation guard (same as the AniList branch above).
+                val metaGen = loadGeneration
                 try {
                     val enriched = extensionProvider.fetchFromExtension(
                         sourceId, animeUrl, anime.displayName, anime.coverUrl,
                     )
                     if (enriched != null) {
-                        extensionBase = enriched
-                        remergeBases(
-                            (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
-                                ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
-                        )
+                        if (metaGen == loadGeneration) {
+                            extensionBase = enriched
+                            remergeBases(
+                                (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
+                                    ?: com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
+                            )
+                        } else {
+                            Logger.d(TAG) { "D.3 Stage 2: extension metadata discarded (stale generation)" }
+                        }
                         // D-248 FIX (user-reported: extension refreshes never propagate to
                         // the Library/covers): the old code only updated the in-memory
                         // base — the ext_* axis of content_details was never persisted, so
@@ -1519,14 +1571,18 @@ class DetailsViewModel(
     fun refreshAll() {
         Logger.i(TAG) { "D.3 Stage 3: Full refresh" }
         _isRefreshing.value = true
+        val refreshAllGen = loadGeneration
         viewModelScope.launch {
             refreshMetadata()
             refreshEpisodesList()
             // D-242: also refresh the tracking data from AniList (if linked).
             refreshTracking()
             kotlinx.coroutines.delay(500) // Brief delay so the spinner is visible
-            _isRefreshing.value = false
-            Logger.i(TAG) { "D.3 Stage 3: Refresh complete" }
+            // D-313: only clear the indicator when this refresh still owns the screen.
+            if (refreshAllGen == loadGeneration) {
+                _isRefreshing.value = false
+                Logger.i(TAG) { "D.3 Stage 3: Refresh complete" }
+            }
         }
     }
 
@@ -1686,6 +1742,11 @@ class DetailsViewModel(
         _showMarkPreviousPrompt.value = null
         _showMarkSeriesPrompt.value = false
         viewModelScope.launch {
+            // D-313: generation guard for this whole load (mirrors loadFromAniList).
+            // The background-refresh launch below runs for SECONDS after this screen
+            // may have been replaced — without the guard it re-merges the OLD anime's
+            // bases over the NEW anime's screen (anime-level bleed).
+            val loadGen = loadGeneration
             try {
                 // D-210 FIX: Cache-first for instant open (mirrors loadFromAniList's
                 // pattern at lines 472-503). If we already have ext_* data in
@@ -1715,13 +1776,17 @@ class DetailsViewModel(
                                 sourceId, animeUrl, title,
                                 cachedDetails.extThumbnailUrl ?: thumbnailUrl,
                             )
-                            if (refreshed != null) {
+                            // D-313: stale guard — this coroutine can outlive the screen
+                            // (network fetch); never remerge old data over a new anime.
+                            if (refreshed != null && loadGen == loadGeneration) {
                                 extensionBase = refreshed
                                 remergeBases(
                                     com.confused.anikuta.core.common.model.DataSourcePriority.EXTENSION
                                 )
                                 // Persist the refreshed ext_* axis (silent).
                                 resolveContentForExtension(sourceId, animeUrl, title, refreshed)
+                            } else if (refreshed != null) {
+                                Logger.d(TAG) { "Background extension refresh discarded (stale generation)" }
                             }
                         } catch (e: Exception) {
                             Logger.w(TAG) { "Background extension refresh failed: ${e.message}" }
@@ -2904,6 +2969,16 @@ class DetailsViewModel(
     private fun fetchEpisodes(source: AnimeCatalogueSource, animeUrl: String, animeTitle: String) {
         _episodeState.value = EpisodeState.Loading
         viewModelScope.launch {
+            // D-313: generation guard — EVERY episode-state/metadata write below
+            // is discarded when a new anime loads (or the user navigates away)
+            // while this fetch is in flight. This is the root fix for the
+            // cross-anime thumbnail/metadata bleed (device report 2026-08-28):
+            // anime A's late-arriving results used to overwrite anime B's
+            // episode list and MERGE into B's number-keyed metadata map, so B's
+            // rows rendered A's thumbnails/titles.
+            val fetchGen = loadGeneration
+            fun stale() = fetchGen != loadGeneration
+
             // D-147: Check the local cache first — if episodes are cached, display instantly.
             // D.FIX: Also do a BACKGROUND refresh from the network so the cache stays fresh.
             val mainId = currentMainId
@@ -2930,6 +3005,10 @@ class DetailsViewModel(
                             preview_url = meta.thumbnailUrl
                         }
                     }.sortedByDescending { it.episode_number }
+                    if (stale()) {
+                        Logger.d(TAG) { "Cache display discarded (stale generation — another anime is loading)" }
+                        return@launch
+                    }
                     _episodeState.value = EpisodeState.Loaded(episodes)
 
                     // Also restore episode metadata map.
@@ -2975,8 +3054,25 @@ class DetailsViewModel(
                             title = animeTitle
                             initialized = false
                         }
-                        val freshEpisodes = withContext(Dispatchers.IO) {
+                        val rawFreshEpisodes = withContext(Dispatchers.IO) {
                             source.getEpisodeList(sAnime)
+                        }
+                        // D-313: dump the RAW list (pre-normalization) + normalize it
+                        // (URL dedupe + unique general numbering). The dump is the
+                        // user-facing diagnostic channel — see EpisodeListDumper.
+                        EpisodeListDumper.dump(
+                            sourceName = source.name,
+                            animeTitle = animeTitle,
+                            episodes = rawFreshEpisodes,
+                            site = "background-refresh",
+                        )
+                        val normalization = EpisodeListNormalizer.normalize(rawFreshEpisodes)
+                        val freshEpisodes = normalization.episodes
+                        if (normalization.renumbered || normalization.duplicateUrlsDropped > 0) {
+                            Logger.i(TAG) {
+                                "Background refresh: normalized episode list (renumbered=${normalization.renumbered}, " +
+                                    "duplicateUrlsDropped=${normalization.duplicateUrlsDropped})"
+                            }
                         }
                         Logger.i(TAG) { "Background refresh: fetched ${freshEpisodes.size} fresh episodes from ${source.name}" }
 
@@ -3003,7 +3099,11 @@ class DetailsViewModel(
                         Logger.i(TAG) { "Background refresh: ${newEpisodes.size} new episode(s) detected (cached=${cachedUrls.size}, fresh=${freshUrls.size})" }
 
                         val sorted = freshEpisodes.sortedByDescending { it.episode_number }
-                        _episodeState.value = EpisodeState.Loaded(sorted)
+                        if (stale()) {
+                            Logger.d(TAG) { "Background refresh display discarded (stale generation)" }
+                        } else {
+                            _episodeState.value = EpisodeState.Loaded(sorted)
+                        }
 
                         // Insert ONLY new episodes into the cache — don't overwrite
                         // existing rich metadata (titles, descriptions, thumbnails from
@@ -3044,6 +3144,13 @@ class DetailsViewModel(
                                         episodeCount = freshEpisodes.size,
                                     )
                                     if (metadata.isNotEmpty()) {
+                                        // D-313: never merge a stale fetch into the CURRENT
+                                        // anime's metadata map — that was the thumbnail-bleed
+                                        // mechanism (A's thumbnails appearing under B's rows).
+                                        if (stale()) {
+                                            Logger.d(TAG) { "Background refresh metadata merge discarded (stale generation)" }
+                                            return@launch
+                                        }
                                         // Merge: keep existing metadata, add/update with fresh.
                                         val merged = _episodeMetadata.value.toMutableMap()
                                         merged.putAll(metadata)
@@ -3108,10 +3215,31 @@ class DetailsViewModel(
                     initialized = false
                 }
 
-                val episodes = withContext(Dispatchers.IO) {
+                val rawEpisodes = withContext(Dispatchers.IO) {
                     source.getEpisodeList(sAnime)
                 }
+                // D-313: dump the RAW list (pre-normalization) + normalize it
+                // (URL dedupe + unique general numbering). See EpisodeListDumper
+                // + EpisodeListNormalizer for the rationale.
+                EpisodeListDumper.dump(
+                    sourceName = source.name,
+                    animeTitle = animeTitle,
+                    episodes = rawEpisodes,
+                    site = "network-first",
+                )
+                val normalization = EpisodeListNormalizer.normalize(rawEpisodes)
+                val episodes = normalization.episodes
+                if (normalization.renumbered || normalization.duplicateUrlsDropped > 0) {
+                    Logger.i(TAG) {
+                        "Normalized episode list (renumbered=${normalization.renumbered}, " +
+                            "duplicateUrlsDropped=${normalization.duplicateUrlsDropped})"
+                    }
+                }
                 Logger.i(TAG) { "Fetched ${episodes.size} episodes from ${source.name}" }
+                if (stale()) {
+                    Logger.d(TAG) { "Network fetch result discarded (stale generation — another anime is loading)" }
+                    return@launch
+                }
                 _episodeState.value = if (episodes.isEmpty()) {
                     EpisodeState.Empty
                 } else {
@@ -3173,6 +3301,12 @@ class DetailsViewModel(
                             // Otherwise keep the cached metadata (which may have been
                             // loaded from a previous successful fetch).
                             if (metadata.isNotEmpty()) {
+                                // D-313: never REPLACE the current anime's metadata map
+                                // with a stale fetch's result (thumbnail-bleed fix).
+                                if (stale()) {
+                                    Logger.d(TAG) { "Episode metadata replace discarded (stale generation)" }
+                                    return@launch
+                                }
                                 _episodeMetadata.value = metadata
                                 Logger.i(TAG) { "Episode metadata loaded: ${metadata.size} entries" }
                             } else {
@@ -3229,6 +3363,11 @@ class DetailsViewModel(
                 // Catch Throwable — binary-incompat throws NoClassDefFoundError,
                 // OkHttp version mismatch throws IncompatibleClassChangeError.
                 // D-209: detect CloudflareException → show the "Open in WebView" button.
+                // D-313: a stale error must not clobber the CURRENT anime's state.
+                if (stale()) {
+                    Logger.d(TAG) { "Episode fetch failure discarded (stale generation): ${e.message}" }
+                    return@launch
+                }
                 if (e is CloudflareException) {
                     Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
                     _episodeState.value = EpisodeState.CloudflareBlocked(
