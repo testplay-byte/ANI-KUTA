@@ -268,12 +268,15 @@ fun DetailsScreen(
     // (not the filtered one) so the season structure stays stable regardless
     // of active filters. `remember` keyed on the list identity — detection only
     // re-runs when the episode list actually changes.
+    // `detectedSeasons` is the STRUCTURAL fact (independent of the user's
+    // organizeBySeasons preference) so the settings sheet keeps offering the
+    // Seasons/Number-groups choice even right after the user switches it off
+    // (D-307 review fix — the section used to vanish mid-sheet).
     val rawEpisodesForSeasons = (episodeState as? EpisodeState.Loaded)?.episodes
-    val seasonGroups = remember(rawEpisodesForSeasons, organizeBySeasons) {
-        if (rawEpisodesForSeasons != null && organizeBySeasons) {
-            groupEpisodesBySeason(rawEpisodesForSeasons)
-        } else null
+    val detectedSeasons = remember(rawEpisodesForSeasons) {
+        rawEpisodesForSeasons?.let { groupEpisodesBySeason(it) }
     }
+    val seasonGroups = if (organizeBySeasons) detectedSeasons else null
 
     // D-146: Refresh visual feedback
     val isRefreshing by viewModel.isRefreshing.collectAsState()
@@ -1274,9 +1277,10 @@ fun DetailsScreen(
         MaterialTheme(colorScheme = accentColorScheme) {
             EpisodeListSettingsSheet(
                 onDismiss = { showEpisodeSettingsSheet = false },
-                // D-307: only offer the Seasons/Grouping choice when the current
-                // anime actually has a detectable multi-season structure.
-                seasonsDetected = seasonGroups != null,
+                // D-307: structural flag (independent of the organizeBySeasons
+                // preference) — only offer the Seasons/Grouping choice when the
+                // current anime actually has a multi-season structure.
+                seasonsDetected = detectedSeasons != null,
             )
         }
     }
@@ -2568,22 +2572,31 @@ private fun SeasonSelectorRow(
 ) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
 
     // Center the selected chip whenever the selection changes (tap or
-    // programmatic). Skipped on the initial composition (index 0 sits at the
-    // start of the row already).
+    // programmatic). On first composition this runs too but harmlessly clamps
+    // at scroll position 0 (D-308 review note).
     androidx.compose.runtime.LaunchedEffect(selectedIndex, options.size) {
         if (options.size <= 1) return@LaunchedEffect
         kotlinx.coroutines.delay(50) // let the new chip layout settle
         val layoutInfo = listState.layoutInfo
         val viewportWidth = layoutInfo.viewportSize.width
+        if (viewportWidth <= 0) return@LaunchedEffect
         val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
-        if (item != null && viewportWidth > 0) {
+        if (item != null) {
             // Center the chip: its start should land at viewportCenter - width/2.
             // animateScrollToItem's scrollOffset positions the item relative to
             // the viewport start — a negative value pulls it INTO the viewport
             // (the standard centering recipe). Clamped naturally at the row ends.
             val targetOffset = -(viewportWidth / 2 - item.size / 2)
+            listState.animateScrollToItem(selectedIndex, targetOffset)
+        } else {
+            // Chip not laid out yet (e.g. selection clamped after a reload) —
+            // estimate a chip width (~90dp) so centering still roughly lands;
+            // any later tap self-corrects (D-308 review fix).
+            val estimatedWidth = with(density) { 90.dp.toPx() }.toInt()
+            val targetOffset = -(viewportWidth / 2 - estimatedWidth / 2)
             listState.animateScrollToItem(selectedIndex, targetOffset)
         }
     }
@@ -2614,10 +2627,12 @@ private fun SeasonSelectorRow(
                 },
                 isSelected = index == selectedIndex,
                 onClick = {
-                    if (index != selectedIndex) {
-                        com.confused.anikuta.core.common.HapticHelper.lightTick(context)
-                        onSelect(index)
-                    }
+                    // Always propagate (D-308 review fix): re-tapping the visually
+                    // selected chip must write the index back — otherwise a
+                    // clamped stale selection (after an episode reload shrinks the
+                    // options) leaves the chip unresponsive.
+                    com.confused.anikuta.core.common.HapticHelper.lightTick(context)
+                    onSelect(index)
                 },
             )
         }

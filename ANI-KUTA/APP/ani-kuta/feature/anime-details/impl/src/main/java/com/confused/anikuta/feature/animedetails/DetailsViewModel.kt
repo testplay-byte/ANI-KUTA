@@ -1313,6 +1313,9 @@ class DetailsViewModel(
 
                 // D.FIX: Update the cache with fresh episodes so the next open
                 // shows the latest data (not stale cache). Include episodeUrl!
+                // D-306 review fix: preserve the extension preview_url here too
+                // (the full-row upsert would otherwise wipe extension thumbnails
+                // on every pull-to-refresh).
                 val mainId = currentMainId
                 if (mainId != null && episodes.isNotEmpty()) {
                     val now = System.currentTimeMillis()
@@ -1322,7 +1325,7 @@ class DetailsViewModel(
                             episodeNumber = ep.episode_number,
                             title = ep.name,
                             description = ep.summary,
-                            thumbnailUrl = null,
+                            thumbnailUrl = ep.preview_url,
                             airDate = if (ep.date_upload > 0) ep.date_upload else null,
                             fetchedAt = now,
                             episodeUrl = ep.url,

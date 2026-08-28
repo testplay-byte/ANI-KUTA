@@ -2345,3 +2345,52 @@ Extension-system overhaul release: D-294..D-302.
 - **Files:** AndroidConfig.kt.
 - **Status:** ✅ Implemented; tag v0.2.57 + release after CI green.
 - **Date:** 2026-08-27.
+
+### D-304 — Search results dedupe (duplicate LazyGrid key crash)
+
+Device-reported crash: `IllegalArgumentException: Key "3508466391484419848:/movies/1414183037004383720" was already used` — moviebox-style extensions return the same entry multiple times in one results page (overlapping carousel/row sections in their HTML), and the search grid keys rows by `"sourceId:url"` → LazyGrid crashes on the second identical key. Fix: `page.animes.distinctBy { it.url }` at BOTH ViewModel mapping sites (loadExtensionPopular + searchExtension) + defense-in-depth `remember(results) { distinctBy }` at render time so no future code path can reintroduce the crash.
+- **Files:** SearchViewModel.kt, SearchScreen.kt.
+- **Status:** ✅ Implemented (commit 4cd4a4ea, CI 809 green).
+- **Date:** 2026-08-28.
+
+### D-305 — Search request identity (stale results across queries/sources)
+
+Device-reported: "if it failed to show results it would revert to an older state of the extension entries — it will show the result from some other extension." Three stacked defects: (a) every search launched an independent coroutine with no cancellation — the LAST-FINISHING job (often a stale, slow one) won `_uiState`; (b) `onSelectExtensionSource`/`onSourceChange(EXTENSION)` loaded popular + DISCARDED it at the blankness guard while the old source's in-flight search landed → another source's results under the new selection; (c) the UI dispatched on state type only — AniList states rendered in Extension mode and vice versa. Fix: `beginRequest()` bumps a generation counter + cancels in-flight jobs; loaders only write state while `isCurrent(gen)` (CancellationException rethrown for coroutine hygiene); source/mode switches with a live query now SEARCH the new source; `SearchScreen` normalizes cross-mode states to Loading (a new load is always in flight on switch). The init-block trustedSources collector no longer interrupts a live search.
+- **Files:** SearchViewModel.kt, SearchScreen.kt.
+- **Status:** ✅ Implemented (commit 4cd4a4ea, CI 809 green).
+- **Date:** 2026-08-28.
+
+### D-306 — Extension-first episode metadata
+
+User: extensions that provide their own episode metadata (titles/descriptions/thumbnails) should be PRIORITIZED over our own providers (AniZip/Jikan/Kitsu/AniList), with providers filling the gaps "smartly". New `EpisodeDisplayResolver` (single source of truth): extension `SEpisode.preview_url`/`summary` win when non-blank; titles count only when they carry a real title beyond "Episode N" (EpisodeTitleParser). Applied at: EpisodeRow resolution, all 3 WatchKey serialization sites (Details + Watch render identically), and the cache layer — sparse writes preserve `preview_url`/`summary` (was: thumbnailUrl=null), enriched writes merge per-field (ext first), cache reconstruction re-attaches `preview_url`.
+- **Files:** EpisodeDisplayResolver.kt (new), DetailsScreen.kt, DetailsViewModel.kt.
+- **Status:** ✅ Implemented (commit 7721182e).
+- **Date:** 2026-08-28.
+
+### D-307 — Season detection module
+
+User: full-fledged seasons — detect series divided into multiple seasons via title tags like "( Season 5 - Episode 12 - The Black Cat )", organize by seasons (default) with the user able to pick grouping instead. New `SeasonDetector` in `:core:common` (dedicated, extensible parsing module — v1 handles the parenthesized/unparenthesized Season-N-Episode-M prefix with case/separator variants; future sniffers slot in without touching feature code). `EpisodeTitleParser.parseTitle` delegates season-tagged names → clean titles. `groupEpisodesBySeason` (EpisodeListProcessor) buckets episodes; activation requires ≥2 distinct seasons; untagged episodes → trailing "Other" bucket. `EpisodeListPreferences.organizeBySeasons` (default true = seasons win when detected). Settings sheet gains "Organize episodes by: Seasons / Number groups" (only when seasons are detected in the current anime).
+- **Files:** SeasonDetector.kt (new), EpisodeTitleParser.kt, EpisodeListProcessor.kt, EpisodeListPreferences.kt, EpisodeListSettingsSheet.kt.
+- **Status:** ✅ Implemented (commit 7721182e).
+- **Date:** 2026-08-28.
+
+### D-308 — Season selector UI
+
+`SeasonSelectorRow`: horizontally-scrollable season chips (All / Season N / Other) rendered between the source-selector header and the episode list. Tap selects + smoothly CENTERS the chip (animateScrollToItem with negative centering offset — the standard recipe; animateScrollBy's tween type-inference failed in CI 810, hence the rewrite) + haptic + press-scale + animated colors (Motion tokens). Season slice = selected season's URLs ∩ filtered+sorted list (filters/sort apply WITHIN seasons; structure detected on the RAW list so chips stay stable under filters). Number-range grouping suppressed while seasons are active (single implicit group → the range switcher hides).
+- **Files:** DetailsScreen.kt.
+- **Status:** ✅ Implemented (commit 7721182e + CI fix e741f053).
+- **Date:** 2026-08-28.
+
+### D-309 — Extensions update/install UX (download progress animation)
+
+User: the update flow works, but the Update button's look needs improvement and the download shows NO animation before the install prompt appears. (1) `InstallStep`: enum → sealed interface; `Downloading` carries progress (0..100, -1 = unknown size). (2) `ExtensionInstaller.downloadApk` streams throttled (200ms) progress while downloading — mirrors UpdateDownloader. (3) `InstalledExtensionRow` now consumes `installStates` (previously ignored entirely): the bare Refresh-icon button is replaced by a filled "Update" pill (press-scale + haptic) that morphs via AnimatedContent into a determinate ring + % while downloading, pulsing "Installing" during the PackageInstaller phase. (4) `AvailableExtensionRow` gets the same progress treatment for fresh installs.
+- **Files:** InstallStep.kt, ExtensionInstaller.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit c3a926a4).
+- **Date:** 2026-08-28.
+
+### D-310 — Version 0.2.58 (versionCode 58)
+
+Device-feedback batch: D-304..D-309.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.58 + release after CI green.
+- **Date:** 2026-08-28.

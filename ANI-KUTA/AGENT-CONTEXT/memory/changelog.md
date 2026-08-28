@@ -1482,3 +1482,13 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 - **Perf: the extensions list is fully virtualized** — sections previously composed ALL their rows inside single non-virtualized items (the Available section of a full repo = 80+ rows composed eagerly).
 - **Architecture: the multi-ecosystem provider abstraction is real** — VideoExtensionProvider + AniyomiExtensionProvider facade registered in Koin; new consumers no longer bind directly to Aniyomi internals.
 - **Code health: single canonical install path** (the manager's duplicate of the installer pipeline removed), richer load diagnostics (per-source exception class + message), trust-time classloading moved off the main thread.
+
+## v0.2.58 — Search integrity + extension metadata + seasons + install UX (D-304..D-310, 2026-08-28)
+
+- **D-304** — Search crash fix: extensions returning duplicate URLs in one results page crashed LazyGrid (duplicate `"sourceId:url"` keys) — dedupe at both mapping sites + render-time defense.
+- **D-305** — Search request identity: generation counter + job cancellation kills stale-result races ("results from another extension"); mode-consistent rendering; source switch with a live query now searches the new source.
+- **D-306** — Extension-first episode metadata: EpisodeDisplayResolver (single source of truth) — extension title/summary/preview_url win, providers fill gaps; cache layer preserves extension values; Details + Watch render identically.
+- **D-307** — Season detection module: SeasonDetector (:core:common) parses "( Season N - Episode M - Title )" tags; groupEpisodesBySeason + organizeBySeasons preference (seasons default when ≥2 detected); settings-sheet Seasons/Number-groups choice.
+- **D-308** — Season selector UI: horizontal chips (All/Season N/Other) between source selector and episode list; tap centers the chip smoothly; filters apply within seasons; range-grouping suppressed while seasons are active.
+- **D-309** — Install progress animation: InstallStep.Downloading carries streamed percent (200ms throttle); the Update button is now a filled pill that morphs into ring+% download progress + pulsing "Installing" (installed + available rows).
+- **D-310** — Version 0.2.57 → 0.2.58.

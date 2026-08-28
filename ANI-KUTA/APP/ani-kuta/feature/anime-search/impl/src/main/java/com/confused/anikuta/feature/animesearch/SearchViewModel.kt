@@ -245,6 +245,7 @@ class SearchViewModel(
         val src = source.value
         if (src != SearchSource.EXTENSION) return
         if (_selectedSourceId.value == null) {
+            beginRequest() // D-305 review fix: supersede in-flight requests.
             _uiState.value = SearchUiState.ExtensionNotAvailable
             return
         }
@@ -485,6 +486,10 @@ class SearchViewModel(
     private fun loadExtensionPopular(): Job {
         val sourceId = _selectedSourceId.value
         if (sourceId == null) {
+            // D-305 review fix: early returns must ALSO supersede in-flight
+            // requests — otherwise a stale AniList/other-source search can still
+            // land afterwards (and renders as Loading-forever in this mode).
+            beginRequest()
             _uiState.value = SearchUiState.ExtensionNotAvailable
             return Job().apply { complete() }
         }
@@ -494,6 +499,7 @@ class SearchViewModel(
             // Source was uninstalled — clear the selection.
             _selectedSourceId.value = null
             preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, -1L)
+            beginRequest() // D-305 review fix: supersede in-flight requests.
             _uiState.value = SearchUiState.ExtensionNotAvailable
             return Job().apply { complete() }
         }
@@ -556,6 +562,7 @@ class SearchViewModel(
     private fun searchExtension(q: String) {
         val sourceId = _selectedSourceId.value
         if (sourceId == null) {
+            beginRequest() // D-305 review fix: supersede in-flight requests.
             _uiState.value = SearchUiState.ExtensionNotAvailable
             return
         }
@@ -564,6 +571,7 @@ class SearchViewModel(
         if (source == null) {
             _selectedSourceId.value = null
             preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, -1L)
+            beginRequest() // D-305 review fix: supersede in-flight requests.
             _uiState.value = SearchUiState.ExtensionNotAvailable
             return
         }

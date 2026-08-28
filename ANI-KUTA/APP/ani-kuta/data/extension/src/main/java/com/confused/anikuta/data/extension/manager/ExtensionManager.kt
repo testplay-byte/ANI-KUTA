@@ -389,11 +389,20 @@ class ExtensionManager(
         return flow {
             installMutex.withLock {
                 setInstallState(extension.pkgName, InstallStep.Pending)
-                installer.downloadAndInstall(apkUrl, extension)
-                    .collect { step ->
-                        setInstallState(extension.pkgName, step)
-                        emit(step)
-                    }
+                try {
+                    installer.downloadAndInstall(apkUrl, extension)
+                        .collect { step ->
+                            setInstallState(extension.pkgName, step)
+                            emit(step)
+                        }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // D-309 review fix: the collector's scope died (user left the
+                    // screen mid-download) — without this the row sticks on a
+                    // frozen Downloading(x%) forever (the OS broadcast never fires
+                    // for an aborted download).
+                    setInstallState(extension.pkgName, InstallStep.Idle)
+                    throw e
+                }
             }
         }.flowOn(Dispatchers.IO)
     }
@@ -402,6 +411,18 @@ class ExtensionManager(
 
     private fun setInstallState(pkgName: String, step: InstallStep) {
         _installStates.value = _installStates.value + (pkgName to step)
+    }
+
+    /**
+     * D-309 review fix: terminal install results reported by
+     * [ExtensionInstallService] — the OS-prompt-DENIED (user aborted → Idle) and
+     * PackageInstaller-failure paths never fire the PACKAGE_ADDED broadcast,
+     * so without this the row would stick on a pulsing "Installing" forever.
+     */
+    fun onInstallResult(pkgName: String, step: InstallStep) {
+        if (step is InstallStep.Installed || step is InstallStep.Error || step is InstallStep.Idle) {
+            setInstallState(pkgName, step)
+        }
     }
 
     /**

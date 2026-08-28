@@ -106,7 +106,10 @@ fun applyEpisodeListPreferences(
         }
     }
 
-    return sorted
+    // D-304 review tip: extensions can return the same URL twice in one episode
+    // list (the same duplicate-key crash class the search grid hit). The episode
+    // rows are keyed by URL — dedupe here so no source can crash the list.
+    return sorted.distinctBy { it.url }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -211,8 +214,16 @@ data class SeasonGroup(
  */
 fun groupEpisodesBySeason(episodes: List<SEpisode>): List<SeasonGroup>? {
     val tags = episodes.map { com.confused.anikuta.core.common.SeasonDetector.parseSeasonTag(it.name) }
-    val seasonNumbers = tags.mapNotNull { it?.season }.distinct().sorted()
-    if (seasonNumbers.size < 2) return null
+    val seasonNumbers = com.confused.anikuta.core.common.SeasonDetector.detectSeasons(
+        episodes.map { it.name },
+    )
+    // Activation guard (D-307 review fix): seasons take over the default
+    // organization only when BOTH (a) ≥2 distinct seasons AND (b) a MAJORITY of
+    // episodes carry tags — a couple of mislabeled episodes in a 1000-episode
+    // series must not hijack it into season mode (number-range grouping would
+    // silently disappear). The settings-sheet toggle remains the manual override.
+    val taggedCount = tags.count { it != null }
+    if (seasonNumbers.size < 2 || taggedCount * 2 < episodes.size) return null
 
     val seasonBuckets = seasonNumbers.map { season ->
         SeasonGroup(season, episodes.filterIndexed { i, _ -> tags[i]?.season == season })

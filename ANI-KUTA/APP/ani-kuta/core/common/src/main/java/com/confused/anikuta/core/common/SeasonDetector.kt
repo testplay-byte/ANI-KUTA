@@ -55,12 +55,14 @@ object SeasonDetector {
     /**
      * Matches the season prefix: optional `(`, "Season", number, separator,
      * "Episode"/"Ep"/"EP", number, optional second separator.
+     * Case-insensitive (handles "season"/"SEASON"/"Season" + "episode"/"EP").
      * Title chars are NOT consumed here — the remainder is handled in
      * [parseSeasonTag] so titles may contain separators + parentheses
      * (e.g. "The Black Cat (2024)") without confusing the parser.
      */
     private val PREFIX_REGEX = Regex(
-        """^\(?\s*[Ss]eason\s+(\d+)\s*[-:–—]\s*(?:[Ee]pisode|[Ee][Pp])\.?\s*(\d+)\s*(?:[-:–—]\s*)?""",
+        """^\(?\s*season\s+(\d+)\s*[-:–—]\s*(?:episode|ep)\.?\s*(\d+)\s*(?:[-:–—]\s*)?""",
+        RegexOption.IGNORE_CASE,
     )
 
     /**

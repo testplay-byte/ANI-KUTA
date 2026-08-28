@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
@@ -578,22 +577,25 @@ private fun SectionHeader(
 //  live download-progress animation (ring + %) and an installing state.
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Internal UI states of [ExtensionUpdateControl] (drives AnimatedContent). */
-private sealed interface UpdateControlState {
+/** Internal UI states of [ExtensionUpdateControl] (drives AnimatedContent).
+ *  Deliberately carries NO progress payload — a new data class per 200ms tick
+ *  would restart the cross-fade constantly (D-309 review fix). The live
+ *  progress is read from [InstallStep.Downloading] inside the content lambda. */
+private enum class UpdateControlPhase {
     /** No update available and nothing installing — control hidden. */
-    data object Hidden : UpdateControlState
+    HIDDEN,
 
     /** Update available — show the "Update" pill button. */
-    data object Ready : UpdateControlState
+    READY,
 
     /** Queued on the install mutex. */
-    data object Pending : UpdateControlState
+    PENDING,
 
-    /** APK downloading. -1 = unknown size (indeterminate). */
-    data class Downloading(val progress: Int) : UpdateControlState
+    /** APK downloading. */
+    DOWNLOADING,
 
     /** PackageInstaller session open (OS prompt imminent). */
-    data object Installing : UpdateControlState
+    INSTALLING,
 }
 
 @Composable
@@ -601,31 +603,37 @@ private fun ExtensionUpdateControl(
     installStep: InstallStep?,
     onUpdate: (() -> Unit)?,
 ) {
-    val state = when (installStep) {
-        is InstallStep.Pending -> UpdateControlState.Pending
-        is InstallStep.Downloading -> UpdateControlState.Downloading(installStep.progress)
-        is InstallStep.Installing -> UpdateControlState.Installing
+    val phase = when (installStep) {
+        is InstallStep.Pending -> UpdateControlPhase.PENDING
+        is InstallStep.Downloading -> UpdateControlPhase.DOWNLOADING
+        is InstallStep.Installing -> UpdateControlPhase.INSTALLING
         // Terminal / null / Idle → the button (when an update is available).
-        else -> if (onUpdate != null) UpdateControlState.Ready else UpdateControlState.Hidden
+        else -> if (onUpdate != null) UpdateControlPhase.READY else UpdateControlPhase.HIDDEN
     }
 
     AnimatedContent(
-        targetState = state,
+        targetState = phase,
         transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
         label = "extUpdateControl",
     ) { target ->
         when (target) {
-            UpdateControlState.Hidden -> Spacer(Modifier.width(0.dp))
-            UpdateControlState.Ready -> UpdatePillButton(onClick = onUpdate!!)
-            UpdateControlState.Pending -> InstallProgressIndicator(
+            UpdateControlPhase.HIDDEN -> Spacer(Modifier.width(0.dp))
+            UpdateControlPhase.READY -> UpdatePillButton(onClick = onUpdate!!)
+            UpdateControlPhase.PENDING -> InstallProgressIndicator(
                 label = null,
                 progress = null,
             )
-            is UpdateControlState.Downloading -> InstallProgressIndicator(
-                label = if (target.progress >= 0) "${target.progress}%" else null,
-                progress = target.progress.takeIf { it >= 0 },
-            )
-            UpdateControlState.Installing -> InstallProgressIndicator(
+            UpdateControlPhase.DOWNLOADING -> {
+                // Read the LIVE progress here (re-composed per tick) — the
+                // AnimatedContent target stays DOWNLOADING so the transition
+                // runs only once (no per-tick cross-fade flicker).
+                val progress = (installStep as? InstallStep.Downloading)?.progress ?: -1
+                InstallProgressIndicator(
+                    label = if (progress >= 0) "$progress%" else null,
+                    progress = progress.takeIf { it >= 0 },
+                )
+            }
+            UpdateControlPhase.INSTALLING -> InstallProgressIndicator(
                 label = "Installing",
                 progress = null,
                 pulsing = true,
