@@ -59,10 +59,19 @@ object EpisodeListNormalizer {
 
     fun normalize(episodes: List<SEpisode>): Result {
         // ── 1. URL dedupe (first occurrence wins) ──
-        val deduped = episodes.distinctBy { it.url }
+        // Blank URLs (SEpisode default) get a per-instance fallback key — an
+        // extension returning "" for every row must not collapse to ONE row.
+        val deduped = episodes.distinctBy { ep ->
+            ep.url.ifBlank { "#${System.identityHashCode(ep)}" }
+        }
         val dropped = episodes.size - deduped.size
 
         // ── 2. Are the extension's own numbers usable as-is? ──
+        // Deliberate deviation from formatEpisodeNumber's display rule: 0 is
+        // treated as USABLE here (it renders as "EP ?" but is a legitimate,
+        // DISTINCT episode-0 number — renumbering a [0,1,2] list would corrupt
+        // the special's identity + watch-progress keys). Only truly broken
+        // numbers (negative / non-finite / >100k / duplicated) renumber.
         val numbers = deduped.map { it.episode_number }
         val allInRange = numbers.all { it.isFinite() && it >= 0f && it <= MAX_REASONABLE_NUMBER }
         val allDistinct = numbers.distinct().size == numbers.size

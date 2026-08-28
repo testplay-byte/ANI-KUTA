@@ -4,6 +4,8 @@ import android.util.Log
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.seasons.SeasonDetector
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -35,7 +37,9 @@ import java.util.Locale
  *   each line survives copy/paste. Long fields are truncated to keep every
  *   line safely under logcat's ~4000-char cap.
  * - Runs at ALL THREE episode-fetch sites in [DetailsViewModel]
- *   (`load`, `background-refresh`, `manual-refresh`) — covers every extension.
+ *   (`network-first`, `background-refresh`, `manual-refresh`) — covers every
+ *   extension. The dump itself runs on Dispatchers.Default (suspend) so a
+ *   1000-episode list never stalls the main thread.
  * - Dumps the list EXACTLY as the extension returned it — BEFORE any
  *   dedupe/normalization — so the raw naming scheme is what you see.
  *
@@ -45,8 +49,6 @@ object EpisodeListDumper {
 
     private const val TAG = "Anikuta:EpisodeDump"
     private const val LINE_PREFIX = "[EpisodeDump]"
-
-    private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
 
     // Truncation caps (chars) — keeps every line well under logcat's ~4000 cap.
     private const val MAX_NAME = 300
@@ -58,6 +60,11 @@ object EpisodeListDumper {
     /**
      * Dump one raw episode list.
      *
+     * Suspends: the whole dump (string building + regex passes + logcat writes
+     * for potentially 1000+ episodes) runs on [Dispatchers.Default] so a huge
+     * list never stalls the main thread at the moment the list renders. All
+     * call sites are already inside coroutines.
+     *
      * @param sourceName The extension source's display name.
      * @param animeTitle The anime's title as known at fetch time.
      * @param episodes The RAW list exactly as returned by
@@ -66,17 +73,28 @@ object EpisodeListDumper {
      *        `"background-refresh"`, `"manual-refresh"`) — helps correlate
      *        with the DetailsViewModel logs.
      */
-    fun dump(sourceName: String, animeTitle: String, episodes: List<SEpisode>, site: String) {
-        runCatching {
-            dumpInternal(sourceName, animeTitle, episodes, site)
-        }.onFailure { e ->
-            // The dump must NEVER break the fetch pipeline.
-            Log.w(TAG, "$LINE_PREFIX dump failed (non-fatal): ${e::class.java.simpleName}: ${e.message}")
+    suspend fun dump(sourceName: String, animeTitle: String, episodes: List<SEpisode>, site: String) {
+        // Per-call formatter: SimpleDateFormat is NOT thread-safe, and dumps
+        // from different animes can overlap on Dispatchers.Default.
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        withContext(Dispatchers.Default) {
+            runCatching {
+                dumpInternal(sourceName, animeTitle, episodes, site, dateFormat)
+            }.onFailure { e ->
+                // The dump must NEVER break the fetch pipeline.
+                Log.w(TAG, "$LINE_PREFIX dump failed (non-fatal): ${e::class.java.simpleName}: ${e.message}")
+            }
         }
     }
 
-    private fun dumpInternal(sourceName: String, animeTitle: String, episodes: List<SEpisode>, site: String) {
-        val now = DATE_FORMAT.format(Date())
+    private fun dumpInternal(
+        sourceName: String,
+        animeTitle: String,
+        episodes: List<SEpisode>,
+        site: String,
+        dateFormat: SimpleDateFormat,
+    ) {
+        val now = dateFormat.format(Date())
         log("$LINE_PREFIX ══════════ EPISODE LIST DUMP ══════════")
         log("$LINE_PREFIX source=\"$sourceName\" | anime=\"$animeTitle\" | site=$site | count=${episodes.size} | at=$now")
 
@@ -95,7 +113,7 @@ object EpisodeListDumper {
                     "parsedTitle=\"${clean(tag?.title, MAX_TITLE)}\" | " +
                     "seasonTag=$tagStr | " +
                     "num=${ep.episode_number} | " +
-                    "date=${formatDate(ep.date_upload)} | " +
+                    "date=${formatDate(dateFormat, ep.date_upload)} | " +
                     "filler=${ep.fillermark} | " +
                     "scanlator=\"${clean(ep.scanlator, MAX_SCANLATOR)}\" | " +
                     "summary=\"${clean(ep.summary, MAX_SUMMARY)}\" | " +
@@ -130,8 +148,8 @@ object EpisodeListDumper {
     }
 
     /** Format a raw epoch-millis upload date (0 = unknown). */
-    private fun formatDate(millis: Long): String =
-        if (millis > 0) "${DATE_FORMAT.format(Date(millis))}($millis)" else "none(0)"
+    private fun formatDate(dateFormat: SimpleDateFormat, millis: Long): String =
+        if (millis > 0) "${dateFormat.format(Date(millis))}($millis)" else "none(0)"
 
     /** Escape newlines + truncate so each episode is exactly ONE log line. */
     private fun clean(value: String?, max: Int): String {

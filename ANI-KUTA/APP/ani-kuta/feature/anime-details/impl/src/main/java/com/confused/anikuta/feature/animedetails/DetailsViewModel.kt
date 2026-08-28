@@ -1789,6 +1789,12 @@ class DetailsViewModel(
                 // Use the ExtensionDetailsProvider to fetch full details.
                 val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, effectiveThumbnailUrl)
 
+                // D-313 (review round): stale guard — this network fetch can
+                // outlive the screen (user navigated away / opened another anime).
+                if (loadGen != loadGeneration) {
+                    Logger.d(TAG) { "Extension network load discarded (stale generation)" }
+                    return@launch
+                }
                 if (unifiedAnime != null) {
                     Logger.i(TAG) { "Loaded extension details: $title from source $sourceId" }
                     extensionBase = unifiedAnime // D-134: store original extension data.
@@ -1810,6 +1816,13 @@ class DetailsViewModel(
             } catch (e: Exception) {
                 // D-147: Network failed (offline) — try cached data.
                 Logger.w(TAG) { "Extension fetch failed (offline?): ${e.message}" }
+                // D-313 (review round): the cache fallback re-merges state + sets
+                // episodeState to Loading via fetchEpisodes — a STALE fallback
+                // would flip the CURRENT anime's loaded list to a stuck spinner.
+                if (loadGen != loadGeneration) {
+                    Logger.d(TAG) { "Offline cache fallback discarded (stale generation)" }
+                    return@launch
+                }
                 tryCachedExtensionData(sourceId, animeUrl, title, thumbnailUrl)
             }
         }
@@ -2449,6 +2462,14 @@ class DetailsViewModel(
         try {
             // Fetch fresh AniList data + store as anilistBase.
             val anilistData = anilistProvider.fetchFromAniList(anilistId)
+            // D-313 (review round): the auto-link path is the LONGEST async
+            // window on this screen (multi-second smart-matcher search) — a
+            // stale result here was the highest-probability remaining
+            // thumbnail-bleed vector. Discard before touching any state.
+            if (gen != loadGeneration) {
+                Logger.d(TAG) { "mergeAniListIntoUnified discarded (stale generation) for anilistId=$anilistId" }
+                return
+            }
             if (anilistData != null) {
                 anilistBase = anilistData
                 Logger.i(TAG) { "AniList base stored: ${anilistData.displayName} (anilistId=$anilistId)" }
@@ -2511,6 +2532,12 @@ class DetailsViewModel(
                             malId = malId,
                             episodeCount = episodes.size,
                         )
+                        // D-313: never replace the CURRENT anime's metadata with a
+                        // stale post-link fetch (thumbnail-bleed fix).
+                        if (gen != loadGeneration) {
+                            Logger.d(TAG) { "Post-link metadata discarded (stale generation)" }
+                            return@launch
+                        }
                         _episodeMetadata.value = metadata
                         Logger.i(TAG) { "Episode metadata loaded post-link: ${metadata.size} entries" }
                     } catch (e: Exception) {
@@ -2767,15 +2794,20 @@ class DetailsViewModel(
                 // D-139: Fetch full extension details in the background to enrich.
                 viewModelScope.launch {
                     try {
+                        // D-313 (review round): stale guard — the enrichment
+                        // fetch can outlive the screen.
+                        val enrichGen = loadGeneration
                         val enriched = extensionProvider.fetchFromExtension(
                             sourceId, animeUrl, sAnime.title, null,
                         )
-                        if (enriched != null) {
+                        if (enriched != null && enrichGen == loadGeneration) {
                             extensionBase = enriched
                             remergeBases(
                                 (_state.value as? DetailsState.Success)?.anime?.dataSourcePriority
                                     ?: com.confused.anikuta.core.common.model.DataSourcePriority.ANILIST
                             )
+                        } else if (enriched != null) {
+                            Logger.d(TAG) { "Reopen enrichment discarded (stale generation)" }
                         }
                     } catch (e: Exception) {
                         Logger.w(TAG) { "Extension enrichment on reopen failed: ${e.message}" }

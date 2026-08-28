@@ -16,10 +16,13 @@
     <!-- D-193 Phase 4: Battery optimization — needed for background notifications when app is killed -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- D-315: saving cover images to the gallery (Pictures/ANI-KUTA) on
-         API 24–28. API 29+ uses MediaStore RELATIVE_PATH — no permission. -->
+         API 24–28. API 29+ uses MediaStore RELATIVE_PATH — no permission.
+         tools:replace: the bundled aniyomi-mpv-lib declares the same permission
+         with maxSdkVersion=32; ours (28) is the correct scoped value. -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+        android:maxSdkVersion="28"
+        tools:replace="android:maxSdkVersion" />
 
     <!-- Package visibility for the uninstall intent (Android 11+).
          Without this, resolveActivity() returns null for ACTION_DELETE even

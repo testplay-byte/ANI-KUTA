@@ -49,6 +49,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api  // D-314: PullToRefreshBox opt-in
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox  // D-314: simple pull-to-refresh
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.Surface
@@ -129,6 +130,7 @@ import androidx.compose.ui.graphics.ColorMatrix  // Phase WP: grayscale
  * DESIGN-LANGUAGE.md §2.1: collapsing header behavior (banner is the header).
  * DESIGN-LANGUAGE.md §2.2: scroll blur overlay at the top edge.
  */
+@OptIn(ExperimentalMaterial3Api::class)  // D-314: PullToRefreshBox + rememberPullToRefreshState
 @Composable
 fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
@@ -658,8 +660,15 @@ fun DetailsScreen(
                 val ptrState = rememberPullToRefreshState()
                 val ptrContext = LocalContext.current
                 // One haptic the moment the pull first crosses the refresh
-                // threshold (LaunchedEffect re-runs only on false→true).
-                val ptrThresholdCrossed = ptrState.distanceFraction >= 1f
+                // threshold. derivedStateOf: reading distanceFraction directly
+                // here would invalidate the whole Success branch every pull
+                // frame. The !isRefreshing gate skips the snap-to-1 that M3
+                // applies on button-triggered refreshes (haptic = pull only).
+                val ptrThresholdCrossed by remember {
+                    androidx.compose.runtime.derivedStateOf {
+                        ptrState.distanceFraction >= 1f && !isRefreshing
+                    }
+                }
                 LaunchedEffect(ptrThresholdCrossed) {
                     if (ptrThresholdCrossed) {
                         HapticHelper.stageCross(ptrContext)

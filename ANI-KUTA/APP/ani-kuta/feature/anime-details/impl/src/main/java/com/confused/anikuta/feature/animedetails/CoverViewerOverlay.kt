@@ -180,6 +180,10 @@ fun CoverViewerOverlay(
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching { saveImageToGallery(context, okHttpClient, imageUrl) }
+                        .onFailure { e ->
+                            // Let cancellation propagate (viewer closed mid-save).
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                        }
                 }
                 saveState = result.fold(
                     onSuccess = {
@@ -188,7 +192,11 @@ fun CoverViewerOverlay(
                     },
                     onFailure = { e ->
                         Logger.w(COVER_VIEWER_TAG) { "Cover save failed: ${e.message}" }
-                        Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            "Save failed: ${e.message ?: e::class.java.simpleName}",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                         CoverSaveState.ERROR
                     },
                 )
@@ -394,12 +402,18 @@ private fun saveImageToGallery(context: Context, client: OkHttpClient, url: Stri
             }
             val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
                 ?: throw IOException("MediaStore insert failed")
-            resolver.openOutputStream(uri)?.use { out ->
-                body.byteStream().copyTo(out)
-            } ?: throw IOException("Could not open output stream")
-            values.clear()
-            values.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(uri, values, null, null)
+            try {
+                resolver.openOutputStream(uri)?.use { out ->
+                    body.byteStream().copyTo(out)
+                } ?: throw IOException("Could not open output stream")
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            } catch (e: Exception) {
+                // Never leave an orphaned IS_PENDING=1 row in MediaStore.
+                runCatching { resolver.delete(uri, null, null) }
+                throw e
+            }
         } else {
             @Suppress("DEPRECATION")
             val dir = File(
