@@ -181,6 +181,50 @@ fun groupEpisodes(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  D-307: Season grouping — splits the episode list by detected season tags
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A season bucket for the season selector UI.
+ *
+ * @param season The season number, or null for the "Other" bucket (episodes
+ *        WITHOUT a season tag — specials/OVAs/mislabeled rows).
+ * @param episodes The episodes in this season (the user's sort order from
+ *        [applyEpisodeListPreferences] is preserved).
+ */
+data class SeasonGroup(
+    val season: Int?,
+    val episodes: List<SEpisode>,
+)
+
+/**
+ * D-307: Splits episodes into season groups using [SeasonDetector] on each
+ * episode's name.
+ *
+ * Returns **null** when the list has no detectable multi-season structure
+ * (fewer than 2 distinct season tags) — the caller then falls back to the
+ * normal number-range grouping pipeline. Season mode only activates for
+ * series that are genuinely "divided into multiple seasons" (user spec).
+ *
+ * Untagged episodes (no "Season N" prefix) land in a trailing "Other" bucket
+ * (season = null), only included when non-empty.
+ */
+fun groupEpisodesBySeason(episodes: List<SEpisode>): List<SeasonGroup>? {
+    val tags = episodes.map { com.confused.anikuta.core.common.SeasonDetector.parseSeasonTag(it.name) }
+    val seasonNumbers = tags.mapNotNull { it?.season }.distinct().sorted()
+    if (seasonNumbers.size < 2) return null
+
+    val groups = seasonNumbers.map { season ->
+        SeasonGroup(season, episodes.filterIndexed { i, _ -> tags[i]?.season == season })
+    }
+    val untagged = episodes.filterIndexed { i, _ -> tags[i] == null }
+    if (untagged.isNotEmpty()) {
+        groups += SeasonGroup(null, untagged)
+    }
+    return groups
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  Audio availability parser (mirrors DetailsScreen.parseAudioAvailability)
 // ════════════════════════════════════════════════════════════════════════════
 

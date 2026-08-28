@@ -49,6 +49,9 @@ import org.koin.compose.koinInject
 @Composable
 fun EpisodeListSettingsSheet(
     onDismiss: () -> Unit,
+    // D-307: whether the current anime's episodes carry a detectable
+    // multi-season structure — only then is the "Organize by" choice shown.
+    seasonsDetected: Boolean = false,
 ) {
     val prefs = koinInject<EpisodeListPreferences>()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -98,7 +101,7 @@ fun EpisodeListSettingsSheet(
             when (selectedTab) {
                 0 -> SortTab(prefs)
                 1 -> FilterTab(prefs)
-                2 -> DisplayTab(prefs)
+                2 -> DisplayTab(prefs, seasonsDetected)
             }
         }
     }
@@ -349,10 +352,11 @@ private fun FilterTab(prefs: EpisodeListPreferences) {
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun DisplayTab(prefs: EpisodeListPreferences) {
+private fun DisplayTab(prefs: EpisodeListPreferences, seasonsDetected: Boolean) {
     val thumbnailFallback by prefs.thumbnailFallback.changes.collectAsState(initial = prefs.thumbnailFallback.get())
     val groupingSize by prefs.groupingSize.changes.collectAsState(initial = prefs.groupingSize.get())
     val showNextEpisode by prefs.showNextEpisode.changes.collectAsState(initial = prefs.showNextEpisode.get())
+    val organizeBySeasons by prefs.organizeBySeasons.changes.collectAsState(initial = prefs.organizeBySeasons.get())
 
     Column(
         modifier = Modifier
@@ -361,6 +365,24 @@ private fun DisplayTab(prefs: EpisodeListPreferences) {
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // D-307: Seasons vs number-range grouping — only offered when the
+        // current anime actually has a detectable multi-season structure.
+        if (seasonsDetected) {
+            SectionLabel("Organize episodes by")
+            SegmentedSelector(
+                options = listOf(true to "Seasons", false to "Number groups"),
+                selected = organizeBySeasons,
+                onSelect = { prefs.organizeBySeasons.set(it) },
+            )
+            SectionHint(
+                if (organizeBySeasons)
+                    "Seasons are detected in this series — the list is organized " +
+                        "by season with a season selector."
+                else
+                    "Number-range grouping is used instead of the detected seasons.",
+            )
+            Spacer(Modifier.height(4.dp))
+        }
         SectionLabel("Thumbnail fallback")
         SegmentedSelector(
             options = listOf("COVER" to "Use cover", "NONE" to "No image"),

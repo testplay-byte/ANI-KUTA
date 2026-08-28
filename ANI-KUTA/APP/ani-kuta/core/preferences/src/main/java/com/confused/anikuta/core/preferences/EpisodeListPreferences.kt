@@ -111,6 +111,29 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         KEY_GROUPING_SIZE, 0, IntSerializer,
     )
 
+    // ══════════════════════════════════════════════════════════════════════
+    //  7. Season organization (D-307)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * D-307: When a series' episode names carry season tags
+     * ("( Season 5 - Episode 12 - ... )"), organize the episode list by
+     * SEASONS (horizontally-scrollable chip selector) instead of number-range
+     * grouping.
+     *
+     * - `true` (default) → seasons win when available (user spec: "By default
+     *   it will automatically select the seasons if there are seasons
+     *   available").
+     * - `false` → the user explicitly chose plain number-range grouping; the
+     *   season selector stays hidden.
+     *
+     * Only takes effect when ≥2 distinct seasons are detected — otherwise the
+     * normal grouping pipeline applies.
+     */
+    val organizeBySeasons = store.preference(
+        KEY_ORGANIZE_BY_SEASONS, true, BooleanSerializer,
+    )
+
     // ════════════════════════════════════════════════════════════════════════
     //  6. Next episode release date display
     // ════════════════════════════════════════════════════════════════════════
@@ -146,5 +169,6 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_AUDIO_FILTER = "pref_episode_list_audio_filter"
         private const val KEY_GROUPING_SIZE = "pref_episode_list_grouping_size"
         private const val KEY_SHOW_NEXT_EPISODE = "pref_episode_list_show_next_episode"
+        private const val KEY_ORGANIZE_BY_SEASONS = "pref_episode_list_organize_by_seasons"
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateScrollBy
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -13,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -93,6 +96,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
+import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.compose.koinInject
@@ -250,10 +254,27 @@ fun DetailsScreen(
     val groupingSize by episodeListPrefs.groupingSize.changes.collectAsState(
         initial = episodeListPrefs.groupingSize.get(),
     )
+    // D-307: Season organization preference (true = seasons win when detected).
+    val organizeBySeasons by episodeListPrefs.organizeBySeasons.changes.collectAsState(
+        initial = episodeListPrefs.organizeBySeasons.get(),
+    )
     // D-234: Show next episode release card.
     val showNextEpisode by episodeListPrefs.showNextEpisode.changes.collectAsState(
         initial = episodeListPrefs.showNextEpisode.get(),
     )
+
+    // D-307/D-308: Season detection on the RAW episode list — shared by the
+    // episode pipeline (Success branch) AND the settings sheet (rendered
+    // outside it), so it lives here at the top level. Built from the raw list
+    // (not the filtered one) so the season structure stays stable regardless
+    // of active filters. `remember` keyed on the list identity — detection only
+    // re-runs when the episode list actually changes.
+    val rawEpisodesForSeasons = (episodeState as? EpisodeState.Loaded)?.episodes
+    val seasonGroups = remember(rawEpisodesForSeasons, organizeBySeasons) {
+        if (rawEpisodesForSeasons != null && organizeBySeasons) {
+            groupEpisodesBySeason(rawEpisodesForSeasons)
+        } else null
+    }
 
     // D-146: Refresh visual feedback
     val isRefreshing by viewModel.isRefreshing.collectAsState()
@@ -282,6 +303,9 @@ fun DetailsScreen(
     var episodeSearchQuery by remember { mutableStateOf("") }
     // D-231: Current group index (for the episode group switcher).
     var currentGroupIndex by remember { mutableIntStateOf(0) }
+    // D-308: Current season chip index for the season selector
+    // (0 = "All", 1..n = detected seasons, n+1 = "Other" when present).
+    var currentSeasonIndex by remember { mutableIntStateOf(0) }
 
     // D-231: Hoisted lazyListState so we can auto-scroll to the episodes section
     // when the settings sheet opens (so the user sees live changes).
@@ -353,14 +377,12 @@ fun DetailsScreen(
                             } ?: ""
                             val subTracksStr = autoVideo.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
                             val audioTracksStr = autoVideo.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
-                            val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                                val title = meta.title ?: ""
-                                val thumb = meta.thumbnailUrl ?: ""
-                                val date = meta.airDate?.toString() ?: "0"
-                                val desc = meta.description ?: ""
-                                val scanlator = ep.scanlator ?: ""
-                                "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                            }
+                            // D-306: extension-first merge (shared with the episode rows).
+                            val epMetaStr = buildEpisodeMetadataSerialized(
+                                episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                                metadata = episodeMetadata,
+                                currentScanlator = ep.scanlator,
+                            )
                             Logger.i("Anikuta:Feature:Details") {
                                 "Auto-play: navigating to watch with ${autoVideo.quality} (url=${autoVideo.url.take(60)}...)"
                             }
@@ -545,14 +567,12 @@ fun DetailsScreen(
                     val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
                         "${e.url}${delim}${e.episode_number}${delim}${e.name}"
                     } ?: ""
-                    val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                        val title = meta.title ?: ""
-                        val thumb = meta.thumbnailUrl ?: ""
-                        val date = meta.airDate?.toString() ?: "0"
-                        val desc = meta.description ?: ""
-                        val scanlator = episode.scanlator ?: ""
-                        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                    }
+                    // D-306: extension-first merge (shared with the episode rows).
+                    val epMetaStr = buildEpisodeMetadataSerialized(
+                        episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                        metadata = episodeMetadata,
+                        currentScanlator = episode.scanlator,
+                    )
                     onNavigateToWatch(
                         mainId ?: "",
                         localUri,
@@ -825,13 +845,42 @@ fun DetailsScreen(
                                 sortDescending = sortDescending,
                             )
                         } else null
+                        // D-307/D-308: season detection — when the episode names carry
+                        // season tags ("( Season 5 - Episode 12 - ... )") AND the user
+                        // hasn't opted for plain grouping, seasons take over the
+                        // organization (chip selector) and number-range grouping is
+                        // suppressed (single group → the range switcher hides).
+                        // seasonGroups is computed at the top level (shared with the
+                        // settings sheet) from the RAW episode list.
+                        // Season selector options: "All" (null) + each season bucket.
+                        val seasonOptions: List<SeasonGroup?> =
+                            seasonGroups?.let { listOf<SeasonGroup?>(null) + it } ?: emptyList()
+                        val selectedSeasonIndex = currentSeasonIndex.coerceIn(0, (seasonOptions.size - 1).coerceAtLeast(0))
+                        val selectedSeason = seasonOptions.getOrNull(selectedSeasonIndex)
                         val episodeGroups = if (processedEpisodes != null) {
-                            groupEpisodes(processedEpisodes, groupingSize)
+                            if (seasonGroups != null) {
+                                // Seasons active: one implicit group (the full list).
+                                listOf(EpisodeGroup(0, 0, 0, processedEpisodes))
+                            } else {
+                                groupEpisodes(processedEpisodes, groupingSize)
+                            }
                         } else null
                         val currentGroup = if (episodeGroups != null && episodeGroups.size > 1) {
                             episodeGroups.getOrElse(currentGroupIndex) { episodeGroups.first() }
                         } else null
-                        val episodesToShow = currentGroup?.episodes ?: processedEpisodes
+                        // D-308: the season slice wins when seasons are active. The
+                        // slice = the selected season's URLs ∩ the processed (filtered +
+                        // sorted) list, so filters/sort apply WITHIN the season.
+                        // "All" (null option) → the full processed list.
+                        val episodesToShow = when {
+                            seasonGroups != null && selectedSeason != null -> {
+                                val seasonUrls = selectedSeason.episodes.map { it.url }.toSet()
+                                processedEpisodes?.filter { it.url in seasonUrls }
+                            }
+                            seasonGroups != null -> processedEpisodes
+                            currentGroup != null -> currentGroup.episodes
+                            else -> processedEpisodes
+                        }
 
                         item {
                             EpisodesSection(
@@ -883,6 +932,11 @@ fun DetailsScreen(
                                     val max = (episodeGroups?.size ?: 1) - 1
                                     if (currentGroupIndex < max) currentGroupIndex++
                                 },
+                                // D-308: Season selector data (below the header row,
+                                // between the source pill and the episode list).
+                                seasonOptions = seasonOptions,
+                                selectedSeasonIndex = selectedSeasonIndex,
+                                onSelectSeason = { index -> currentSeasonIndex = index },
                             )
                         }
 
@@ -1146,15 +1200,13 @@ fun DetailsScreen(
                         "Subtitle tracks: ${video.subtitleTracks.size}, Audio tracks: ${video.audioTracks.size}"
                     }
                     // Serialize episode metadata for the watch page.
-                    // Format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
-                    val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                        val title = meta.title ?: ""
-                        val thumb = meta.thumbnailUrl ?: ""
-                        val date = meta.airDate?.toString() ?: "0"
-                        val desc = meta.description ?: ""
-                        val scanlator = ep.scanlator ?: ""
-                        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                    }
+                    // D-306: extension-first merge (shared with the episode rows) —
+                    // format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
+                    val epMetaStr = buildEpisodeMetadataSerialized(
+                        episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                        metadata = episodeMetadata,
+                        currentScanlator = ep.scanlator,
+                    )
                     onNavigateToWatch(
                         viewModel.currentMainId ?: "",
                         video.url,
@@ -1221,7 +1273,12 @@ fun DetailsScreen(
             )
         } ?: MaterialTheme.colorScheme
         MaterialTheme(colorScheme = accentColorScheme) {
-            EpisodeListSettingsSheet(onDismiss = { showEpisodeSettingsSheet = false })
+            EpisodeListSettingsSheet(
+                onDismiss = { showEpisodeSettingsSheet = false },
+                // D-307: only offer the Seasons/Grouping choice when the current
+                // anime actually has a detectable multi-season structure.
+                seasonsDetected = seasonGroups != null,
+            )
         }
     }
 
@@ -1841,6 +1898,11 @@ private fun EpisodesSection(
     totalGroups: Int = 0,
     onPrevGroup: () -> Unit = {},
     onNextGroup: () -> Unit = {},
+    // D-308: Season selector (rendered between the header row and the episode
+    // list). Non-empty ONLY when a multi-season structure is detected.
+    seasonOptions: List<SeasonGroup?> = emptyList(),
+    selectedSeasonIndex: Int = 0,
+    onSelectSeason: (Int) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
@@ -1988,6 +2050,18 @@ private fun EpisodesSection(
                     )
                 }
             }
+        }
+
+        // ── D-308: Season selector ──
+        // Horizontally-scrollable season chips between the source selector and
+        // the episode list (user spec). Only rendered when seasons were detected
+        // (seasonOptions is empty otherwise) + episodes are actually loaded.
+        if (seasonOptions.isNotEmpty() && episodeState is EpisodeState.Loaded) {
+            SeasonSelectorRow(
+                options = seasonOptions,
+                selectedIndex = selectedSeasonIndex,
+                onSelect = onSelectSeason,
+            )
         }
 
         // ── Episode list / states ──
@@ -2474,6 +2548,134 @@ private fun NextEpisodeCard(info: NextEpisodeInfo) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  D-308: SeasonSelectorRow — horizontally-scrollable season chips (between
+//  the source selector and the episode list). Clicking a chip selects it AND
+//  smoothly centers it in the row (user spec).
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Season chip selector. Options: "All" (index 0) + one chip per detected
+ * season + a trailing "Other" chip when untagged episodes exist.
+ *
+ * Centering: when the selection changes, the row animates so the selected
+ * chip lands in the horizontal center (chips are visible when tapped, so the
+ * exact width is known; ±estimate is fine for programmatic changes).
+ */
+@Composable
+private fun SeasonSelectorRow(
+    options: List<SeasonGroup?>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Center the selected chip whenever the selection changes (tap or
+    // programmatic). Skipped on the initial composition (index 0 sits at the
+    // start of the row already).
+    androidx.compose.runtime.LaunchedEffect(selectedIndex, options.size) {
+        if (options.size <= 1) return@LaunchedEffect
+        kotlinx.coroutines.delay(50) // let the new chip layout settle
+        val layoutInfo = listState.layoutInfo
+        val viewportWidth = layoutInfo.viewportSize.width
+        val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+        if (item != null && viewportWidth > 0) {
+            // Scroll delta that moves the item's center to the viewport center.
+            val delta = (item.offset + item.size / 2) - viewportWidth / 2
+            if (delta != 0) {
+                listState.animateScrollBy(
+                    delta.toFloat(),
+                    tween(Motion.DurationStandard, easing = Motion.EasingStandard),
+                )
+            }
+        }
+    }
+
+    LazyRow(
+        state = listState,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 16.dp, vertical = 2.dp,
+        ),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+    ) {
+        items(
+            count = options.size,
+            key = { index ->
+                when (val option = options[index]) {
+                    // null option = the "All" chip; SeasonGroup(null) = "Other".
+                    null -> "season-all"
+                    else -> option.season?.let { "season-$it" } ?: "season-other"
+                }
+            },
+        ) { index ->
+            SeasonChip(
+                label = when (val option = options[index]) {
+                    null -> "All"
+                    // null season = the "Other" bucket (untagged episodes).
+                    else -> option.season?.let { "Season $it" } ?: "Other"
+                },
+                isSelected = index == selectedIndex,
+                onClick = {
+                    if (index != selectedIndex) {
+                        com.confused.anikuta.core.common.HapticHelper.lightTick(context)
+                        onSelect(index)
+                    }
+                },
+            )
+        }
+    }
+}
+
+/** One season pill. Selected = primary fill; unselected = translucent surface. */
+@Composable
+private fun SeasonChip(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = tween(Motion.DurationShort, easing = Motion.EasingStandard),
+        label = "seasonChipScale",
+    )
+    val bg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        animationSpec = tween(Motion.DurationShort),
+        label = "seasonChipBg",
+    )
+    val fg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(Motion.DurationShort),
+        label = "seasonChipFg",
+    )
+    Surface(
+        color = bg,
+        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+            color = fg,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+        )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  D-231: EpisodeGroupSwitcher — shows between "Episodes" text and source pill
 //  when grouping is active. Lets the user switch between groups of episodes.
 // ════════════════════════════════════════════════════════════════════════════
@@ -2542,6 +2744,33 @@ private fun EpisodeGroupSwitcher(
     }
 }
 
+/**
+ * D-306: Serialize episode metadata for the Watch screen with the SAME
+ * extension-first priority the episode rows use (EpisodeDisplayResolver), so
+ * Details and Watch render identical titles/thumbnails/descriptions.
+ * Provider-only values fill the gaps; the per-episode scanlator comes from the
+ * extension episode (falling back to the current episode's, as before).
+ *
+ * Format per line: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator".
+ */
+private fun buildEpisodeMetadataSerialized(
+    episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
+    metadata: Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>,
+    currentScanlator: String?,
+): String {
+    val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+    val byNumber = episodes.associateBy { it.episode_number.toInt() }
+    return metadata.entries.joinToString("\n") { (epNum, meta) ->
+        val ext = byNumber[epNum]
+        val title = ext?.let { EpisodeDisplayResolver.extensionTitle(it) } ?: meta.title ?: ""
+        val thumb = ext?.preview_url?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl ?: ""
+        val date = meta.airDate?.toString() ?: "0"
+        val desc = ext?.summary?.takeIf { it.isNotBlank() } ?: meta.description ?: ""
+        val scanlator = ext?.scanlator ?: currentScanlator ?: ""
+        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+    }
+}
+
 @Composable
 private fun EpisodeRow(
     episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
@@ -2564,14 +2793,15 @@ private fun EpisodeRow(
     onToggleWatched: () -> Unit = {},
 ) {
     // ── Parse display values ──
+    // D-306: extension-first resolution — the extension's own title/description/
+    // thumbnail WIN; provider metadata (AniZip/Jikan/Kitsu/AniList) fills the gaps.
+    // Shared rules live in EpisodeDisplayResolver (single source of truth).
     val displayTitle = remember(episode, metadata) {
-        metadata?.title
-            ?: com.confused.anikuta.core.common.EpisodeTitleParser.parseTitle(
-                episode.name, episode.episode_number,
-            )
-            ?: episode.name.ifBlank { "Episode ${formatEpisodeNumber(episode.episode_number)}" }
+        EpisodeDisplayResolver.title(episode, metadata)
     }
-    val description = metadata?.description ?: episode.summary
+    val description = remember(episode, metadata) {
+        EpisodeDisplayResolver.description(episode, metadata)
+    }
     // D-230: Thumbnail fallback is now configurable via EpisodeListPreferences.
     // - "COVER" → fall back to the anime's cover image (default).
     // - "NONE" → no image (bare placeholder).
@@ -2580,6 +2810,8 @@ private fun EpisodeRow(
         initial = episodeListPrefs.thumbnailFallback.get(),
     )
     val thumbnailUrl = when {
+        // D-306: extension-provided preview_url first.
+        !episode.preview_url.isNullOrBlank() -> episode.preview_url
         !metadata?.thumbnailUrl.isNullOrBlank() -> metadata?.thumbnailUrl
         thumbnailFallback == "COVER" -> fallbackCoverUrl
         else -> null

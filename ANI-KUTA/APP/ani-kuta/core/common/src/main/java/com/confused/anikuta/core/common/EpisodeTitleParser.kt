@@ -73,6 +73,10 @@ object EpisodeTitleParser {
     /**
      * Extract a clean title from the episode name.
      *
+     * D-307: season-tagged names ("( Season 5 - Episode 12 - The Black Cat )")
+     * delegate to [SeasonDetector] — the clean title is the part after the tag
+     * (null when the tag carries no title).
+     *
      * @param name The raw SEpisode.name (e.g. "Episode 5 - The Dragon's Labyrinth")
      * @param episodeNumber The episode number (for fallback)
      * @return The cleaned title, or null if the name is just "Episode N" with no title,
@@ -83,6 +87,12 @@ object EpisodeTitleParser {
 
         // If the name looks like a hash/URL/code, don't show it — fall back to "Episode N".
         if (looksLikeCodeOrHash(name)) return null
+
+        // D-307: season-prefixed name → the title is whatever follows the tag.
+        val seasonTag = SeasonDetector.parseSeasonTag(name)
+        if (seasonTag != null) {
+            return seasonTag.title?.takeUnless { looksLikeCodeOrHash(it) }
+        }
 
         // Try stripping the "Episode X - " prefix
         val stripped = PREFIX_REGEX.replace(name, "").trim()

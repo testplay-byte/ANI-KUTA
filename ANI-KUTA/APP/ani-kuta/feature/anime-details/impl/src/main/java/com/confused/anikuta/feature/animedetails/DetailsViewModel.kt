@@ -1851,6 +1851,11 @@ class DetailsViewModel(
                             // D-242-fix: propagate the cached description (from AniZip/Kitsu)
                             // so it's available when the user downloads the episode.
                             summary = meta.description
+                            // D-306: re-attach the cached thumbnail as the extension-style
+                            // preview so the extension-first UI resolution sees it. The
+                            // cache column holds the MERGED winner (extension
+                            // preview_url when provided, else the provider thumbnail).
+                            preview_url = meta.thumbnailUrl
                         }
                     }.sortedByDescending { it.episode_number }
                     _episodeState.value = EpisodeState.Loaded(episodes)
@@ -2915,6 +2920,11 @@ class DetailsViewModel(
                             // D-242-fix: propagate the cached description (from AniZip/Kitsu)
                             // so it's available when the user downloads the episode.
                             summary = meta.description
+                            // D-306: re-attach the cached thumbnail as the extension-style
+                            // preview so the extension-first UI resolution sees it. The
+                            // cache column holds the MERGED winner (extension
+                            // preview_url when provided, else the provider thumbnail).
+                            preview_url = meta.thumbnailUrl
                         }
                     }.sortedByDescending { it.episode_number }
                     _episodeState.value = EpisodeState.Loaded(episodes)
@@ -2995,6 +3005,8 @@ class DetailsViewModel(
                         // Insert ONLY new episodes into the cache — don't overwrite
                         // existing rich metadata (titles, descriptions, thumbnails from
                         // AniList) for episodes that are already cached.
+                        // D-306: preserve the extension-provided preview_url + summary
+                        // (was: thumbnailUrl = null — extension thumbnails were dropped).
                         val now = System.currentTimeMillis()
                         val newCacheEntries = newEpisodes.map { ep ->
                             com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
@@ -3002,7 +3014,7 @@ class DetailsViewModel(
                                 episodeNumber = ep.episode_number,
                                 title = ep.name,
                                 description = ep.summary,
-                                thumbnailUrl = null,
+                                thumbnailUrl = ep.preview_url,
                                 airDate = if (ep.date_upload > 0) ep.date_upload else null,
                                 fetchedAt = now,
                                 episodeUrl = ep.url,
@@ -3037,16 +3049,21 @@ class DetailsViewModel(
 
                                         // Update cache with enriched metadata for ALL episodes,
                                         // preserving episodeUrl from the fresh extension episodes.
+                                        // D-306: merge per-field with the extension's own values —
+                                        // the extension-provided preview_url/summary WIN over the
+                                        // provider's; provider values only fill the gaps.
                                         val epNumToUrl = freshEpisodes.associate { it.episode_number.toInt() to it.url }
                                         val epNumToSourceName = freshEpisodes.associate { it.episode_number.toInt() to it.name }
                                         val epNumToScanlator = freshEpisodes.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
+                                        val epNumToPreview = freshEpisodes.associate { it.episode_number.toInt() to it.preview_url }
+                                        val epNumToSummary = freshEpisodes.associate { it.episode_number.toInt() to it.summary }
                                         val enrichedCache = metadata.entries.map { (epNum, meta) ->
                                             com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                                 mainId = mainId,
                                                 episodeNumber = epNum.toFloat(),
                                                 title = meta.title,
-                                                description = meta.description,
-                                                thumbnailUrl = meta.thumbnailUrl,
+                                                description = epNumToSummary[epNum]?.takeIf { it.isNotBlank() } ?: meta.description,
+                                                thumbnailUrl = epNumToPreview[epNum]?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl,
                                                 airDate = meta.airDate,
                                                 fetchedAt = now,
                                                 episodeUrl = epNumToUrl[epNum],
@@ -3100,6 +3117,10 @@ class DetailsViewModel(
                 }
 
                 // D-147: Cache the episode list locally. D.FIX: Include episodeUrl.
+                // D-306: preserve the extension-provided preview_url + summary
+                // (was: thumbnailUrl = null — extension thumbnails were dropped on
+                // the first cache write; the enriched write later overwrote with
+                // provider-only values).
                 if (mainId != null && episodes.isNotEmpty()) {
                     val now = System.currentTimeMillis()
                     val cachedList = episodes.map { ep ->
@@ -3108,7 +3129,7 @@ class DetailsViewModel(
                             episodeNumber = ep.episode_number,
                             title = ep.name,
                             description = ep.summary,
-                            thumbnailUrl = null,
+                            thumbnailUrl = ep.preview_url,
                             airDate = if (ep.date_upload > 0) ep.date_upload else null,
                             fetchedAt = now,
                             episodeUrl = ep.url,
@@ -3166,13 +3187,18 @@ class DetailsViewModel(
                                 val epNumToUrl = episodes.associate { it.episode_number.toInt() to it.url }
                                 val epNumToSourceName = episodes.associate { it.episode_number.toInt() to it.name }
                                 val epNumToScanlator = episodes.associate { it.episode_number.toInt() to (it.scanlator ?: "") }
+                                // D-306: merge per-field with the extension's own values —
+                                // the extension-provided preview_url/summary WIN over the
+                                // provider's; provider values only fill the gaps.
+                                val epNumToPreview = episodes.associate { it.episode_number.toInt() to it.preview_url }
+                                val epNumToSummary = episodes.associate { it.episode_number.toInt() to it.summary }
                                 val enrichedCache = metadata.entries.map { (epNum, meta) ->
                                     com.confused.anikuta.core.datacache.CachedEpisodeMetadata(
                                         mainId = mainId,
                                         episodeNumber = epNum.toFloat(),
                                         title = meta.title,
-                                        description = meta.description,
-                                        thumbnailUrl = meta.thumbnailUrl,
+                                        description = epNumToSummary[epNum]?.takeIf { it.isNotBlank() } ?: meta.description,
+                                        thumbnailUrl = epNumToPreview[epNum]?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl,
                                         airDate = meta.airDate,
                                         fetchedAt = now,
                                         episodeUrl = epNumToUrl[epNum],
