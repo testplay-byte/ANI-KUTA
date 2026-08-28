@@ -2471,3 +2471,17 @@ Device-feedback batch: D-317..D-320.
 - **Files:** AndroidConfig.kt.
 - **Status:** ✅ Implemented; tag v0.2.60 + release after CI green.
 - **Date:** 2026-08-28.
+
+### D-322 — Compose compile/runtime alignment fix (the v0.2.60 startup crash)
+
+Device report: v0.2.60 crashed at startup with `NoSuchMethodError: No static method sharedElement$default(…SharedTransitionScope$PlaceHolderSize…)`. Forensic chain (all verified against the shipped APK's dex + Google Maven artifacts, not guesses): (1) the app compiled against the compose BOM 2025.03.00 line (animation 1.7.8 — the exact descriptor in the crash EXISTS in animation-android-1.7.8); (2) `io.insert-koin:koin-compose:4.2.2` (in the graph since the project's first commit) depends on JetBrains Compose Multiplatform 1.10.2, whose Android variants REQUIRE androidx Compose 1.10.4; (3) a Gradle platform (BOM) constraint can only RAISE versions — it can never cap a version a dependency REQUIRES — so every release ever shipped has actually PACKAGED compose 1.10.4 (+ lifecycle 2.9.4 via the JB lifecycle fork) while every module compiled against 1.7.8; (4) that skew was invisible while the app only used compose's stable APIs (binary compat held) — until v0.2.60's experimental SharedTransitionScope call hit the 1.10 line's renames (`PlaceHolderSize`→`PlaceholderSize`, `sharedElement(state=…)`→`sharedContentState=…`). Fix = align compile to the proven runtime instead of fighting it: compose BOM REMOVED, the 1.10.4 line pinned EXPLICITLY in the version catalog (ui/ui-graphics/ui-tooling/ui-tooling-preview/foundation/animation/runtime = 1.10.4; material3 stays 1.3.1 — binary-compatible on 1.10.4, and 1.4.x would churn the entire UI; material-icons 1.7.8 = the deprecated final; lifecycle 2.9.4 = what the runtime really resolves); all 15 module build files switched from `platform(bom)` to the explicit pins; `coverSharedElement` ported to the 1.10 API. NEW GUARD: `:app`'s `checkDependencyAlignment` task (wired into `preBuild`, so every CI + local build) resolves `releaseRuntimeClasspath` and FAILS the build whenever any `androidx.compose.*`/`androidx.lifecycle` artifact's packaged version deviates from the pins — the exact failure mode can never ship silently again. Unpinned internal transitives (`material`, `material-ripple`, `material3.adaptive` — required only by material3 1.3.1/seeker, nothing compiles against them) are deliberately out of scope. Accepted deltas vs the old BOM runtime: `material-ripple` 1.7.8→1.7.0 and `material` 1.7.8→1.5.1 (both now resolve at exactly the version their requiring library was built against — the designed pairings).
+- **Files:** gradle/libs.versions.toml, 15 module build.gradle.kts, SharedTransitionLocals.kt, app/build.gradle.kts (guard), AndroidConfig comment.
+- **Status:** ✅ Implemented (v0.2.61).
+- **Date:** 2026-08-29.
+
+### D-323 — Version 0.2.61 (versionCode 61)
+
+Crash-fix release: D-322.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.61 + release after CI green.
+- **Date:** 2026-08-29.

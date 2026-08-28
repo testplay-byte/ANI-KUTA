@@ -17,13 +17,12 @@ dependencies {
     implementation(project(":core:designsystem"))
 
     // Compose (BOM-managed) — for the SmartLinkAdInterstitial full-screen Dialog.
-    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.foundation)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.material.icons.extended)  // D-322: explicit pin (icons deprecated after 1.7.8)
 
     // Lifecycle — ProcessLifecycleOwner observes app foreground/background transitions
     // (ON_STOP / ON_START) so the coordinator can measure how long the user spent

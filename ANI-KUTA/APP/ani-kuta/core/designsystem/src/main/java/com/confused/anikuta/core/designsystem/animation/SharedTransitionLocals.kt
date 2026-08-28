@@ -40,6 +40,15 @@ import com.confused.anikuta.core.designsystem.theme.Motion
  * - The default bounds transform uses the app's Motion tokens (emphasized
  *   easing, 300ms — aligned with the nav fade duration) instead of the
  *   library's default spring.
+ *
+ * ## D-322 note
+ *
+ * The project compiles against compose 1.10.4 (explicitly pinned in
+ * gradle/libs.versions.toml — the BOM was removed; see D-322 for the
+ * v0.2.60 NoSuchMethodError crash story). On the 1.10 line the first
+ * parameter of `sharedElement` is named `sharedContentState` (it was `state`
+ * on the 1.7 line) and the enum is `PlaceholderSize` (was `PlaceHolderSize`).
+ * Named arguments keep this file explicit about which line it targets.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
@@ -60,8 +69,10 @@ fun Modifier.coverSharedElement(key: String?): Modifier {
     val animatedScope = LocalNavAnimatedVisibilityScope.current ?: return this
     return with(sharedScope) {
         this@coverSharedElement.sharedElement(
-            // compose 1.7.x names this parameter `state` (not sharedContentState).
-            state = rememberSharedContentState(key = key),
+            // D-322: compose 1.10 names this parameter `sharedContentState`
+            // (the 1.7 line called it `state` — the rename is exactly what
+            // crashed v0.2.60 when compile and runtime lines disagreed).
+            sharedContentState = rememberSharedContentState(key = key),
             animatedVisibilityScope = animatedScope,
             boundsTransform = BoundsTransform { _, _ ->
                 tween(Motion.DurationStandard, easing = Motion.EasingEmphasized)

@@ -26,11 +26,10 @@ dependencies {
     implementation(libs.okhttp)
 
     // Compose (for controls)
-    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.foundation)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.material.icons.extended)  // D-322: explicit pin (icons deprecated after 1.7.8)
 
     // MPV native lib (via wrapper module)
     api(project(":core:player-mpv-lib"))

@@ -1509,3 +1509,8 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 - **D-319** — Cover viewer: pinch-to-zoom (auto-resets on finger lift) + saves now read Coil's disk cache first (instant, original bytes; network only as fallback; magic-byte format sniffing).
 - **D-320** — EXPERIMENTAL shared-element cover transition: tapping a cover on Browse/Search/Library morphs it into the details banner (and back on back-press) — AnimatedContent navigation shell + SharedTransitionLayout + section-qualified keys carried through the nav key + a loading-skeleton landing spot; per-screen saveable state (browse scroll survives navigation); toggle in Settings → Appearance → Details page.
 - **D-321** — Version 0.2.59 → 0.2.60.
+
+## v0.2.61 — Startup-crash fix: compose compile/runtime alignment (D-322, 2026-08-29)
+
+- **D-322** — Fixed the v0.2.60 startup crash (`NoSuchMethodError: sharedElement$default`): the app had been SHIPPING compose 1.10.4 at runtime (silently pulled in by koin-compose 4.2.2's JetBrains-Compose requirement — a BOM constraint cannot cap a required version) while compiling against the BOM's 1.7.8. The compose BOM is now REPLACED by explicit 1.10.4-line pins (compile == runtime == the line every release has actually been running); material3 stays 1.3.1, icons 1.7.8, lifecycle aligned to the really-resolved 2.9.4; the shared-element call ported to the 1.10 API (`sharedContentState` parameter). NEW build guard: `checkDependencyAlignment` fails any build whose packaged compose/lifecycle versions deviate from the pins — this class of skew can never ship silently again.
+- **D-323** — Version 0.2.60 → 0.2.61.
