@@ -1501,3 +1501,11 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 - **D-314** — Simple pull-to-refresh: Material 3 PullToRefreshBox → full `refreshAll()` exactly like the Refresh button (themed indicator, threshold haptic); the 3-stage episodes/metadata/everything PTR + legacy refresh-stage API deleted.
 - **D-315** — Full-screen cover viewer: tap the cover → expands from its exact position into a centered near-full-width view (single-Animatable deferred-read transform); Close collapses back with the same animation; Save streams the original bytes to the gallery (Pictures/ANI-KUTA; MediaStore on API 29+, permission+media-scan on 24–28).
 - **D-316** — Version 0.2.58 → 0.2.59.
+
+## v0.2.60 — Season slice numbering + organize redesign + PTR persistence + cover zoom + shared-element transitions (D-317..D-321, 2026-08-28)
+
+- **D-317** — Season slices now show per-season numbers (S1 1..8, S2 1..8 — was arbitrary globals); renumbering is season-aware (globals run S1 1..10, S2 11..18, aligned with AniList-absolute metadata); "Organize episodes by" is three states (Off/Seasons/Numbers) with migration; new "Season in episode tag" toggle renders "S-3/E-5" compound badges (two theme-color shades) in the All list.
+- **D-318** — Pull-to-refresh persists until the refresh ACTUALLY completes (refreshAll awaits all three refresh coroutines) + a custom themed indicator (surface disc, adaptive accent, determinate pull arc → indeterminate spin).
+- **D-319** — Cover viewer: pinch-to-zoom (auto-resets on finger lift) + saves now read Coil's disk cache first (instant, original bytes; network only as fallback; magic-byte format sniffing).
+- **D-320** — EXPERIMENTAL shared-element cover transition: tapping a cover on Browse/Search/Library morphs it into the details banner (and back on back-press) — AnimatedContent navigation shell + SharedTransitionLayout + section-qualified keys carried through the nav key + a loading-skeleton landing spot; per-screen saveable state (browse scroll survives navigation); toggle in Settings → Appearance → Details page.
+- **D-321** — Version 0.2.59 → 0.2.60.

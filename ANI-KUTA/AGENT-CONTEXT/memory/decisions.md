@@ -2436,3 +2436,38 @@ Device-feedback batch: D-311..D-315.
 - **Files:** AndroidConfig.kt.
 - **Status:** ✅ Implemented; tag v0.2.59 + release after CI green.
 - **Date:** 2026-08-28.
+
+### D-317 — Season slice numbering + three-state organize + S-n/E-m compound tag
+
+Device report (v0.2.59): "As soon as I go to season one… it was starting from my episode 9 to 16… season 2 was starting from episode 1 to episode 8. Both of them should be like episode 1 to episode 8." Root cause: extensions that number episodes WITHIN each season (duplicates across seasons — the user's dump showed "Season 2 - Episode 1" with num=1.0) trigger the normalizer's renumber-by-RAW-order; the extension returns a date-sorted list, so globals interleaved seasons and every slice inherited jumbled numbers. Fixes: (a) normalizer renumbers season-aware (sort by season, episode-in-season, raw index FIRST — globals run S1 1..10, S2 11..18, aligning with AniList-absolute metadata); (b) new analyzeEpisodeSeasons (one pass: groups + url-keyed assignments + per-season display numbers, guaranteed unique within a bucket); (c) season slices show the episode's PER-SEASON number via the new EpisodeTag override on EpisodeRow. Plus the requested settings redesign: "Organize episodes by" is now THREE states (Off = flat / Seasons / Numbers) with the old boolean as the migration source, and a "Season in episode tag" toggle (hidden in Seasons mode per spec) renders "S-3/E-5" compound badges in the All list — season + episode in two shades of the theme color, slash separator, slight letter-spacing. Grouping-size row only shows in the (effective) number-groups mode. Dumper no longer double-logs in debug builds.
+- **Files:** EpisodeListPreferences.kt, EpisodeListNormalizer.kt, EpisodeListProcessor.kt, DetailsScreen.kt, EpisodeListSettingsSheet.kt, EpisodeListDumper.kt.
+- **Status:** ✅ Implemented (commits c3c07be1 + 5677c542).
+- **Date:** 2026-08-28.
+
+### D-318 — Persistent pull-to-refresh indicator
+
+Device report: "It should not be that simple… it should show a better-looking refresh one coming down, and the refresh animation should play until it is refreshed properly. It currently… goes away way too quickly, even before the refresh has finished." Two stacked fixes: (a) refreshAll now AWAITs real completion — suspend cores (refreshMetadataNow/refreshEpisodesListNow) extracted from the old fire-and-forget launches; all three refreshes run concurrently in a coroutineScope and isRefreshing clears only when they finish (was: fixed 500ms delay); (b) custom themed indicator replaces the default M3 one — a floating surface disc (shadow, per-anime adaptive accent) that slides down + scales in with the pull, fills a determinate arc with the pull distance, then spins indeterminately for the WHOLE refresh; all per-frame values read inside graphicsLayer (zero pull-frame recomposition).
+- **Files:** DetailsViewModel.kt, DetailsScreen.kt.
+- **Status:** ✅ Implemented (commit 5677c542).
+- **Date:** 2026-08-28.
+
+### D-319 — Cover viewer zoom + instant saves
+
+User: "when I click the cover image, I should be able to zoom in on the cover image and see any part of it. The zoom-in will not stay; it will automatically zoom out after the user lifts his fingers" + save "takes way too much time". (a) Pinch-to-zoom (1x..6x) + clamped pan on the expanded cover (transformable; gesture-end detected via snapshotFlow on isTransformInProgress — foundation 1.7 has NO onGestureEnd overload), animating back to rest on release with Motion tokens; single tap still closes. (b) Save now reads the cover's ORIGINAL bytes from Coil's DISK CACHE first (openSnapshot → data.toFile(); the cover was already loaded through the same shared loader) — instant + lossless; network is only the fallback. Format from magic-byte sniffing (jpg/png/webp/gif), not Content-Type.
+- **Files:** CoverViewerOverlay.kt.
+- **Status:** ✅ Implemented (commits 5677c542 + b03d0489).
+- **Date:** 2026-08-28.
+
+### D-320 — Experimental shared-element cover transition (Browse/Search/Library ⇄ Details)
+
+User: "the exact same cover image feature, but implement it on the whole library page and other pages too… when I click on any entry from any of those covers, its cover will smoothly move to the location where the cover is supposed to be on the details page… if I exit the details page and then I click the back button or maybe use the back gesture, then the same animation will happen." Architecture: MainActivity's plain when(currentKey) switch became SharedTransitionLayout + AnimatedContent (Details in/out → 280ms crossfade = the shared-element window; everything else snap() = unchanged instant switching; the lambda param shadows currentKey so all branch bodies stayed verbatim). Both scopes provided via CompositionLocals in :core:designsystem (LocalSharedTransitionScope/LocalNavAnimatedVisibilityScope + Modifier.coverSharedElement(key) helper with Motion-emphasized 320ms bounds transform). Keys travel through the NAV KEY (AnimeDetailsKey.transitionKey + coverUrl/title display hints, default-null → serialization-compatible) so source + destination agree. Browse keys are SECTION-QUALIFIED ("cover:trending:<url>") — the same anime appears in multiple sections and duplicate keys in one composition are undefined; hero excluded. Search (both grids) + Library (all display modes via LibraryCoverImage) use plain "cover:<url>". DetailsScreen renders a loading SKELETON banner at the exact banner geometry when the key carries a cover — the morph lands instantly on first-ever opens and the Success swap is pixel-seamless. SaveableStateProvider (keyed by screen class) preserves each screen's rememberSaveable state while disposed — required for the reverse morph to land on the tapped card, and the browse grid scroll now survives navigation. Toggle: Settings → Appearance → Details page → "Cover transition (experimental)" (default ON while the user evaluates).
+- **Files:** SharedTransitionLocals.kt (new), MainActivity.kt, AnimeDetailsKey.kt, BrowseScreen.kt, BrowseCards.kt, SearchScreen.kt, LibraryScreen.kt, DetailsScreen.kt, AppPreferences.kt, DetailsPageSettingsScreen.kt, designsystem/build.gradle.kts, anime-browse build.gradle.kts.
+- **Status:** ✅ Implemented (commit b03d0489).
+- **Date:** 2026-08-28.
+
+### D-321 — Version 0.2.60 (versionCode 60)
+
+Device-feedback batch: D-317..D-320.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.60 + release after CI green.
+- **Date:** 2026-08-28.
