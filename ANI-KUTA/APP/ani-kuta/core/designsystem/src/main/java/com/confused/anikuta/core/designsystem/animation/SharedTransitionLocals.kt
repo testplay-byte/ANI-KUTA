@@ -60,7 +60,8 @@ fun Modifier.coverSharedElement(key: String?): Modifier {
     val animatedScope = LocalNavAnimatedVisibilityScope.current ?: return this
     return with(sharedScope) {
         this@coverSharedElement.sharedElement(
-            sharedContentState = rememberSharedContentState(key = key),
+            // compose 1.7.x names this parameter `state` (not sharedContentState).
+            state = rememberSharedContentState(key = key),
             animatedVisibilityScope = animatedScope,
             boundsTransform = BoundsTransform { _, _ ->
                 tween(Motion.DurationStandard, easing = Motion.EasingEmphasized)
