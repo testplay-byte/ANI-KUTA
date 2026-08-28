@@ -145,7 +145,12 @@ fun CoverViewerOverlay(
     var zoomPanX by remember { mutableFloatStateOf(0f) }
     var zoomPanY by remember { mutableFloatStateOf(0f) }
     var imageBoxSize by remember { mutableStateOf(IntSize.Zero) }
+    // D-319 review fix (M2): a NEW pinch starting during the ~300ms auto-reset
+    // would fight the running reset animation — cancel it the moment a fresh
+    // gesture delivers its first transform event.
+    var zoomResetJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+        zoomResetJob?.let { job -> if (job.isActive) job.cancel() }
         val newScale = (zoomScale * zoomChange).coerceIn(1f, 6f)
         zoomScale = newScale
         if (newScale > 1f && imageBoxSize != IntSize.Zero) {
@@ -167,10 +172,15 @@ fun CoverViewerOverlay(
             .collect { inProgress ->
                 if (!inProgress && (zoomScale != 1f || zoomPanX != 0f || zoomPanY != 0f)) {
                     val resetSpec = tween<Float>(Motion.DurationStandard, easing = Motion.EasingStandard)
-                    kotlinx.coroutines.coroutineScope {
-                        launch { animate(zoomScale, 1f, animationSpec = resetSpec) { v, _ -> zoomScale = v } }
-                        launch { animate(zoomPanX, 0f, animationSpec = resetSpec) { v, _ -> zoomPanX = v } }
-                        launch { animate(zoomPanY, 0f, animationSpec = resetSpec) { v, _ -> zoomPanY = v } }
+                    // Launch on the composable scope (NOT the collector's
+                    // coroutine) so the Job handle is available immediately for
+                    // gesture-start cancellation.
+                    zoomResetJob = scope.launch {
+                        kotlinx.coroutines.coroutineScope {
+                            launch { animate(zoomScale, 1f, animationSpec = resetSpec) { v, _ -> zoomScale = v } }
+                            launch { animate(zoomPanX, 0f, animationSpec = resetSpec) { v, _ -> zoomPanX = v } }
+                            launch { animate(zoomPanY, 0f, animationSpec = resetSpec) { v, _ -> zoomPanY = v } }
+                        }
                     }
                 }
             }

@@ -1,9 +1,9 @@
 package com.confused.anikuta.core.designsystem.animation
 
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.BoundsTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -38,10 +38,13 @@ import com.confused.anikuta.core.designsystem.theme.Motion
  *   gate the feature behind the `coverTransitionEnabled` preference and for
  *   covers that are null).
  * - The default bounds transform uses the app's Motion tokens (emphasized
- *   easing, 320ms) instead of the library's default spring.
+ *   easing, 300ms — aligned with the nav fade duration) instead of the
+ *   library's default spring.
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { null }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 val LocalNavAnimatedVisibilityScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
 
 /**
@@ -57,10 +60,10 @@ fun Modifier.coverSharedElement(key: String?): Modifier {
     val animatedScope = LocalNavAnimatedVisibilityScope.current ?: return this
     return with(sharedScope) {
         this@coverSharedElement.sharedElement(
-            state = rememberSharedContentState(key = key),
+            sharedContentState = rememberSharedContentState(key = key),
             animatedVisibilityScope = animatedScope,
             boundsTransform = BoundsTransform { _, _ ->
-                tween(Motion.DurationStandard + 20, easing = Motion.EasingEmphasized)
+                tween(Motion.DurationStandard, easing = Motion.EasingEmphasized)
             },
         )
     }

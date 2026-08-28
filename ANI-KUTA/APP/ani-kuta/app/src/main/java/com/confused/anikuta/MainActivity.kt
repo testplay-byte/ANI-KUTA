@@ -11,11 +11,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.snap
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -569,9 +570,11 @@ fun AppRoot() {
                     val detailsInvolved =
                         targetState is AnimeDetailsKey || initialState is AnimeDetailsKey
                     if (detailsInvolved) {
-                        fadeIn(tween(280)) togetherWith fadeOut(tween(280))
+                        fadeIn(tween(300)) togetherWith fadeOut(tween(300))
                     } else {
-                        snap()
+                        // Instant switch — identical to the pre-D-320 behavior
+                        // (androidx.compose.animation has no snap() ContentTransform).
+                        EnterTransition.None togetherWith ExitTransition.None
                     }
                 },
                 label = "appNav",

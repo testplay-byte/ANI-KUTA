@@ -1346,7 +1346,7 @@ class DetailsViewModel(
                 Logger.i(TAG) { "D.3 Stage 1: Fetched ${episodes.size} fresh episodes" }
                 if (stale()) {
                     Logger.d(TAG) { "D.3 Stage 1: refresh result discarded (stale generation)" }
-                    return@launch
+                    return
                 }
                 val sorted = episodes.sortedByDescending { it.episode_number }
                 _episodeState.value = if (episodes.isEmpty()) EpisodeState.Empty else EpisodeState.Loaded(sorted)
@@ -1594,6 +1594,11 @@ class DetailsViewModel(
                     // D-242: also refresh the tracking data from AniList (if linked).
                     launch { runCatching { refreshTracking() } }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Let cancellation propagate (user left mid-refresh) — the
+                // generation-guarded finally below still clears the indicator
+                // only when this refresh owned the screen (resetState otherwise).
+                throw e
             } catch (e: Exception) {
                 Logger.w(TAG) { "D.3 Stage 3: refresh error (non-fatal): ${e.message}" }
             } finally {
