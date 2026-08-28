@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -90,6 +91,19 @@ fun UpdatesScreen(
                 title = if (selectedTab == 0) "Updates" else "Schedule",
                 collapsed = collapsed,
                 actions = {
+                    // D-249: Clear button — visible only on the Updates tab with content.
+                    if (selectedTab == 0 && state is UpdatesUiState.Loaded) {
+                        val loaded = state as UpdatesUiState.Loaded
+                        if (loaded.newUpdates.isNotEmpty() || loaded.earlierUpdates.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.clearAllUpdates() }) {
+                                Icon(
+                                    imageVector = Icons.Filled.DeleteSweep,
+                                    contentDescription = "Clear all updates",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = {
                         if (selectedTab == 0) viewModel.checkForUpdates()
                         else scheduleViewModel.fetchSchedule()
@@ -302,6 +316,10 @@ private fun UpdateRow(
     update: UpdateDisplay,
     onClick: () -> Unit,
 ) {
+    // D-249: compact HistoryRow-style anatomy — the right column is height-locked to
+    // the cover (80dp, SpaceBetween) with a 1-line title up top and one bottom meta
+    // row (EP + SUB/DUB pill + time-ago right-aligned). The old 4-element stack
+    // (title 2-line / EP / badge / time) made rows far taller than the cover.
     Surface(
         color = if (!update.acknowledged) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -310,7 +328,7 @@ private fun UpdateRow(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(10.dp),
-            verticalAlignment = Alignment.Top,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Cover (56×80dp)
             if (update.coverUrl != null) {
@@ -331,54 +349,64 @@ private fun UpdateRow(
                 }
             }
             Spacer(Modifier.width(12.dp))
-            // Right column
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Right column — height-matched to the cover, two bands (title / meta).
+            Column(
+                modifier = Modifier.weight(1f).height(80.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+            ) {
+                // Band 1: title — ALWAYS one line (user directive).
                 Text(
                     text = update.animeTitle,
                     fontFamily = RobotoFamily,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = if (update.batchType == "initial" && update.episodeCount != null) {
-                        "Episodes 1-${update.episodeCount} added to library"
-                    } else {
-                        "EP ${update.episodeNumber}"
-                    },
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-                // D-193 Phase 5: Show SUB/DUB as a highlighted badge (separate from EP number)
-                if (update.batchType != "initial") {
-                    val audioLabel = formatAudioLabel(update.audioVariant)
-                    if (audioLabel.isNotBlank()) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier.padding(top = 2.dp),
-                        ) {
-                            Text(
-                                text = audioLabel,
-                                fontFamily = RobotoFamily,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
+                // Band 2: EP text + SUB/DUB pill inline, time-ago right-aligned.
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (update.batchType == "initial" && update.episodeCount != null) {
+                                "Episodes 1-${update.episodeCount} added"
+                            } else {
+                                "EP ${update.episodeNumber}"
+                            },
+                            fontFamily = RobotoFamily,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                        if (update.batchType != "initial") {
+                            val audioLabel = formatAudioLabel(update.audioVariant)
+                            if (audioLabel.isNotBlank()) {
+                                Spacer(Modifier.width(6.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(4.dp),
+                                ) {
+                                    Text(
+                                        text = audioLabel,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
                         }
                     }
+                    Text(
+                        text = formatTimeAgo(update.discoveredAt),
+                        fontFamily = RobotoFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
                 }
-                Text(
-                    text = formatTimeAgo(update.discoveredAt),
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

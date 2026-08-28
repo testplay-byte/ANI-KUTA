@@ -12,7 +12,6 @@ import dalvik.system.PathClassLoader
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.AnimeSourceFactory
 import java.security.MessageDigest
-
 /**
  * Loads Aniyomi-compatible anime extensions installed on the device.
  *
@@ -27,11 +26,25 @@ import java.security.MessageDigest
  *
  * Algorithm:
  * 1. Query [PackageManager] for packages with the `tachiyomi.animeextension` feature.
- * 2. Validate the lib version (parsed from versionName) is in 12.0..16.0.
- * 3. SHA-256 hash the signing certificate → ask [TrustService] if it's trusted.
- * 4. Build a child-first [PathClassLoader] so the extension's bundled deps win.
+ * 2. SHA-256 hash the signing certificate → ask [TrustService] if it's trusted.
+ * 3. Build a **parent-first** [PathClassLoader] (exactly like the reference Aniyomi)
+ *    so the host's kotlin-stdlib / okhttp / rx / source-api always win; the extension
+ *    APK only supplies classes the host does NOT have (its own source classes,
+ *    bundled extractors, apache-commons, keiyoushi/utils, multisrc themes, …).
+ * 4. Validate the lib version (parsed from versionName) — informational only;
+ *    D-297: out-of-range versions are still ATTEMPTED (the failure mode is a
+ *    visible [LoadResult.Error], never a silent drop).
  * 5. Instantiate each declared source class (or factory).
  * 6. Return a [LoadResult] (Success / Untrusted / Error).
+ *
+ * D-294 (root fix for "extensions disappear after trust"): the previous
+ * child-first classloader let an extension's PARTIAL bundled kotlin-stdlib
+ * shadow the host's complete stdlib — a mixed-stdlib class-identity breakage
+ * that threw during source instantiation. Reference Aniyomi is parent-first;
+ * with parent-first the bundled kotlin classes are inert dead weight and the
+ * extension resolves the host's (binary-compatible) stdlib instead. Verified
+ * against the sb-extensions-source template family (moviebox/anikoto-v16 etc.)
+ * which bundle kotlin 2.0.x partials while the app ships kotlin 2.2.0.
  *
  * CORE_RULES §20: All operations logged with tag "Anikuta:Data:Extension:Loader".
  */
@@ -55,9 +68,12 @@ class ExtensionLoader(
         /** Meta-data key for the torrent flag (1 = supports torrents). */
         private const val METADATA_TORRENT = "tachiyomi.animeextension.torrent"
 
-        /** Acceptable source-api library version range (matches Aniyomi). */
+        /** Source-api library version we KNOW we are compatible with (lib-17 APIs
+         *  exist in :core:source-api — server, getVideoThumbnails, getImageTile).
+         *  D-297: versions outside the range are still ATTEMPTED — this is the
+         *  documented/known-good range, not a hard gate. */
         const val LIB_VERSION_MIN = 12.0
-        const val LIB_VERSION_MAX = 16.0
+        const val LIB_VERSION_MAX = 17.0
     }
 
     /**
@@ -153,9 +169,14 @@ class ExtensionLoader(
 
         // Validate lib version (only for TRUSTED extensions — an incompatible lib version
         // means the extension can't be loaded even if trusted).
+        // D-297: no hard rejection — versions outside the known-good range are still
+        // attempted below; if instantiation fails the user sees a visible Errored row
+        // with the reason instead of the extension silently vanishing.
         if (libVersion < LIB_VERSION_MIN || libVersion > LIB_VERSION_MAX) {
-            Logger.w(TAG) { "Lib version $libVersion out of range for $extName (trusted but incompatible)" }
-            return LoadResult.Error(pkgName, "Lib version $libVersion out of range (trusted but incompatible)")
+            Logger.w(TAG) {
+                "Lib version $libVersion outside known-good range ${LIB_VERSION_MIN}..${LIB_VERSION_MAX} " +
+                    "for $extName (trusted) — attempting load anyway"
+            }
         }
 
         // Read metadata.
@@ -167,33 +188,57 @@ class ExtensionLoader(
                 return LoadResult.Error(pkgName, "No source class metadata")
             }
 
-        // Build a child-first classloader so the extension's bundled deps win.
+        // D-294: parent-first PathClassLoader — EXACTLY like the reference Aniyomi.
+        // The extension APK supplies only classes the host lacks; the host's
+        // kotlin-stdlib / okhttp / source-api always win. (The old child-first loader
+        // shadowed the host stdlib with the extension's partial bundled copy →
+        // mixed-stdlib breakage → "extension disappears after trust".)
         val classLoader = try {
-            ChildFirstPathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, context.classLoader)
+            PathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, context.classLoader)
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to create classloader for $pkgName" }
-            return LoadResult.Error(pkgName, "Classloader error: ${e.message}")
+            return LoadResult.Error(pkgName, "Classloader error: ${e.message}", extName)
         }
 
-        // Instantiate sources.
-        val sources = sourceClassName.split(";").map { it.trim() }.flatMap { fqcn ->
+        // Instantiate sources. D-295: collect per-class failures so the Error result
+        // carries the REAL reason (exception class + message) instead of a generic
+        // "No sources instantiated".
+        val sources = mutableListOf<AnimeSource>()
+        val failures = mutableListOf<String>()
+        sourceClassName.split(";").map { it.trim() }.filter { it.isNotEmpty() }.forEach { fqcn ->
             val resolved = if (fqcn.startsWith(".")) pkgName + fqcn else fqcn
-            instantiateSource(resolved, classLoader, extName)
+            when (val result = instantiateSource(resolved, classLoader, extName)) {
+                is SourceInstantiation.Success -> sources.addAll(result.sources)
+                is SourceInstantiation.Failure -> failures.add(result.reason)
+            }
         }
 
         if (sources.isEmpty()) {
-            Logger.w(TAG) { "No sources instantiated from $pkgName" }
-            return LoadResult.Error(pkgName, "No sources instantiated")
+            val reason = if (failures.isNotEmpty()) {
+                failures.joinToString("; ")
+            } else {
+                "No source classes declared"
+            }
+            Logger.w(TAG) { "No sources instantiated from $pkgName: $reason" }
+            return LoadResult.Error(pkgName, reason, extName)
         }
 
         val icon = runCatching { appInfo.loadIcon(packageManager) }.getOrNull()
+        // D-298: populate lang from the instantiated sources (was always null —
+        // the language filter depends on it).
+        val lang = sources.map { it.lang }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }
+            .eachCount()
+            .maxByOrNull { it.value }?.key
+            ?: sources.firstOrNull()?.lang?.takeIf { it.isNotBlank() }
         val extension = AnimeExtension.Installed(
             name = extName,
             pkgName = pkgName,
             versionName = versionName,
             versionCode = versionCode,
             libVersion = libVersion,
-            lang = null,
+            lang = lang,
             isNsfw = isNsfw,
             isTorrent = isTorrent,
             sources = sources,
@@ -212,29 +257,39 @@ class ExtensionLoader(
         return pkgInfo.reqFeatures.orEmpty().any { it.name == EXTENSION_FEATURE }
     }
 
+    /** Result of instantiating one declared source class. */
+    private sealed interface SourceInstantiation {
+        data class Success(val sources: List<AnimeSource>) : SourceInstantiation
+        data class Failure(val reason: String) : SourceInstantiation
+    }
+
     /**
      * Instantiate a source class. Handles both [AnimeSource] and [AnimeSourceFactory].
+     * D-295: failures return the exception class + message so callers can surface
+     * the actual cause to the user.
      */
-    private fun instantiateSource(fqcn: String, classLoader: ClassLoader, extName: String): List<AnimeSource> {
+    private fun instantiateSource(fqcn: String, classLoader: ClassLoader, extName: String): SourceInstantiation {
         return try {
             val clazz = Class.forName(fqcn, false, classLoader)
             when {
                 AnimeSourceFactory::class.java.isAssignableFrom(clazz) -> {
                     val factory = clazz.getDeclaredConstructor().newInstance() as AnimeSourceFactory
-                    factory.createSources()
+                    SourceInstantiation.Success(factory.createSources())
                 }
                 AnimeSource::class.java.isAssignableFrom(clazz) -> {
-                    listOf(clazz.getDeclaredConstructor().newInstance() as AnimeSource)
+                    SourceInstantiation.Success(listOf(clazz.getDeclaredConstructor().newInstance() as AnimeSource))
                 }
                 else -> {
                     Logger.w(TAG) { "Class $fqcn in $extName is neither AnimeSource nor AnimeSourceFactory" }
-                    emptyList()
+                    SourceInstantiation.Failure("$fqcn is not an AnimeSource")
                 }
             }
         } catch (e: Throwable) {
             // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError (an Error).
             Logger.e(TAG, e) { "Failed to instantiate $fqcn in $extName: ${e.message}" }
-            emptyList()
+            SourceInstantiation.Failure(
+                "$fqcn: ${e.javaClass.simpleName}${if (!e.message.isNullOrBlank()) ": ${e.message}" else ""}"
+            )
         }
     }
 

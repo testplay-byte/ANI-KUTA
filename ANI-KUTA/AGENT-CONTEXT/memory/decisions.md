@@ -1682,3 +1682,848 @@ Module map + progress + decisions + flow diagrams + analytics + planning. Read-o
 - **Fix history:** fix9 (edge-to-edge + theme-adaptive), fix10 (badge data enrichment), fix11 (horizontal display cards + side-by-side badges), fix12 (remove position selectors + bold text), fix13 (scroll-to-minimize header), fix14 (advanced RELEASED options + SVG icons + unwatched toggle).
 - **Status:** ✅ Implemented. Commit `db0535d0` on `functionality/improvements`. Version 0.2.37 (versionCode 37). Awaiting push + CI build.
 - **Date:** Library badge customization session.
+
+---
+
+### D-243 — Video playback caching (local HTTP proxy + stable identity)
+- **What:** A new `:core:playback-cache` module caches streamed video bytes locally so replays of the SAME video (same server + audio + resolution) start instantly from disk with zero network round-trips. Architecture: a NanoHTTPD proxy on 127.0.0.1 (ephemeral port, pre-started at app startup) sits between MPV and the upstream URL — MPV gets `http://127.0.0.1:PORT/v/<cacheKey>`, the proxy serves cached byte-ranges from `<filesDir>/playback-cache/<key>.bin` and fetches missing ranges upstream (tee'ing into the file, positional FileChannel writes). New `playback_cache_entry` SQLDelight table (23→24 tables) with reactive queries + driver-factory guard for upgrade installs.
+- **CRITICAL design points:**
+  - **Stable identity, NOT URLs**: extension localhost proxy URLs change every resolve (D-066) — cache key = sha256(mainId + episodeNumber + sourceId + "server|audio|quality" from ResolverVideo.videoTitle minus the volatile urlHash). videoTitle is the codebase's documented stable-identity string.
+  - **Live episode state**: the identity's episodeNumber comes from PlayerStateHolder/the new episode at switch time — NEVER the frozen watchKey.episodeNumber (wrong-episode cache corruption).
+  - **Fail-open everywhere**: pre-loadfile errors → original URL; proxy pre-body errors → 301/302 redirect to upstream (ffmpeg follows; D-199 global headers keep working); mid-stream → connection close. The cache can never permanently break playback.
+  - `Accept-Encoding: identity` on ALL upstream fetches (byte-offset integrity); header-setting code in WatchScreen untouched (D-199/D-095); fd:///content:// bypass; free-disk guard.
+  - LRU eviction (limit 100 MB..2 GB, default 512 MB, active-stream-safe via atomic DELETING state + deferred delete); stale-file verification (missing/truncated .bin, content-length mismatch → reset).
+- **Settings:** dedicated "Video caching" screen (Settings → Player section): master toggle (default ON), storage-limit slider, usage summary, cached-episodes list with per-entry "Cached: start → X · N% of total (+k segments)" display + delete + clear-all.
+- **Why:** User request (test-feature branch): replaying the same episode/server/resolution should "load up the cached one first and start playing directly... without any processing".
+- **Plan:** `APP/ani-kuta/DOCUMENTATION/planning/video-cache-parallel-downloads/PLAN.md` (Part A) — reviewed 2 rounds by 5 sub-agents (PR-A/PR-B/PR-C + PR-2A/PR-2B); compile review CR-A (3 compiler-caught errors fixed).
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 95909b12, CI green). Awaiting user device verification — NOT merged to main.
+- **Date:** Video caching + parallel download session.
+
+---
+
+### D-244 — Parallel download engine (MPV-inspired multi-connection downloads)
+- **What:** A new multi-connection download method wired to the previously-DEAD "Advanced downloader" settings prefs (`advancedDownloader`/`advancedThreads`/`advancedMaxRetries` existed with UI but zero engine references). HttpDownloader becomes the FACADE (routing/validation/publish/.data.json unchanged); a new `VideoFetcher` seam makes only the "bytes → temp File" stage pluggable:
+  - `SingleConnectionFetcher` — today's downloadNormal extracted verbatim (Range-resume, re-resolve recursion, HttpException mapping).
+  - `ParallelHttpFetcher` — Range probe (bytes=0-1 GET), N chunk workers (advancedThreads, connection-budget-capped ≤16 per queue), positional writes into a pre-allocated sparse temp file, per-chunk exponential backoff (2^n capped 30s), premature-EOF/range-mismatch/50KB-s-stall handling, active-call registry (Call.cancel teardown), re-resolve on ANY HttpException for localhost (incl. 403 — the primary proxy-churn case), chunk sidecar (`video.<ext>.chunks`) for pause/resume, single-stream fallback for Range-ignoring servers, dedicated 250ms progress-reporter coroutine (DownloadQueue's onProgress lambda mutates non-thread-safe state — workers only touch an AtomicLong).
+  - `HlsDownloader` parallel mode — concurrent segment workers + ordered writer (spill files, semaphore-bounded), **in-memory AES-128-CBC decryption** (EXT-X-KEY + EXT-X-MEDIA-SEQUENCE default-IV derivation, 16-byte alignment validation, rotating-key rejection, PNG-strip BEFORE decrypt), append-state sidecar (`video.ts.hls-state.json`) with playlist-stability validation, and the variant-URL base fix (pre-existing relative-URI bug). Legacy mode preserved byte-for-byte.
+  - Engine-switch safety: both directions detect foreign sidecars → restart clean (sparse files never published with holes).
+- **Settings:** the existing Downloads → Advanced section (toggle + threads + retries sliders) — default flipped ON (the engine is the point; easy off-switch back to legacy).
+- **Why:** User request (test-feature branch): an MPV-inspired high-performance download method per the shared article (connection pooling, parallel ranges, concurrent HLS, in-memory decryption, adaptive buffers, exponential backoff) — adapted to OkHttp (pooling/keep-alive/HTTP-2 come free).
+- **Plan:** `APP/ani-kuta/DOCUMENTATION/planning/video-cache-parallel-downloads/PLAN.md` (Part B); compile review CR-B (compiler-verified: 4 compile errors + a Semaphore double-release runtime crash + probe-outside-re-resolve + sidecar cleanup — all fixed pre-push).
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 5cedad58). Awaiting CI + user device verification — NOT merged to main.
+- **Date:** Video caching + parallel download session.
+
+---
+
+### D-245 — Video caching session-2: always-cache serving, HLS playlist rewriting, background fill, tap-to-play
+- **What:** Fixed the user-reported "episode registered but never cached" defect + delivered the two requested enhancements, on `test-feature/video-cache-new-download` (commit 23a93c8b).
+- **Root causes (all fixed):** (1) unknown-Content-Length → 301 redirect upstream = playback OK but zero caching — replaced by learn-mode serving (mirror the client's Range upstream, learn the total from the response; chunked-with-tee when even then unknown; the separate 0-1 probe is GONE); (2) HLS playlists only proxied the playlist text — segments (absolute URLs) bypassed the cache — the proxy now REWRITES playlists (variants → /p/&lt;key&gt;/&lt;i&gt;, segments + EXT-X-MAP → /s/&lt;key&gt;/&lt;i|init&gt;) and caches per-segment files (URL-hash named, drift-safe; BYTERANGE playlists bypass, logged; live playlists don't fill).
+- **Background fill:** per-entry job fetches remaining gaps (progressive, 8 MB blocks, player-frontier-aware ±32 MB) or segments (HLS VOD) until complete — "while it is playing, everything else loads". Segment stats recounted from disk (race-safe).
+- **Tap-to-play:** entries now carry subtitle/audio track lists (4 new ALTER-guarded columns) — settings rows are clickable → full WatchKey rebuilt → same server/quality/resolution (cache identity guarantees it) + WP-B3 resume from watch progress. Known v1 limits: no episode switching from cache-origin launches; a dead stored upstream URL fails like any dead link (reopen from Details to refresh).
+- **CR-C compile probe (real jars, EXIT 0) caught pre-push:** response.use{} closing the streaming body early (critical — dead stream on learn-mode serves); segment-stat races; variant-base-URL resolution.
+- **Logging:** every decision point logs under `Anikuta:Core:PlaybackCache` (play/serve/learn/parts/gap/tee/flush/complete/hls/seg/fill/evict/delete/fail-open) — user-debuggable via `tag:Anikuta:Core:PlaybackCache` in Android Studio.
+- **Status:** ✅ Implemented on the branch; CI pending at doc time (see progress.md). NOT merged to main.
+- **Date:** Video caching session-2.
+
+---
+
+### D-246 — Download network resilience + instant teardown + cache identity persistence + sandbox emulator test environment
+- **What (user-reported defects, all fixed on `test-feature/video-cache-new-download`, commit 512279ee + cf4a8a6f):**
+  1. **Downloads break on Wi-Fi loss and never auto-restart when the internet returns.** Root causes: (a) `onNetworkChanged` paused active tasks but never resumed them (PAUSED tasks are invisible to `tryStartNext`); (b) the DownloadService stopped itself once everything was paused, killing the NetworkCallback that would have fired the resume; (c) transport errors during an outage burned retries into ERROR. Fixes: `networkPausedTasks` set (pause + remember on loss; auto-resume on regain; user-initiated pause/cancel/pauseAll/cancelAll remove entries — user intent wins), service stays alive while network-paused tasks exist, transport-error-while-offline → PAUSED instead of retry/ERROR, CallRegistry instant teardown (OkHttp `Call.cancel()` on coroutine cancellation — blocked socket reads no longer wait out the 60s read timeout on pause).
+  2. **Downloaded size sometimes exceeds total.** The reported total is an estimate (HLS running-average lag, stale persisted totals). Fix: when downloaded exceeds the reported total, the total grows to reality (bar never >100%); `retry()` now also clears the persisted tracker state.
+  3. **Cached videos still load from the network (not instant).** The cache identity was rebuilt ONLY from the in-memory ResolvedVideosRegistry — empty in every new app session → identity null → cache silently bypassed on replay. Fix: conservative cross-session identity recovery from a prior cache entry (`findEntriesByIdentity`; single prior entry + matching quality only — ambiguity skips caching rather than risk wrong-content corruption).
+- **Sandbox emulator test environment (user-authorized + user-requested):** Android SDK cmdline-tools + platform-tools + emulator + API 30 google_apis x86_64 system image installed in the sandbox (`/home/z/android-sdk`); AVD `anikuta` (720x1280, 1536MB). x86_64 TCG works without KVM (cold boot ~8 min; system_server ANRs are common under 2-core TCG — dismiss with "Wait"). The arm APK runs via libndk_translation (slow); CI now ALSO produces a TEST-ONLY `app-debug-x86_64-emulator.apk` (separate artifact, `-PemulatorX64Build=true`) for native-speed emulator testing — the shipped APK stays arm-only (CORE_RULES §8 exception documented there). adb usage note: wrap every command in `timeout -s KILL N adb ... < /dev/null` (plain adb shell hangs the sandbox's persistent shell).
+- **Status:** ✅ Implemented. Commits 512279ee (fixes) + cf4a8a6f (x86_64 CI artifact). CI green for 512279ee (run 32619494659); cf4a8a6f run pending at doc time. NOT merged to main.
+- **Date:** Download-resilience + emulator session (2026-08-23).
+
+---
+
+### D-247 — Progress-window caching: cache [pos−2min, pos+2min], never more
+- **What (user report: "it caches the whole segments, all available segments of the video"):** both over-caching vectors eliminated on `test-feature/video-cache-new-download` (commits 88abfe34 + 1d82693d, CI green 32646499477 + 32648121661):
+  1. **The background fill** chased the entire remaining file → now a tick-based WINDOW fill (one 8MB block / one segment per 2s tick, self-paced): only gaps within [pos−120s, pos+120s], behind-gaps first (MPV never fetches those itself). Idle-exits after 60s without progress; re-triggers every 30s of position movement.
+  2. **MPV read-ahead through the serve path** (the bigger one — it streamed + teed the WHOLE file): the tee now writes only below the window ceiling (pos+120s, re-snapshotted per ranged request); for HLS, segments beyond the window end index are SERVED but NOT cached. Emulator-verified with real Anikoto playback: window 0..11 engaged (12 segments, 23MB) while segments #12→#50+ streamed through as pass-through ("BEYOND window — served, NOT cached") — the old code cached all 145 segments.
+  3. **Pre-playback fallback cap** (found during emulator testing): before FILE_LOADED fires (slow decode), the window is unknown — MPV's demuxer read-ahead had cached 43MB unbounded. Now bounded by a 32MB byte budget (matches the progressive tee fallback) until position starts flowing.
+- **Mapping:** HLS = EXACT via EXTINF cumulative start-times (parsed during playlist rewrite); progressive = proportional byte↔time (CBR approximation). Duration unknown → bounded fallback, real window once WatchScreen pushes position+duration (~1Hz via onPlaybackProgress).
+- **Interpretation documented:** watched-path bytes (below the sliding ceiling) stay cached — that IS the instant-replay feature; the PROACTIVE bounds are strict (window ∪ watched-path, never the whole episode ahead of the user).
+- **Cache-failure fallback:** if MPV errors while playing through the proxy, the FIRST auto-retry bypasses the cache entirely (direct network loadfile); manual retries stay direct until a successful READY re-arms the cache. Plus all existing fail-opens (pre-loadfile → original URL; pre-body → 301 redirect; mid-stream → close).
+- **Also fixed (CR-E):** phantom cached ranges (registerCached ran even when the disk write failed → truncated disk-slice serves; now register-after-successful-write only) + Int-vs-Float progress push (compile-breaker caught by the standalone-jar compile probe).
+- **Future direction noted (user's idea, NOT built):** preloading of expected episodes (next-in-series, continue-watching) using this cache so playback starts zero-buffer — the window machinery + identity system are the foundation.
+- **Extension compatibility (emulator-verified):** BOTH user extensions install + load + trust + search: Anikoto v14.4 (PRIMARY — full flow works: 30 search results, details, resolve → 4 videos w/ Vidstream-2/HD-1 SUB/DUB 1080p + 20 subtitle tracks, playback through the cache proxy) and AniKoto180 v16.9 (loads + trusts + appears in the source picker). The two APKs are saved in `USER-UPLOADS/extensions/` in the repo (per user request).
+- **Status:** ✅ Implemented + emulator-verified end-to-end with real extension playback. NOT merged to main.
+- **Date:** Video-caching window session (2026-08-23).
+
+---
+
+### D-248 — UX improvements: continue-watching direct play, honest profile stats, library cover fixes, download hardening, search page fixes
+- **What (six user-reported areas, all root-caused via research agents R-A..R-E + compiler-verified by CR-F standalone-jar probes; commits 0650135f + 4f367a81, CI green 32655570777):**
+  1. **Continue Watching → player directly** (Browse carousel): tap resolves the episode in the background (source auto-pick identical to the watch screen's episode-switch path) + launches Watch with startPosition resume; falls back to the legacy Details route when unresolvable. Same experience as the Video Caching tap-to-play (user's benchmark).
+  2. **Profile statistics honesty** (the "2,333 episodes watched in one day / 52 min" glitch): root cause = AniList-sync + manual bulk marks INSERT watch_progress rows with last_watched_at=now + duration=0 (syncLocalProgressFromTracker fires on EVERY details-open for tracked anime), and EVERY profile stat counted raw rows. Fix: a `countedProgress` set = organic only (`!userMarkedWatched && duration > 0 && progressFraction >= 0.10`); manual marks NEVER count (user directive: tracking lists update normally, profile stats never); <10%-watched never count; Recently Watched requires >20%. All stats (totals, watch flow, Time DNA, heatmap, streak, timeline) use the counted set. duration=0 rows fail automatically.
+  3. **Library covers**: (a) two-way fallback at all 5 Library sites (dataCoverUrl ?: extThumbnailUrl + inverse — was single-axis → null-on-preferred-axis = coverless forever); (b) ROOT CAUSE of covers vanishing on restart: DownloadScanner.upsertAniListDetail overwrote the ENTIRE data_* axis with nulls on EVERY startup scan (wiping data_cover_url) → now merges with the existing row (.copy) + seeds cover from .data.json on fresh rows; (c) Details refresh: AniList branch could silently no-op on missing rows + null-out fields the fetch didn't carry → now ensure-row + merge-with-existing (nulls preserve); extension branch NEVER persisted → now persists the ext_* axis the same way.
+  4. **Download vanish hardening** ("downloads disappear even though files exist"): (a) ANTI-SHRINK guard — when the file walk rebuilds fewer episodes than the durable .data.json lists (transient SAF listing failure), keep the durable list + protect ALL its keys from orphan cleanup (old code replaced .data.json with the shrunk list + deleted the surplus rows = PERMANENT loss, unfixable due to the D-242 orphan-skip); (b) any unreadable folder suppresses the whole orphan-cleanup pass; (c) scan mutex (concurrent scans raced .data.json read-modify-write).
+  5. **Search page**: trending auto-loads on first AniList entry (was: empty until re-tapping the AniList chip — the D-242-fix7 no-auto-load rule existed only because recents were Idle-exclusive); Recent searches now persist while browsing results as the results grid's full-span header item (scrolls away with content; top bar already collapses to title + compact search bar) and hide only when the user actually searches.
+  6. **Time DNA layout**: donut 100→112dp, panel padding 8→10dp, donut→legend spacing 8→16dp, legend rows 4→6dp.
+- **CI fix en route**: cross-module smart-cast (`item.anilistId` from :feature:anime-browse:impl in :app) — captured to a local val. (CR-F's probe compiled the HELPER verbatim but the fallback branch slipped; the smart-cast rule is now a known lesson.)
+- **Status:** ✅ Implemented, CI green. NOT merged to main — awaiting user device verification.
+- **Date:** UX-improvements session (2026-08-23).
+
+---
+
+### D-249 — Continue-watching lazy-init fix, Updates UI overhaul, Browse page redesign
+- **What (user feedback session; commits 222c0b2e + e6f9f0e4 + 552e06de, CI green 32660716135):**
+  1. **Continue-watching direct-play fix** (user: "still opened Details"): ROOT CAUSE = ExtensionManager is a LAZY Koin singleton; the helper was its FIRST resolver on cold start → loadAll()'s async source-map population hadn't finished → getSource() returned null → instant fallback. Fix: `extensionManager.sources.first { it.containsKey(sourceId) }` wrapped in `withTimeoutOrNull(10s)` — awaits the StateFlow emission (already-loaded = immediate).
+  2. **Updates UI overhaul** (user: "arrangement needs work, too tall, title should be 1 line"): compact HistoryRow-style anatomy — right column height-locked to the cover (80dp, SpaceBetween), title 1-line only (was 2-line), EP + SUB/DUB pill inline + time-ago on a clean bottom band (was 4 stacked elements). + NEW Clear-all button (deleteAllUpdates query + UpdateStore + VM + broom icon in the header, visible only when the Updates tab has content).
+  3. **Browse page complete redesign** (user: "way too basic, ugly, bad"): NEW AniListApi.fetchBrowseSection(sort) (sorted browse WITHOUT search — returns bannerImage + genres + seasonYear + status); multi-section BrowseViewModel (Trending + Popular + Top Rated, each cached independently in browse_cache); NEW layout: Hero banner (top trending — banner image, gradient scrim, #1 TRENDING badge, score/eps/year/genre pills, tap→Details) → Continue Watching carousel → Trending Now → Popular → Top Rated (horizontal card carousels with score-badge overlays, press-scale, 1-line titles, year·status subtitles).
+- **CI fixes en route:** missing `kotlinx.serialization.json.int` import + missing `kotlinx.coroutines.flow.first` import (the StateFlow predicate await).
+- **Status:** ✅ Implemented, CI green. NOT merged — awaiting user device verification.
+- **Date:** UX-fixes session (2026-08-23).
+
+---
+
+### D-250 — Settings-UI icon unification: bare-icon nav rows everywhere + BackAction dedup
+- **What (user feedback: More page icons "proper SVG", Settings page icons "some other kind of format, not good"; same for Appearance + other sub-pages — make consistent + cleaner):**
+  1. **Root cause**: the More page uses `MoreListRow` (`:core:designsystem`) — bare 24dp `Icon` tinted `primary`, NO container. The Settings/Appearance/Notifications hubs each defined a LOCAL `*NavRow` (`SettingsNavRow`, `AppearanceNavRow`, `LibraryNavRow`) that wrapped the icon in a 36dp `primaryContainer` rounded box ("chip-box") — a *different visual format* even though the same `Icons.Filled.*` glyphs were used. Plus ~12 copy-pasted `private fun BackAction` duplicates across `:app` + `:feature:extensions-settings:impl` (2 with missing `Modifier.size(18.dp)` → icon rendered 24dp; 1 divergent variant in TrackersScreen: transparent bg + `onBackground` tint + 20dp).
+  2. **Fix**: (a) **Reused `MoreListRow` directly** in the 3 hubs — deleted the 3 chip-box `*NavRow` defs + swapped all 11 call sites to `MoreListRow(icon=, title=, subtitle=, onClick=)`. Rationale (§5): two composables doing the exact same thing = unrequested abstraction; the settings nav rows ARE the More rows visually now, so share the component. (b) **Promoted `BackAction` to `:core:designsystem`** as `fun BackAction(onBack: () -> Unit, modifier: Modifier = Modifier)` (36dp CircleShape `surfaceVariant` + 18dp `Icons.AutoMirrored.Filled.ArrowBack` tinted `onSurfaceVariant`). Replaced all 12 private copies + 3 inlined bodies (DetailsPage, Trackers, ExtensionRepo). Fixes the 2 missing-size drifts + the Trackers divergent variant. (c) **Fixed the lone feature-module chip-box**: `AutoLinkSettingsScreen.PerExtensionCard` (32dp `primaryContainer` + 18dp `AutoAwesome`) → bare 24dp `Icon` tinted `primary`. (d) **Bug fix**: `NotificationsSettingsScreen.triggerDescription` SILENT branch was a copy-paste of the ON branch (`"Notify $condition"`) → now `"Notify silently $condition"` (matches the correct version in `NotificationsLibraryScreen`). (e) **Dead code removed**: `ConfigSegmented` (never called) from `NotificationsLibraryScreen`; dead `ImageVector` import from `EpisodeListSettingsSheet`. (f) **Layout fix**: moved `LibraryNavRow` OUT of its `SettingsGroupCard` (MoreListRow's baked-in 16dp h-padding would double-pad inside a card) → standalone `MoreListRow` sibling, still wrapped in the existing `AnimatedVisibility`.
+  3. **Scope**: 17 files touched (1 new `BackAction.kt` + 11 `:app` settings screens + 4 `:feature:extensions-settings`/`:feature:anime-details` files + 1 dead-import removal). Compile review (sub-agent Task 6) = ✅ PUSH-READY, zero errors. ~30 now-dead imports flagged (Kotlin doesn't fail on unused imports + no `ktlint`/`detekt` config = CI passes; tidy follow-up queued).
+- **Design rule established**: `DESIGN-LANGUAGE.md` §2.4 "Nav-Row Icon Language" — every nav-row slot (More + Settings hubs) reuses `MoreListRow` with bare 24dp primary-tinted icons; no per-screen `*NavRow` variants; no `primaryContainer` chip-box. Every settings sub-screen's `CollapsingHeader` uses the shared `BackAction`.
+- **Deferred (follow-ups, out of icon-fix scope)**: (a) `SourcePreferencesScreen` + `ExtensionRepoSettingsScreen` dead `collapsed = false` + `scrollOffset = { 0f }` (header never collapses / blur never triggers — wiring needs a `LazyListState`/`PreferenceList` scroll-model change); (b) ~30 dead-import tidy commit; (c) `VideoCachingScreen.kt:349` stale comment.
+- **Virtual-device testing**: user asked for details — the sandbox emulator env ALREADY EXISTS at `/home/z/android-sdk` (AVD `anikuta`, API 30 AOSP x86_64 TCG) from the D-246 session; CI produces an `app-debug-x86_64-emulator.apk` artifact (D-246 exception). Full extension-install + playback flow was emulator-verified E2E in the D-246 session.
+- **Status:** ✅ Implemented, sub-agent compile-reviewed (PUSH-READY). CI pending push. NOT merged — awaiting user device verification of the unified icon look.
+- **Date:** Settings-UI icon-unification session (2026-08-24).
+
+---
+
+### D-251 — Dead-wiring fixes + Library display modes + arm64-only releases + update-checker fix + emulator rebuild
+- **What (user feedback session, 5 work items):**
+  1. **Dead collapsed/blur wiring FIXED** (D-250 follow-up): `SourcePreferencesScreen` + `ExtensionRepoSettingsScreen` both had `collapsed = false` hardcoded (+ `scrollOffset = { 0f }` / missing overlay). Now wired with the canonical pattern: `rememberLazyListState()` + `collapsed = firstVisibleItemIndex > 0 || firstVisibleItemScrollOffset > 20` → `CollapsingHeader(collapsed = collapsed)`; `state = listState` on the LazyColumn; `ScrollBlurOverlay` (inner Box, `align(TopCenter)`, `if (firstVisibleItemIndex > 0) Float.MAX_VALUE else firstVisibleItemScrollOffset.toFloat()`). SourcePreferences hoists the state into `PreferenceList(listState)`; ExtensionRepo gained the overlay it never had. The old SourcePreferences overlay was in the OUTER Box (would scrim over the header) — relocated inside.
+  2. **Library Comfortable "Hide Titles" toggle**: new pref `library_comfortable_hide_titles` (SharedPreferences via PreferenceStore, mirrors ComfortableBorderMode pattern). CustomizeSheet Display-tab `TwoWayButton` visible ONLY in COMFORTABLE_GRID (after Title lines; Title lines hides when titles are hidden — no dead controls). `LibraryGridCard(hideTitles)` skips the title Text — keeps 12dp rounded corners + staggered spacing (a "cover-only look, but soft", explicitly distinct from COVER_ONLY).
+  3. **Library Cover Only rework**: square covers (`cardShape = RectangleShape` when COVER_ONLY, applied at all 5 shape sites: card clip, outer/cover border modifiers, image clip, selection border) + ZERO gaps (both grid axes `Arrangement.spacedBy(0.dp)`) + full-bleed contentPadding (no side/top padding; bottom kept for nav-bar/action-bar clearance). All gated on `isCoverOnly` — COMPACT_GRID (sharing the branch) unchanged.
+  4. **77 verified-dead imports removed** across 15 files (D-250 fallout + older leftovers — incl. dead `NavKey`, `collectAsState`, TrackersScreen pre-existing pile). Audit sub-agent verified each against file bodies first (kept `getValue`/`setValue` delegate imports + still-used `CircleShape`). Stale VideoCachingScreen helper comment fixed.
+  5. **Release/versioning overhaul (user instructions)**: version 0.2.47 → **0.2.48** (+1 per improvement batch); shipped APKs now **arm64-v8a ONLY** (armeabi-v7a dropped — AndroidConfig.abiFilters + build-apk.yml Verify-ABIs + CORE_RULES §8); NEW `release-apk.yml` publishes STABLE GitHub releases on `v*` tag push (tag↔versionName verified; asset `ani-kuta-vX.Y.Z.apk`; never prerelease; `--latest`); build-apk.yml x86_64 emulator build now opt-in via `workflow_dispatch` input only (never on pushes).
+  6. **Check-for-Updates fixed (app side)**: `GitHubUpdateSource` used `/releases/latest` which EXCLUDES prereleases — every release after v0.2.6 was prerelease=True → the app saw v0.2.6 as latest and reported up-to-date. Rewritten: fetches `/releases?per_page=30`, filters drafts, picks best release (`maxWithOrNull(compareBy(versionTuple, stable-beats-prerelease))`), tuple-based version comparison (old `major*10000+minor*100+patch` packing collides at patch ≥ 100).
+  7. **Sandbox emulator rebuilt + verified** (sandbox had been reset): overlayfs rootfs triggers a paranoid 7372.80MB userdata pre-check (actual usage ~350MB) → LD_PRELOAD statvfs shim (`/home/z/emu/freedom.so`, inflates free space for `.avd` paths only); forced 2048MB guest RAM → `-qemu -m 1024` override (qemu takes the LAST -m); no KVM → `-accel off` (TCG); archived emulator 35.1.19 installed. Verified: cold boot ≈9 min, boot_completed=1, home screen renders, RSS ~1.8GB peak, graceful shutdown. One-command helper `/home/z/emu/emu.sh`.
+- **Key decisions**: (a) Hide-Titles is a Comfortable-scoped toggle (NOT a new display mode) — keeps the mode count at 4 and the enum stable (persisted by name); (b) Cover Only = full-bleed edge-to-edge wall (no screen-edge padding either — maximal "close together" per user's wording; Instagram-grid style); (c) the update checker surfaces prereleases (fixes detection) while the release workflow publishes stable (fixes distribution) — belt and suspenders; (d) release APKs remain debug-signed (same signature as all prior CI-artifact builds — release signing is Phase 2).
+- **Status:** ✅ Implemented, sub-agent compile-reviewed (zero blockers). CI pending push. NOT merged — awaiting user device verification.
+- **Date:** Library/releases/emulator session (2026-08-24).
+
+---
+
+### D-252 — Pointed cover badges + corner-aware COVER_ONLY (unified badge language)
+- **What (user request: "the episodes tags in the cover only mode need to be handled properly and make pointier"):**
+  1. **The "not handled properly" root cause**: `CoverBadgeRow`'s outer shape hard-coded a 12dp outer corner to hug the old rounded covers — on COVER_ONLY's SQUARE covers (D-251) that left a curved sliver of cover art visible behind each badge corner and the badge never reached the corner pixel. New `coverCornerRadius` param: 0.dp for COVER_ONLY, 12.dp for rounded modes; the old 4dp inner-corner rounding (which clipped the pointed tip's base) removed.
+  2. **Pointed design**: the chip nearest the cover CENTER tapers into a 45° triangle tip via the new `PointedTagShape` (RTL-aware, tip depth = height/2, extra +4dp padding keeps text clear of the transparent tip) — badges read as pointed flags pointing INTO the cover. Compound sub/dub badge: `clip(pointedShape)` BEFORE `drawBehind` (M3 Surface applies its own clip AFTER user modifiers — the old order would spill the split-painting past the tip; caught by the plan-review agent).
+  3. **Shared badge language**: `BadgeColorScheme` moved :feature:anime-library → :core:designsystem/badge (Browse reuses the amber score colors; 2 consumers = justified move, precedent BackAction D-250). Dark/light detection now follows the APPLIED theme (background luminance) instead of `isSystemInDarkTheme()` (the app allows forcing a mode ≠ system).
+  4. Dead legacy `CoverBadge` composable removed (zero callers); stale 8sp KDoc fixed (9sp).
+- **Scope**: LibraryScreen.kt (CoverBadgeRow + 4 call sites + badgeCornerRadius threading) + 2 new designsystem files.
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit d1152736). Compile-reviewed (Task 7) — clean. Awaiting CI + user device verification. NOT merged to main.
+- **Date:** 2026-08-25 (browse-overhaul session).
+
+---
+
+### D-253 — Complete Browse page UI overhaul (hero pager + cards + skeletons)
+- **What (user request: "complete UI overhaul of the browse page... beautiful, modern, cleaner, much easier to navigate... top banner image or the hero section... proper beautiful smooth animations... database properly managed" + rating tags "ugly" + "a bit of borders" on covers):** D-249's redesign was "a little bit" — this is the full redo. BrowseScreen.kt (581 lines) split into 4 files (§5):
+  1. **BrowseHero.kt** — full-bleed edge-to-edge 260dp `HorizontalPager` over the top-5 trending-with-banner items (VM `hero` → `heroItems`); auto-advance every 6s (LaunchedEffect keyed on currentPage restarts the timer; isScrollInProgress guard; single item = no pager mechanics); animated page dots (active elongates to a 16dp pill); rank pill (#N TRENDING, D-215 recipe, no emoji per NavIcons rule) + 24sp ExtraBold title + integer-score meta row + genre pills over a stronger scrim (0.55/0.97 stops).
+  2. **BrowseCards.kt** — 2:3 covers with standardized 12dp corners (was inconsistent 18/14/10) + NEW 1dp outlineVariant@60% borders; **rating tag REPLACED**: the old hard-coded black-65% pill with lime text → the amber pointed corner tag from the shared badge language (D-252), flush at top-start (outer corner clipped by the cover Box's 12dp clip); integer AniList score (0-100, unified with Library); CW cards: same borders + center play affordance (32dp primary circle) + press-scale (had none).
+  3. **BrowseSkeleton.kt** — shimmer skeletons (reversed alpha pulse 0.35↔0.75 on surfaceVariant, 1200ms) mirroring the real layout instead of the full-screen spinner (§22).
+  4. **BrowseScreen.kt** — sections fade+expand in via AnimatedVisibility when data arrives (no pop-in); error = EmptyState + Retry button; DB-7 debug block, PTR haptic, ScrollBlurOverlay, CW direct-play contract (onPlay → AniList → Extension) preserved exactly.
+  5. **BrowseViewModel** — cache reads + JSON parse + CW enrichment moved to Dispatchers.IO (main-thread SQL smell); `refresh()` now PARALLEL (was sequential = 3× slower than init); isRefreshing in-flight counter (fixes the first-finisher-clears-spinner race). Read-through + 6h TTL semantics unchanged; no API/schema changes.
+- **Status:** ✅ Implemented (commit 4230821c). Compile-reviewed (Task 7) — clean. Awaiting CI + user device verification. NOT merged.
+- **Date:** 2026-08-25.
+
+---
+
+### D-254 — Custom palette editor (per-element theme customization)
+- **What (user request: clicking Custom again opens a bottom menu below the palettes where the user can customize the background, accent, top headings, and each element/block color, each with brightness):**
+  1. **Model**: NEW `CustomThemeColors` (designsystem) — accent/background/heading/card Colors + 4 brightness Floats (−1..1; `applyBrightness` lerps toward white/black, applied AFTER the base color). Defaults mirror the dark theme (lime on warm darks).
+  2. **Scheme derivation** (`buildCustomColorScheme`): one pick → a coherent theme — accent family via the existing `AccentColors.from` derivation; text colors by background LUMINANCE (dark text on light picks, light on dark); surface ramp = background lerped toward text (4/8/12/16%); card family → surfaceVariant/containers; outline lerps. Custom applies in BOTH light & dark mode (mode toggle affects only presets); AMOLED skipped while custom is active (custom background wins — documented in the sheet).
+  3. **Heading color**: `LocalHeadingColor` static CompositionLocal (Unspecified sentinel → default onBackground); `CollapsingHeader` titles read it.
+  4. **ColorPickerSheet promoted** :core:player → :core:designsystem with a `swatches: List<Pair<Int, String>>` param (default = the player's subtitle palette — zero behavior change for the single player call site); the theme editor passes theme-appropriate swatches per element + forces alpha opaque on live-apply (translucent theme surfaces would break scrims).
+  5. **Persistence**: ThemePreferences `customTheme` mutableStateOf loaded from 8 pref keys (4 ARGB + 4 Floats via PreferenceStore.getFloat); legacy custom-accent key seeds the accent (migration); `setCustomTheme` persists + updates state.
+  6. **Live apply**: MainActivity passes `customTheme` to AnikutaTheme when preset == CUSTOM — reading `prefs.customTheme.value` inside setContent subscribes the whole app to every editor change (§23 live verification).
+  7. **UI**: NEW `CustomPaletteSheet` (bottom sheet, dragHandle null, 65% height cap, scrollable) — live mini-preview (heading + card block + accent pill from the current config, brightness applied) + 4 element editors (swatch button → nested ColorPickerSheet; brightness Slider −100..+100 with +/- readout) + Reset button. `AppearanceGeneralScreen`: re-tapping the ALREADY-selected Custom card opens the sheet; the Custom card's selected badge is a palette (edit) icon instead of a check; stale "static placeholders" ponytail KDoc removed.
+  8. **Known caveat**: status-bar icon contrast follows the SYSTEM dark mode (enableEdgeToEdge SystemBarStyle.auto) — a light custom background under system-dark shows light icons. Pre-existing class of issue; revisit at production polish.
+- **Status:** ✅ Implemented (commit 7ef10689). Compile-reviewed (Task 7) — 2 errors caught + fixed pre-push (staticCompositionLocalOf is a function not a type; missing @OptIn(ExperimentalMaterial3Api) on CustomPaletteSheet). Awaiting CI + user device verification. NOT merged.
+- **Date:** 2026-08-25.
+
+---
+
+### D-255 — Device-feedback fixes: palette-navigation + custom-palette crash + update-check java.time (with the Compose version-skew discovery)
+- **What (user device feedback on D-252/253/254, all root-caused with evidence):**
+  1. **Palette selection navigated to Browse.** ROOT CAUSE: D-254's `AnikutaTheme` wrapped `content` in `if (headingColor != null) { CompositionLocalProvider { MaterialTheme } } else { MaterialTheme }` — selecting/deselecting the CUSTOM preset flips `customTheme` null↔non-null, MOVING the content between two composition branches. Moving content between call sites destroys every `remember{}` under it — including AppRoot's nav backstack → the app "reset" to Browse. FIX: always provide `LocalHeadingColor` (Unspecified sentinel for presets) through ONE stable structure; only the VALUE changes.
+  2. **Custom palette crashed** (`NoSuchMethodError: FlowRow` at ColorPickerSheet.kt:169). ROOT CAUSE — **the Compose version-skew discovery (verified against the CI APK's `META-INF/androidx.versions`)**: the app's RUNTIME compose stack is **1.10.4** (foundation, foundation-layout, runtime, ui) + activity 1.12.4 + lifecycle 2.10.0, while the toml/BOM declares **2025.03.00 → 1.7.8** / activity 1.10.1 / lifecycle 2.8.7. The puller: **koin-compose 4.2.2** transitively depends on `org.jetbrains.compose.foundation:foundation:1.10.2` (JetBrains aliases → androidx artifacts) + koin-compose-viewmodel → `lifecycle-viewmodel-compose:2.9.6`; transitive versions beat the BOM's prefer-constraints at app resolution. Consequence: modules WITH koin-compose (search/details/watch/app…) compile against 1.10.x; **`:core:designsystem` and `:core:player` DON'T** → they compile against 1.7.8 → any API that changed 1.7.8→1.10.x crashes (foundation-layout 1.8 added `itemVerticalAlignment` to FlowRow and removed the old overload). The old player ColorPickerSheet was equally broken (latent — never device-tested). FIX: ColorPickerSheet's FlowRow → manual chunked Rows (version-proof); also fixed the pre-existing preview channel-order bug (`Color(a, r, g, b)` rotated channels — Compose's Int overload is (red, green, blue, alpha)).
+  3. **Update-check java.time crash risk**: `GitHubUpdateSource.parseIsoDate` used `java.time.OffsetDateTime` with a comment claiming "API 26+ is our minSdk" — **minSdk is 24**, and `NoClassDefFoundError` is an `Error`, NOT caught by `catch(Exception)` → crash on Android 7.x during update checks. FIX: regex + `java.util.Calendar` (UTC) — works on every API level. (HistoryViewModel/ScheduleViewModel/ScheduleStore have the same latent java.time issue — separate follow-up.)
+  4. AMOLED toggle hidden while CUSTOM is active (ignored by design — no dead controls).
+- **⚠️ OPEN DECISION FOR THE USER — BOM alignment:** the version skew remains: compile 1.7.8 vs runtime 1.10.4. Options: (a) bump composeBom to the 1.10.4-era BOM + explicitly pin material3 1.3.1 + icons 1.7.8 (aligns compile with the already-shipping runtime; every module recompiles against 1.10.x — CI-verified); (b) leave as-is + avoid changed APIs in non-koin modules (fragile); (c) downgrade koin-compose (loses features). Recommendation: (a), as its own session with device verification. NOT done unilaterally.
+- **Method**: crash-report stack analysis + CI-APK artifact inspection (`META-INF/androidx.versions` + dex string-pool signatures) + foundation-layout sources-jar diff (1.7.8 vs 1.8.0 vs 1.9.0) + koin/ffmpeg/seeker/activity POM analysis — no local builds (§8).
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 592e03b1). Compile-reviewed (Task 10 — caught the 6-value `match.destructured` compile error pre-push). CI pending at doc time. NOT merged.
+- **Date:** 2026-08-25 (device-feedback session).
+
+---
+
+### D-256 — Browse hero v2: cover + banner together, proper tags
+- **What (user feedback: hero "looks very bad… showing the cover and the banner together properly… showing the relevant tags properly"):** D-253's banner-only hero replaced with the classic poster-hero anatomy. Each pager page layers BOTH images: the banner as the ambient backdrop (crop, full-bleed, falls back to the cover) + the cover POSTER as the anchor element (80×120dp, 2:3, 12dp corners, 1dp outlineVariant border — matching the carousel card language) in a bottom-aligned Row with the text block.
+- **Text block**: rank pill (#N TRENDING, solid primary, D-215 recipe, no emoji) → title 20sp ExtraBold, 2 lines max → meta row (`★ 85 · 24 eps · 2024`, integer score unified with the Library) → **genre tag chips** (D-215 Info-pill recipe, up to 3 + a "+N" overflow chip when there are more genres — "relevant tags properly").
+- **Retained from D-253**: full-bleed 260→**300dp** pager, 6s auto-advance (drag-guarded, wraparound, timer restarts on page change), animated page dots (active = 16dp elongated pill) bottom-end, tap → Details. Scrim: subtle top (0.25) + stronger bottom (0.55→0.97) for text legibility over any artwork. Skeleton hero block height matched to 300dp.
+- **Status:** ✅ Implemented (commit 592e03b1). Compile-reviewed (Task 10). Awaiting CI + user device verification. NOT merged.
+- **Date:** 2026-08-25.
+
+---
+
+### D-257 — Browse hero v3 + section image preloading + rating-tag borders
+- **What (user device feedback on D-256: hero "looks way too ugly… rigid kind of format", banner "forced into a square vibe", auto-scroll "not smooth, not animated", covers "not preloaded… I have to wait for them to load when I see them for the first time", rating tags need "some border… so it is a bit more clear"):**
+  1. **Hero v3 anatomy**: the hero became an INSET 16:9 rounded card (16dp side margins, 20dp corners, 1dp outlineVariant@60% border — the standard card language) instead of the full-bleed ~1.2:1 block. 16:9 is AniList's native banner ratio → minimal cropping = the "wider kind of aspect ratio" the user asked for. Contents retained from D-256: banner backdrop (falls back to cover) + bottom-heavy scrim + 84×126dp poster (10dp corners, white@35% border) + rank pill + 18sp 2-line title + ★score·eps·year meta + genre chips (3 + "+N", translucent dark pills — readable on any artwork). Page dots moved BELOW the card, centered (never collides with the text block on narrow screens). Skeleton hero block restyled to match.
+  2. **Infinite pager (the auto-scroll fix)**: `pageCount = size × 200`, `initialPage = size × 100`, display index = `page % size`, wrapped in `key(items.size)` (state recreated if the list size changes → index always starts at 0). Auto-advance always steps FORWARD +1 with a 600ms FastOutSlowIn tween — the old wraparound (last→first) swept BACKWARDS through every page, which was the "not smooth / not animated" glitch. Single-item lists render without pager mechanics. Dots follow the display index.
+  3. **Section preloading (the rendering fix)**: new `SectionPreloader` composable in BrowseScreen — `LaunchedEffect(urls) { context.imageLoader.enqueue(ImageRequest.Builder(context).data(url).size(wPx, hPx).build()) }` at density-exact card pixel dims (covers 128×192dp, CW thumbs 168×94dp, hero banners card-sized, posters 84×126dp), URLs null/blank-filtered + deduped, ordered hero-first. Coil 3.0.4 semantics (verified from the published sources): the Android memory-cache key EXCLUDES size when a request has no transformations, and AsyncImage auto-applies INEXACT precision → an exact-dims preload is a memory-cache HIT for the later composable; any size still warms the 500MB disk cache. Resolves the app's custom singleton loader via `coil3.imageLoader` (SingletonImageLoader.setSafe in AnikutaApp).
+  4. **Rating-tag borders**: Browse amber pointed score tag gains `BorderStroke(1.dp, scoreContent@50%)` (dark-brown outline on amber300 in dark theme, deep-amber outline on cream in light — m3 1.3.1 Surface border follows PointedTagShape incl. the 45° tip). Library simple chips: same contentColor@50% border. Library compound sub|dub badge: manual stroked Path inside the existing drawBehind (Surface's border param can't trace hand-drawn paint) replicating PointedTagShape geometry for all 3 cases (START tip / END tip / flat rect), ~0.5dp visible (outer half clipped by the shape clip).
+- **Method**: 3 parallel research agents (search-bug root cause, palette/picker/keypad mapping, Coil 3.0.4 + badge + version-skew verification from published sources-jars) → plan → plan-review agent (GO-WITH-FIXES; 10 fixes incorporated — search staleness guard, skeleton restyle, two-pointerInput ThinSlider, ScrollBlurOverlay modifier-vs-param, subtitle-swatch side effect, compound-border 3 cases, onQueryChange routing, single-item pager guard, preloader null-filtering, docs scope) → 3 phase commits → compile-review agent (PUSH-READY).
+- **CI fix round**: compile review missed that `ImageRequest` lives at `coil3.request.ImageRequest` (not the coil3 root package) — CI run 32845772374 caught it; fixed in abb91ac0 matching the CoverColorExtractor/CoverAccentColor/AvatarCropScreen precedents.
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 0e0d9c31 + CI fix abb91ac0). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-25 (device-feedback session #2).
+
+---
+
+### D-258 — Search: default results restore + chip-based recents
+- **What (user feedback: "when I close the search… it does not show me the default search results which appear when I enter the search page for the very first time… It even stays empty even if I go to another page and enter the search page again"; recents UI "improve it a little bit"):**
+  1. **Root cause (research-verified)**: the VM is Activity-scoped (custom nav backstack, no per-entry ViewModelStoreOwner — survives tab switches), `onClearQuery` hard-set `Idle`, the debounced collector's blank branch hard-set `Idle` (with a stale D-242-fix7 comment), and `loadTrending()` only ever ran in `init` + manual AniList-chip re-select → after any clear, the screen degraded to recents-only forever (until app restart).
+  2. **Fix — single-owner default loading**: `loadDefaults()` (idempotent: skips when query non-blank, a default load is in flight via `defaultsJob?.isActive`, or `showingDefaults` already true) dispatches to `loadTrending()`/`loadExtensionPopular()` (now Job-returning). EVERY "query became blank" path funnels through it: X clear, backspace-to-empty (`onQueryChange`), the debounced collector, `init`, and screen re-entry (`onScreenResume` restores if Idle+blank). `showingDefaults` tracks Success-with-default-content (set by the default loaders, cleared by every search path).
+  3. **Staleness guards (plan-review catch)**: every async completion re-checks the query before writing state — a late trending response can no longer clobber fresh search results and vice versa (`if (_query.value.isNotBlank()) return@launch` in the default loaders; `isBlank()` in search/searchExtension, both in try AND catch).
+  4. **Recents redesign**: collapsible list card → compact chip cloud (header "Recent searches" 13sp ExtraBold + "Clear all" 12sp primary; FlowRow-wrapped pill chips — surfaceVariant@40% (the search-bar field language), 14dp History icon + 13sp term (160dp max, ellipsized) + 14dp per-chip remove). Collapse/Show-more machinery + the persisted `search_recents_collapsed` pref deleted (chips never need collapsing; max 10 terms ≈ 2 rows). FlowRow is binary-safe in :feature:anime-search:impl (koin-compose → compiles 1.10.x; FilterSheet precedent).
+- **Status:** ✅ Implemented (commit 7068b631). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-25.
+
+---
+
+### D-259 — Palette editor + color picker overhaul (thin sliders, keypad, sticky header, 5-preset lines)
+- **What (user feedback: remove the palette preview; "the slider is way too bad… use thin sliders… thumb grabbing area with a square with rounded corners"; picker "UI looks way too bad… no scrolling functionality… there should only be a total of five preset colors… in a single line… unique, distinct"; "if I tap on the number itself then the custom keyboard will open up like… the subtitles bottom-up menu"; palette sheet: heading + Reset always visible, NO X button, top gradient darkening):**
+  1. **NumericEntrySheet ported** :core:player → `:core:designsystem/component` (self-contained — M3 + icons only; zero gradle changes; designsystem already has material-icons-extended for Backspace). SubtitleSettingsSheet imports it from the new home; its call passes a new subtitle-specific 5-swatch set (White/Black/Yellow/Cyan/Transparent — preserving the subtitle-relevant presets incl. Transparent, which the new default dropped).
+  2. **NEW `ThinSlider`** (:core:designsystem): thin 4dp rounded track + 18dp rounded-square thumb (6dp corners) with a 1.5dp surface halo, always visible; 36dp touch target (proper grab area); tap-to-jump + drag in TWO SEPARATE pointerInput blocks (both detect* are non-returning suspend consumers); optional onValueChangeFinished + contentDescription. Built ONLY from ABI-stable foundation primitives (MinimalSeekbar precedent) — zero version-skew exposure; replaces every m3 Slider in the customized sheets.
+  3. **ColorPickerSheet redesign**: sticky header (title + X) OUTSIDE the scroll area; body `verticalScroll` (heightIn-capped, weight(1f, fill=false)); current-color + hex row; presets = ONE equal-width line of rounded 12dp tiles (selection ring 2dp primary; near-transparent presets get a diagonal slash); RGBA rows = label + ThinSlider + TAPPABLE value chip → nested NumericEntrySheet (0..255, live-applied — the subtitles-sheet interaction). `DefaultColorPickerSwatches` = 5 distinct (White/Black/Red/Green/Blue).
+  4. **CustomPaletteSheet redesign**: live mini-preview REMOVED (the app itself is the live preview — MainActivity re-themes on every keystroke); sticky header with title + Reset pill ALWAYS visible and NO close button (dismiss via swipe/scrim — EpisodeListSettingsSheet precedent); body in a Box with a scroll-driven `ScrollBlurOverlay` top scrim (the screens' transitioning-darkening language) under the header; brightness rows = ThinSlider + tappable value chip → NumericEntrySheet (−100..100, live); per-element preset lists cut to exactly 5 distinct colors each.
+- **Status:** ✅ Implemented (commit 9b46ee69). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-25.
+
+---
+
+### D-260 — Version 0.2.50 + release
+- **What:** AndroidConfig 0.2.49 → **0.2.50** (versionCode 50) with the D-257..D-259 device-feedback batch; annotated tag `v0.2.50` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.50.apk`, --latest) so a v0.2.49 install updates in-app (checker verified sound in D-251 + D-255's java.time fix). Dashboard version strings refreshed (full-stack-dev sub-agent, DASHBOARD/webpage/ only).
+- **Status:** ✅ Implemented. Release verified via API after CI green.
+- **Date:** 2026-08-25.
+
+---
+
+### D-261 — Palette system overhaul + persistence fix + 2 new elements
+- **What (user device feedback on v0.2.50: custom palette "transparent by default" — Reset recovers; custom theme lost after app restart; "there is definitely no need for the brightness sliders at all" — remove them; add two more customizable elements — "for the heading of the cards and blocks" + "for the description of the cards and blocks"; make sure it persists across restart like the custom one):**
+  1. **Persistence root cause (verified, agent 15-b)**: `Color.value.toInt()` returns **0** for every sRGB color. Compose's `Color` is a `value class Color(val value: ULong)` with ARGB packed in the UPPER 32 bits; `.toInt()` truncates to the lower 32 bits = `0x00000000` (transparent). Every `setCustomTheme` write stored 0 into all 4 color keys → on restart `loadCustomTheme` read 0s → transparent theme surfaces → "default was applied" (windowBackground `#14111F` showed through). The `ColorPickerSheet` `initialColor = color.value.toInt()` also opened at 0 → "transparent by default".
+  2. **Fix**: `.toArgb()` (`androidx.compose.ui.graphics.toArgb`) at all 6 sites (the 4 writes, the per-key read defaults, the legacy accent default, the `CustomPaletteSheet` `initialColor`) + a one-time corruption migration in `loadCustomTheme` that treats any stored alpha-0 value as unset and heals to the default for that element (v0.2.49/v0.2.50 installs recover instead of staying transparent).
+  3. **Brightness removed entirely**: deleted the 4 brightness fields + `applyBrightness()` + `resolved()` from `CustomTheme.kt`; deleted the 4 `putFloat` + 4 `getFloat` + 4 keys from `ThemePreferences.kt`; deleted the brightness Row + ThinSlider + chip + NumericEntrySheet block + `brightness`/`onBrightness` params from `CustomElementEditor`. Brightness never served a unique purpose the color pickers didn't already cover.
+  4. **Two new elements** (`cardHeading` + `cardDescription`): `CustomThemeColors` now has 6 fields; 2 new `CompositionLocals` (`LocalCardHeadingColor`, `LocalCardDescriptionColor`, `Color.Unspecified` sentinel — mirroring the `LocalHeadingColor` precedent) provided in the SAME always-on `CompositionLocalProvider` (D-255 structural stability preserved — never branch-switch); 2 new ARGB keys + 2 new `CustomElementEditor` rows + 2 new 5-distinct swatch lists in `CustomPaletteSheet`.
+  5. **Consumer sweep (28 sites, phase 1 — the 5 surfaces the user named)**: each card title/description `Text` color arg now reads the local with a `.takeIf { it != Color.Unspecified } ?: <original role>` guard. Browse cards + CW cards + Library cards (incl. a pre-existing gap: the Library header clone never read `LocalHeadingColor` — now does) + Search result cards + Details anime title + block headers + synopsis body + episode rows + InfoRow label/value + MatchPreview. Hero title/meta deliberately kept hardcoded `Color.White` (reads on any artwork over the dark scrim; a custom dark pick would hurt readability). Section headers kept `primary` (the accent design language, distinct from card headings). Phase 2 (Updates/Extensions/History ~15 sites) deferred — clean follow-up batch.
+- **Method**: 5 parallel research agents (hero/pager+blur, theme system + persistence bugs, picker+slider+recents, card-text consumers, random palette design) → plan → **plan-review agent** (GO-WITH-FIXES — 6 fixes: KDoc "~100 min" not "~200", ImageRequest line ref :442, ImageResult cast pattern, 2 Brush imports, Theme.kt preserve explicit MaterialTheme form, Bitmap.createScaledBitmap safety net) → 5 phase commits → CI green per phase.
+- **Status:** ✅ Implemented on `test-feature/video-cache-new-download` (commit 8c201755). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-25 (device-feedback session #3).
+
+---
+
+### D-262 — Browse hero: auto-advance restart-proof + 12s + blurred backdrop + darker scrim
+- **What (user device feedback on v0.2.50: hero auto-scroll "scrolled and stopped in the middle between the two banners. It did not stop in the appropriate position" + auto-advance stopped firing afterwards; "the auto-scrolling functionality should be doubled. Instead of roughly 6 seconds, maybe 12 seconds"; the background banner "should be slightly blurred out and darkened but you did not handle it like that"):**
+  1. **Auto-advance root cause (verified, agent 15-a)**: the `LaunchedEffect` was keyed on `pagerState.currentPage`, which flips at the 50% scroll crossing DURING `animateScrollToPage` → the effect coroutine was cancelled mid-flight → the pager rested at offset ≈ 0.5 with no snap (snap-fling only runs for user gestures). The effect was also single-shot → once cancelled it never re-armed → "auto-advance stopped firing afterwards."
+  2. **Fix**: a `while(true)` loop keyed on `(pagerState, virtualCount)` — NEVER on a page index. `CancellationException` (user grabbed the pager, etc.) is caught → wait for the gesture to end (`snapshotFlow { isScrollInProgress }.first { !it }`) → snap to the nearest whole page via `scrollToPage(currentPage)` inside `withContext(NonCancellable)` so the card is always aligned. Real disposal (`currentCoroutineContext().isActive == false`) rethrows. Dots now read `settledPage` (update on settle, not mid-slide).
+  3. **12s**: `HERO_AUTO_ADVANCE_MS` 6_000L → 12_000L.
+  4. **Blurred backdrop (works on every API — minSdk 24)**: Coil 3 (3.0.4) REMOVED the `Transformation` API entirely (verified from the coil-core sources jar — there is no `coil3.transform.Transformation`); `Modifier.blur` uses `RenderEffect` = API 31+ only (silent no-op below); the user's device API is unknown → the blur must work on minSdk 24. New `BlurredBannerBackdrop` composable: `produceState<ImageBitmap?>` keyed on the URL → on `Dispatchers.IO`, build an `ImageRequest` at 160×90 px with a custom `memoryCacheKey("hero-blur:$url")` (namespaces the blurred request so it never collides with the sharp cover/poster requests for the same URL — per the D-257 lesson that the Android memory-cache key excludes size when there are no transformations), `execute` via the singleton `imageLoader`, `toBitmap(160, 90)` (with a `Bitmap.createScaledBitmap` safety net to guarantee the exact decode size), a single-pass `boxBlur` (radius 2) on the tiny bitmap (~1ms on IO), `asImageBitmap`, render via `Image(BitmapPainter, ContentScale.Crop)`. The GPU upscales the 160×90 blurred bitmap bilinearly to the full card (~1080×590) → the soft backdrop. Result cached in Coil memory under the custom key → instant on recompose.
+  5. **Darker scrim**: gradient stops 0.18/0/0/0.45/0.82 → 0.30/0/0/0.55/0.88 (keeps the shape; helps the white text block read over the blurred artwork).
+  6. **SectionPreloader**: the hero preload dropped the banner URLs (the blurred backdrop loads itself) and now warms only the sharp cover posters at 84×126.
+- **CI fix rounds (2)**: caught `coil3.ImageResult` should be `coil3.request.ImageResult` + `ImageBitmap` type import (run 32867786472); then `ImageResult.Success` should be `SuccessResult` (top-level, not nested — run 32868462164). Plan-review's cast-pattern fix (Fix C) was the right idea but mis-named the subclass; the sources jar confirmed `coil3.request.SuccessResult` is a top-level `@Poko` class implementing the sealed `ImageResult`.
+- **Status:** ✅ Implemented (commits 513f2e3e + cbf8765a + 9d72f45e). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-25.
+
+---
+
+### D-263 — Random palette (Dark/Light/Chaos) + colorful channel sliders
+- **What (user device feedback on v0.2.50: "make the custom sliders colorful. For example the red slider will be red and the green slider will be green and the blue slider will be blue"; add a random option left of the Reset button with the appropriate icon → opens a bottom-up menu with 3 options: random dark / random light / completely random "no boundaries, can be completely bad"; remember it across restart like the custom one):**
+  1. **Colorful sliders**: `ThinSlider` gained a `trackBrush: Brush? = null` param — when non-null, renders a SINGLE full-width gradient bar and SKIPS the active/inactive two-box split (`fillMaxWidth(fraction)` would compress the gradient into the traversed portion and visibly shift it while dragging). The `ColorPickerSheet` `ChannelSliderRow` threads per-channel gradients: Red = `Color(0,g,b,a)` → `Color(255,g,b,a)` (shows what the color would be at each red value, holding g/b/a); Green/Blue symmetric; Alpha = transparent→opaque of the current color. Thumb colors: red `0xFFE53935`, green `0xFF43A047`, blue `0xFF1E88E5`, alpha = default primary. Each gradient is `remember`-keyed on the OTHER channels so it doesn't rebuild per drag frame.
+  2. **Random palette** (new `core/designsystem/theme/RandomPalette.kt`): three generators per agent 15-e's HSV ranges. **Random dark**: single family hue drives bg/card/heading/cardHeading/cardDescription (each within ±25°); ranges that ALWAYS produce a readable dark theme (bg V 0.06-0.16, heading V 0.90-1.00, cardDescription V 0.65-0.78); accent is an independent vivid hue (S 0.65-1.0, V 0.55-0.75). **Random light**: mirrored. **Chaos**: every element fully random per-channel with alpha FORCED 0xFF (never trigger the D-261 transparent-theme bug class). Contrast verified (worst-corner WCAG): dark heading-vs-bg ≥ 8.4:1, dark cardDescription-vs-card ≥ 4.5:1; light heading-vs-bg ≥ 8.7:1.
+  3. **CustomPaletteSheet**: Random pill (`Icons.Filled.Casino` + "Random" label, `surfaceVariant` `RoundedCornerShape(50)`) added LEFT of the Reset pill, both in a `spacedBy(8.dp)` Row with the title `weight(1f)`. Tapping opens a NESTED `RandomPaletteSheet` (stacked `ModalBottomSheet` — same idiom as `ColorPickerSheet` nesting) with 3 option rows (`Icons.Filled.DarkMode`/`LightMode`/`Shuffle` + label + description). On pick: `prefs.setCustomTheme(randomCustomTheme(kind))` applies + persists (survives restart via D-261's persistence fix); the nested sheet dismisses, parent stays open showing the updated swatches, app re-themes live.
+- **Status:** ✅ Implemented (commit da93107c). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-25.
+
+---
+
+### D-264 — Search recents dedicated horizontal-scroll section
+- **What (user device feedback on v0.2.50: "create a dedicated section for it with a proper background... the searches will show in a single row and I can scroll them right and left... give it some depth, some good-looking UI"):**
+  Replaced the D-258 `FlowRow` chip-cloud with a dedicated section card: outer `Surface(surfaceVariant@40%, RoundedCornerShape(16dp), 1dp outlineVariant@60% border)` (the §2.6 card language + depth via border, not shadows); sticky header row (bare `Icons.Filled.History` primary 18dp + "Recent searches" 14sp ExtraBold primary + trailing "Clear all" 12sp SemiBold primary); single `LazyRow` of bordered chips (`surfaceContainerHighest` pops on the tinted container; 1dp `outlineVariant@60%` border for depth; 36dp tall; History icon + 13sp term ellipsized 160dp + per-chip remove X). Signature UNCHANGED → all 3 render sites (SearchScreen idle branch, ResultsGrid header, ExtensionResultsGrid header) get the redesign free. Removed `FlowRow`/`ExperimentalLayoutApi` (the D-255 crasher class — no longer needed; `LazyRow` is the single-row scroll). `:feature:anime-search:impl` has koin-compose → `LazyRow`+`items` binary-safe.
+- **Status:** ✅ Implemented (commit c996391b). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-25.
+
+---
+
+### D-265 — Version 0.2.51 + docs
+- **What:** AndroidConfig 0.2.50 → **0.2.51** (versionCode 51) with the D-261..D-264 device-feedback batch; annotated tag `v0.2.51` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.51.apk`, --latest) so a v0.2.50 install updates in-app. Dashboard version strings refreshed (full-stack-dev sub-agent, DASHBOARD/webpage/ only).
+- **Status:** ✅ Implemented. Release verified via API after CI green.
+- **Date:** 2026-08-25.
+
+---
+
+### D-266 — Browse: remove Continue Watching + fix hero banner hardware-bitmap crash
+- **What (user device feedback on v0.2.51):** (1) "I don't want you to show the Continue Watching so remove it" from the Browse page. (2) "the background thumbnail image shows properly but the background banner image does not show at all. There is some darkening effect but the banner image does not show at all behind it."
+- **Root cause (hero banner, agent 22-a):** D-262's `BlurredBannerBackdrop.boxBlur()` called `src.getPixels(...)` on a Coil-3 `Bitmap.Config.HARDWARE` bitmap (default on API 26+) → threw `IllegalStateException` → silently caught by the outer `try/catch (_: Exception)` → the backdrop `Box` rendered empty → user saw only the Layer-2 dark scrim (no banner image). The 84×126 cover poster showed because Coil renders hardware bitmaps fine via its own painter (no `getPixels`).
+- **Hero fix (BrowseHero.kt):** (1) `.allowHardware(false)` on the `ImageRequest` (import `coil3.request.allowHardware`) so Coil decodes to `ARGB_8888`. (2) Defensive copy in `boxBlur` — `if (src.config == Bitmap.Config.HARDWARE) src.copy(ARGB_8888, true) ?: return src` before `getPixels` (safety net). (3) Scrim lightened 0.30/0/0/0.55/0.88 → 0.22/0/0/0.45/0.82 so the blurred banner artwork reads through behind the text.
+- **Continue Watching removal (4 files):** `BrowseScreen.kt` (param + collectAsState + SectionPreloader + cw_header/cw_carousel items), `BrowseCards.kt` (ContinueWatchingCarousel + ContinueWatchingCard + 6 now-unused imports: size, CircleShape, PlayArrow, Icon, LinearProgressIndicator, Icons), `BrowseViewModel.kt` (continueWatching flow + ContinueWatchingItem data class + 2 now-unused constructor params watchProgressStore/contentRepository + 2 imports), `MainActivity.kt` (ContinueWatchingItem import + onPlayContinueWatching lambda arg + buildWatchKeyForContinueWatching function). `BrowseModule.kt` UNCHANGED — `viewModelOf(::BrowseViewModel)` reflects on the new 2-param constructor. `WatchProgressStore` + `watch.sq` remain (used by Library's per-collection continue-watching toggle — a separate feature).
+- **Status:** ✅ Implemented (commit a01734ef). CI GREEN. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-267 — Remember last-selected tab across cold start + recents
+- **What (user device feedback on v0.2.51):** "It should remember which tab the user was on previously and it should open up in that tab directly. For example if the user was in the library tab then it should always open up the application in the library tab when the user opens up the application after closing it completely, even from the recents."
+- **Root cause (agent 22-b):** `MainActivity.kt:362` — `var currentTab by remember { mutableStateOf("browse") }` was NOT persisted (hardcoded default). `backstack` init was also hardcoded to `AnimeBrowseKey`. App always cold-started on Browse.
+- **Fix:** `AppPreferences.kt` — added `var lastTab: String` (getString/putString, default "browse") + `KEY_LAST_TAB` constant in the existing companion object (mirrors the `contentMode` pattern; SharedPreferences survives process death). `MainActivity.kt` AppRoot: added `val appPreferences = koinInject<AppPreferences>()` hoisted above the `remember {}` calls; `currentTab` initial value "browse" → `appPreferences.lastTab`; `backstack` initial key `AnimeBrowseKey` → inline `when (appPreferences.lastTab) { "library" -> AnimeLibraryKeyImpl; "search" -> AnimeSearchKey; "more" -> MoreKey; else -> AnimeBrowseKey }`. `onSelect` lambda: added `appPreferences.lastTab = route` right after `currentTab = route` (single write site confirmed via grep). DI: `AppPreferences` already bound (`single { AppPreferences(get()) }` at AnikutaApp.kt:269); no DI module changes.
+- **Coverage:** cold start (process killed + reopened) ✓; return from recents (process was killed) ✓; activity recreation ✓ (the pref is the source of truth; no `rememberSaveable` needed — nav-research doc explicitly rejected saveable backstack per R7).
+- **Status:** ✅ Implemented (commit e313a24c). CI GREEN. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-268 — Library: BEHIND + SEASON_YEAR sorts + fix LAST_WATCHED stub
+- **What (user device feedback on v0.2.51):** "Currently I only have four sorting options but what I want is for you to add some more sorting options. One option which you could add is the behind option. When that option is turned on it will show those contents at the top or at the bottom, with the ones that are behind at the bottom. The ones that are all caught up will be at the top and the ones that are behind will be at the bottom."
+- **Root cause + data availability (agent 22-c):** The 4 existing sorts were TITLE, SCORE, DATE_ADDED, LAST_WATCHED — but `LAST_WATCHED` was a NO-OP STUB (returned `filtered` unchanged). `LibraryEntry` already had `releasedEpisodes` + `watchedCount` + derived `unwatchedCount = (released - watched).coerceAtLeast(0)`, all populated by `enrichEntriesWithBadgeData` at load time. So **no new SQL was needed for BEHIND** — `unwatchedCount` was already there. `seasonYear` already existed for SEASON_YEAR. The missing piece for LAST_WATCHED was a `lastWatchedAt` field + a `WatchProgressStore.getLastWatchedAt` method.
+- **Fix (5 files):** `LibraryEntry.kt` — added `val lastWatchedAt: Long? = null` field. `WatchProgressStore.kt` — added `suspend fun getLastWatchedAt(mainId: String): Long?` interface method (mirrors `getWatchedEpisodeCount`'s `suspend (String)` signature). `watch.sq` — added `getLastWatchedAt: SELECT COALESCE(MAX(last_watched_at), 0) FROM watch_progress WHERE main_id = :mainId;` (COALESCE guarantees non-null Long; `last_watched_at` column exists at watch.sq:16). `SqlDelightWatchProgressStore.kt` — implemented `getLastWatchedAt` = `executeAsOne().takeIf { it > 0 }` (0 → null = no episodes watched). `LibraryViewModel.kt` — enum `LibrarySortType` gained `BEHIND("Behind")` + `SEASON_YEAR("Year")` (kept `displayName` per plan-review — SortOptionCard reads `type.displayName`); the `applyFilters` `when` block gained BEHIND (`compareBy unwatchedCount thenBy title` — ascending = caught-up first = matches user request), SEASON_YEAR (`compareBy seasonYear`), + the LAST_WATCHED stub replaced with `sortedBy/sortedByDescending { it.lastWatchedAt ?: 0L }`; `enrichEntriesWithBadgeData` populates `lastWatchedAt` alongside `watchedCount`. UI: no changes — `LibraryScreen.kt:1658` iterates `LibrarySortType.entries.forEach` so the 2 new enum values auto-render.
+- **Semantics:** BEHIND ascending = caught-up (unwatchedCount 0) at top, behind at bottom (matches user request exactly; default `_sortAscending=true`). LAST_WATCHED ascending = oldest-watched first; descending = most-recent. SEASON_YEAR ascending = oldest year first; descending = newest (user can flip via the existing direction pills).
+- **Status:** ✅ Implemented (commit 6f9e977d). CI GREEN. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-269 — Library scroll performance (derivedStateOf + contentType + @Immutable)
+- **What (user device feedback on v0.2.51):** "on the library page when I try to scroll, the scrolling is not smooth. It is jittery... If I scroll very fast then it apparently lags and jitters quite a lot."
+- **Root cause (agent 22-d):** `LibraryScreen.kt:279-283` — `val collapsed = if (!isList) { gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 20 } else { listState... }` was read DIRECTLY in the parent composition body, NOT wrapped in `derivedStateOf`. Every scroll frame mutated these `LazyGridState`/`LazyListState` properties → the entire `LibraryScreen` parent recomposed → re-allocated `onEntryClick`/`onEntryLongClick` lambdas → `LibraryGrid`/`LibraryList` could not skip → all per-card anti-patterns re-ran. **Compounds on fling.**
+- **Fix (2 files, 4 low-risk high-impact changes):** `LibraryScreen.kt` — (1, HIGH) wrapped `collapsed` in `remember(isList) { derivedStateOf { ... } }` — the parent now only recomposes when `collapsed` FLIPS (true↔false), not on every scroll frame. THE primary scroll-perf fix. Added `import androidx.compose.runtime.derivedStateOf`. (2, HIGH) added `contentType` to all 3 `items()` calls: staggeredItems (COMFORTABLE grid) + items (COMPACT grid) = `{ "card" }`; items (LIST) = `{ "row" }` — lets Compose recycle slots efficiently during fling (recommended even for uniform lists). `LibraryEntry.kt` — (3, MEDIUM) annotated `@Immutable` (all fields are val + `AudioAvailability` is a data class with all val primitives, verified) — lets Compose skip recomposition of items whose `LibraryEntry` reference is unchanged.
+- **Deferred to a follow-up if the user still sees jitter:** stabilize `onEntryClick`/`onEntryLongClick` with `remember(...)` (largely mitigated by the derivedStateOf fix — parent no longer recomposes every frame, so lambdas stay stable); gate `rememberCoverAccentColor` when `coverBorderColor != ADAPTIVE` (doubles per-card image load currently); add explicit `size()` to `AsyncImage` calls; hoist `rememberBadgeColorScheme` + wrap per-card badge `when` blocks in `remember`.
+- **⚠️ Note:** D-269 + D-270 were bundled into a single commit (`e3bd6285`) due to a `git add -A` staging issue — the first commit captured all 3 modified files (LibraryScreen.kt + LibraryEntry.kt for D-269, DetailsViewModel.kt for D-270). The code is correct; the commit message is D-269-only. Documented here for traceability.
+- **Status:** ✅ Implemented (commit e3bd6285, bundled with D-270). CI pending. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-270 — Detail tracking auto-refresh on open + after auto-link + stale reset
+- **What (user device feedback on v0.2.51):** "If I go to the search page and then search by any of the extensions and I open it up, after opening it up it gets automatically linked to any list. It does not properly reload the tracking from any list... currently I have to manually go on and refresh the page to actually see that data get updated. Where I went after that the data does not stay updated if I go back and open the exact same one again."
+- **Root cause (agent 22-e, H1 + stale-state):** H1 — `mergeAniListIntoUnified` (`DetailsViewModel.kt:2390`) established the AniList link (set `currentAnimeId`, persisted `linkAniList`, `remergeBases` → state Success with anilistId) but never called `refreshTracking()` afterward. H4 (context) — the concurrent `refreshTracking()` launched in `loadFromExtension` (`:1771-1774`) raced the main load — `currentMainId`/`anilistId` were null at launch time → `refreshTracking()` early-returned (`:1528/1531/1532`) → never re-invoked after the link. Stale re-open — `resetState()` (`:1006-1031`) did NOT reset `_trackEntry`/`_pendingRemoteTrackEntry`/the track `show*` prompts — re-opening the same anime showed the previous anime's stale tracking.
+- **Fix (DetailsViewModel.kt, 2 targeted changes):** (1) `mergeAniListIntoUnified` — added `val gen = loadGeneration` at the top (before `try`) + `if (loadGeneration == gen) refreshTracking()` after the link step (`refreshContentId`). Now: after the AniList link is established (currentMainId + anilistId set, state Success), `refreshTracking()` runs correctly (no early-return) → tracking status fetched + cached + UI updated. Fixes the extension auto-link path (the user's primary complaint). (2) `resetState` — now clears `_trackEntry` + `_pendingRemoteTrackEntry` + `_showTrackSheet` + `_showMarkPreviousPrompt` (Int? → null) + `_showMarkSeriesPrompt`. Re-opening the same anime starts with clean tracking state (`loadFrom*` repopulates on success). Fixes the "stale data on re-open" complaint.
+- **Deferred to a follow-up if needed:** H4 full fix — chain the concurrent `refreshTracking` launches in `loadFromAniList`/`loadFromExtension` to wait for `state.first { it is DetailsState.Success }` before calling (the H1 fix handles the extension auto-link path directly; the AniList-direct path may still benefit). Local cache fallback — `_trackEntry.value = trackEntryRepository?.get(currentMainId)` on open for instant display of last-known tracking while the network refresh runs.
+- **⚠️ Note:** D-270's `DetailsViewModel.kt` changes were bundled into commit `e3bd6285` (D-269's commit) due to a `git add -A` staging issue. See D-269's note above.
+- **Status:** ✅ Implemented (commit e3bd6285, bundled with D-269). CI pending. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-271 — Version 0.2.52 + docs
+- **What:** AndroidConfig 0.2.51 → **0.2.52** (versionCode 52) with the D-266..D-270 device-feedback batch; annotated tag `v0.2.52` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.52.apk`, --latest) so a v0.2.51 install updates in-app. Dashboard version strings refreshed (full-stack-dev sub-agent, DASHBOARD/webpage/ only).
+- **Status:** ✅ Implemented. Release verification pending CI green.
+- **Date:** 2026-08-26.
+
+---
+
+### D-272 — :core:ads module (smart-link ad system architecture)
+- **What (user device feedback on v0.2.52 + new feature request):** "implement ad functionality. I want to be able to add multiple kinds of ads in my application for multiple things too, to get monetized... I am thinking about utilizing various techniques for getting monetized... like maybe utilizing smart links... create a full-fledged robust system for it... all of it should be customizable over an update. If the user downloads the latest, these settings of the ads will be updated alongside it. The user will not be given any option at all, most probably, to configure the ads... I want to keep it separate from the other parts of the application, making sure that it does not affect their functionality or such. I want it to be highly customizable and properly built... robust and not intrusive."
+- **Architecture (new `:core:ads` module, package `com.confused.anikuta.core.ads`):** An ISOLATED, EXTENSIBLE ad system. The module depends on `:core:common` (Logger), `:core:preferences` (PreferenceStore), `:core:designsystem` (theme for the interstitial UI) — deliberately does NOT depend on `:core:navigation-api` or any `:feature:*`. The coordinator gates a `() -> Unit` proceed-callback; the caller (AppRoot) decides what "proceed" means (e.g. `backstack.add(key)`). This keeps `:core:ads` fully decoupled (CORE_RULES §5/§7 + user's "keep it separate"). Files:
+  - `AdsConfig.kt` — `data class AdsConfig(enabled, activeKind, smartLink)` + `sealed interface AdKind { data object SmartLink; /* future: BannerAd, InterstitialVideo, NativeAd */ }` + `data class SmartLinkConfig(url, cooldownMs, minTimeOutsideMs, maxRetries)` + `object DefaultAdsConfig { val current = AdsConfig(...) }`. **The config ships in APK bytecode** — no user-facing setting, no remote config. To change the URL later: edit `SmartLinkConfig.url` here + ship a new release (CORE_RULES §5 exception: interface-with-one-impl OK when future swap is explicitly planned — the user said more ad kinds are coming).
+  - `AdPreferences.kt` — isolated `AdPreferences(preferenceStore: PreferenceStore)` with `var lastAdShownTimestamp: Long` (mirrors `AppUpdatePreferences` pattern; separate from `AppPreferences` per user's "keep it separate"). The cooldown survives cold starts (the user said "for the next six hours he will not see any ad at all").
+  - `AdsRepository.kt` — `interface AdsRepository` + `AdsRepositoryImpl(preferences)` — config holder + cooldown gate (`isInCooldown()`, `recordAdShown()`, `timeSinceLastAdMs()`, `remainingCooldownMs()`). Interface-bound for future remote-config swap.
+  - `AppLifecycleObserver.kt` — `DefaultLifecycleObserver` registered on `ProcessLifecycleOwner.get().lifecycle` (new `androidx.lifecycle:lifecycle-process` dependency — not previously used anywhere). Records ON_STOP timestamp + emits `onReturnToForeground: SharedFlow<Unit>` on ON_START (only if a prior ON_STOP). `elapsedOutsideMs()` measures the time spent outside. The §8 research sub-agent confirmed `:core:activity-tracker` is a batched SQLDelight event logger — NOT reusable for foreground/background tracking; this observer is purpose-built.
+  - `AdsModule.kt` (Koin) — registers `AdPreferences`, `AdsRepository`, `AppLifecycleObserver`, `AdsCoordinator`. Added `adsModule,` to `AnikutaApp.kt`'s `modules(...)` list.
+  - `build.gradle.kts` — `id("anikuta.library.compose")` (Compose for the interstitial) + deps on `:core:common`, `:core:preferences`, `:core:designsystem`, `androidx.lifecycle.process` (new), `androidx.lifecycle.runtime.compose`, koin, coroutines.
+  - `AndroidManifest.xml` — empty (no components).
+- **Cooldown:** `SmartLinkConfig.cooldownMs = 6 * 60 * 60 * 1000L` (6 hours, per user "one ad per every for six hours").
+- **Placeholder URL:** `SmartLinkConfig.url = "https://example.com/anikuta-sponsor"` — the user said "for the current temporary testing purposes you can use any random URL but later on I will tell you the URL." Change this single line + ship a new release to update.
+- **Extensibility:** The `AdKind` sealed interface is the extension point. Adding a new ad kind = add a `data object` + a `when` branch in the interstitial + (if needed) extend the coordinator. No DI changes. The user said "in the future I'm thinking about adding some other kinds of ads too."
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review sub-agent: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-273 — AdsCoordinator state machine + SmartLinkAdInterstitial UI
+- **What:** The brain + the UI of the ad system.
+- **AdsCoordinator.kt** — `class AdsCoordinator(repository, lifecycleObserver)` with `val state: StateFlow<AdGateState>` + `requestNavigation(proceed: () -> Unit): Boolean` + `onUserContinue(context)` + `onAppReturnedToForeground()` + `onTryAgain(context)` + `cancel()`. State machine: `sealed interface AdGateState { data object Idle; data object AdPending; data class AdInProgress(startedAt, retryCount); data class AdTryAgain(lastElapsedMs, retryCount) }`. Flow: Idle → (requestNavigation, not in cooldown) → AdPending → (onUserContinue opens browser) → AdInProgress → (onAppReturnedToForeground: elapsed ≥ minTime → complete+proceed+Idle; elapsed < min + retries < max → AdTryAgain; retries ≥ max → safety-cap complete). Back (Dialog dismiss) → `cancel()` drops the held proceed-callback (navigation aborted, no cooldown set — non-intrusive escape hatch per user). `completeAd()` records the ad + invokes proceed + sets Idle. Single Koin instance — concurrent `requestNavigation` while non-Idle is rejected (returns false). No-browser (ActivityNotFoundException) → fallback complete (don't trap the user).
+- **SmartLinkAdInterstitial.kt** — full-screen Compose `Dialog(properties = DialogProperties(usePlatformDefaultWidth=false, dismissOnBackPress=true, dismissOnClickOutside=false))`. 3 content states via `Crossfade`: AdPending (OpenInNew icon + "Sponsored" + "Continue" button + "Not now" TextButton), AdInProgress (CircularProgressIndicator + "Waiting for you to come back"), AdTryAgain (Refresh icon + "You came back after Xs" + "Try again" button + Cancel). `DisposableEffect` registers `AppLifecycleObserver` on ProcessLifecycleOwner while composed; `LaunchedEffect(state)` collects `onReturnToForeground` while AdInProgress → calls `coordinator.onAppReturnedToForeground()`. Rendered from `:app`'s AppRoot as a sibling of `UpdateBottomSheet`.
+- **Try-again flow (per user):** "If the user just clicks the button and he is redirected and then directly comes back, then what it will say is 'Try again'. After trying again it will open up and then the user can come back again." → `onAppReturnedToForeground` checks `lifecycleObserver.elapsedOutsideMs()` against `SmartLinkConfig.minTimeOutsideMs` (default 15s). `< minTime` → AdTryAgain state. User taps "Try again" → `onTryAgain` re-opens the URL → AdInProgress → loop until success or max-retries safety cap.
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-274 — Navigation interception in MainActivity.kt AppRoot
+- **What (user):** "for the ads I am thinking about showing them when the user clicks on any of the entries from any page at all. If he clicks on any entry from the home page, from the library page, from the search page, or from the more sections page, from anywhere, he tries to go to the details page. He will be shown the proper ad."
+- **Fix (MainActivity.kt AppRoot):** Added `val adsCoordinator = koinInject<AdsCoordinator>()` + `val navigateToDetails: (AnimeDetailsKey) -> Unit = { key -> adsCoordinator.requestNavigation { backstack.add(key) } }` (declared AFTER `backstack` since it closes over `backstack.add`). Converted ALL 10 user-tap navigate-to-Details call sites to route through `navigateToDetails`:
+  - Browse (generic `onNavigate`): `when (navKey) { is AnimeDetailsKey -> navigateToDetails(navKey); else -> backstack.add(navKey) }` — pattern-matches because BrowseScreen constructs the key internally (the only feature module that does).
+  - Library (`onNavigateToDetails`): both AniList + Extension variants → `navigateToDetails(...)`.
+  - Search: both `onNavigateToDetails` (AniList) + `onNavigateToExtensionAnime` (Extension) → `navigateToDetails(...)`.
+  - Downloads/DownloadedFiles, Updates, History, Profile: all `onNavigateToDetails` / `onNavigateToAnime` → `navigateToDetails(...)`.
+- **Notification deep-link EXCLUDED:** the `LaunchedEffect(notifMainId)` block (app-open-from-notification) deliberately keeps `backstack.add(AnimeDetailsKey.*)` directly — a notification tap is system-initiated, NOT a user tap on an entry (per user "when the user clicks on any of the entries from any page"). Also no previous-screen context for the interstitial to float over on a cold start.
+- **Overlay:** `SmartLinkAdInterstitial()` rendered in AppRoot after the `UpdateBottomSheet` block (sibling). Idle = renders nothing.
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-275 — Browse Hero: sharp banner + blurred-cover bottom strip
+- **What (user device feedback on v0.2.52):** "The background banner is apparently blurred out way too much so it should not be blurred out at all so that needs adjustment. I do like the banner image to be shown at the top, which is perfect, but at the bottom it gets an empty area. About that empty area what I would like you to do is make it a blurred-out background of the cover image itself. At the top the banner will show and in the bottom empty area the blurred-out view of the cover image will show. Or maybe we can do this: the blurred-out view of the banner will show but make sure that the blur is exactly how it is implemented on the details page, making sure that it is smooth, perfect, beautiful-looking, and proper."
+- **Root cause (agent 3-a):** The D-262 `BlurredBannerBackdrop` CPU-box-blurred the banner across the WHOLE card (radius 2 on a 160×90 thumbnail) + the heavy bottom scrim (0.22/0/0/0.45/0.82 alpha black) occluded the blurred banner at the bottom → the user saw a near-solid dark strip (the "empty area"). The banner being "blurred out way too much" = the boxBlur applied to the whole backdrop.
+- **Fix (BrowseHero.kt, full rewrite via Write):** New 4-layer HeroCard:
+  1. **Layer 1 — SHARP banner** (D-275): plain `AsyncImage(model = anime.bannerImage ?: anime.coverUrl, contentScale = Crop, fillMaxSize)` — NO blur. Fallback `surfaceVariant` when both URLs null.
+  2. **Layer 1.5 — BLURRED COVER bottom strip** (D-275, NEW): `AsyncImage(model = anime.coverUrl, modifier = align(BottomCenter).fillMaxWidth().height(140.dp).blur(8.dp).scale(1.15f), contentScale = Crop)` — matches the details-page blur EXACTLY (`Modifier.blur(8.dp).scale(1.15f)`, same recipe as `DetailsScreen.kt:1453`). Fills the "bottom empty area" with the cover artwork, blurred. API 31+ uses RenderEffect (same as DetailsScreen); below 31 it's a no-op → sharp cover (still better than the old empty dark strip).
+  3. **Layer 2 — lightened scrim** (D-275): `0.22/0/0/0.45/0.82` → `0.15/0/0/0.30/0.55` so the sharp banner reads at top + the blurred cover reads at bottom + text stays legible.
+  4. **Layer 3 — foreground** (unchanged): cover poster (84×126) + rank pill + title + meta + chips, anchored BottomStart.
+- **Removals:** `BlurredBannerBackdrop` composable (D-262) + `boxBlur` function (D-262) + `HERO_BLUR_W_PX`/`HERO_BLUR_H_PX`/`HERO_BLUR_RADIUS_PX`/`HERO_BLUR_KEY_PREFIX` constants + 13 now-unused imports (`android.graphics.Bitmap`, `foundation.Image`, `produceState`, `ImageBitmap`, `asImageBitmap`, `BitmapPainter`, `LocalContext`, `coil3.imageLoader`/`ImageRequest`/`SuccessResult`/`allowHardware`/`toBitmap`, `Dispatchers`). KDocs updated (top + HeroCard).
+- **Status:** ✅ Implemented (commit 15653cf1). Compile-review: 0 errors. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-276 — Version 0.2.53 + docs
+- **What:** AndroidConfig 0.2.52 → **0.2.53** (versionCode 53) with the D-272..D-275 ad-system + Browse-Hero batch; annotated tag `v0.2.53` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.53.apk`, --latest) so a v0.2.52 install updates in-app. New `:core:ads` module → module count 47 (was 46). Dashboard version strings + module count refreshed (full-stack-dev sub-agent, DASHBOARD/webpage/ only). Added `APP/ani-kuta/DOCUMENTATION/ads/` architecture doc.
+- **Status:** ✅ Implemented. Release verification pending CI green.
+- **Date:** 2026-08-26.
+
+---
+
+### D-277 — Browse Hero v4: full uncropped banner + palette-gradient content zone
+- **What (user device feedback on v0.2.53):** "on the browse page the top hero section apparently does not look good. It looks ugly, it looks bad, and it is not proper... It will show the banner and the banner will be shown fully at the top. It won't be cropped or anything like that. The full banner will be shown properly. Below it the section will be in the gradient colors of the cover image rather than being the bold version of the cover image. It will smoothly blend into the top banner properly."
+- **Root cause (research sub-agents R-1 + R-2):** D-275's HeroCard forced `aspectRatio(16f/9f)` + `ContentScale.Crop` — AniList banners are natively ~3:1 (up to ~3.57:1), so Crop discarded ~40-50% of the banner's vertical content (only the center horizontal band showed; recorded as far back as D-257's "forced into a square vibe"). The "blurred cover bottom strip" (Layer 1.5) had a hard rectangular top edge at exactly 140dp (NO blend with the sharp banner above) AND sat directly behind the foreground cover poster (84×126 + 12dp padding ≈ 138dp of the 140dp strip) — visually redundant, its only visible contribution a 2dp band at its top edge. Zero palette-derived colors anywhere in the hero.
+- **Fix (BrowseHero.kt — HeroCard rewritten; pager mechanics untouched):**
+  1. **Full banner, uncropped:** `AsyncImage(model = bannerImage, contentScale = ContentScale.Fit, alignment = Alignment.TopCenter, modifier = fillMaxSize)` — the WHOLE banner shows, no crop. AniList banners (~3:1) occupy the top ~40% of the card. Card ratio widened 16:9 → `HERO_CARD_RATIO = 1.2f` (all pager pages share the ratio → pager height never jumps between banners of differing aspect). No-banner items render the gradient alone as the header (the old `bannerImage ?: coverUrl` fallback was dropped — a 2:3 portrait cover Fit in a 1.2:1 card leaves huge side gaps; the foreground poster already shows the cover).
+  2. **Palette-derived gradient (NOT a blurred cover):** `coverColor = rememberCoverDominantColor(anime.coverUrl) ?: surfaceVariant`; `darkCoverColor = lerp(coverColor, Color.Black, 0.55f)` (guarantees white-text contrast — any extractor-normalized mid-tone lands at ~0.18–0.29 final lightness). Base `background(coverColor)` + overlay `Brush.verticalGradient([Transparent, Transparent, coverColor, darkCoverColor])`. This is "colors of the cover image" exactly as the user asked — not a blurred copy of the cover image.
+  3. **Smooth blend:** the gradient's transparent zone covers the banner's bottom ~45%, ramping to solid coverColor at the ~55% junction — the banner's bottom edge feathers into the solid color with NO hard seam (the details-page `DetailBanner` recipe `[Black@0.2, Transparent, background]` adapted to `[Transparent, Transparent, coverColor, darkCoverColor]`).
+  4. Rank pill switched `primary` → `Color.Black.copy(0.45f)` (matches the genre-chip language; sits on the dark zone). Poster placeholder bg `surfaceVariant.copy(0.4f)` → `Color.Black.copy(0.25f)` + placeholder text → White (on-gradient cohesion).
+- **New file — `core/designsystem/.../color/CoverAccentColor.kt`:** `@Composable fun rememberCoverDominantColor(coverUrl: String?): Color?` — wraps the EXISTING `CoverColorExtractor.extract()` (Coil 100×100 + Palette + HSL normalize sat≥0.40/lightness∈[0.40,0.65]) in a `produceState` keyed on coverUrl. Constructs the extractor inline via `remember { CoverColorExtractor(context, context.imageLoader) }` — deliberately NOT `koinInject` because `:core:designsystem` has NO Koin dependency (framework-light core module; mirrors the library feature's proven `rememberCoverAccentColor` pattern). `ponytail:` two extraction helpers now exist (this + the library's theme-adaptive one) — consolidate when a third consumer appears.
+- **Files:** BrowseHero.kt (rewrite of HeroCard + KDoc + imports — dropped `blur`/`scale` imports, added `lerp` + `rememberCoverDominantColor`), CoverAccentColor.kt (new).
+- **Status:** ✅ Implemented (commit 3517d414). Compile-review sub-agent: COMPILE-CLEAN (coil3 3.0.4 `AsyncImage` `alignment`/`contentScale` named-params verified via bytecode dump of the actual artifact; `lerp(Color,Color,Float)` verified against 4 existing compile-tested sites). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-278 — Shared BrowseCacheCodec + Search offline trending default
+- **What (user):** "the search page should open up properly too without the internet, like the default search page results will show and such." Research sub-agent R-3 found `SearchViewModel.loadTrending` had NO disk cache — offline it fell to `SearchUiState.Idle` (recents card only), and even the recents chips would fail on tap (fresh network search).
+- **Fix — `object BrowseCacheCodec` (NEW in `:core:anilist/api`):** the browse_cache JSON encode/decode (~30 lines) extracted from BrowseViewModel's private serialize/parse fns, plus the shared section keys (`SECTION_TRENDING`/`SECTION_POPULAR`/`SECTION_TOP_RATED`). Lives in `:core:anilist` (next to `AniListAnime`) so BOTH the Browse and Search features reuse it — Search serves the cached trending payload, which is the EXACT same AniList `TRENDING_DESC` query Browse caches (CORE_RULES §5 — reuse, no parser duplication). `decode` throws on malformed JSON; callers catch + log + treat as "no cache" (graceful degradation, same as the old inline parser).
+- **BrowseViewModel:** private `serializeBrowseCache`/`parseBrowseCache` REPLACED with `BrowseCacheCodec.encode/decode` calls (pure refactor — same JSON format, so existing cache rows keep parsing). Companion `SECTION_*` consts now reference the codec's (single source of truth).
+- **SearchViewModel.loadTrending — now CACHE-FIRST:** (1) serve `getBrowseCache(SECTION_TRENDING)` decoded instantly → `Success(cached)` + `showingDefaults = true` (a user who opened Browse once already has the row populated); (2) then fetch from network → `Success(fresh)` on success; (3) on network failure, if cache already served → KEEP it (don't clobber with Idle); (4) fall to Idle only when no cache row exists. All paths retain the D-258 staleness guards (query re-checked blank before every state write). Constructor gained `dataCacheRepository: DataCacheRepository` (5th param — resolved by the existing `viewModelOf(::SearchViewModel)` since DataCacheRepository is already a Koin single). `:feature:anime-search:impl` build.gradle gained `implementation(project(":core:data-cache"))`.
+- **Why cache-first (not catch-fallback):** offline, the network call fails only after the ~30s OkHttp connect timeout — a catch-only fallback would show Loading for up to 30s before content. Cache-first shows content in ~ms (a DB read + JSON decode), matching BrowseViewModel's own local-first pattern.
+- **Files:** BrowseCacheCodec.kt (new), BrowseViewModel.kt, SearchViewModel.kt, anime-search/impl/build.gradle.kts.
+- **Status:** ✅ Implemented (commit ccd8aafe). Compile-review: COMPILE-CLEAN (dataJson field name, `SearchUiState.Success(results=)` param, Koin single binding all confirmed). NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-279 — Browse partial-success offline + hero popular fallback
+- **What (user):** "Even when the user has no internet, things should load properly. The whole browse page should load properly and also the browse page should open up properly." Research sub-agent R-3 found: trending cache miss + popular/topRated cache hits → `BrowseState.Error` (the whole screen shows the error page even though 2 of 3 sections are cached + renderable).
+- **Fix (BrowseViewModel):**
+  1. `fetchSection` catch: when the trending fetch fails AND state is still Loading (no cache) AND `_popular` or `_topRated` have data → surface `BrowseState.Success(emptyList())` instead of `Error` — the screen renders the cached popular/topRated sections; only the hero is empty. Falls to `Error` only when ALL three sections have no cache (true cold start + no network).
+  2. `heroItems`: now `combine(_state, _popular)` — when trending is empty (cold start + trending cache miss but popular cached), the hero falls back to popular items so the hero still renders with whatever cache exists.
+- **Status:** ✅ Implemented (commit ccd8aafe). Compile-review: COMPILE-CLEAN. NOT merged — awaiting user device verification.
+- **Date:** 2026-08-26.
+
+---
+
+### D-280 — "Data removed after update" audit (no code change) + Version 0.2.54
+- **The audit (research sub-agent R-3, read-only):** The user reported "data seems to be removed after an update". Findings — the DB schema is version 1 with NO `.sqm` files and NO `onUpgrade` (version 1 == 1 → onUpgrade never fires); `DatabaseDriverFactory.migrateSchemaIfNeeded` runs additive, idempotent `ALTER TABLE ADD COLUMN` / `CREATE TABLE IF NOT EXISTS` / `DROP TABLE IF EXISTS <dead-table>` inside `onOpen` (every app open, column-guarded). Searched every `DELETE FROM`/`clear()`/`DROP`/`deleteAll`/`clearCache`/`nuke`/WorkManager purge: the only bulk deletes are user-triggered destructive actions with confirm dialogs (History clear-all, Updates clear-all) or cache-dir APK cleanups. **Conclusion: NO code path wipes data on an app update.** Most likely environmental causes (ranked): (1) APK signature mismatch forces uninstall+reinstall → wipes `/data/data/<pkg>` (DB + image cache) — `android:allowBackup="false"` means no restore path; (2) OS clears `cacheDir/image_cache` under storage pressure (images-only loss); (3) user-triggered clear-all. NOT fixable in code (deliberate design: allowBackup=false, debug-signed caveat already flagged on the dashboard) — offline resilience improved instead (D-278/D-279 make the app degrade gracefully even after a cache clear).
+- **Version:** AndroidConfig 0.2.53 → **0.2.54** (versionCode 54) with the D-277..D-279 batch; annotated tag `v0.2.54` → release-apk.yml publishes the stable arm64-only release (`ani-kuta-v0.2.54.apk`, --latest) so a v0.2.53 install updates in-app.
+- **Status:** ✅ Implemented. Release verification pending CI green.
+- **Date:** 2026-08-26.
+
+---
+
+### D-281 — CORE_RULES §8 rewritten: CI-first compile verification (no sub-agent pre-review)
+- **What (user):** "Utilizing sub-agents to find the compile errors is not a great option… You can directly build it using GitHub Actions and if it fails you can analyze the errors there. You most specifically do not need to utilize sub-agents to review it."
+- **Change (workflow docs only — zero app code):** CORE_RULES.md §8, SESSION.md task loop, and workflow.md Steps 7/8 + the non-negotiable rules list all updated: the sub-agent compile-review step is REMOVED as a workflow stage. The loop is now **write → push → GitHub Actions builds the APK → read the results/annotations via the GitHub API → fix → repeat.** CI is the compiler of record. Plan-review sub-agents (logic-level review BEFORE implementation) remain allowed; only the post-implementation compile-review pass is gone.
+- **Rationale:** the sub-agent pre-review added latency + was strictly weaker than the actual compiler — CI catches everything the review would (and nothing it wouldn't). Validated the same session: run 32977933759 caught a real compile error (D-284's vararg misuse) in ~3 min; the fix (f7740b0) went green on the next run.
+- **Files:** CORE_RULES.md, SESSION.md, workflow.md (AGENT-CONTEXT).
+- **Status:** ✅ Implemented (commit 93534f6, part of the CI-green f7740b0 push).
+- **Date:** 2026-08-26.
+
+---
+
+### D-282 — Tab memory excludes More + Search (cold start lands on Browse/Library only)
+- **What (user):** "When I close the app on the More section and reopen it, it should open on Browse or Library — the tab memory should not work on the More section… it also should not work on the Search section."
+- **Fix (MainActivity.kt — AppRoot):**
+  1. **Read site:** `startTab = appPreferences.lastTab.takeIf { it == "browse" || it == "library" } ?: "browse"` — cold start restores ONLY Browse/Library; a legacy persisted "more"/"search" value (D-267 persisted all four) sanitizes to Browse.
+  2. **Write site:** `onSelect` persists ONLY `"browse"`/`"library"` — More + Search are session-scoped by design. The pref keeps the last VALID tab, so Browse → More → close → reopen restores Browse.
+  3. **Backstack initialKey:** the `"search" → AnimeSearchKey` / `"more" → MoreKey` mappings removed (unreachable now).
+- **Behavior:** close on More/Search → reopen lands on the last main tab; close on Browse/Library → reopens there.
+- **Files:** MainActivity.kt.
+- **Status:** ✅ Implemented (commit d5625d1, CI GREEN on f7740b0).
+- **Date:** 2026-08-26.
+
+---
+
+### D-283 — Browse hero height reduction (card 1.2:1 → 1.4:1)
+- **What (user, device test on v0.2.54):** "Its height is apparently a bit more than what I hoped for… the bottom section below the banner is way too much" — the banner itself displayed correctly (D-277's Fit fix confirmed working), but the card was too tall overall.
+- **Fix (BrowseHero.kt):** `HERO_CARD_RATIO` 1.2f → **1.4f** (width:height) — the card is ~15% shorter and the below-banner content zone shrinks ~25%. A ~3:1 AniList banner now occupies the top ~47% of the card. Poster 84×126 → **76×114** to fit the shorter card. All pager pages share the ratio (pager height never jumps between banners of differing aspect). The poster (76×114 + 12dp bottom padding) may overlap the banner's feathered bottom edge by a few dp on narrower banners — the classic cinematic overlap; the banner is still fully rendered (Fit, never cropped).
+- **Files:** BrowseHero.kt.
+- **Status:** ✅ Implemented (commit 4356b5a; compile fix f7740b0 CI GREEN).
+- **Date:** 2026-08-26.
+
+---
+
+### D-284 — Browse hero 6-color palette gradient + dark veil
+- **What (user):** "Don't use a simple solid color but utilize a smooth darker kind of gradient. Utilize maybe five or six colors from the cover image and utilize them to create a smooth blended gradient effect… On top of that gradient effect, apply a slightly blurred dark effect."
+- **Fix:**
+  1. **`CoverColorExtractor.extractGradientColors`** (new pipeline, ~90 lines): loads the shared 100×100 swatch bitmap (Coil memory-cache dedupes vs `extract`), collects Palette's named swatches (dominant/vibrant/dark-light vibrant/muted/dark-light muted — topped up with population-ranked swatches when < 6 named), darkens each into a cinematic HSL band (L∈[0.16, 0.42], S∈[0.25, 0.85] — the "smooth darker" feel), sorts light→dark (monotonic luminance = smooth vertical ramp), merges near-duplicate stops (RGB distance < 48), resamples to EXACTLY 6 evenly-spaced stops via piecewise lerp — narrow palettes (grayscale/flat covers) get synthesized intermediates so the ramp is ALWAYS 6 steps.
+  2. **`rememberCoverGradientColors`** (new composable in `:core:designsystem` — CoverAccentColor.kt): produceState wrapper, same self-contained no-Koin pattern as D-277's `rememberCoverDominantColor`.
+  3. **HeroCard gradient (BrowseHero.kt):** explicit-position stops — `[0 → Transparent, BANNER_FEATHER_END=0.42 → Transparent]` over the banner (it reads fully), feathered junction, then the 6 palette colors blended to the bottom; base `background(ramp[0])`. Fallback (null extraction): surfaceVariant darkened in 6 steps.
+  4. **Dark veil:** soft black gradient (0.04 → 0.10 → 0.32 alpha) layered OVER the ramp — the "slightly blurred dark effect". A literal `Modifier.blur()` on a smooth vertical gradient is a visual no-op (no horizontal variance to smear) — documented in KDoc; the veil also guarantees white-text contrast on any cover palette.
+  5. **Compile fix (f7740b0):** CI run 32977933759 caught `Brush.verticalGradient(colorStops = List<Pair<Float,Color>>)` — the param is a VARARG. Fixed with spread operators (`*gradientStops.toTypedArray()`, `*arrayOf(...)`). The new §8 loop's first catch.
+- **Files:** CoverColorExtractor.kt, CoverAccentColor.kt (new), BrowseHero.kt.
+- **Status:** ✅ Implemented (commit 4356b5a + fix f7740b0, CI GREEN).
+- **Date:** 2026-08-26.
+
+---
+
+### D-285 — Library batch loader (N+1 + main-thread freeze fix)
+- **What (user):** "Switching from Browse to Library, the whole page reloads… The 'All' section is the worst — 653 entries take 4-5 seconds to display."
+- **Root causes (both found by reading the code):**
+  1. **N+1 queries:** the entry-building loop issued `getMainEntryByMainId` + `getContentDetails` per entry, and `enrichEntriesWithBadgeData` issued `getEpisodeMetadata` + `getWatchedEpisodeCount` + `getLastWatchedAt` per entry — **~5 queries × 653 entries ≈ 3,300 queries** per load.
+  2. **ALL on the main thread:** `viewModelScope.launch` dispatches on `Main.immediate`; there was ZERO `withContext` in the ViewModel — the UI froze for the entire 4-5s load.
+- **Fix — the load is now 7 queries total, assembled in memory, on `Dispatchers.Default`:**
+  - **Batch queries (additive named queries — NO schema changes, §"don't touch the DB structure" honored):** `getAllWatchedCounts` + `getAllLastWatchedAt` (watch.sq — GROUP BY main_id), `getAllEpisodeAudioRows` (dataCache.sq — only the 4 columns the audio parser + counter need), `getAllLibraryMainEntries` (content.sq — main_entry JOIN deduped library_item subquery, added_at DESC order preserved). `getAllLibraryItems` + `getAllContentDetails` already existed — REUSED (my first push added duplicates; CI run 32979727730 failed with "Duplicate SQL identifier" — the §8 loop caught it; fix 0809551 removed the duplicates; the pre-existing queries return the same columns so the Kotlin mappers compile unchanged).
+  - **Repository/store batch methods:** `ContentRepository.getAllLibraryItems()→List<LibraryItemRecord>` (new lightweight model) + `getAllLibraryContentRecords()` + `getAllContentDetailsMap()`; `WatchProgressStore.getAllWatchedCounts()/getAllLastWatchedAt()` (+ SqlDelight impls); `DataCacheRepository.getAllEpisodeAudioAggregates()→Map<mainId, EpisodeAudioAggregates>` (new model — released count + audio flags + per-type counts, same parseAudioAvailability semantics as the old loop).
+  - **`loadLibraryImpl` rewritten:** categories (1) + library items (1) → category filter + per-category counts + total IN MEMORY; main entries (1) + content details (1) → in-memory join; enrich (3 batch maps). `reloadFromCache` now delegates to it (was a duplicated ~90-line per-entry loop).
+  - **Honest finding:** the old "fetch AniList on miss" branch was UNREACHABLE dead code — `anilistId != null` requires `dataSourceType == "anilist"` which implies `hasDataSourceLink == true` which always took the cached branch first. Removed rather than mirrored; entries with no data link have no stored AniList ID to fetch with anyway.
+  - **Side fix:** category-filtered mainIds now preserve added_at DESC order (the old `getMainIdsByCategory` had no ORDER BY → the DATE_ADDED sort was inconsistent between All and category views).
+- **Files:** watch.sq, dataCache.sq, content.sq, library.sq (comments only), WatchProgressStore.kt, SqlDelightWatchProgressStore.kt, DataCacheRepository.kt, DataCacheModels.kt, ContentRepository.kt, ContentModels.kt, LibraryViewModel.kt.
+- **Status:** ✅ Implemented (commits 1e963f3 + 0809551; CI on 0809551 pending at doc time).
+- **Date:** 2026-08-26.
+
+---
+
+### D-286 — Library instant tab switch (state retention + scroll position)
+- **What (user):** "The page should already be cached and displayed instantaneously" when switching tabs.
+- **Fix (LibraryViewModel + LibraryScreen):**
+  1. **No more Loading flash:** `loadLibrary()` checks `_state.value is LibraryState.Success` — if the grid is already on screen it stays there while the (now-fast, batched) reload runs silently in the background and swaps the result in. The old unconditional `_state.value = LibraryState.Loading` tore the whole grid down on EVERY tab switch (LaunchedEffect fires loadLibrary on every re-entry into composition).
+  2. **Scroll position survives:** `gridState`/`listState` moved into the Activity-scoped ViewModel (`LazyGridState()`/`LazyListState()` constructed outside composition — standard pattern). The old `rememberLazyGridState()` died with the composable when the user left the Library tab, snapping the grid back to the top on every return — part of the "whole page reloads" feel. Coming back now shows the list exactly where the user left it.
+- **Files:** LibraryViewModel.kt, LibraryScreen.kt.
+- **Status:** ✅ Implemented (commit 1e963f3; CI on 0809551 pending at doc time).
+- **Date:** 2026-08-26.
+
+---
+
+### D-287 — Grid scroll performance (5-column smoothness + scroll-back re-loads)
+- **What (user):** "In the 5-column mode, the scrolling is not very smooth because it needs to load a lot of images… fast scrolling jitters… when I scroll to the bottom and then scroll back to the top, the images load again." (Progressive loading during forward scroll is approved behavior — keep it.)
+- **Fix — new `LibraryCoverImage` composable replacing all 3 cover AsyncImage sites (comfortable grid, compact/cover-only grid, list rows):**
+  1. **`crossfade(false)` per cell:** overrides the ImageLoader's global crossfade for dense grid/list cells only (hero/detail images keep it). The 100ms opacity animation ran per cell during fast 5-column scroll (10+ concurrent fades = extra invalidation frames) and re-faded every cover on scroll-back cache repopulation — making the disk re-decode read as a full re-load.
+  2. **`bitmapConfig(Bitmap.Config.RGB_565)`:** 2 bytes/pixel instead of ARGB_8888's 4 — halves each cover's footprint in Coil's memory cache (25% of app memory), so a 653-cover "All" grid stops evicting itself mid-scroll; scroll-back now hits the memory cache instead of re-decoding from disk. Covers are opaque (alpha unused — Crop fills the cell) and at thumbnail scale RGB_565 banding is imperceptible.
+  - Request built once per URL via `remember(url, context)`; progressive loading UNCHANGED.
+- **Files:** LibraryScreen.kt.
+- **Status:** ✅ Implemented (commit 1e963f3; CI on 0809551 pending at doc time).
+- **Date:** 2026-08-26.
+
+---
+
+### D-289 — Browse hero v6 (compact fixed height + banner-as-background + abstract splash)
+- **What (user, device test on v0.2.55):** "The hero section height is very bad… way too tall. I need you to make it less tall." / "The top banner area… could be in the background, over the cover image and the background of the text… make sure that the hero section is a little bit taller than the cover image itself." / "I did not want you to quite literally go with a gradient… a random splash of colors… not a smooth gradient… some splash of colors which blend in together with each other randomly… an abstract splash kind of vibe." / "The cover image's colors would blend in smoothly around it. Also the top banner section would blend in smoothly towards it too. The difference between where the top banner ends and the bottom section starts would be minimal."
+- **Fix (BrowseHero.kt — HeroCard internals redone):**
+  1. **Fixed `HERO_HEIGHT = 148dp`** replacing the 1.4:1 aspect ratio (~234dp on a 360dp-wide screen): a little taller than the 114dp cover poster it frames (+12dp bottom padding + ~22dp airy strip above).
+  2. **Banner as full-bleed background** — `ContentScale.Crop` + `Alignment.Center` over the whole card (atmosphere behind everything; the "uncropped showcase banner" requirement is superseded by the user's new "in the background" instruction).
+  3. **SplashOverlay** — 8 soft-edged radial-gradient blobs drawn via `drawBehind` in the cover's own 6-color palette (D-284 extractor): 2 airy low-alpha top blobs (banner still reads), 5 denser bottom-zone blobs (0.32–0.55 alpha, overlapping = organic SRC_OVER blending), 1 poster-echo blob (lightest palette color behind the cover = "cover colors blend around it"). Blob layout seeded by `coverUrl.hashCode()` — stable per item, different per banner. NO linear gradient anywhere.
+  4. **Unifying veil** — smooth 0.06 → 0.52 black ramp over everything. Because the banner never "ends" (spans the full card) and every blob edge is a radial falloff, there is no detectable banner↔content boundary — the seamless-blend requirement is structural, not cosmetic.
+- **Files:** BrowseHero.kt.
+- **Status:** ✅ Implemented (commit 8fa46be; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
+
+---
+
+### D-290 — Library scroll-jump fix (single-emission state pipeline + staggered hoist + dataset-change resets)
+- **What (user):** "Sometimes the library page would automatically scroll to the bottom or some middle area… even though previously I was at the very top. When I refreshed the library page, the library page did not stay at the very top… It scrolled way too much down automatically by itself… about the middle."
+- **Root cause (R-1 research sub-agent):** `loadLibraryImpl` emitted `Success(entries)` in DATE_ADDED order and THEN `applyFilters()` re-emitted the sorted list. If a recomposition landed between the two writes (preemption/GC-pause window on Dispatchers.Default), the grid composed the UNSORTED list and LazyGrid's key-based anchoring (`key = mainId`) followed the previously first-visible item to its DATE_ADDED rank — the middle of the 653-item list. Additional contributors: COMFORTABLE_GRID's `rememberLazyStaggeredGridState()` was NOT VM-held (died on tab switch while gridState went stale), and dataset changes (category switch, search) kept a stale retained index.
+- **Fix (LibraryViewModel + LibraryScreen):**
+  1. **Single emission:** the final filtered+sorted list is computed BEFORE any state write (`filterAndSort` pure function shared by loadLibraryImpl and applyFilters) — no unsorted intermediate ordering can ever be composed; the whole bug class is gone.
+  2. **`masterEntries`** (unfiltered, unsorted) held in the VM; `applyFilters` re-derives from it — also fixes a LATENT BUG: the old applyFilters re-filtered the ALREADY-filtered state, so clearing a search query could never restore removed entries until a full reload.
+  3. **`staggeredState` hoisted to the VM** — Comfortable mode now retains scroll exactly like grid/list modes.
+  4. **`resetScrollToTop()`** (non-suspend `requestScrollToItem(0, 0)` on all three states, foundation 1.7+) on category switch and search-query change — a changed dataset presents from its top; no stale-index mid-list landings.
+  5. **Resume refresh now invisible:** with single-emission + structural-equality conflation (`LibraryEntry` is a @Immutable data class), the `LaunchedEffect(Unit) { loadLibrary() }` on tab re-entry produces an EQUAL Success that StateFlow DROPS — no flash, no grid teardown, no scroll disturbance; genuinely changed data still swaps in.
+- **Files:** LibraryViewModel.kt, LibraryScreen.kt.
+- **Status:** ✅ Implemented (commit 8fa46be; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
+
+---
+
+### D-291 — Reveal-once cover animations (velocity-adaptive, one fade per cover, ever)
+- **What (user):** "The loading of the images is not smooth. All the images just outright jump into it… I wanted a smoother experience… they would all show up one by one with a smoother animation… The speed of them will be faster as the users scroll faster… if the user jumps into some area directly then it will slow down that area smoothly… If I scroll one time to the very top and then to the very bottom… it should not be loading any images [on the way back]… It should only work if they were not loaded. If previously loaded then no need to reload them completely unless the user refreshes the whole page again."
+- **Fix (LibraryScreen + LibraryViewModel):**
+  1. **`CoverRevealController`** threaded screen → LibraryGrid/LibraryList → cards → `LibraryCoverImage`: a `State<Float>` velocity factor + isRevealed/markRevealed lambdas backed by the VM's `revealedCoverKeys` set (Activity-scoped — survives tab switches; cleared ONLY by `refreshLibrary()` — pull-to-refresh is the user's explicit "reload everything" signal).
+  2. **Reveal-once gate:** an unrevealed cover starts at alpha 0 (soft surfaceVariant@0.35 placeholder reads as reserved space) and fades 0→1 on its FIRST load success; a revealed cover renders at full alpha INSTANTLY — scroll-back and tab-return never re-animate.
+  3. **Velocity-adaptive duration:** `rememberScrollVelocityFactor` tracks an EMA over a `snapshotFlow` of the active list's `index*4096 + offset` signal, with a 150ms decay loop (post-fling loads get the calm fade). Sampled NON-reactively at load completion: 240ms calm → 70ms hard fling. Reading it reactively in cells would recompose every cell on every scroll frame — the exact churn D-287 removed.
+  4. **Draw-phase animation:** the fade alpha is read inside `graphicsLayer { alpha = revealAlpha.value }` — animating re-DRAWS only the cell's layer; zero recomposition churn (safe for 10+ concurrent fades in 5-column mode).
+  5. `crossfade(false)` + `bitmapConfig(RGB_565)` kept from D-287 — the reveal system owns ALL animation.
+- **Files:** LibraryScreen.kt, LibraryViewModel.kt.
+- **Status:** ✅ Implemented (commit 8fa46be; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
+
+---
+
+### D-292 — Cover accent palette off main thread + extraction gating (scroll-jank fix)
+- **What (user):** Library scrolling "was not smooth, it was not proper" — persistent jank in the 653-item grid.
+- **Root causes (both found this session):**
+  1. `rememberCoverAccentColor`'s `Palette.from(bitmap).generate()` ran ON THE MAIN THREAD — produceState's producer coroutine inherits the composition's Main dispatcher, and `imageLoader.execute()` only suspends for the LOAD; the synchronous generate() (5–20ms per cover) blocked main for every new card entering the viewport.
+  2. The call ran UNCONDITIONALLY in LibraryGridCard + LibraryListRow — every card did a 100×100 Coil load + Palette even with cover borders disabled (the default). This was likely the PRIMARY scroll-jank source all along.
+- **Fix (CoverAccentColor.kt + LibraryScreen.kt):**
+  1. HARDWARE bitmap copy + Palette.generate() + swatch pick now inside `withContext(Dispatchers.Default)`.
+  2. 256-entry `LruCache<String, Int>` keyed `url|isDark`, with a `FAILED_EXTRACTION` sentinel so failures are cached too (no retry storms for covers that can't produce a swatch).
+  3. Extraction gated on `coverBorderEnabled && coverBorderColor == ADAPTIVE` in BOTH card sites — zero extraction work in the default configuration.
+- **Files:** CoverAccentColor.kt, LibraryScreen.kt.
+- **Status:** ✅ Implemented (commits 8fa46be + 26beba9; CI GREEN run 32993791653).
+- **Date:** 2026-08-26.
+
+### D-294 — Parent-first extension classloader (ROOT FIX: "extensions disappear after trust")
+
+**Context:** User device-report: extensions from salmanbappi/extensions-repo show up UNTRUSTED but vanish from every list the moment they're trusted. 82 extensions (80× lib-16, 2× lib-14), none load.
+
+**Root cause (verified via custom AXML/DEX parsing of the APKs, no Android tooling needed):**
+1. *(Loader)* Our `ChildFirstPathClassLoader` let an extension's PARTIAL bundled kotlin-stdlib shadow the host's complete stdlib (app ships kotlin 2.2.0; the template family bundles kotlin 2.0.x partials — 600+ `kotlin.*` classes). Mixed-stdlib class-identity breakage throws during source instantiation (the sb-template's `AnikotoTheme` even has an EAGER `client = network.client.newBuilder()...` initializer that runs at construction). The WORKING extension (anikoto v14.4) is R8-MINIFIED with ZERO kotlin bundled — which is exactly why it never hit the issue.
+2. *(UI)* `ExtensionManager.trustExtension` removed the extension from `_untrustedExtensions` and, when `loadExtension` returned `Error`, did NOTHING — the extension vanished from every list. `loadAll`'s `Error` branch only logged.
+
+**Fix:** `ExtensionLoader` now builds a plain **parent-first `PathClassLoader`** — EXACTLY like reference Aniyomi (extensions never shadow host classes; their bundled kotlin is inert dead weight, resolving instead to the host's binary-compatible stdlib). `ChildFirstPathClassLoader` deleted. All host-API refs the failing extensions use were verified compatible first (Video 16-param synthetic ctor, Hoster, AnimesPage 2-arg, AnimeFilter.Select/Separator synthetic ctors, Track(url, lang), rateLimitHost, androidx.preference typealias, Injekt registration) — the classloader was the only incompatibility.
+- **Files:** ExtensionLoader.kt (+ ChildFirstPathClassLoader.kt deleted).
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-295 — LoadResult.Error carries the real failure reason
+
+`instantiateSource` now returns Success/Failure per declared source class; failures include the exception class + message ("MovieBox: java.lang.NoSuchMethodError: ..."). `LoadResult.Error` gained a `name` field for display. No more generic "No sources instantiated".
+- **Files:** ExtensionLoader.kt, LoadResult.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-296 — Errored extensions are VISIBLE (never silently dropped)
+
+New `AnimeExtension.Errored` state + `ExtensionManager.erroredExtensions` StateFlow. `trustExtension`/`retryExtension` share `applyLoadResult` which routes EVERY LoadResult branch (Success → installed + sources registered; Error → errored with reason; Untrusted → back to untrusted). `loadAll` populates the errored list too. The extensions screen gets a "Failed to Load" section with per-row failure message + Retry / Untrust / Uninstall. `untrustExtension` widened to accept any AnimeExtension (errored rows can go back to untrusted). Trust-time classloading moved off the main thread (Dispatchers.Default).
+- **Files:** AnimeExtension.kt, ExtensionManager.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-297 — Extension lib-version policy (17.0 known-good, attempt everything)
+
+`LIB_VERSION_MAX` 16.0 → 17.0 (lib-17 APIs — `server`, `getVideoThumbnails`, `getImageTile` — already exist in :core:source-api). Out-of-range versions (older OR newer than known-good) are **attempted anyway** — if the load fails the user sees the visible Errored row with the reason (D-296), never a silent drop. The range is documentation, not a gate.
+- **Files:** ExtensionLoader.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-298 — Installed.lang populated + language filter
+
+`Installed.lang` was ALWAYS null (loader gap). Now populated from the instantiated sources (most common non-blank source lang, fallback to first). The extensions screen gains a language filter (globe icon in the filters bar; All + the distinct languages across installed/errored/untrusted/available) applied to every section.
+- **Files:** ExtensionLoader.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-299 — Virtualized extensions list
+
+All sections previously rendered EVERY row inside one non-virtualized `Column`-in-`item` (the Available section = 80+ rows composed eagerly + 80 icon fetches). Now every section header is its own item (`SectionHeader`, rounded-top card) and every row is its own item with `key` + `contentType` — full LazyColumn virtualization.
+- **Files:** ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-300 — Single canonical install path
+
+`ExtensionManager.installExtension` previously duplicated `ExtensionInstaller.downloadAndInstall`'s entire download + service-dispatch pipeline (a drift hazard). The manager now delegates to the installer (keeping install-state tracking + its own mutex) and its private `downloadApk` + service dispatch were deleted; the unused `okhttpClient` constructor param removed (Koin module updated).
+- **Files:** ExtensionManager.kt, ExtensionModule.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-301 — Auto update-checking (GitHub-repo based)
+
+Entering the extensions page now triggers `checkForUpdates()` automatically — throttled to once per 30 min (repeated entries are no-ops), non-blocking, with a subtle Checking state (`UpdateCheckState` StateFlow) that shows the spinner only when the Available list is still empty. Repo-set changes force a fresh check. `hasUpdate` (versionCode comparison against the repo index, computed since D-285-era but inert) now surfaces as an **Update button** on installed rows → installs the newer Available entry via the canonical installer (PackageInstaller replace → PACKAGE_REPLACED broadcast → re-scan).
+- **Files:** ExtensionManager.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-302 — provider-api made real (VideoExtensionProvider + AniyomiExtensionProvider)
+
+:core:provider-api was a sealed `ExtensionProvider` interface with ZERO implementations (D-031 scaffolding). Now: `VideoExtensionProvider` (sources StateFlow, findSource, install/uninstall/setEnabled/checkForUpdates) + app-owned `SourceDescriptor` model (no third-party types cross the boundary) + `AniyomiExtensionProvider` facade over ExtensionManager, registered in Koin. Existing consumers unchanged (they keep using the manager directly); NEW consumers program against the provider interface so a second ecosystem (Mangayomi/Sora/CloudStream/Kotatsu) can be added without touching feature code.
+- **Files:** ExtensionProvider.kt, AniyomiExtensionProvider.kt (new), ExtensionModule.kt.
+- **Status:** ✅ Implemented (commit 301c4a78).
+- **Date:** 2026-08-27.
+
+### D-303 — Version 0.2.57 (versionCode 57)
+
+Extension-system overhaul release: D-294..D-302.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.57 + release after CI green.
+- **Date:** 2026-08-27.
+
+### D-304 — Search results dedupe (duplicate LazyGrid key crash)
+
+Device-reported crash: `IllegalArgumentException: Key "3508466391484419848:/movies/1414183037004383720" was already used` — moviebox-style extensions return the same entry multiple times in one results page (overlapping carousel/row sections in their HTML), and the search grid keys rows by `"sourceId:url"` → LazyGrid crashes on the second identical key. Fix: `page.animes.distinctBy { it.url }` at BOTH ViewModel mapping sites (loadExtensionPopular + searchExtension) + defense-in-depth `remember(results) { distinctBy }` at render time so no future code path can reintroduce the crash.
+- **Files:** SearchViewModel.kt, SearchScreen.kt.
+- **Status:** ✅ Implemented (commit 4cd4a4ea, CI 809 green).
+- **Date:** 2026-08-28.
+
+### D-305 — Search request identity (stale results across queries/sources)
+
+Device-reported: "if it failed to show results it would revert to an older state of the extension entries — it will show the result from some other extension." Three stacked defects: (a) every search launched an independent coroutine with no cancellation — the LAST-FINISHING job (often a stale, slow one) won `_uiState`; (b) `onSelectExtensionSource`/`onSourceChange(EXTENSION)` loaded popular + DISCARDED it at the blankness guard while the old source's in-flight search landed → another source's results under the new selection; (c) the UI dispatched on state type only — AniList states rendered in Extension mode and vice versa. Fix: `beginRequest()` bumps a generation counter + cancels in-flight jobs; loaders only write state while `isCurrent(gen)` (CancellationException rethrown for coroutine hygiene); source/mode switches with a live query now SEARCH the new source; `SearchScreen` normalizes cross-mode states to Loading (a new load is always in flight on switch). The init-block trustedSources collector no longer interrupts a live search.
+- **Files:** SearchViewModel.kt, SearchScreen.kt.
+- **Status:** ✅ Implemented (commit 4cd4a4ea, CI 809 green).
+- **Date:** 2026-08-28.
+
+### D-306 — Extension-first episode metadata
+
+User: extensions that provide their own episode metadata (titles/descriptions/thumbnails) should be PRIORITIZED over our own providers (AniZip/Jikan/Kitsu/AniList), with providers filling the gaps "smartly". New `EpisodeDisplayResolver` (single source of truth): extension `SEpisode.preview_url`/`summary` win when non-blank; titles count only when they carry a real title beyond "Episode N" (EpisodeTitleParser). Applied at: EpisodeRow resolution, all 3 WatchKey serialization sites (Details + Watch render identically), and the cache layer — sparse writes preserve `preview_url`/`summary` (was: thumbnailUrl=null), enriched writes merge per-field (ext first), cache reconstruction re-attaches `preview_url`.
+- **Files:** EpisodeDisplayResolver.kt (new), DetailsScreen.kt, DetailsViewModel.kt.
+- **Status:** ✅ Implemented (commit 7721182e).
+- **Date:** 2026-08-28.
+
+### D-307 — Season detection module
+
+User: full-fledged seasons — detect series divided into multiple seasons via title tags like "( Season 5 - Episode 12 - The Black Cat )", organize by seasons (default) with the user able to pick grouping instead. New `SeasonDetector` in `:core:common` (dedicated, extensible parsing module — v1 handles the parenthesized/unparenthesized Season-N-Episode-M prefix with case/separator variants; future sniffers slot in without touching feature code). `EpisodeTitleParser.parseTitle` delegates season-tagged names → clean titles. `groupEpisodesBySeason` (EpisodeListProcessor) buckets episodes; activation requires ≥2 distinct seasons; untagged episodes → trailing "Other" bucket. `EpisodeListPreferences.organizeBySeasons` (default true = seasons win when detected). Settings sheet gains "Organize episodes by: Seasons / Number groups" (only when seasons are detected in the current anime).
+- **Files:** SeasonDetector.kt (new), EpisodeTitleParser.kt, EpisodeListProcessor.kt, EpisodeListPreferences.kt, EpisodeListSettingsSheet.kt.
+- **Status:** ✅ Implemented (commit 7721182e).
+- **Date:** 2026-08-28.
+
+### D-308 — Season selector UI
+
+`SeasonSelectorRow`: horizontally-scrollable season chips (All / Season N / Other) rendered between the source-selector header and the episode list. Tap selects + smoothly CENTERS the chip (animateScrollToItem with negative centering offset — the standard recipe; animateScrollBy's tween type-inference failed in CI 810, hence the rewrite) + haptic + press-scale + animated colors (Motion tokens). Season slice = selected season's URLs ∩ filtered+sorted list (filters/sort apply WITHIN seasons; structure detected on the RAW list so chips stay stable under filters). Number-range grouping suppressed while seasons are active (single implicit group → the range switcher hides).
+- **Files:** DetailsScreen.kt.
+- **Status:** ✅ Implemented (commit 7721182e + CI fix e741f053).
+- **Date:** 2026-08-28.
+
+### D-309 — Extensions update/install UX (download progress animation)
+
+User: the update flow works, but the Update button's look needs improvement and the download shows NO animation before the install prompt appears. (1) `InstallStep`: enum → sealed interface; `Downloading` carries progress (0..100, -1 = unknown size). (2) `ExtensionInstaller.downloadApk` streams throttled (200ms) progress while downloading — mirrors UpdateDownloader. (3) `InstalledExtensionRow` now consumes `installStates` (previously ignored entirely): the bare Refresh-icon button is replaced by a filled "Update" pill (press-scale + haptic) that morphs via AnimatedContent into a determinate ring + % while downloading, pulsing "Installing" during the PackageInstaller phase. (4) `AvailableExtensionRow` gets the same progress treatment for fresh installs.
+- **Files:** InstallStep.kt, ExtensionInstaller.kt, ExtensionsSettingsScreen.kt.
+- **Status:** ✅ Implemented (commit c3a926a4).
+- **Date:** 2026-08-28.
+
+### D-310 — Version 0.2.58 (versionCode 58)
+
+Device-feedback batch: D-304..D-309.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.58 + release after CI green.
+- **Date:** 2026-08-28.
+
+### D-311 — Post-update NPE crash + Update-pill resurrection (extensions page)
+
+Device crash report (2026-08-28 13:59, ExtensionsSettingsScreen.kt:621, main thread): after an extension update finished installing, the Update pill reappeared (on the stale `hasUpdate=true` row), then the app crashed with NPE. Root cause chain: `InstallStep.Installed` (terminal) fell into the READY phase → the pill resurrected; when the package-broadcast `loadAll()` then flipped `hasUpdate=false` (⇒ `onUpdate=null`) mid-`AnimatedContent`-transition, the EXITING READY slot recomposed with the latest captured null lambda and `onUpdate!!` threw. Fix: (a) READY branch is null-safe (renders nothing when the capture flips null during the fade-out); (b) new INSTALLED phase — a check+"Done" success state instead of the resurrected pill; (c) `ExtensionManager.onInstallResult(Installed)` now triggers `loadAll()` immediately (the post-update refresh system the user asked for: version text + hasUpdate + install state settle together instead of waiting for the racy broadcast).
+- **Files:** ExtensionsSettingsScreen.kt, ExtensionManager.kt.
+- **Status:** ✅ Implemented (commit 43bd5d5f).
+- **Date:** 2026-08-28.
+
+### D-312 — :core:seasons module (pattern registry + provider-hint fusion)
+
+User: seasons "somewhat working" but glitchy for some extensions; wants "a separate module which processes things separately and allows me to easily and properly configure things… adapt to various extensions, various formats". `SeasonDetector` promoted from :core:common into its own zero-dependency Gradle module. Architecture: `SeasonPatterns` = ordered, extensible pattern registry (season-episode / compact S5E12 / season-only; `register()` is the future per-extension hook); `SeasonDetector.analyze(names, providerHints?)` = whole-list analysis (per-episode assignments, season inventory, confidence, activation decision owned by the module); fusion rules — an explicit name tag ALWAYS wins, AniZip/Kitsu `seasonNumber` metadata fills the gaps, unassigned → "Other" bucket. `groupEpisodesBySeason` consumes the analysis (activation: ≥2 seasons AND ≥50% coverage, unchanged from D-307); `DetailsScreen` wires episodeMetadata seasonNumber hints (season structure now ALSO works for clean-named extensions when the provider knows the split). Module README documents formats, fusion, and the add-a-format recipe (verify against REAL EpisodeDump logs first).
+- **Files:** core/seasons/** (new module), EpisodeTitleParser.kt, EpisodeListProcessor.kt, DetailsScreen.kt, settings.gradle.kts, 2× build.gradle.kts.
+- **Status:** ✅ Implemented (commit 1713e7ce + CI fix 883090a9).
+- **Date:** 2026-08-28.
+
+### D-313 — Episode-list normalization + raw dump logging + cross-anime state-bleed guards
+
+Three stacked device reports: (a) "multiple episodes showing with the exact same title and the exact same episode tag"; (b) episode thumbnails/metadata "bleeding into each other" across details pages; (c) request for highly detailed, filterable console logging of raw episode lists. Root causes: (a) extensions return unset (-1) / duplicated / timestamp-like episode numbers — the EP badge, the `(main_id, episode_number)` cache PK (INSERT OR REPLACE collapses rows!), and the number-keyed metadata map all break; (b) the Activity-scoped shared DetailsViewModel had NO generation guards on episode-state/metadata writes — anime A's in-flight fetches (multi-second) landed after anime B opened, overwriting B's list and MERGING into B's metadata map (B's rows rendered A's thumbnails); (c) existing logging was count-only. Fixes: `EpisodeListNormalizer` (URL dedupe with per-instance blank-URL fallback keys + atomic renumber 1..N when numbers are unusable — extension order = intended order; numbers kept EXACTLY when valid+distinct so watch-progress/cache keys stay stable); `EpisodeListDumper` (full raw dump — name/parsedTitle/patternId/seasonTag/num/date/filler/scanlator/summary/preview/url + number + season analysis footers — via `android.util.Log` tag `Anikuta:EpisodeDump` so it reaches logcat in RELEASE builds, suspend on Dispatchers.Default, one line per episode, runCatching-wrapped, at all 3 fetch sites); generation guards on EVERY episode-state/metadata write across fetchEpisodes / refreshEpisodesList / refreshMetadata / refreshAll / loadFromAniList network path / loadFromExtension (network-first, background refresh, offline-catch) / mergeAniListIntoUnified (auto-link — the longest async window, review round) / loadLinkedSource enrichment. Cache writes with the captured mainId are intentionally NOT blocked — they still correctly enrich the OLD anime's cache.
+- **Files:** EpisodeListNormalizer.kt (new), EpisodeListDumper.kt (new), DetailsViewModel.kt, Logger.kt (isEnabled accessor).
+- **Status:** ✅ Implemented (commit eab206e8 + CI fix c8c21d20 + review round 6b3c6ecc).
+- **Date:** 2026-08-28.
+
+### D-314 — Simple pull-to-refresh
+
+User: "turn that pull-to-refresh into a simple pull-to-refresh… a beautifully themed refresh toggle will show up, and it will refresh the whole page exactly like how it will be refreshed using the refresh button. Remove the functionality of the advanced pull-to-refresh (episodes / metadata)." The custom 3-stage NestedScrollConnection (120/240/360dp thresholds → episodes/metadata/all) + ThreeStagePullIndicator + the D-146 "Refreshing..." pill are REPLACED by the official Material 3 `PullToRefreshBox` (the pattern Browse + Library already use): one gesture → `refreshAll()` (identical to the three-dot Refresh button), themed M3 indicator driven by `isRefreshing` (auto-dismisses when it flips false), one haptic at the pull threshold (derivedStateOf + !isRefreshing gate — no whole-branch invalidation per pull frame, no haptic on button-triggered refreshes). The dead legacy D.3 multi-stage refresh API (setRefreshStage/executeRefresh/clearRefreshState + RefreshStage/RefreshState enums) is deleted outright.
+- **Files:** DetailsScreen.kt, DetailsViewModel.kt.
+- **Status:** ✅ Implemented (commit 2fafca85 + review round 6b3c6ecc).
+- **Date:** 2026-08-28.
+
+### D-315 — Full-screen cover viewer (expand-from-position + save to gallery)
+
+User spec: tapping the details cover "smoothly become[s] bigger from the place it is currently at… take up the whole width of the screen, just leaving a slight gap on the right and left sides. Below it… close and the option to save. When the user clicks save, it will be saved to the user's gallery… close… smoothly close[s] away with the same animation." New `CoverViewerOverlay`: the banner cover tracks its on-screen bounds (`onGloballyPositioned`/`boundsInRoot`); the overlay expands from those EXACT bounds to a centered 2:3 target (16dp side gaps, 70% height cap) driven by ONE Animatable with deferred state reads (offset{}/layout{}/graphicsLayer{}/drawBehind{} — zero per-frame recomposition; corner radius 12→22dp + shadow rise interpolated too). Close collapses back with the same easing; scrim tap + BackHandler close; drags swallowed so the list can't scroll underneath. Save streams the ORIGINAL bytes (no re-encode) through the shared Koin OkHttpClient into Pictures/ANI-KUTA — MediaStore RELATIVE_PATH on API 29+ (orphaned IS_PENDING rows cleaned on failure), WRITE_EXTERNAL_STORAGE runtime request + media scan on API 24–28 (manifest permission with maxSdkVersion=28 + tools:replace — the bundled aniyomi-mpv-lib declares the same permission with maxSdkVersion=32). Button shows spinner → "Saved ✓"; result toast.
+- **Files:** CoverViewerOverlay.kt (new), DetailsScreen.kt, AndroidManifest.xml.
+- **Status:** ✅ Implemented (commit 2fafca85 + review round 6b3c6ecc).
+- **Date:** 2026-08-28.
+
+### D-316 — Version 0.2.59 (versionCode 59)
+
+Device-feedback batch: D-311..D-315.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.59 + release after CI green.
+- **Date:** 2026-08-28.
+
+### D-317 — Season slice numbering + three-state organize + S-n/E-m compound tag
+
+Device report (v0.2.59): "As soon as I go to season one… it was starting from my episode 9 to 16… season 2 was starting from episode 1 to episode 8. Both of them should be like episode 1 to episode 8." Root cause: extensions that number episodes WITHIN each season (duplicates across seasons — the user's dump showed "Season 2 - Episode 1" with num=1.0) trigger the normalizer's renumber-by-RAW-order; the extension returns a date-sorted list, so globals interleaved seasons and every slice inherited jumbled numbers. Fixes: (a) normalizer renumbers season-aware (sort by season, episode-in-season, raw index FIRST — globals run S1 1..10, S2 11..18, aligning with AniList-absolute metadata); (b) new analyzeEpisodeSeasons (one pass: groups + url-keyed assignments + per-season display numbers, guaranteed unique within a bucket); (c) season slices show the episode's PER-SEASON number via the new EpisodeTag override on EpisodeRow. Plus the requested settings redesign: "Organize episodes by" is now THREE states (Off = flat / Seasons / Numbers) with the old boolean as the migration source, and a "Season in episode tag" toggle (hidden in Seasons mode per spec) renders "S-3/E-5" compound badges in the All list — season + episode in two shades of the theme color, slash separator, slight letter-spacing. Grouping-size row only shows in the (effective) number-groups mode. Dumper no longer double-logs in debug builds.
+- **Files:** EpisodeListPreferences.kt, EpisodeListNormalizer.kt, EpisodeListProcessor.kt, DetailsScreen.kt, EpisodeListSettingsSheet.kt, EpisodeListDumper.kt.
+- **Status:** ✅ Implemented (commits c3c07be1 + 5677c542).
+- **Date:** 2026-08-28.
+
+### D-318 — Persistent pull-to-refresh indicator
+
+Device report: "It should not be that simple… it should show a better-looking refresh one coming down, and the refresh animation should play until it is refreshed properly. It currently… goes away way too quickly, even before the refresh has finished." Two stacked fixes: (a) refreshAll now AWAITs real completion — suspend cores (refreshMetadataNow/refreshEpisodesListNow) extracted from the old fire-and-forget launches; all three refreshes run concurrently in a coroutineScope and isRefreshing clears only when they finish (was: fixed 500ms delay); (b) custom themed indicator replaces the default M3 one — a floating surface disc (shadow, per-anime adaptive accent) that slides down + scales in with the pull, fills a determinate arc with the pull distance, then spins indeterminately for the WHOLE refresh; all per-frame values read inside graphicsLayer (zero pull-frame recomposition).
+- **Files:** DetailsViewModel.kt, DetailsScreen.kt.
+- **Status:** ✅ Implemented (commit 5677c542).
+- **Date:** 2026-08-28.
+
+### D-319 — Cover viewer zoom + instant saves
+
+User: "when I click the cover image, I should be able to zoom in on the cover image and see any part of it. The zoom-in will not stay; it will automatically zoom out after the user lifts his fingers" + save "takes way too much time". (a) Pinch-to-zoom (1x..6x) + clamped pan on the expanded cover (transformable; gesture-end detected via snapshotFlow on isTransformInProgress — foundation 1.7 has NO onGestureEnd overload), animating back to rest on release with Motion tokens; single tap still closes. (b) Save now reads the cover's ORIGINAL bytes from Coil's DISK CACHE first (openSnapshot → data.toFile(); the cover was already loaded through the same shared loader) — instant + lossless; network is only the fallback. Format from magic-byte sniffing (jpg/png/webp/gif), not Content-Type.
+- **Files:** CoverViewerOverlay.kt.
+- **Status:** ✅ Implemented (commits 5677c542 + b03d0489).
+- **Date:** 2026-08-28.
+
+### D-320 — Experimental shared-element cover transition (Browse/Search/Library ⇄ Details)
+
+User: "the exact same cover image feature, but implement it on the whole library page and other pages too… when I click on any entry from any of those covers, its cover will smoothly move to the location where the cover is supposed to be on the details page… if I exit the details page and then I click the back button or maybe use the back gesture, then the same animation will happen." Architecture: MainActivity's plain when(currentKey) switch became SharedTransitionLayout + AnimatedContent (Details in/out → 280ms crossfade = the shared-element window; everything else snap() = unchanged instant switching; the lambda param shadows currentKey so all branch bodies stayed verbatim). Both scopes provided via CompositionLocals in :core:designsystem (LocalSharedTransitionScope/LocalNavAnimatedVisibilityScope + Modifier.coverSharedElement(key) helper with Motion-emphasized 320ms bounds transform). Keys travel through the NAV KEY (AnimeDetailsKey.transitionKey + coverUrl/title display hints, default-null → serialization-compatible) so source + destination agree. Browse keys are SECTION-QUALIFIED ("cover:trending:<url>") — the same anime appears in multiple sections and duplicate keys in one composition are undefined; hero excluded. Search (both grids) + Library (all display modes via LibraryCoverImage) use plain "cover:<url>". DetailsScreen renders a loading SKELETON banner at the exact banner geometry when the key carries a cover — the morph lands instantly on first-ever opens and the Success swap is pixel-seamless. SaveableStateProvider (keyed by screen class) preserves each screen's rememberSaveable state while disposed — required for the reverse morph to land on the tapped card, and the browse grid scroll now survives navigation. Toggle: Settings → Appearance → Details page → "Cover transition (experimental)" (default ON while the user evaluates).
+- **Files:** SharedTransitionLocals.kt (new), MainActivity.kt, AnimeDetailsKey.kt, BrowseScreen.kt, BrowseCards.kt, SearchScreen.kt, LibraryScreen.kt, DetailsScreen.kt, AppPreferences.kt, DetailsPageSettingsScreen.kt, designsystem/build.gradle.kts, anime-browse build.gradle.kts.
+- **Status:** ✅ Implemented (commit b03d0489).
+- **Date:** 2026-08-28.
+
+### D-321 — Version 0.2.60 (versionCode 60)
+
+Device-feedback batch: D-317..D-320.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.60 + release after CI green.
+- **Date:** 2026-08-28.
+
+### D-322 — Compose compile/runtime alignment fix (the v0.2.60 startup crash)
+
+Device report: v0.2.60 crashed at startup with `NoSuchMethodError: No static method sharedElement$default(…SharedTransitionScope$PlaceHolderSize…)`. Forensic chain (all verified against the shipped APK's dex + Google Maven artifacts, not guesses): (1) the app compiled against the compose BOM 2025.03.00 line (animation 1.7.8 — the exact descriptor in the crash EXISTS in animation-android-1.7.8); (2) `io.insert-koin:koin-compose:4.2.2` (in the graph since the project's first commit) depends on JetBrains Compose Multiplatform 1.10.2, whose Android variants REQUIRE androidx Compose 1.10.4; (3) a Gradle platform (BOM) constraint can only RAISE versions — it can never cap a version a dependency REQUIRES — so every release ever shipped has actually PACKAGED compose 1.10.4 (+ lifecycle 2.9.4 via the JB lifecycle fork) while every module compiled against 1.7.8; (4) that skew was invisible while the app only used compose's stable APIs (binary compat held) — until v0.2.60's experimental SharedTransitionScope call hit the 1.10 line's renames (`PlaceHolderSize`→`PlaceholderSize`, `sharedElement(state=…)`→`sharedContentState=…`). Fix = align compile to the proven runtime instead of fighting it: compose BOM REMOVED, the 1.10.4 line pinned EXPLICITLY in the version catalog (ui/ui-graphics/ui-tooling/ui-tooling-preview/foundation/animation/runtime = 1.10.4; material3 stays 1.3.1 — binary-compatible on 1.10.4, and 1.4.x would churn the entire UI; material-icons 1.7.8 = the deprecated final; lifecycle 2.10.0 = what the runtime really resolves — koin-android 4.2.2 requires androidx lifecycle 2.10.0; the first pin attempt (2.9.4, from tracing only the koin-compose/JB-fork path) was caught WRONG by the new guard's very first CI run); all 15 module build files switched from `platform(bom)` to the explicit pins; `coverSharedElement` ported to the 1.10 API. NEW GUARD: `:app`'s `checkDependencyAlignment` task (wired into `preBuild`, so every CI + local build) resolves `releaseRuntimeClasspath` and FAILS the build whenever any `androidx.compose.*`/`androidx.lifecycle` artifact's packaged version deviates from the pins — the exact failure mode can never ship silently again. Unpinned internal transitives (`material`, `material-ripple`, `material3.adaptive` — required only by material3 1.3.1/seeker, nothing compiles against them) are deliberately out of scope. Accepted deltas vs the old BOM runtime: `material-ripple` 1.7.8→1.7.0 and `material` 1.7.8→1.5.1 (both now resolve at exactly the version their requiring library was built against — the designed pairings).
+- **Files:** gradle/libs.versions.toml, 15 module build.gradle.kts, SharedTransitionLocals.kt, app/build.gradle.kts (guard), AndroidConfig comment.
+- **Status:** ✅ Implemented (v0.2.61).
+- **Date:** 2026-08-29.
+
+### D-323 — Version 0.2.61 (versionCode 61)
+
+Crash-fix release: D-322.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.61 + release after CI green.
+- **Date:** 2026-08-29.
+
+### D-324 — Shared-element cover morph polish: slower/lockstep motion + rounded corners for the whole flight
+
+Device feedback on v0.2.61 (transition works, no crash): "make the animation of opening a content by clicking the cover from the library page or the browse page or the search page smoother and better — it's currently a bit faster and a bit jittery… and keep the corners rounded if they were rounded while the animation plays." Three coordinated fixes: (a) NEW Motion.DurationContainer = 450ms — the bounds morph was 300ms, too quick for a cover traveling across the screen; 450ms with the M3 emphasized curve reads as a deliberate, premium flight (the curve's slow settle removes the hard cut at the end). (b) JITTER ROOT CAUSE = mismatched velocity profiles: the cover morph ran 300ms EasingEmphasized while the nav AnimatedContent crossfade ran 300ms tween-DEFAULT easing (FastOutSlowIn) — two surfaces accelerating on different curves during the same window read as jitter. The crossfade now runs the SAME DurationContainer token + EasingEmphasized (Motion.kt gains the token; MainActivity fade aligned; both must stay in sync — documented in DESIGN-LANGUAGE §6). (c) CORNERS: sharedElement's default clipInOverlayDuringTransition = ParentClip = the parent's plain RECTANGLE — Browse/Library covers get their rounding from a parent Box clip (outside the shared element), so mid-flight they rendered SQUARE and snapped back to rounded on landing. coverSharedElement now passes clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(12.dp)) — new `shape` parameter (default 12dp = the cover language + the destination banner's own shape, so the whole flight reads as one continuous rounded surface; Search cards' self-clip 12dp ∩ overlay 12dp = unchanged). Reverse morph (back) picks up the same BoundsTransform automatically.
+- **Files:** Motion.kt, SharedTransitionLocals.kt, MainActivity.kt, DESIGN-LANGUAGE.md (§6 rewritten).
+- **Status:** ✅ Implemented (v0.2.62).
+- **Date:** 2026-08-29.
+
+### D-325 — Episode tag: compound "S-n/E-m" is multi-season-only
+
+Device feedback: "the episode tag for no season content or 1 season content — in such content the normal episode tag should show, not the one with the season." Root cause: SeasonDetector.analyze ALWAYS produces per-episode assignments (season=1 for single-season content), and the tag branch only checked the `seasonTagInNumber` setting — so single-season lists rendered "S-1/E-5" on every row. Fix: the compound-tag branch now ALSO requires `seasonInfo?.groups != null` — groups is non-null ONLY when the detector's activation rule fires (≥2 distinct seasons AND ≥50% coverage, i.e. exactly the condition under which the season selector is offered). No-season, single-season, and low-coverage lists always show the plain "EP n" tag; season slices keep their per-season plain numbers; the All view of activated multi-season content keeps the compound tag. Docs updated where the old behavior was described (EpisodeTag kdoc, EpisodeListPreferences.seasonTagInNumber kdoc, core/seasons README consumers section).
+- **Files:** DetailsScreen.kt, EpisodeListPreferences.kt, core/seasons/README.md.
+- **Status:** ✅ Implemented (v0.2.62).
+- **Date:** 2026-08-29.
+
+### D-326 — Version 0.2.62 (versionCode 62)
+
+Device-feedback batch: D-324 + D-325.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.62 + release after CI green.
+- **Date:** 2026-08-29.
+
+### D-327 — Cover flight is 600ms, decoupled from the 450ms page crossfade ("details opens early, image glides")
+
+Device feedback on v0.2.62 (morph works and looks good, but): "the speed of the cover image moving is apparently way too fast… make the speed a little bit slower so that it looks smoother and proper. The details page can open up early but the image will move slowly." Fix: NEW `Motion.DurationSharedFlight` = 600ms — the shared-element cover's own BoundsTransform runs 600ms (was 450) while the Details nav crossfade stays at `DurationContainer` = 450ms. Both keep the SAME EasingEmphasized curve — that is the part that must stay in sync (D-324's jitter was mismatched CURVES at equal duration; decoupled durations on one curve are safe because only one thing is still moving once the page settles). The page content is fully visible at 450ms while the cover glides the remaining 150ms into the banner — the exact "open early, move slowly" behavior requested. The reverse morph (back) picks up the same BoundsTransform automatically. Motion.kt / SharedTransitionLocals.kt / MainActivity comments + DESIGN-LANGUAGE §6 updated to the refined rule: easing-CURVE sync is mandatory, duration sync is not.
+- **Files:** Motion.kt, SharedTransitionLocals.kt, MainActivity.kt, DESIGN-LANGUAGE.md (§6).
+- **Status:** ✅ Implemented (v0.2.63).
+- **Date:** 2026-08-29.
+
+### D-328 — Shared-element keys are screen-namespaced (kills the Library ⇄ Search ghost morph)
+
+Device feedback: "when I switch between the library page and the search page, specific anime content apparently moves from one place to another… the same kind of animation is going between these two pages." Root cause: Library cards AND Search cards both built their shared-element key as `"cover:<url>"`. During ANY AnimatedContent screen switch both screens compose simultaneously, and shared-element matching is independent of the transitionSpec — so an anime visible on both pages (in the library + in the search results) had MATCHING keys on both sides, and its cover morphed ACROSS the two list pages on every Library ⇄ Search switch — even though those switches are instant snap transitions (EnterTransition.None). Fix: canonical screen-namespaced key builders in SharedTransitionLocals.kt — `libraryCoverKey` (`cover:library:<url>`), `searchCoverKey` (`cover:search:<url>`), `browseCoverKey` (`cover:browse:<section>:<url>`) — now used at ALL 7 construction sites (the card-modifier keys in LibraryScreen/SearchScreen×2/BrowseCards + the 4 nav-arg keys MainActivity builds for AnimeDetailsKey). List ⇄ list can never match again (disjoint namespaces); list ⇄ Details still morphs because Details never constructs a key — it carries the source card's key through `AnimeDetailsKey.transitionKey`. Side benefit: the card-modifier key and the nav-arg key for each screen are now built by the SAME function, so the two ends of every morph are structurally unable to drift apart.
+- **Files:** SharedTransitionLocals.kt, MainActivity.kt, LibraryScreen.kt, SearchScreen.kt, BrowseCards.kt, AnimeDetailsKey.kt (doc), DESIGN-LANGUAGE.md (§6).
+- **Status:** ✅ Implemented (v0.2.63).
+- **Date:** 2026-08-29.
+
+### D-329 — Version 0.2.63 + branch merged into main + `streaming/CLOUDSTREAM` branch created
+
+User gate opened: "After doing it I would like you to directly merge this branch with the main branch… verify it afterwards… the APK is being built properly from the main branch, the size is proper… then create a new branch from the new main branch named /streaming/CLOUDSTREAM." Version 0.2.62 → 0.2.63 (versionCode 63). Pipeline: fixes on `test-feature/video-cache-new-download` → CI green → merge into `main` (main had diverged from the merge-base 26e47722 by exactly 2 user web-UI "Add files via upload" commits — the moviebox v16.1139 APK + one empty commit — disjoint paths, clean `--no-ff` merge) → tag v0.2.63 on the merge commit → Release APK built FROM main → verify APK + size (~59.4MB arm64-v8a expected) → create `streaming/CLOUDSTREAM` from the new main for upcoming user-directed work (purpose TBD — explicitly NO work started on it). NOTE: the user asked for "/streaming/CLOUDSTREAM"; a leading slash is not a valid git refname component (empty first path element), so the branch is `streaming/CLOUDSTREAM`.
+- **Files:** AndroidConfig.kt + memory docs.
+- **Status:** ✅ Implemented; tag v0.2.63 + release after CI green.
+- **Date:** 2026-08-29.

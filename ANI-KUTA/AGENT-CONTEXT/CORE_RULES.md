@@ -129,18 +129,21 @@ repo-root/
 - **NEVER** install the Android SDK, JDK (with javac), or any Android build tooling in the local environment. The local environment does NOT have these and MUST NOT acquire them. GitHub Actions provides everything needed.
 - **NEVER** run `./gradlew compileDebugKotlin`, `./gradlew assembleDebug`, or ANY Gradle build task locally. Not even for "just checking compilation". Not even for "just finding the error".
 - **NEVER** write `sdk.dir=...` to `local.properties`. Do not create `local.properties` at all.
-- **How to find compile errors WITHOUT building locally:**
-  1. Read the code carefully, line by line, checking every import, type, and API call.
-  2. Use sub-agents (Explore type) to review the code for compile errors — they can read files and compare against reference code.
-  3. Cross-reference against the OLD project (in `REFERENCES/old-kuta/ANIKUTA/`) which compiles successfully.
-  4. Cross-reference against the Animiru documentation (in `REFERENCES/animiru/documentation/`).
-  5. Push to CI and read the failure annotations from the GitHub API (`/repos/{owner}/{repo}/check-runs/{id}/annotations`).
-  6. Iterate: fix → push → read CI annotations → fix again. This is the ONLY loop.
-- **ONLY** `arm64-v8a` + `armeabi-v7a` ABIs. No x86/x86_64.
+- **How to find compile errors WITHOUT building locally — CI-FIRST (user instruction, D-281):**
+  1. Write the change carefully, reading the touched files and the immediate call sites (imports, types, API signatures).
+  2. **Commit + push → let GitHub Actions build the APK** — this is the primary and preferred verification step. Do NOT dispatch sub-agents to pre-review code for compile errors; that is unnecessary before the build has even run.
+  3. Poll the workflow run via the GitHub API. **If it fails**, read the failure (the check-run annotations endpoint `/repos/{owner}/{repo}/check-runs/{id}/annotations` + the job logs) and analyze the compile errors there.
+  4. Iterate: fix → push → read CI results → repeat until green. This is the ONLY loop.
+  5. Cross-reference against the OLD project (`REFERENCES/old-kuta/ANIKUTA/`) or the Animiru docs (`REFERENCES/animiru/documentation/`) only when a CI error needs design context to fix.
+  - **Rationale (user, D-281):** "Utilizing sub-agents to find the compile errors is not a great option. It is unnecessary to utilize sub-agents to find the errors before even trying to build it. We can directly build the APK using GitHub Actions and after building it we can check out the results." Sub-agent compile review was REMOVED as a workflow step by this instruction — CI is the compiler of record.
+- **ONLY** `arm64-v8a` ABI in SHIPPED APKs (updated D-251 per user instruction — armeabi-v7a dropped). No x86/x86_64.
   - Set in `build-logic/.../AndroidConfig.kt` (`abiFilters`), applied via the `anikuta.android.application` convention plugin.
-  - Verified post-build in CI (the `build-apk.yml` "Verify ABIs" step inspects every APK's `lib/` folder and fails on any forbidden `lib/<abi>/`).
+  - Verified post-build in CI (the `build-apk.yml` "Verify ABIs" step inspects the SHIPPED APK's `lib/` folder and fails on any forbidden `lib/<abi>/`).
+- **EXCEPTION (user-authorized, D-246; scope tightened D-251): TEST-ONLY x86_64 emulator builds.** The user authorized x86 APK builds solely for the agent's own emulator test environment. CI can produce `app-debug-x86_64-emulator.apk` (via `-PemulatorX64Build=true`, verified to contain ONLY x86_64) as a SEPARATE artifact — but per the user's D-251 instruction this ONLY happens on explicit manual request (`workflow_dispatch` with the `build_emulator_apk` input, default off). It never ships and never builds on normal pushes. This exception does NOT extend to release builds.
+- **RELEASES (user instruction, D-251):** versioned releases are published via the `release-apk.yml` workflow on `v*` tag push — the release APK is arm64-v8a-only and the release must NOT be marked prerelease (the in-app updater relies on stable releases being visible). Bump `versionCode`/`versionName` by exactly +1 per improvement batch (e.g. 0.2.47 → 0.2.48), keep the tag `v{versionName}` in sync with `AndroidConfig.kt`, and the release workflow verifies the match.
+- **Sandbox emulator tooling (user-authorized, D-246):** the agent MAY install the Android SDK command-line tools + platform-tools + emulator + system images in the sandbox to RUN and INSPECT the CI-built APK on a local AVD (x86_64 TCG, no KVM). This is an inspection/runtime-testing allowance ONLY — Gradle builds, `javac`, and Android build-tools remain FORBIDDEN locally (§8's build prohibition is unchanged: the APK always comes from CI).
 - App ID: `com.confused.anikuta`.
-- **compileSdk = 36** (kept at 36 for Compose BOM 2025.03.00 + future-proofing; was originally bumped for Nav3, but Nav3 was removed in D-150 — the SDK stays at 36 because reverting would touch `AndroidConfig.kt` only + provides no benefit).
+- **compileSdk = 36** (kept at 36 for the compose 1.10 line — BOM removed D-322, explicit 1.10.4 pins — + future-proofing; was originally bumped for Nav3, but Nav3 was removed in D-150 — the SDK stays at 36 because reverting would touch `AndroidConfig.kt` only + provides no benefit).
 
 ---
 
@@ -434,7 +437,7 @@ APP/ani-kuta/DOCUMENTATION/database/
 
 ---
 
-## 27. Tool Failure Recovery (Stop After 5 Tries)
+## 27. Tool Failure Recovery (Stop After 5 Consecutive / Halt After 10 Total + Notify)
 
 > When a tool (Bash, Read, Edit, etc.) fails repeatedly, hammering it wastes context and time. The environment often self-recovers if you pause.
 
@@ -442,9 +445,14 @@ APP/ani-kuta/DOCUMENTATION/database/
 1. **Stop after 5 consecutive failures** of the same tool with the same/similar error. Do NOT keep retrying — it won't help and burns context.
 2. **Acknowledge the failure to the user** — tell them the tool is erroring and you're pausing. The user may need to reset the session or wait.
 3. **Do NOT retry in a tight loop.** After the 5th failure, stop calling that tool entirely for the rest of the turn. Move to a different tool or describe what you would have done.
-4. **The environment often self-recovers.** If the user says "continue" or sends a new message, try the tool again — it may work now.
-5. **Log the failure** in `lessons-learned.md` with the `[PATTERN]` tag if it recurs across sessions (e.g. "Bash fails after long sessions — context limit or sandbox issue").
-6. **If a critical action is blocked** (e.g. can't `git push`), tell the user explicitly: "I can't push to GitHub right now because Bash is failing. The changes are saved locally. Please retry in a new message or run `git push` manually."
+4. **HARD LIMIT — Bash: more than 10 total failures in a session → STOP + NOTIFY (user instruction, 2026-08-25).** Count EVERY Bash invocation that errors (non-zero exit where the command did not produce its intended result — a `diff -q` exit 1 reporting "files differ" is an answer, not a failure). Once the count EXCEEDS 10:
+   - **Stop all work immediately.** No further Bash calls — not "one more try".
+   - **Send an ntfy.sh notification** (§11): `curl -fsSL -H "Title: ANI-KUTA Agent" -d "Bash failed >10 times — agent HALTED. Check the session." https://ntfy.sh/TASKISDONE`. Attempt it ONCE; if that curl itself fails, say so in the final response instead.
+   - **Tell the user in the response**: the Bash tool failed more than 10 times, work is halted, the exact work state (committed/pushed or not, files changed), and what to do next (send a new message to retry — the counter resets on a new user message).
+   - This limit is CUMULATIVE across the session, not just consecutive — intermittent failures add up to the same wasted context.
+5. **The environment often self-recovers.** If the user says "continue" or sends a new message, try the tool again — it may work now. The failure counters (5-consecutive and 10-total) RESET on each new user message.
+6. **Log the failure** in `lessons-learned.md` with the `[PATTERN]` tag if it recurs across sessions (e.g. "Bash fails after long sessions — context limit or sandbox issue").
+7. **If a critical action is blocked** (e.g. can't `git push`), tell the user explicitly: "I can't push to GitHub right now because Bash is failing. The changes are saved locally. Please retry in a new message or run `git push` manually."
 
 ---
 

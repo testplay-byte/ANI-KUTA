@@ -1,40 +1,32 @@
 package com.confused.anikuta.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.MoreListRow
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
@@ -54,6 +46,7 @@ fun SettingsScreen(
     onOpenAutoLink: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
+    onOpenVideoCaching: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -77,7 +70,7 @@ fun SettingsScreen(
                 ) {
                     item {
                         SettingsSectionLabel("Appearance")
-                        SettingsNavRow(
+                        MoreListRow(
                             icon = Icons.Filled.Palette,
                             title = "Appearance",
                             subtitle = "Theme mode, palettes, and colors",
@@ -88,7 +81,7 @@ fun SettingsScreen(
                     // ── Extensions (Phase 5a) ──
                     item {
                         SettingsSectionLabel("Extensions")
-                        SettingsNavRow(
+                        MoreListRow(
                             icon = Icons.Filled.Extension,
                             title = "Extensions",
                             subtitle = "Install, trust, and manage sources",
@@ -99,7 +92,7 @@ fun SettingsScreen(
                     // ── Auto-Link (Phase B) ──
                     item {
                         SettingsSectionLabel("Metadata")
-                        SettingsNavRow(
+                        MoreListRow(
                             icon = Icons.Filled.AutoAwesome,
                             title = "Auto-Link",
                             subtitle = "Link extension anime to AniList metadata",
@@ -110,7 +103,7 @@ fun SettingsScreen(
                     // ── Notifications (Phase NOTIF) ──
                     item {
                         SettingsSectionLabel("Notifications")
-                        SettingsNavRow(
+                        MoreListRow(
                             icon = Icons.Filled.Notifications,
                             title = "Notifications",
                             subtitle = "New-episode alerts, per-anime config",
@@ -121,11 +114,19 @@ fun SettingsScreen(
                     // ── Player (Phase 2) ──
                     item {
                         SettingsSectionLabel("Player")
-                        SettingsNavRow(
+                        MoreListRow(
                             icon = Icons.Filled.PlayCircle,
                             title = "Player",
                             subtitle = "Auto-select video, playback preferences",
                             onClick = onOpenPlayerSettings,
+                        )
+                        // Video caching (test-feature branch): cache streamed episodes
+                        // locally for instant replays.
+                        MoreListRow(
+                            icon = Icons.Filled.VideoLibrary,
+                            title = "Video caching",
+                            subtitle = "Cache streamed episodes for instant replay",
+                            onClick = onOpenVideoCaching,
                         )
                     }
 
@@ -136,7 +137,7 @@ fun SettingsScreen(
                     // (driven by AppUpdateManager.shouldShowUpdateSheet).
                     item {
                         SettingsSectionLabel("About")
-                        SettingsNavRow(
+                        MoreListRow(
                             icon = Icons.Filled.Info,
                             title = "About & Updates",
                             subtitle = "App version, update checks, downloaded APKs",
@@ -174,89 +175,4 @@ fun SettingsSectionLabel(text: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp),
     )
-}
-
-@Composable
-fun SettingsNavRow(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.size(36.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.size(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = subtitle,
-                    fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
-
-/**
- * A small circular back button used in the header's actions slot.
- */
-@Composable
-private fun BackAction(onBack: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .background(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(50),
-            )
-            .clickable(onClick = onBack),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
-    }
 }

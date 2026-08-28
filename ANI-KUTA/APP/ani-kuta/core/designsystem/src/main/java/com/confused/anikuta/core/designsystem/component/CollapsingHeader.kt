@@ -16,9 +16,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.theme.LocalHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 
 /**
@@ -31,6 +33,9 @@ import com.confused.anikuta.core.designsystem.theme.Motion
  * - **Animation:** animateFloatAsState, tween 300ms, FastOutSlowInEasing.
  * - **Actions slot:** for trailing buttons (search, sort, etc.).
  * - **Status bar:** Uses `.statusBarsPadding()`.
+ * - **Heading color (D-254):** respects [LocalHeadingColor] — the custom
+ *   palette editor's "Headings" color overrides the default onBackground;
+ *   presets keep the default (Unspecified sentinel → onBackground).
  *
  * Usage with LazyVerticalGrid:
  * ```kotlin
@@ -91,7 +96,8 @@ fun CollapsingHeader(
                 fontSize = fontSize.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = (-0.02).sp,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = LocalHeadingColor.current.takeIf { it != Color.Unspecified }
+                    ?: MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),

@@ -434,6 +434,83 @@ class ContentRepository(
         return libraryQueries.getLibraryMainIds().executeAsList()
     }
 
+    // ── D-285: batch reads for the Library's batch loader ──────────────────
+    //
+    // The Library used to issue getMainIdsByCategory/countItemsInCategory per
+    // category + getMainEntryByMainId + getContentDetails per entry — ~5×N
+    // queries for an N-item library (653 items → ~3,300 queries, 4-5s). These
+    // three batch reads cover the entire load in 3 queries total; the caller
+    // derives the category filter, counts, and entry list in memory.
+
+    /** One row per library_item — (mainId, categoryId, addedAt), newest first. */
+    fun getAllLibraryItems(): List<LibraryItemRecord> {
+        return libraryQueries.getAllLibraryItems().executeAsList().map {
+            LibraryItemRecord(
+                mainId = it.main_id,
+                categoryId = it.category_id,
+                addedAt = it.added_at,
+            )
+        }
+    }
+
+    /** Every main_entry row that is IN the library, ordered by library add date (newest first). */
+    fun getAllLibraryContentRecords(): List<ContentRecord> {
+        return contentQueries.getAllLibraryMainEntries().executeAsList().map {
+            ContentRecord(
+                mainId = it.main_id,
+                contentId = it.content_id,
+                title = it.title,
+                contentType = it.content_type,
+                contentFormat = it.content_format,
+                dataSourceId = it.data_source_id,
+                systemId = it.system_id,
+                extensionRepoId = it.extension_repo_id,
+                extensionId = it.extension_id,
+                sourceId = it.source_id,
+                animeUrl = it.anime_url,
+                displaySource = it.display_source,
+                createdAt = it.created_at,
+                updatedAt = it.updated_at,
+            )
+        }
+    }
+
+    /** Every content_details row, keyed by mainId (batch companion to [getContentDetails]). */
+    fun getAllContentDetailsMap(): Map<String, ContentDetails> {
+        return contentQueries.getAllContentDetails().executeAsList().associate {
+            val details = ContentDetails(
+                mainId = it.main_id,
+                dataSourceType = it.data_source_type,
+                dataSourceRefId = it.data_source_ref_id,
+                dataScore = it.data_score,
+                dataEpisodes = it.data_episodes,
+                dataSeason = it.data_season,
+                dataSeasonYear = it.data_season_year,
+                dataStatus = it.data_status,
+                dataGenres = it.data_genres,
+                dataSynopsis = it.data_synopsis,
+                dataCoverUrl = it.data_cover_url,
+                dataBannerUrl = it.data_banner_url,
+                dataExtraJson = it.data_extra_json,
+                dataUpdatedAt = it.data_updated_at,
+                extensionType = it.extension_type,
+                extensionId = it.extension_id,
+                sourceId = it.source_id,
+                animeUrl = it.anime_url,
+                extDescription = it.ext_description,
+                extGenres = it.ext_genres,
+                extStatus = it.ext_status,
+                extAuthor = it.ext_author,
+                extArtist = it.ext_artist,
+                extThumbnailUrl = it.ext_thumbnail_url,
+                extExtraJson = it.ext_extra_json,
+                extUpdatedAt = it.ext_updated_at,
+                coverAccentArgb = it.cover_accent_argb,
+            )
+            details.mainId to details
+        }
+    }
+
     // ── Category management (D-138) ────────────────────────────────────────
 
     /**

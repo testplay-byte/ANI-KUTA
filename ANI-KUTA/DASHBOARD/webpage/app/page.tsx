@@ -31,7 +31,7 @@ export default function OverviewPage() {
             </span>
             <StatusDot color="var(--c-success)" size="sm" />
             <span className="text-[12px] text-text-secondary">
-              ALL PHASES DONE · 46 modules built · Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + CI GREEN
+              ALL PHASES DONE · 47 modules built · Phase 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete + Profile UI v1–v6 + CI GREEN
             </span>
           </div>
           <h2 className="text-[26px] md:text-[32px] font-bold tracking-extra-tight text-text-primary leading-tight">
@@ -41,9 +41,9 @@ export default function OverviewPage() {
             </span>
           </h2>
           <p className="text-[13.5px] text-text-secondary leading-relaxed max-w-2xl">
-            A calm, living dashboard for the ANI-KUTA project: 46 modules
-            built (1 app + 26 core + 1 data + 18 feature — ALL PLANNED MODULES
-            BUILT), all phases 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete
+            A calm, living dashboard for the ANI-KUTA project: 47 modules
+            built (1 app + 27 core + 1 data + 18 feature — ALL PLANNED MODULES
+            BUILT, incl. :core:ads on the test-feature branch), all phases 0–5 + B/C/D/WP/HI/UP/SC/TR/NOTIF/CW/DL/DB complete
             + Profile UI v1–v6, 26 DB tables across 15 .sq files (13 logical
             groups), + CI verified GREEN on branch {`main`} (all feature branches
             merged + deleted). Phase DL (download system — all 9 phases D.0–D.8)
@@ -214,7 +214,7 @@ export default function OverviewPage() {
                     className="text-[18px] font-bold tracking-extra-tight mt-0.5"
                     style={{ color: "#E8E8E8", letterSpacing: "-0.02em" }}
                   >
-                    46 modules — all built ✓
+                    47 modules — all built ✓
                   </div>
                 </div>
                 {/* mini grid glyph */}
@@ -236,9 +236,9 @@ export default function OverviewPage() {
                 </svg>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: "#B8B8B8" }}>
-                <span>46 planned</span>
+                <span>47 planned</span>
                 <span className="opacity-50">·</span>
-                <span>46 built ✓</span>
+                <span>47 built ✓</span>
                 <span className="opacity-50">·</span>
                 <span>4 layers</span>
               </div>
@@ -252,8 +252,8 @@ export default function OverviewPage() {
                 detail cards with file counts.
               </p>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <MiniStat label="Modules" value="46" />
-                <MiniStat label="Built" value="46" />
+                <MiniStat label="Modules" value="47" />
+                <MiniStat label="Built" value="47" />
                 <MiniStat label="Layers" value="4" />
               </div>
               <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--c-success)] group-hover:underline">

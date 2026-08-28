@@ -39,7 +39,7 @@ The watch page is **exempt** from strict UI/backend separation due to the single
 
 ---
 
-## Actual Module Graph (46 modules)
+## Actual Module Graph (50 modules — count as of D-326; the per-module list in module-map.md is canonical)
 
 ```
                          ┌──────────┐

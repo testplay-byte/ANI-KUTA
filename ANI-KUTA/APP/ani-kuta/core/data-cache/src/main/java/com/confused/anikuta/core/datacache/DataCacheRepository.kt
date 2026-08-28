@@ -1,6 +1,7 @@
 package com.confused.anikuta.core.datacache
 
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.common.parseAudioAvailability
 import com.confused.anikuta.core.database.AnikutaDatabase
 
 /**
@@ -109,7 +110,54 @@ class DataCacheRepository(
                 )
             }
         }
-        Logger.d(TAG) { "Cached ${metas.size} episode metadata entries" }
+    }
+
+    /**
+     * D-285: Per-anime aggregates the Library's RELEASED/audio badges need,
+     * computed from ONE batch read of the episode table (only the 4 columns the
+     * audio parser + episode counter touch — a fraction of the full row, no
+     * description/thumbnail/etc. deserialized).
+     *
+     * Replaces the per-entry `getEpisodeMetadata(mainId)` loop in the Library's
+     * enrichment pass: a 653-item library used to run 653 full-row episode
+     * queries per load; now it's ONE lightweight query + in-memory aggregation
+     * (identical semantics: releasedCount = episode-row count, audio flags
+     * aggregated with the same [parseAudioAvailability] call the old loop used).
+     *
+     * @return mainId → aggregates. Anime with NO cached episodes are absent.
+     */
+    fun getAllEpisodeAudioAggregates(): Map<String, EpisodeAudioAggregates> {
+        val rows = queries.getAllEpisodeAudioRows().executeAsList()
+        if (rows.isEmpty()) return emptyMap()
+
+        val byMainId = rows.groupBy { it.main_id }
+        val result = HashMap<String, EpisodeAudioAggregates>(byMainId.size)
+        for ((mainId, episodeRows) in byMainId) {
+            var hasSub = false
+            var hasDub = false
+            var hasHsub = false
+            var subCount = 0
+            var dubCount = 0
+            for (row in episodeRows) {
+                val audio = parseAudioAvailability(
+                    scanlator = row.scanlator,
+                    episodeName = row.source_name ?: row.title ?: "",
+                )
+                if (audio.hasSub) { hasSub = true; subCount++ }
+                if (audio.hasDub) { hasDub = true; dubCount++ }
+                if (audio.hasHsub) hasHsub = true
+            }
+            result[mainId] = EpisodeAudioAggregates(
+                releasedCount = episodeRows.size,
+                hasSub = hasSub,
+                hasDub = hasDub,
+                hasHsub = hasHsub,
+                subCount = subCount,
+                dubCount = dubCount,
+            )
+        }
+        Logger.d(TAG) { "getAllEpisodeAudioAggregates: ${result.size} anime from ${rows.size} episode rows" }
+        return result
     }
 
     fun deleteEpisodeMetadata(mainId: String) {

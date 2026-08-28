@@ -7,19 +7,19 @@
 
 ## ⚡ Who You Are
 You are the AI agent for **ANI-KUTA** (Android app rebuild + companion web dashboard).
-GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active branch: `main` (all feature branches merged + deleted).
+GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active line: `main` — `test-feature/video-cache-new-download` was MERGED into `main` on 2026-08-29 (v0.2.63, user-gated gate opened; first merge since 26e47722). New branch `streaming/CLOUDSTREAM` was created FROM the new main for upcoming user-directed work (purpose TBD by the user — do NOT start work on it until instructed).
 
 ## 📂 If The Environment Was Just Cloned
-1. `cd /home/z/my-project/ANI-KUTA` (if missing → re-clone from GitHub; the wrapper folder is `ANI-KUTA/ANI-KUTA/` inside).
+1. Clone to `/home/z/ANI-KUTA-WORK/ANI-KUTA` (the repo is public — read access works without a token; PUSH needs the GitHub token in the remote URL — **ask the user for repo URL + token AT THE START of the session**, they may have been lost in a sandbox wipe). Checkout `main` (or `streaming/CLOUDSTREAM` if the user directs the new work there).
 2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers + **Deferred Concerns** (read the top sections first).
-3. Read `AGENT-CONTEXT/memory/decisions.md` → "Pending Decisions" section (latest = D-193; all pending items answered).
+3. Read `AGENT-CONTEXT/memory/decisions.md` → latest = D-329 (v0.2.63 merged to main).
 4. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task.
 
 ## 🔑 Key Rules (full detail in `CORE_RULES.md` — 30 sections)
 - **No assumptions.** Unsure → ask the user. Never guess.
 - **Don't sugarcoat.** If a request has an issue, flag it directly. Don't blindly agree.
 - **User uses speech-to-text.** If a request feels off, correct obvious errors from context; if still unclear → stop and ask.
-- **APK builds: GitHub Actions only.** ABIs: `arm64-v8a` + `armeabi-v7a` only. Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
+- **APK builds: GitHub Actions only.** ABIs: `arm64-v8a` ONLY in shipped APKs (D-251; test-only x86_64 emulator builds via `-PemulatorX64Build=true`, never shipped). Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
 - **Debug builds = schema freedom** (CORE_RULES §30). No migration scripts needed. Old DBs get deleted + recreated. Don't worry about preserving existing dev data.
 - **Sub-agents for webpage work** → they work ONLY in `DASHBOARD/webpage/`, never `AGENT-CONTEXT/` (CORE_RULES §14, §19).
 - **Keep it simple.** Stdlib/native before new deps. No over-engineering. (See `skills/ponytail.md`.)
@@ -28,7 +28,7 @@ GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `AN
 
 ## 🔄 The Task Loop (full detail in `workflow.md`)
 ```
-REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (REVIEW) → VERIFY (CI) → DOC UPDATE → NOTIFY
+REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (CI) → DOC UPDATE → NOTIFY
 ```
 1. **Reflect** — summarize what you understood before executing.
 2. **Research** — read the code/docs the task touches. Use Explore sub-agents.
@@ -36,10 +36,9 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (R
 4. **Todo list** — build a comprehensive todo list AFTER research (not random at start).
 5. **Execute** — build one phase at a time. Frontend first, then backend.
 6. **Commit** — each phase as a separate commit.
-7. **Verify (review)** — sub-agent review for compile errors before push.
-8. **Verify (CI)** — push, poll GitHub Actions API, read failures, fix, repeat until green.
-9. **Doc update** — progress.md, decisions.md, changelog.md, lessons-learned.md in the SAME session.
-10. **Notify** — ntfy.sh after each phase + at the end.
+7. **Verify (CI)** — push, poll GitHub Actions API, read build results/failures, fix, repeat until green. **Do NOT dispatch sub-agents to pre-review for compile errors (D-281) — CI is the compiler of record.**
+8. **Doc update** — progress.md, decisions.md, changelog.md, lessons-learned.md in the SAME session.
+9. **Notify** — ntfy.sh after each phase + at the end.
 
 ## 📝 After Every Task (Update These)
 - `memory/progress.md` — live status.
@@ -57,25 +56,29 @@ REFLECT → RESEARCH → PLAN → TODO LIST → EXECUTE → COMMIT → VERIFY (R
 - [ ] ntfy.sh notification sent (topic `TASKISDONE`).
 - [ ] Short formatted summary given to the user.
 
+## 🧪 Testing on the Emulator
+The sandbox can run the app on an Android emulator (user-authorized, CORE_RULES §8
+exceptions) — install/launch/AniList/extensions/trust/search all verified E2E.
+**Before ANY emulator/adb work, read `knowledge/emulator-testing.md`** — it has the
+sandbox rules that will otherwise cost hours (double-fork detach, timeout-wrapped
+adb, input-text limits, the 4GB memory ceiling) + full setup + workflow + tricks.
+
 ## 📦 Project Folders
 ```
 ANI-KUTA/                        ← repo root (git)
 ├── ANI-KUTA/                    ← wrapper folder (all zones inside)
 │   ├── AGENT-CONTEXT/           # YOUR memory + rules (you maintain this)
-│   ├── APP/ani-kuta/            # Android app (46 Gradle modules: 1 app + 26 core + 1 data + 18 feature)
+│   ├── APP/ani-kuta/            # Android app (50 Gradle modules: 1 app + 30 core + 1 data + 18 feature)
 │   ├── DASHBOARD/webpage/       # Next.js dashboard (14 pages → GitHub Pages; sub-agents build this)
 │   └── REFERENCES/              # old-kuta + animiru (read-only)
 └── .github/workflows/          # CI
 ```
 
 ## ❓ Currently Blocked On / Open Items
-- **Library badge customization system** (D-242, fix9–fix14) — ✅ IMPLEMENTED + CI GREEN on `functionality/improvements` (commit `b4c75ba3`, version 0.2.38). APK artifact built (55.3 MB). **Ready for device testing.** Advanced RELEASED options (sub/dub/both + unwatched + SVG icons) + scroll-to-minimize header.
-- **Database management + quality** (next focus after library badge testing) — user will provide a fresh DB export after a clean-install test run. Agent will analyze for flaws.
-- **Download system device testing** (Phase DL.0-DL.8 implemented; needs on-device verification).
-- **Download system future-phase gaps** (D-149, D-151) — proxy-churn re-resolve wiring + 2 re-resolve bugs + outer retry loop + DownloadVideoPickerSheet cleanup. All DEFERRED per user. Full plan in `download-research/FUTURE-PHASE-DL-GAPS.md`.
-- **Nav3** — ✅ DECIDED (D-150): keep hand-rolled nav; Nav3 fully REMOVED from all build files. R7 (process-death backstack recreation) accepted as known limitation.
-- **Doc-debt sweep** — ✅ DONE (all knowledge/*, master.md, SESSION.md, navigation.md, dashboard data updated; code comments cleaned).
-- See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list.
+- **Nothing blocked** — v0.2.63 shipped 2026-08-29 and `test-feature/video-cache-new-download` was MERGED into `main` (user-gated gate opened; --no-ff merge; tag v0.2.63 + release built FROM the merge commit; APK verified ~59.4MB arm64-v8a). `streaming/CLOUDSTREAM` branch created from the new main — AWAITING the user's instructions for its purpose (explicitly no work started on it).
+- **Ongoing device-feedback loop:** the user tests every release on a real OnePlus device and reports back; each session = fix/polish batch + version bump + release. v0.2.63 (D-327 calmer 600ms cover flight + D-328 Library⇄Search ghost-morph fix) awaiting device feedback; v0.2.62 verified working + satisfactory on device.
+- **Branch hygiene note:** the merge commit on main also carried the 2 user web-UI "Add files via upload" commits (moviebox v16.1139 APK + an empty commit) — no conflicts (disjoint paths). The old feature branch still exists remotely (kept for history).
+- See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list (older items like library-badge testing, download-system device testing, Nav3, doc-debt are all resolved/historical — see decisions.md).
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*

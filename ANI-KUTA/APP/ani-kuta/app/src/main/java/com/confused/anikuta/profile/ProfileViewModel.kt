@@ -68,8 +68,18 @@ class ProfileViewModel(
                         userMarkedWatched = row.user_marked_watched == 1L,
                     )
                 }
-                val totalEpisodesWatched = allProgress.count { it.completed }
-                val totalWatchTimeSec = allProgress.filter { it.completed }.sumOf { it.duration }
+                // D-248: only ORGANIC, meaningfully-watched episodes count in profile stats:
+                //  - user_marked_watched rows (manual marks + AniList-sync bulk marks) NEVER count
+                //    (they update tracking lists normally, but are excluded from ALL profile
+                //    statistics per user directive)
+                //  - episodes watched < 10% of their duration never count (duration=0 rows fail
+                //    this automatically — the "2,333 episodes in one day" glitch was bulk manual
+                //    INSERTs stamping last_watched_at with duration=0)
+                val countedProgress = allProgress.filter {
+                    !it.userMarkedWatched && it.duration > 0 && it.progressFraction >= 0.10f
+                }
+                val totalEpisodesWatched = countedProgress.count { it.completed }
+                val totalWatchTimeSec = countedProgress.filter { it.completed }.sumOf { it.duration }
                 val watchTimeFormatted = formatWatchTime(totalWatchTimeSec)
 
                 // Average rating
@@ -87,7 +97,7 @@ class ProfileViewModel(
                 val genreDistribution = genreCounts.associate { it.first to it.second }
 
                 // Current streak
-                val currentStreak = calculateCurrentStreak(allProgress)
+                val currentStreak = calculateCurrentStreak(countedProgress)
 
                 // Watch flow by day of week (Mon=0, Sun=6) + per-day detail for sidebar
                 val watchFlowByDay = List(7) { 0 }.toMutableList()
@@ -95,7 +105,7 @@ class ProfileViewModel(
                 // 7 buckets; each holds (progress) entries for that weekday
                 val dayBuckets = List(7) { mutableListOf<com.confused.anikuta.core.watchprogress.WatchProgress>() }
                 val calendar = Calendar.getInstance()
-                allProgress.forEach { progress ->
+                countedProgress.forEach { progress ->
                     if (progress.lastWatchedAt > 0) {
                         calendar.timeInMillis = progress.lastWatchedAt
                         val dayOfWeek = (calendar.get(Calendar.DAY_OF_WEEK) - 2 + 7) % 7 // Mon=0, Sun=6
@@ -132,17 +142,17 @@ class ProfileViewModel(
 
                 // Time DNA (hourly distribution)
                 val hourlyCounts = IntArray(24)
-                allProgress.forEach { progress ->
+                countedProgress.forEach { progress ->
                     if (progress.lastWatchedAt > 0) {
                         calendar.timeInMillis = progress.lastWatchedAt
                         val hour = calendar.get(Calendar.HOUR_OF_DAY)
                         hourlyCounts[hour]++
                     }
                 }
-                val timeDna = buildTimeDna(hourlyCounts.toList(), allProgress.size)
+                val timeDna = buildTimeDna(hourlyCounts.toList(), countedProgress.size)
 
                 // Activity heatmap data
-                val activityData = buildActivityData(allProgress)
+                val activityData = buildActivityData(countedProgress)
 
                 // Avg daily watch time
                 val avgDailyWatchTimeSec = if (activityData.isNotEmpty()) {
@@ -152,13 +162,16 @@ class ProfileViewModel(
                 val avgDailyWatchTime = formatWatchTime(avgDailyWatchTimeSec)
 
                 // Timeline
-                val timeline = buildTimeline(allProgress, allRatings)
+                val timeline = buildTimeline(countedProgress, allRatings)
 
                 // AniList username
                 val anilistUsername = preferenceStore.getString("anilist_username", "").takeIf { it.isNotBlank() }
 
                 // Recently watched (for genre sheet + Recently Watched card)
+                // D-248: only episodes genuinely watched >20% (and never manual marks) —
+                // "only the ones which have been watched more than 20% should show".
                 val recentlyWatched = allProgress
+                    .filter { !it.userMarkedWatched && it.duration > 0 && it.progressFraction > 0.20f }
                     .sortedByDescending { it.lastWatchedAt }
                     .take(10)
                     .mapNotNull { progress ->

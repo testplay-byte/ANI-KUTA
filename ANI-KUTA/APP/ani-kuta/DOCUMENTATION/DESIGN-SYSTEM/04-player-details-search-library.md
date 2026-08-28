@@ -275,8 +275,8 @@ Box(Modifier.fillMaxSize()) {
 
 **Files:**
 - `core/player/src/main/java/com/confused/anikuta/core/player/controls/SubtitleSettingsSheet.kt`
-- `core/player/src/main/java/com/confused/anikuta/core/player/controls/NumericEntrySheet.kt` — the in-built keyboard
-- `core/player/src/main/java/com/confused/anikuta/core/player/controls/ColorPickerSheet.kt` — color preset swatches + RGBA sliders
+- `core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/NumericEntrySheet.kt` — the in-built keyboard (moved out of :core:player in D-259 so the theme editor can reuse it)
+- `core/designsystem/src/main/java/com/confused/anikuta/core/designsystem/component/ColorPickerSheet.kt` — color preset swatches + RGBA sliders (D-259: 5-preset single line, scrollable, ThinSliders + keypad value entry)
 - Hosted from `feature/watch/impl/.../WatchScreen.kt` (~line 1146–1155)
 
 ### 3.1 Layout
@@ -785,10 +785,12 @@ When the settings icon is tapped:
   - **Sort tab:** Direction row (`Ascending`/`Descending` — filled `primary` when selected, with arrow icon) + "Sort by" list of `SortOptionCard`s. Each `SortOptionCard` is a `RoundedCornerShape(12.dp)` `Surface` with a `BorderStroke` that's 1.5dp `primary` when selected, 0.5dp `outlineVariant` otherwise; selected cards get a `primary.copy(alpha = 0.15f)` background + a 20dp `CircleShape` `primary` check icon at the right.
   - **Display & Badges tab:** 2×2 grid of `DisplayModeCard`s (Compact / Comfortable / Cover Only / List) — each card has a 24dp icon on top + 12sp label below, selected = `primary` 1.5dp border + tinted background. Then:
     - Columns per row: `SegmentedButtons` for 2 / 3 / 4 / 5 (grid modes only).
-    - Title lines: `SegmentedButtons` for 1 / 2 / 3.
+    - Title lines: `SegmentedButtons` for 1 / 2 / 3 (hidden for COVER_ONLY; D-251: also hidden in Comfortable when Hide Titles is on).
+    - Hide Titles (D-251, Comfortable only): `TwoWayButton` Off/On — hides the title text under covers for a cover-only look that KEEPS Comfortable's 12dp rounded corners + staggered spacing (persisted as `library_comfortable_hide_titles`).
     - Episode Badge: 3 buttons (`Off` red theme when selected, `Released` / `Total` primary theme) + a `BadgePositionSelector` (top-left / top-right / bottom-left / bottom-right; compact grid restricts to top only).
     - Score Badge: switch + position selector.
     - Toggles: Show continue watching / Show total entries in header / Show category counts on tabs.
+  - **COVER_ONLY mode geometry (D-251):** square covers (`RectangleShape` — no rounding at any of the 5 shape sites: card clip, border modifiers, image clip, selection border), ZERO grid gaps (`Arrangement.spacedBy(0.dp)` both axes), full-bleed contentPadding (no side/top padding; bottom padding kept for nav-bar/action-bar clearance) — an edge-to-edge cover wall. COMPACT_GRID (which shares the LazyVerticalGrid branch) is unchanged: 12dp corners + 8dp gaps + 12dp side padding.
   - All sections use `OptionLabel` — an `11sp ExtraBold` `uppercase` label with `0.06.sp` letter spacing in `onSurfaceVariant` — and `0.5dp` `HorizontalDivider` separators between groups.
 
 ### 6.3 Key snippet — header + action group pill

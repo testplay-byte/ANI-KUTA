@@ -1,84 +1,88 @@
 package com.confused.anikuta.feature.animebrowse
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
-import com.confused.anikuta.core.anilist.model.AniListAnime
+import coil3.request.ImageRequest
+import coil3.imageLoader
 import com.confused.anikuta.core.common.HapticHelper
+import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.EmptyState
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.navigation.NavKey
 import com.confused.anikuta.feature.animedetails.AnimeDetailsKey
-import com.confused.anikuta.core.designsystem.component.CollapsingHeader
-import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
-import com.confused.anikuta.core.designsystem.theme.Motion
-import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 
 /**
- * Browse screen — the home tab.
+ * Browse screen — the home tab (D-253 complete UI overhaul).
  *
- * Cache-first: reads from browse_cache → displays instantly, then background-
- * fetches if the 6-hour TTL expired. Pull-to-refresh forces a network fetch
- * regardless of cache state.
+ * Layout: CollapsingHeader → pull-to-refresh → scrollable LazyColumn containing:
+ *  1. Hero pager (top trending anime — D-257 hero v3: inset 16:9 rounded card
+ *     with banner backdrop + cover poster, infinite smooth auto-advance)
+ *  2. Trending Now / Popular / Top Rated (horizontal card carousels)
  *
- * Pull-to-refresh uses the official Material 3 [PullToRefreshBox], which
- * installs its own [androidx.compose.ui.input.nestedscroll.NestedScrollConnection].
- * This cooperates with the inner [LazyVerticalGrid]'s scroll: the pull gesture
- * ONLY activates when the grid has reached the top AND the user continues
- * dragging down. No spinner on normal upward scroll, no fling jank.
+ * D-266: Continue Watching section removed from Browse per user instruction
+ * (the carousel + its direct-to-player launch callback were deleted; the
+ * underlying WatchProgressStore + watch.sq remain for the Library's
+ * per-collection continue-watching toggle, which is a separate feature).
  *
- * Haptic feedback fires once when the pull crosses the refresh threshold
- * (distanceFraction >= 1f) via [HapticHelper.stageCross] — no
- * [android.os.Vibrator] / VIBRATE-permission-dependent code path.
+ * D-257 changes vs D-256:
+ * - Hero redesigned as a padded rounded card (16:9 — the banner's native
+ *   aspect; the old full-bleed block cropped it into a square-ish frame) with
+ *   page dots below the card and a virtually-circular pager so auto-advance
+ *   always slides FORWARD (the old wraparound swept backwards through every
+ *   page — the "not smooth / not animated" glitch).
+ * - All section cover images are PRELOADED into Coil's caches as soon as the
+ *   data arrives (SectionPreloader) — no first-view load waits.
  *
- * CORE_RULES §22: smooth animations. §23: reactive state.
+ * D-253 (historical):
+ * - Cards: 2:3 covers with 12dp corners + subtle 1dp borders, amber pointed
+ *   score corner-tag (unified with the Library badge language, D-252).
+ * - Loading = shimmer skeletons (no full-screen spinner); Error = EmptyState
+ *   + Retry button (no dead-end text).
+ * - Sections fade+expand in when their data arrives — never pop in.
+ *
+ * CORE_RULES §22: smooth animations. §23: reactive state. The DB-7 debug
+ * context, PTR haptic, and the continue-watching direct-play callback
+ * contract are preserved exactly from the D-248/D-249 implementation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,14 +92,17 @@ fun BrowseScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val continueWatching by viewModel.continueWatching.collectAsState()
-    val gridState = rememberLazyGridState()
-    val collapsed = gridState.firstVisibleItemIndex > 0 ||
-        gridState.firstVisibleItemScrollOffset > 20
+    val popular by viewModel.popular.collectAsState()
+    val topRated by viewModel.topRated.collectAsState()
+    val heroItems by viewModel.heroItems.collectAsState()
+
+    val listState = rememberLazyListState()
+    val collapsed = listState.firstVisibleItemIndex > 0 ||
+        listState.firstVisibleItemScrollOffset > 20
 
     // DB-7: provide debug context for the Current Screen tab.
     val updateDebugContext = com.confused.anikuta.core.debugapi.LocalDebugContextUpdater.current
-    val browseCtx = remember(state) {
+    val browseCtx = remember(state, popular.size, topRated.size) {
         val animeCount = when (state) {
             is BrowseState.Success -> (state as BrowseState.Success).anime.size
             else -> 0
@@ -105,23 +112,19 @@ fun BrowseScreen(
             screenData = mapOf(
                 "state" to (state::class.simpleName ?: "Unknown"),
                 "animeCount" to animeCount.toString(),
+                "popularCount" to popular.size.toString(),
+                "topRatedCount" to topRated.size.toString(),
                 "isRefreshing" to isRefreshing.toString(),
             ),
         )
     }
-    androidx.compose.runtime.LaunchedEffect(browseCtx) { updateDebugContext(browseCtx) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
+    LaunchedEffect(browseCtx) { updateDebugContext(browseCtx) }
+    DisposableEffect(Unit) {
         onDispose { updateDebugContext(null) }
     }
-
     val ptrState = rememberPullToRefreshState()
     val context = LocalContext.current
 
-    // Fire a haptic exactly once when the pull first crosses the refresh
-    // threshold (distanceFraction >= 1f). The LaunchedEffect re-runs only on
-    // the false → true transition, so it never buzzes continuously.
-    // Uses HapticHelper (Vibrator service) for reliability across devices +
-    // battery-saver modes (performHapticFeedback can be silenced by OEMs).
     val thresholdCrossed = ptrState.distanceFraction >= 1f
     LaunchedEffect(thresholdCrossed) {
         if (thresholdCrossed) {
@@ -133,14 +136,6 @@ fun BrowseScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             CollapsingHeader(title = "Browse", collapsed = collapsed)
 
-            // Phase 3: Continue Watching carousel (TEMPORARY — easy to remove later).
-            // Single horizontal row at the top of Browse. Shows cover thumbnail,
-            // title, episode number, and a progress bar. Tapping navigates to Details
-            // (the WP-B3 resume feature handles seeking to the saved position on play).
-            if (continueWatching.isNotEmpty()) {
-                ContinueWatchingCarousel(items = continueWatching, onNavigate = onNavigate)
-            }
-
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = { viewModel.refresh() },
@@ -148,19 +143,125 @@ fun BrowseScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 when (val s = state) {
-                    is BrowseState.Loading -> LoadingScreen()
-                    is BrowseState.Error -> ErrorScreen(s.message, viewModel::loadTrending)
-                    is BrowseState.Success -> AnimeGrid(s.anime, gridState) { anime ->
-                        onNavigate(AnimeDetailsKey.AniList(anime.id))
+                    is BrowseState.Loading -> BrowseSkeleton()
+                    is BrowseState.Error -> BrowseErrorState(
+                        message = s.message,
+                        onRetry = { viewModel.refresh() },
+                    )
+                    is BrowseState.Success -> {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            // ── D-257: image preloading ──
+                            // Warm Coil's memory+disk caches for every section as
+                            // soon as the data arrives, so the first scroll
+                            // through a carousel is instant (the user reported
+                            // covers visibly loading on first view). Order matters:
+                            // the hero loads first, then visible-first sections.
+                            //
+                            // D-262: the hero backdrop is now BLURRED (see
+                            // BlurredBannerBackdrop in BrowseHero.kt — it loads
+                            // its own small thumbnail via produceState +
+                            // context.imageLoader, namespaced under a custom
+                            // memoryCacheKey, and CPU-box-blurs it on IO). So
+                            // the hero preload only warms the SHARP cover posters
+                            // (the 84×126 foreground). The blurred backdrop
+                            // loads on first composition of each page (the dark
+                            // scrim covers the brief blank while the next page's
+                            // thumbnail decodes — ~50ms from disk cache).
+                            SectionPreloader(
+                                urls = heroItems.map { it.coverUrl },
+                                width = 84.dp,
+                                height = 126.dp,
+                            )
+                            SectionPreloader(urls = s.anime.map { it.coverUrl }, width = 128.dp, height = 192.dp)
+                            SectionPreloader(urls = popular.map { it.coverUrl }, width = 128.dp, height = 192.dp)
+                            SectionPreloader(urls = topRated.map { it.coverUrl }, width = 128.dp, height = 192.dp)
+
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = 90.dp),
+                            ) {
+                            // ── Hero pager (inset 16:9 card, auto-advancing) ──
+                            item(key = "hero") {
+                                BrowseSection(visible = heroItems.isNotEmpty()) {
+                                    BrowseHero(
+                                        items = heroItems,
+                                        onOpen = { anime -> onNavigate(AnimeDetailsKey.AniList(anime.id)) },
+                                    )
+                                }
+                            }
+
+                            // ── Trending Now ──
+                            item(key = "trending_header") {
+                                BrowseSection(visible = s.anime.isNotEmpty()) {
+                                    BrowseSectionHeader("Trending Now")
+                                }
+                            }
+                            item(key = "trending_carousel") {
+                                BrowseSection(visible = s.anime.isNotEmpty()) {
+                                    AnimeCarousel(anime = s.anime, sectionKey = "trending") { anime, transitionKey ->
+                                        onNavigate(
+                                            AnimeDetailsKey.AniList(
+                                                anime.id,
+                                                coverUrl = anime.coverUrl,
+                                                title = anime.displayName,
+                                                transitionKey = transitionKey,
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            // ── Popular ──
+                            item(key = "popular_header") {
+                                BrowseSection(visible = popular.isNotEmpty()) {
+                                    BrowseSectionHeader("Popular")
+                                }
+                            }
+                            item(key = "popular_carousel") {
+                                BrowseSection(visible = popular.isNotEmpty()) {
+                                    AnimeCarousel(anime = popular, sectionKey = "popular") { anime, transitionKey ->
+                                        onNavigate(
+                                            AnimeDetailsKey.AniList(
+                                                anime.id,
+                                                coverUrl = anime.coverUrl,
+                                                title = anime.displayName,
+                                                transitionKey = transitionKey,
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            // ── Top Rated ──
+                            item(key = "top_rated_header") {
+                                BrowseSection(visible = topRated.isNotEmpty()) {
+                                    BrowseSectionHeader("Top Rated")
+                                }
+                            }
+                            item(key = "top_rated_carousel") {
+                                BrowseSection(visible = topRated.isNotEmpty()) {
+                                    AnimeCarousel(anime = topRated, sectionKey = "top") { anime, transitionKey ->
+                                        onNavigate(
+                                            AnimeDetailsKey.AniList(
+                                                anime.id,
+                                                coverUrl = anime.coverUrl,
+                                                title = anime.displayName,
+                                                transitionKey = transitionKey,
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                            }
+                        }
                     }
                 }
 
-                // Scroll-blur overlay stays as a child of the box content — drawn
-                // UNDER the M3 indicator (which PullToRefreshBox paints on top).
                 ScrollBlurOverlay(
                     scrollOffset = {
-                        if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
-                        else gridState.firstVisibleItemScrollOffset.toFloat()
+                        if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                        else listState.firstVisibleItemScrollOffset.toFloat()
                     },
                     backgroundColor = MaterialTheme.colorScheme.background,
                     modifier = Modifier.align(Alignment.TopCenter),
@@ -170,225 +271,92 @@ fun BrowseScreen(
     }
 }
 
+/**
+ * D-257: preloads a section's images into Coil's memory + disk cache as soon
+ * as the data arrives, so covers are already decoded when the user first
+ * scrolls a carousel into view (device feedback: "I have to wait for them to
+ * load when I see them for the first time").
+ *
+ * Sizing note (Coil 3.0.4): the memory-cache key excludes size when a request
+ * has no transformations, and AsyncImage resolves with INEXACT precision —
+ * so a preload at the card's exact pixel dimensions is a memory-cache HIT for
+ * the composable later. Emits no UI.
+ */
 @Composable
-private fun AnimeGrid(
-    anime: List<AniListAnime>,
-    gridState: LazyGridState,
-    onClick: (AniListAnime) -> Unit,
-) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        state = gridState,
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
-            top = 12.dp,
-            bottom = 90.dp,
-        ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        items(anime, key = { it.id }) { item ->
-            AnimeCard(item, onClick)
-        }
-    }
-}
-
-@Composable
-private fun AnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
-        label = "cardScale",
-    )
-
-    Column(
-        modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = { onClick(anime) },
-            ),
-    ) {
-        AsyncImage(
-            model = anime.coverUrl,
-            contentDescription = anime.displayName,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.7f)
-                .clip(RoundedCornerShape(16.dp)),
-        )
-
-        Text(
-            text = anime.displayName,
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = RobotoFamily,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
-        )
-
-        anime.averageScore?.let { score ->
-            Text(
-                text = "★ ${score}",
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = RobotoFamily,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 2.dp, top = 2.dp),
+private fun SectionPreloader(urls: List<String?>, width: Dp, height: Dp) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val cleaned = remember(urls) { urls.filter { !it.isNullOrBlank() }.distinct() }
+    LaunchedEffect(cleaned) {
+        if (cleaned.isEmpty()) return@LaunchedEffect
+        val w = with(density) { width.roundToPx() }
+        val h = with(density) { height.roundToPx() }
+        cleaned.forEach { url ->
+            context.imageLoader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(url)
+                    .size(w, h)
+                    .build(),
             )
         }
     }
 }
 
+/**
+ * Wraps a section's content so it fades + expands in when its data arrives
+ * (D-253: sections never pop in — CORE_RULES §22 "no instant cuts").
+ */
 @Composable
-private fun LoadingScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+private fun BrowseSection(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+    ) {
+        content()
     }
 }
 
+/**
+ * D-253: error state with a Retry action — no more dead-end text.
+ */
 @Composable
-private fun ErrorScreen(message: String, onRetry: () -> Unit) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "Failed to load",
-                fontFamily = RobotoFamily,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-                message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-    }
-}
-
-// ── Phase 3: Continue Watching carousel (TEMPORARY — for testing) ──────────────
-// Single horizontal LazyRow at the top of Browse. Each item: cover image (or
-// placeholder), title, episode number, progress bar. Tapping navigates to the
-// Details page (the WP-B3 resume feature handles seeking on play).
-// EASY TO REMOVE: delete this composable + the call site in BrowseScreen +
-// the continueWatching StateFlow in BrowseViewModel + the 2 deps in build.gradle.kts.
-
-@Composable
-private fun ContinueWatchingCarousel(
-    items: List<ContinueWatchingItem>,
-    onNavigate: (NavKey) -> Unit,
-) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items(items, key = { "${it.mainId}|${it.episodeNumber}" }) { item ->
-            ContinueWatchingCard(item = item, onClick = {
-                // Phase 3: pass autoPlayEpisode so Details auto-triggers the episode click
-                // → Phase 2 auto-resolve → opens the player directly.
-                if (item.anilistId != null) {
-                    onNavigate(AnimeDetailsKey.AniList(item.anilistId, autoPlayEpisode = item.episodeNumber))
-                } else if (item.sourceId > 0 && item.animeUrl.isNotBlank()) {
-                    onNavigate(AnimeDetailsKey.Extension(item.sourceId, item.animeUrl, item.title, null, autoPlayEpisode = item.episodeNumber))
-                }
-            })
-        }
-    }
-}
-
-@Composable
-private fun ContinueWatchingCard(
-    item: ContinueWatchingItem,
-    onClick: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .width(160.dp)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            ),
-    ) {
-        // Phase 3: landscape thumbnail (160x90dp) — episode thumbnail with cover fallback.
-        Box(
-            modifier = Modifier
-                .size(width = 160.dp, height = 90.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+private fun BrowseErrorState(message: String, onRetry: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
+        Column(
+            modifier = Modifier.align(Alignment.Center),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val imageUrl = item.thumbnailUrl ?: item.coverUrl
-            if (imageUrl != null) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = item.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                // Placeholder: show the first letter of the title centered.
-                Text(
-                    text = item.title.firstOrNull()?.uppercase() ?: "?",
-                    fontFamily = RobotoFamily,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            }
-            // EP number badge (top-left, like the episode row).
+            EmptyState(
+                title = "Failed to load",
+                description = message,
+                icon = Icons.Filled.Warning,
+            )
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                onClick = onRetry,
+                modifier = Modifier.padding(top = 8.dp),
             ) {
-                Text(
-                    text = "EP ${item.episodeNumber}",
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
-            // Progress bar at the bottom (like YouTube).
-            if (item.progressFraction > 0f) {
-                LinearProgressIndicator(
-                    progress = { item.progressFraction },
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Retry",
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        // Title (1 line, truncated).
-        Text(
-            text = item.title,
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }

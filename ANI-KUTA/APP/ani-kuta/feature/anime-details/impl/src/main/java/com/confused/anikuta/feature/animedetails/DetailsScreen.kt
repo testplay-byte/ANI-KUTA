@@ -4,15 +4,14 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -49,6 +49,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ExperimentalMaterial3Api  // D-314: PullToRefreshBox opt-in
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox  // D-314: simple pull-to-refresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -69,28 +72,30 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle  // D-317: S-n/E-m compound tag spans
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.layout.onGloballyPositioned  // D-315: cover bounds
+import androidx.compose.ui.layout.boundsInRoot  // D-315: cover bounds
+import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
+import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
+import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.compose.koinInject
@@ -127,6 +132,7 @@ import androidx.compose.ui.graphics.ColorMatrix  // Phase WP: grayscale
  * DESIGN-LANGUAGE.md §2.1: collapsing header behavior (banner is the header).
  * DESIGN-LANGUAGE.md §2.2: scroll blur overlay at the top edge.
  */
+@OptIn(ExperimentalMaterial3Api::class)  // D-314: PullToRefreshBox + rememberPullToRefreshState
 @Composable
 fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
@@ -253,6 +259,45 @@ fun DetailsScreen(
         initial = episodeListPrefs.showNextEpisode.get(),
     )
 
+    // D-317: organize mode (three states) + the season-in-tag toggle.
+    val organizeMode by episodeListPrefs.organizeMode.changes.collectAsState(
+        initial = episodeListPrefs.organizeMode.get(),
+    )
+    val seasonTagInNumber by episodeListPrefs.seasonTagInNumber.changes.collectAsState(
+        initial = episodeListPrefs.seasonTagInNumber.get(),
+    )
+
+    // D-307/D-308/D-312/D-317: Season analysis on the RAW episode list — one
+    // pass produces the groups (selector + settings sheet), the per-episode
+    // assignments (S/E tag), and the per-season display numbers (slice tags).
+    // Built from the raw list (not the filtered one) so the season structure
+    // stays stable regardless of active filters; keyed on episodeMetadata too
+    // so the structure improves when provider hints arrive after the list.
+    val rawEpisodesForSeasons = (episodeState as? EpisodeState.Loaded)?.episodes
+    val seasonInfo = remember(rawEpisodesForSeasons, episodeMetadata) {
+        rawEpisodesForSeasons?.let { eps ->
+            val hints = eps.map { ep ->
+                val meta = episodeMetadata[ep.episode_number.toInt()]
+                val sn = meta?.seasonNumber?.takeIf { it > 0 }
+                if (meta != null && sn != null) {
+                    com.confused.anikuta.core.seasons.ProviderSeasonHint(
+                        seasonNumber = sn,
+                        episodeNumberInSeason = meta.episodeNumberInSeason,
+                    )
+                } else {
+                    null
+                }
+            }
+            analyzeEpisodeSeasons(eps, hints)
+        }
+    }
+    // `detectedSeasons` is the STRUCTURAL fact (independent of the user's
+    // organizeMode preference) so the settings sheet keeps offering the
+    // Seasons/Off/Number-groups choice even right after the user switches
+    // away from Seasons (D-307 review fix).
+    val detectedSeasons = seasonInfo?.groups
+    val seasonGroups = if (organizeMode == "SEASONS") detectedSeasons else null
+
     // D-146: Refresh visual feedback
     val isRefreshing by viewModel.isRefreshing.collectAsState()
 
@@ -274,12 +319,38 @@ fun DetailsScreen(
     var resolverDownloadMode by remember { mutableStateOf(false) }
     var currentEpisode by remember { mutableStateOf<eu.kanade.tachiyomi.animesource.model.SEpisode?>(null) }
 
+    // D-315: full-screen cover viewer (opened by tapping the banner cover).
+    var showCoverViewer by remember { mutableStateOf(false) }
+    var coverViewerBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+
+    // ── D-320: shared-element cover transition (experimental) ──
+    // The SOURCE screen (Browse/Search/Library card) carries the cover it
+    // rendered + the shared-element key through the nav key. Resolving the key
+    // here lets BOTH the loading skeleton and the banner cover morph from the
+    // tapped card (and back on back-navigation). Null when the feature is
+    // disabled or the source had no cover.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val navKeyCoverUrl = when (val k = detailsKey) {
+        is AnimeDetailsKey.AniList -> k.coverUrl
+        is AnimeDetailsKey.Extension -> k.thumbnailUrl
+    }
+    val navKeyTitle = when (val k = detailsKey) {
+        is AnimeDetailsKey.AniList -> k.title
+        is AnimeDetailsKey.Extension -> k.title
+    }
+    val sharedCoverKey = if (appPrefs.coverTransitionEnabled) {
+        detailsKey.transitionKey
+    } else null
+
     // D-230: Episode list settings sheet + search state.
     var showEpisodeSettingsSheet by remember { mutableStateOf(false) }
     var showEpisodeSearch by remember { mutableStateOf(false) }
     var episodeSearchQuery by remember { mutableStateOf("") }
     // D-231: Current group index (for the episode group switcher).
     var currentGroupIndex by remember { mutableIntStateOf(0) }
+    // D-308: Current season chip index for the season selector
+    // (0 = "All", 1..n = detected seasons, n+1 = "Other" when present).
+    var currentSeasonIndex by remember { mutableIntStateOf(0) }
 
     // D-231: Hoisted lazyListState so we can auto-scroll to the episodes section
     // when the settings sheet opens (so the user sees live changes).
@@ -351,14 +422,12 @@ fun DetailsScreen(
                             } ?: ""
                             val subTracksStr = autoVideo.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
                             val audioTracksStr = autoVideo.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
-                            val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                                val title = meta.title ?: ""
-                                val thumb = meta.thumbnailUrl ?: ""
-                                val date = meta.airDate?.toString() ?: "0"
-                                val desc = meta.description ?: ""
-                                val scanlator = ep.scanlator ?: ""
-                                "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                            }
+                            // D-306: extension-first merge (shared with the episode rows).
+                            val epMetaStr = buildEpisodeMetadataSerialized(
+                                episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                                metadata = episodeMetadata,
+                                currentScanlator = ep.scanlator,
+                            )
                             Logger.i("Anikuta:Feature:Details") {
                                 "Auto-play: navigating to watch with ${autoVideo.quality} (url=${autoVideo.url.take(60)}...)"
                             }
@@ -543,14 +612,12 @@ fun DetailsScreen(
                     val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
                         "${e.url}${delim}${e.episode_number}${delim}${e.name}"
                     } ?: ""
-                    val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                        val title = meta.title ?: ""
-                        val thumb = meta.thumbnailUrl ?: ""
-                        val date = meta.airDate?.toString() ?: "0"
-                        val desc = meta.description ?: ""
-                        val scanlator = episode.scanlator ?: ""
-                        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                    }
+                    // D-306: extension-first merge (shared with the episode rows).
+                    val epMetaStr = buildEpisodeMetadataSerialized(
+                        episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                        metadata = episodeMetadata,
+                        currentScanlator = episode.scanlator,
+                    )
                     onNavigateToWatch(
                         mainId ?: "",
                         localUri,
@@ -588,12 +655,28 @@ fun DetailsScreen(
                 .background(MaterialTheme.colorScheme.background),
         ) {
             when (val s = state) {
-                is DetailsState.Loading -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
-            }
+                is DetailsState.Loading -> {
+                    // D-320: when the source screen handed us a cover (shared-
+                    // element transition), show a banner SKELETON at the exact
+                    // banner geometry instead of a bare centered spinner — the
+                    // morphing cover has a landing spot the instant the screen
+                    // composes, even before the data loads, and the swap to the
+                    // Success banner is seamless (identical layout).
+                    if (navKeyCoverUrl != null && sharedCoverKey != null) {
+                        DetailsSkeletonBanner(
+                            coverUrl = navKeyCoverUrl,
+                            title = navKeyTitle,
+                            sharedCoverKey = sharedCoverKey,
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
+                        }
+                    }
+                }
 
             is DetailsState.Error -> ErrorState(s.message)
 
@@ -601,137 +684,31 @@ fun DetailsScreen(
                 val anime = s.anime
                 val lazyListState = detailsLazyListState // D-231: use hoisted state.
 
-                // ── 3-stage pull-to-refresh state ──
-                // A custom NestedScrollConnection cooperates with the LazyColumn's
-                // own scroll: the pull gesture ONLY activates when the list is at
-                // the top AND the user keeps dragging down. No spinner on normal
-                // upward scroll, no fling jank (unlike the buggy pointerInput /
-                // detectVerticalDragGestures approach that was reverted).
-                //
-                // ARCHITECTURE (fixed from PTR-5 — eliminates the stale-read race):
-                //  - pullPx: a synchronous mutableFloatStateOf — the SOURCE OF TRUTH
-                //    during a drag. Written and read synchronously in onPreScroll, so
-                //    stage detection + haptics are always computed from the CURRENT
-                //    pull distance (no stale Animatable.value reads from a pending
-                //    coroutine snapTo).
-                //  - snapAnim: an Animatable<Float> used ONLY for the spring snap-back
-                //    animation in onPreFling. During the snap-back, it drives pullPx
-                //    via a snapTo-per-frame pattern so the indicator visual tracks the
-                //    spring. When no animation is running, pullPx is the live value.
-                val density = LocalDensity.current
-                val context = LocalContext.current
-                val thresholdPx1 = with(density) { 120.dp.toPx() } // stage 1: episodes
-                val thresholdPx2 = with(density) { 240.dp.toPx() } // stage 2: metadata
-                val thresholdPx3 = with(density) { 360.dp.toPx() } // stage 3: all
-
-                var pullPx by remember { mutableFloatStateOf(0f) }
-                val currentStage = remember { mutableIntStateOf(0) }
-                var isAnimatingSnapBack by remember { mutableStateOf(false) }
-
-                fun stageFor(d: Float): Int = when {
-                    d >= thresholdPx3 -> 3
-                    d >= thresholdPx2 -> 2
-                    d >= thresholdPx1 -> 1
-                    else -> 0
+                // ── D-314: SIMPLE pull-to-refresh ──
+                // Replaced the custom 3-stage NestedScrollConnection (stage 1 =
+                // refresh episodes, stage 2 = metadata, stage 3 = everything) with
+                // the official Material 3 PullToRefreshBox — the same pattern Browse
+                // + Library already use. ONE gesture, ONE action: a full
+                // viewModel.refreshAll(), EXACTLY like the three-dot "Refresh"
+                // button (user spec 2026-08-28: "a simple pull-to-refresh … it
+                // will refresh the whole page exactly like how it will be
+                // refreshed using the refresh button"). The themed M3 indicator
+                // appears while isRefreshing is true (driven by refreshAll).
+                val ptrState = rememberPullToRefreshState()
+                val ptrContext = LocalContext.current
+                // One haptic the moment the pull first crosses the refresh
+                // threshold. derivedStateOf: reading distanceFraction directly
+                // here would invalidate the whole Success branch every pull
+                // frame. The !isRefreshing gate skips the snap-to-1 that M3
+                // applies on button-triggered refreshes (haptic = pull only).
+                val ptrThresholdCrossed by remember {
+                    androidx.compose.runtime.derivedStateOf {
+                        ptrState.distanceFraction >= 1f && !isRefreshing
+                    }
                 }
-
-                val nestedScrollConnection = remember(
-                    context, thresholdPx1, thresholdPx2, thresholdPx3, isRefreshing,
-                ) {
-                    // prevStage is captured by reference — persists for the lifetime
-                    // of this connection instance. Used to fire the haptic exactly
-                    // once per stage-UP crossing.
-                    var prevStage = 0
-                    object : NestedScrollConnection {
-                        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                            // (1) Disable pull while a refresh is in flight or while
-                            //     the snap-back spring is animating.
-                            if (isRefreshing || isAnimatingSnapBack) return Offset.Zero
-                            val delta = available.y
-                            if (delta == 0f) return Offset.Zero
-                            // (2) Only consume when the LazyColumn is at the very top.
-                            val atTop = lazyListState.firstVisibleItemIndex == 0 &&
-                                lazyListState.firstVisibleItemScrollOffset == 0
-                            if (!atTop) return Offset.Zero
-                            // (3) If dragging up with no pull distance, let the
-                            //     LazyColumn handle it (normal scroll).
-                            if (delta < 0f && pullPx <= 0f) return Offset.Zero
-
-                            // (4) Apply damping past stage 1 for the iOS/M3
-                            //     "resistance" feel.
-                            val current = pullPx
-                            val damping = if (current > thresholdPx1 && delta > 0f) 0.5f else 1.0f
-                            val newPx = (current + delta * damping).coerceAtLeast(0f)
-
-                            // (5) Stage detection + haptic — SYNCHRONOUS, using the
-                            //     live pullPx (not a stale Animatable.value). The
-                            //     haptic fires exactly once per stage-UP crossing.
-                            val newStage = stageFor(newPx)
-                            if (newStage > prevStage) {
-                                HapticHelper.stageCross(context)
-                            }
-                            if (newStage != prevStage) {
-                                prevStage = newStage
-                                currentStage.intValue = newStage
-                            }
-
-                            // (6) Write the new pull distance synchronously — the
-                            //     indicator (which reads pullPx via the composable)
-                            //     will recompose immediately.
-                            pullPx = newPx
-                            // (7) Consume the entire delta so the LazyColumn
-                            //     doesn't try to scroll past the top.
-                            return Offset(0f, available.y)
-                        }
-
-                        override fun onPostScroll(
-                            consumed: Offset,
-                            available: Offset,
-                            source: NestedScrollSource,
-                        ): Offset = Offset.Zero
-
-                        override suspend fun onPreFling(available: Velocity): Velocity {
-                            val stage = stageFor(pullPx)
-                            // (8) Dispatch the action for the CURRENT stage at release.
-                            when (stage) {
-                                1 -> {
-                                    viewModel.refreshEpisodesList()
-                                    HapticHelper.releaseConfirm(context)
-                                }
-                                2 -> {
-                                    viewModel.refreshMetadata()
-                                    HapticHelper.releaseConfirm(context)
-                                }
-                                3 -> {
-                                    viewModel.refreshAll()
-                                    HapticHelper.releaseConfirm(context)
-                                }
-                                // 0 → no action, no haptic
-                            }
-                            // (9) Spring snap-back to 0. We animate pullPx directly
-                            //     frame-by-frame so the indicator visual tracks the
-                            //     spring smoothly. isAnimatingSnapBack prevents
-                            //     onPreScroll from interfering during the spring.
-                            isAnimatingSnapBack = true
-                            val anim = Animatable(pullPx)
-                            anim.animateTo(
-                                targetValue = 0f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                            ) {
-                                pullPx = value
-                            }
-                            pullPx = 0f
-                            isAnimatingSnapBack = false
-                            currentStage.intValue = 0
-                            prevStage = 0
-                            return Velocity.Zero
-                        }
-
-                        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-                            Velocity.Zero
+                LaunchedEffect(ptrThresholdCrossed) {
+                    if (ptrThresholdCrossed) {
+                        HapticHelper.stageCross(ptrContext)
                     }
                 }
 
@@ -739,9 +716,24 @@ fun DetailsScreen(
                 // MaterialTheme) so both the Success branch + EpisodeSearchSheet
                 // (outside MaterialTheme) can use it.
 
-                Box(modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(nestedScrollConnection)
+                // D-318: custom themed indicator — a surface pill that slides
+                // down + scales in with the pull, fills a determinate arc while
+                // pulling, then spins indeterminately for the WHOLE refresh
+                // (isRefreshing now clears only when the refreshes complete —
+                // see DetailsViewModel.refreshAll). Default M3 indicator was too
+                // plain + vanished while the fetch was still running.
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { viewModel.refreshAll() },
+                    state = ptrState,
+                    modifier = Modifier.fillMaxSize(),
+                    indicator = {
+                        PullToRefreshIndicator(
+                            state = ptrState,
+                            isRefreshing = isRefreshing,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
+                    },
                 ) {
                     LazyColumn(
                         state = lazyListState,
@@ -753,6 +745,14 @@ fun DetailsScreen(
                             DetailBanner(
                                 anime = anime,
                                 onBack = onBack,
+                                // D-315: cover tap → full-screen viewer.
+                                onCoverClick = { bounds ->
+                                    coverViewerBounds = bounds
+                                    showCoverViewer = true
+                                },
+                                // D-320: shared-element key — the banner cover
+                                // morphs from the source card on entry + back.
+                                sharedCoverKey = sharedCoverKey,
                                 saved = isInLibrary,
                                 onToggleSave = { viewModel.toggleLibrary() },
                                 onLongPressSave = { viewModel.openCategorySheet() },
@@ -823,13 +823,45 @@ fun DetailsScreen(
                                 sortDescending = sortDescending,
                             )
                         } else null
+                        // D-307/D-308: season detection — when the episode names carry
+                        // season tags ("( Season 5 - Episode 12 - ... )") AND the user
+                        // hasn't opted for plain grouping, seasons take over the
+                        // organization (chip selector) and number-range grouping is
+                        // suppressed (single group → the range switcher hides).
+                        // seasonGroups is computed at the top level (shared with the
+                        // settings sheet) from the RAW episode list.
+                        // Season selector options: "All" (null) + each season bucket.
+                        val seasonOptions: List<SeasonGroup?> =
+                            seasonGroups?.let { listOf<SeasonGroup?>(null) + it } ?: emptyList()
+                        val selectedSeasonIndex = currentSeasonIndex.coerceIn(0, (seasonOptions.size - 1).coerceAtLeast(0))
+                        val selectedSeason = seasonOptions.getOrNull(selectedSeasonIndex)
                         val episodeGroups = if (processedEpisodes != null) {
-                            groupEpisodes(processedEpisodes, groupingSize)
+                            when {
+                                // Seasons active: one implicit group (the full list) —
+                                // the season chips do the slicing.
+                                seasonGroups != null -> listOf(EpisodeGroup(0, 0, 0, processedEpisodes))
+                                // D-317 OFF mode: a flat list — no season selector,
+                                // no number-range groups (single group → switcher hides).
+                                organizeMode == "OFF" -> listOf(EpisodeGroup(0, 0, 0, processedEpisodes))
+                                else -> groupEpisodes(processedEpisodes, groupingSize)
+                            }
                         } else null
                         val currentGroup = if (episodeGroups != null && episodeGroups.size > 1) {
                             episodeGroups.getOrElse(currentGroupIndex) { episodeGroups.first() }
                         } else null
-                        val episodesToShow = currentGroup?.episodes ?: processedEpisodes
+                        // D-308: the season slice wins when seasons are active. The
+                        // slice = the selected season's URLs ∩ the processed (filtered +
+                        // sorted) list, so filters/sort apply WITHIN the season.
+                        // "All" (null option) → the full processed list.
+                        val episodesToShow = when {
+                            seasonGroups != null && selectedSeason != null -> {
+                                val seasonUrls = selectedSeason.episodes.map { it.url }.toSet()
+                                processedEpisodes?.filter { it.url in seasonUrls }
+                            }
+                            seasonGroups != null -> processedEpisodes
+                            currentGroup != null -> currentGroup.episodes
+                            else -> processedEpisodes
+                        }
 
                         item {
                             EpisodesSection(
@@ -881,6 +913,11 @@ fun DetailsScreen(
                                     val max = (episodeGroups?.size ?: 1) - 1
                                     if (currentGroupIndex < max) currentGroupIndex++
                                 },
+                                // D-308: Season selector data (below the header row,
+                                // between the source pill and the episode list).
+                                seasonOptions = seasonOptions,
+                                selectedSeasonIndex = selectedSeasonIndex,
+                                onSelectSeason = { index -> currentSeasonIndex = index },
                             )
                         }
 
@@ -940,6 +977,37 @@ fun DetailsScreen(
                             items(episodesToShow, key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
+                                // D-317: contextual episode tag.
+                                //  - A specific season is selected → the episode's
+                                //    PER-SEASON number (S1 rows show 1..8, S2 rows
+                                //    show 1..8 — user spec).
+                                //  - All list of MULTI-season content (+ the
+                                //    season-tag setting is on) → "S-n/E-m" with
+                                //    season + episode in two shades of the theme
+                                //    color.
+                                //  - Otherwise → the plain global "EP n" tag
+                                //    (unchanged).
+                                // D-324: the compound tag requires an ACTIVATED
+                                // multi-season structure (groups != null ⇔ the
+                                // detector found ≥2 seasons). No-season and
+                                // single-season content ALWAYS shows the plain
+                                // tag — "S-1/E-5" there is noise the user
+                                // explicitly rejected (2026-08-29 feedback).
+                                val episodeTag: EpisodeTag? = when {
+                                    seasonGroups != null && selectedSeason != null -> {
+                                        seasonInfo?.seasonNumbersByEpisodeUrl?.get(episode.url)
+                                            ?.let { EpisodeTag(season = null, number = it.toString()) }
+                                    }
+                                    seasonTagInNumber && seasonInfo?.groups != null -> {
+                                        val a = seasonInfo?.assignmentsByEpisodeUrl?.get(episode.url)
+                                        if (a?.season != null && a.episodeInSeason != null) {
+                                            EpisodeTag(season = a.season, number = a.episodeInSeason.toString())
+                                        } else {
+                                            null
+                                        }
+                                    }
+                                    else -> null
+                                }
                                 val stateKey = viewModel.episodeDownloadStateKey(episode)
                                 val downloadState = stateKey?.let { downloadStates[it] }
                                     ?: EpisodeDownloadState.NotDownloaded
@@ -951,6 +1019,7 @@ fun DetailsScreen(
                                     EpisodeRow(
                                         episode = episode,
                                         metadata = metadata,
+                                        episodeTag = episodeTag,
                                         onClick = { onEpisodeClick(episode) },
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
@@ -1006,58 +1075,26 @@ fun DetailsScreen(
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
 
-                    // D-146: Refresh overlay — shows a spinner when refreshing.
-                    if (isRefreshing) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 80.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    CircularProgressIndicator(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = "Refreshing...",
-                                        fontFamily = RobotoFamily,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // ── 3-stage pull-to-refresh indicator ──
-                    // Visible only while actively pulling (pullPx > 0) AND
-                    // not currently refreshing (avoids overlap with the D-146 pill
-                    // above, which takes over after a stage-3 release).
-                    if (pullPx > 0f && !isRefreshing) {
-                        ThreeStagePullIndicator(
-                            pullDistancePx = pullPx,
-                            stage = currentStage.intValue,
-                            thresholdPx1 = thresholdPx1,
-                            thresholdPx3 = thresholdPx3,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(top = 80.dp),
-                        )
-                    }
+                    // D-314: the D-146 "Refreshing..." pill + the 3-stage pull
+                    // indicator are GONE — the Material 3 PullToRefreshBox's own
+                    // themed indicator covers ALL refresh feedback (pull-triggered
+                    // AND button-triggered, via isRefreshing).
                 }
             }
+        }
+
+        // D-315: full-screen cover viewer — rendered as the LAST child of the
+        // root Box so it layers over the entire details page (inside the
+        // adaptive MaterialTheme so its buttons pick up the per-anime accent).
+        val viewerBounds = coverViewerBounds
+        val viewerCoverUrl = (state as? DetailsState.Success)?.anime?.coverUrl
+        if (showCoverViewer && viewerBounds != null && viewerCoverUrl != null) {
+            CoverViewerOverlay(
+                imageUrl = viewerCoverUrl,
+                contentDescription = (state as? DetailsState.Success)?.anime?.displayName,
+                originBounds = viewerBounds,
+                onDismiss = { showCoverViewer = false },
+            )
         }
     }
     } // end MaterialTheme(colorScheme = effectiveColorScheme) { ... }
@@ -1144,15 +1181,13 @@ fun DetailsScreen(
                         "Subtitle tracks: ${video.subtitleTracks.size}, Audio tracks: ${video.audioTracks.size}"
                     }
                     // Serialize episode metadata for the watch page.
-                    // Format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
-                    val epMetaStr = episodeMetadata.entries.joinToString("\n") { (epNum, meta) ->
-                        val title = meta.title ?: ""
-                        val thumb = meta.thumbnailUrl ?: ""
-                        val date = meta.airDate?.toString() ?: "0"
-                        val desc = meta.description ?: ""
-                        val scanlator = ep.scanlator ?: ""
-                        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
-                    }
+                    // D-306: extension-first merge (shared with the episode rows) —
+                    // format: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator" per line.
+                    val epMetaStr = buildEpisodeMetadataSerialized(
+                        episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                        metadata = episodeMetadata,
+                        currentScanlator = ep.scanlator,
+                    )
                     onNavigateToWatch(
                         viewModel.currentMainId ?: "",
                         video.url,
@@ -1219,7 +1254,13 @@ fun DetailsScreen(
             )
         } ?: MaterialTheme.colorScheme
         MaterialTheme(colorScheme = accentColorScheme) {
-            EpisodeListSettingsSheet(onDismiss = { showEpisodeSettingsSheet = false })
+            EpisodeListSettingsSheet(
+                onDismiss = { showEpisodeSettingsSheet = false },
+                // D-307: structural flag (independent of the organizeMode
+                // preference) — only offer the Seasons/Grouping choice when the
+                // current anime actually has a multi-season structure.
+                seasonsDetected = detectedSeasons != null,
+            )
         }
     }
 
@@ -1376,6 +1417,11 @@ private fun DetailBanner(
     onDismissMenu: () -> Unit,
     onRefresh: () -> Unit = {},
     onLongPressSave: () -> Unit = {},
+    // D-315: cover tap → full-screen viewer (carries the cover's on-screen
+    // bounds so the viewer can expand from the exact position).
+    onCoverClick: (androidx.compose.ui.geometry.Rect) -> Unit = {},
+    // D-320: shared-element key for the cover-transition (experimental).
+    sharedCoverKey: String? = null,
     // Phase B: AniList link state + callbacks
     isExtensionEntry: Boolean = false,
     isAniListLinked: Boolean = false,
@@ -1607,12 +1653,20 @@ private fun DetailBanner(
             verticalAlignment = Alignment.Bottom,
         ) {
             if (coverUrl != null) {
+                // D-315: track the cover's on-screen bounds so the full-screen
+                // viewer can expand from this exact position.
+                var coverBounds by remember {
+                    mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
+                }
                 AsyncImage(
                     model = coverUrl,
                     contentDescription = anime.displayName,
                     modifier = Modifier
                         .size(width = 100.dp, height = 150.dp)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .coverSharedElement(sharedCoverKey)
+                        .clip(RoundedCornerShape(12.dp))
+                        .onGloballyPositioned { coverBounds = it.boundsInRoot() }
+                        .clickable { onCoverClick(coverBounds) },
                     contentScale = ContentScale.Crop,
                 )
             }
@@ -1624,7 +1678,7 @@ private fun DetailBanner(
                     fontFamily = RobotoFamily,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.clickable {
@@ -1667,7 +1721,7 @@ private fun DetailBanner(
                         fontFamily = RobotoFamily,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -1758,7 +1812,7 @@ private fun SynopsisSection(
                 fontFamily = RobotoFamily,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
             )
             StarRatingBar(rating = rating, onRate = onRate)
         }
@@ -1768,7 +1822,7 @@ private fun SynopsisSection(
             fontFamily = RobotoFamily,
             fontSize = 14.sp,
             fontWeight = FontWeight.Normal,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = if (expanded) Int.MAX_VALUE else 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -1839,6 +1893,11 @@ private fun EpisodesSection(
     totalGroups: Int = 0,
     onPrevGroup: () -> Unit = {},
     onNextGroup: () -> Unit = {},
+    // D-308: Season selector (rendered between the header row and the episode
+    // list). Non-empty ONLY when a multi-season structure is detected.
+    seasonOptions: List<SeasonGroup?> = emptyList(),
+    selectedSeasonIndex: Int = 0,
+    onSelectSeason: (Int) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // ── Header: "Episodes" + metadata spinner + source selector ──
@@ -1918,7 +1977,7 @@ private fun EpisodesSection(
                     fontFamily = RobotoFamily,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                 )
                 if (showMetadataSpinner && !showMetadataError) {
                     Spacer(Modifier.width(8.dp))
@@ -1986,6 +2045,18 @@ private fun EpisodesSection(
                     )
                 }
             }
+        }
+
+        // ── D-308: Season selector ──
+        // Horizontally-scrollable season chips between the source selector and
+        // the episode list (user spec). Only rendered when seasons were detected
+        // (seasonOptions is empty otherwise) + episodes are actually loaded.
+        if (seasonOptions.isNotEmpty() && episodeState is EpisodeState.Loaded) {
+            SeasonSelectorRow(
+                options = seasonOptions,
+                selectedIndex = selectedSeasonIndex,
+                onSelect = onSelectSeason,
+            )
         }
 
         // ── Episode list / states ──
@@ -2335,7 +2406,7 @@ private fun MatchPreviewCard(
                         fontFamily = RobotoFamily,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -2352,7 +2423,7 @@ private fun MatchPreviewCard(
                                 text = "Loading episodes…",
                                 fontFamily = RobotoFamily,
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -2472,6 +2543,143 @@ private fun NextEpisodeCard(info: NextEpisodeInfo) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  D-308: SeasonSelectorRow — horizontally-scrollable season chips (between
+//  the source selector and the episode list). Clicking a chip selects it AND
+//  smoothly centers it in the row (user spec).
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Season chip selector. Options: "All" (index 0) + one chip per detected
+ * season + a trailing "Other" chip when untagged episodes exist.
+ *
+ * Centering: when the selection changes, the row animates so the selected
+ * chip lands in the horizontal center (chips are visible when tapped, so the
+ * exact width is known; ±estimate is fine for programmatic changes).
+ */
+@Composable
+private fun SeasonSelectorRow(
+    options: List<SeasonGroup?>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+
+    // Center the selected chip whenever the selection changes (tap or
+    // programmatic). On first composition this runs too but harmlessly clamps
+    // at scroll position 0 (D-308 review note).
+    androidx.compose.runtime.LaunchedEffect(selectedIndex, options.size) {
+        if (options.size <= 1) return@LaunchedEffect
+        kotlinx.coroutines.delay(50) // let the new chip layout settle
+        val layoutInfo = listState.layoutInfo
+        val viewportWidth = layoutInfo.viewportSize.width
+        if (viewportWidth <= 0) return@LaunchedEffect
+        val item = layoutInfo.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+        if (item != null) {
+            // Center the chip: its start should land at viewportCenter - width/2.
+            // animateScrollToItem's scrollOffset positions the item relative to
+            // the viewport start — a negative value pulls it INTO the viewport
+            // (the standard centering recipe). Clamped naturally at the row ends.
+            val targetOffset = -(viewportWidth / 2 - item.size / 2)
+            listState.animateScrollToItem(selectedIndex, targetOffset)
+        } else {
+            // Chip not laid out yet (e.g. selection clamped after a reload) —
+            // estimate a chip width (~90dp) so centering still roughly lands;
+            // any later tap self-corrects (D-308 review fix).
+            val estimatedWidth = with(density) { 90.dp.toPx() }.toInt()
+            val targetOffset = -(viewportWidth / 2 - estimatedWidth / 2)
+            listState.animateScrollToItem(selectedIndex, targetOffset)
+        }
+    }
+
+    LazyRow(
+        state = listState,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 16.dp, vertical = 2.dp,
+        ),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+    ) {
+        items(
+            count = options.size,
+            key = { index ->
+                when (val option = options[index]) {
+                    // null option = the "All" chip; SeasonGroup(null) = "Other".
+                    null -> "season-all"
+                    else -> option.season?.let { "season-$it" } ?: "season-other"
+                }
+            },
+        ) { index ->
+            SeasonChip(
+                label = when (val option = options[index]) {
+                    null -> "All"
+                    // null season = the "Other" bucket (untagged episodes).
+                    else -> option.season?.let { "Season $it" } ?: "Other"
+                },
+                isSelected = index == selectedIndex,
+                onClick = {
+                    // Always propagate (D-308 review fix): re-tapping the visually
+                    // selected chip must write the index back — otherwise a
+                    // clamped stale selection (after an episode reload shrinks the
+                    // options) leaves the chip unresponsive.
+                    com.confused.anikuta.core.common.HapticHelper.lightTick(context)
+                    onSelect(index)
+                },
+            )
+        }
+    }
+}
+
+/** One season pill. Selected = primary fill; unselected = translucent surface. */
+@Composable
+private fun SeasonChip(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = tween(Motion.DurationShort, easing = Motion.EasingStandard),
+        label = "seasonChipScale",
+    )
+    val bg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        animationSpec = tween(Motion.DurationShort),
+        label = "seasonChipBg",
+    )
+    val fg by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(Motion.DurationShort),
+        label = "seasonChipFg",
+    )
+    Surface(
+        color = bg,
+        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+            color = fg,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+        )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  D-231: EpisodeGroupSwitcher — shows between "Episodes" text and source pill
 //  when grouping is active. Lets the user switch between groups of episodes.
 // ════════════════════════════════════════════════════════════════════════════
@@ -2540,11 +2748,55 @@ private fun EpisodeGroupSwitcher(
     }
 }
 
+/**
+ * D-306: Serialize episode metadata for the Watch screen with the SAME
+ * extension-first priority the episode rows use (EpisodeDisplayResolver), so
+ * Details and Watch render identical titles/thumbnails/descriptions.
+ * Provider-only values fill the gaps; the per-episode scanlator comes from the
+ * extension episode (falling back to the current episode's, as before).
+ *
+ * Format per line: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator".
+ */
+private fun buildEpisodeMetadataSerialized(
+    episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
+    metadata: Map<Int, com.confused.anikuta.core.metadata.EpisodeMetadata>,
+    currentScanlator: String?,
+): String {
+    val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+    val byNumber = episodes.associateBy { it.episode_number.toInt() }
+    return metadata.entries.joinToString("\n") { (epNum, meta) ->
+        val ext = byNumber[epNum]
+        val title = ext?.let { EpisodeDisplayResolver.extensionTitle(it) } ?: meta.title ?: ""
+        val thumb = ext?.preview_url?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl ?: ""
+        val date = meta.airDate?.toString() ?: "0"
+        val desc = ext?.summary?.takeIf { it.isNotBlank() } ?: meta.description ?: ""
+        val scanlator = ext?.scanlator ?: currentScanlator ?: ""
+        "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
+    }
+}
+
+/**
+ * D-317: Display override for the episode number badge.
+ *
+ * @param season Non-null → render the "S-n/E-m" compound tag (season +
+ *        episode in two shades of the theme color). D-324: only ever set for
+ *        ACTIVATED multi-season content — no-season and single-season lists
+ *        always use the plain tag below.
+ * @param number The number text to display (per-season number inside a season
+ *        slice, or whatever the caller resolved).
+ */
+data class EpisodeTag(
+    val season: Int?,
+    val number: String,
+)
+
 @Composable
 private fun EpisodeRow(
     episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
     metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,
+    // D-317: contextual episode tag (per-season number / "S-n/E-m" compound).
+    episodeTag: EpisodeTag? = null,
     downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
     // D-229: Fallback cover URL (the anime's cover image) — used when the
     // episode has no per-episode thumbnail. Prevents bare circle placeholders.
@@ -2562,14 +2814,15 @@ private fun EpisodeRow(
     onToggleWatched: () -> Unit = {},
 ) {
     // ── Parse display values ──
+    // D-306: extension-first resolution — the extension's own title/description/
+    // thumbnail WIN; provider metadata (AniZip/Jikan/Kitsu/AniList) fills the gaps.
+    // Shared rules live in EpisodeDisplayResolver (single source of truth).
     val displayTitle = remember(episode, metadata) {
-        metadata?.title
-            ?: com.confused.anikuta.core.common.EpisodeTitleParser.parseTitle(
-                episode.name, episode.episode_number,
-            )
-            ?: episode.name.ifBlank { "Episode ${formatEpisodeNumber(episode.episode_number)}" }
+        EpisodeDisplayResolver.title(episode, metadata)
     }
-    val description = metadata?.description ?: episode.summary
+    val description = remember(episode, metadata) {
+        EpisodeDisplayResolver.description(episode, metadata)
+    }
     // D-230: Thumbnail fallback is now configurable via EpisodeListPreferences.
     // - "COVER" → fall back to the anime's cover image (default).
     // - "NONE" → no image (bare placeholder).
@@ -2578,6 +2831,8 @@ private fun EpisodeRow(
         initial = episodeListPrefs.thumbnailFallback.get(),
     )
     val thumbnailUrl = when {
+        // D-306: extension-provided preview_url first.
+        !episode.preview_url.isNullOrBlank() -> episode.preview_url
         !metadata?.thumbnailUrl.isNullOrBlank() -> metadata?.thumbnailUrl
         thumbnailFallback == "COVER" -> fallbackCoverUrl
         else -> null
@@ -2735,24 +2990,61 @@ private fun EpisodeRow(
                             colorFilter = colorFilter,
                         )
                         // EP tag — themed primary background, 6dp corners, Bold White text.
-                        // Shows 'EP N' (not just 'N').
-                        // Positioned at TopStart (like old project).
+                        // Shows 'EP N' (not just 'N'). Positioned at TopStart (like old project).
+                        // D-317: contextual variants — a per-season number inside a season
+                        // slice, or the "S-3/E-5" compound tag (season + episode in two
+                        // shades of the theme color, slash separator) in the All list when
+                        // the "season in episode tag" setting is on.
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                         ) {
-                            Text(
-                                text = "EP $epNumText",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                softWrap = false,
-                            )
+                            if (episodeTag != null && episodeTag.season != null) {
+                                val tagColor = MaterialTheme.colorScheme.onPrimary
+                                val compoundTag = androidx.compose.ui.text.buildAnnotatedString {
+                                    withStyle(
+                                        androidx.compose.ui.text.SpanStyle(
+                                            color = tagColor.copy(alpha = 0.68f),
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    ) { append("S-${episodeTag.season}") }
+                                    withStyle(
+                                        androidx.compose.ui.text.SpanStyle(
+                                            color = tagColor.copy(alpha = 0.45f),
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    ) { append("/") }
+                                    withStyle(
+                                        androidx.compose.ui.text.SpanStyle(
+                                            color = tagColor,
+                                            fontWeight = FontWeight.ExtraBold,
+                                        ),
+                                    ) { append("E-${episodeTag.number}") }
+                                }
+                                Text(
+                                    text = compoundTag,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    letterSpacing = 0.3.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            } else {
+                                Text(
+                                    text = "EP ${episodeTag?.number ?: epNumText}",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
                         }
                         // Phase 2d: watch progress bar at the bottom of the thumbnail (like YouTube).
                         // Only shows when the episode is partially watched (not when fully watched —
@@ -2806,7 +3098,7 @@ private fun EpisodeRow(
                             fontFamily = RobotoFamily,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -2832,7 +3124,7 @@ private fun EpisodeRow(
                                         fontSize = 10.sp,
                                         lineHeight = 14.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                         maxLines = 1,
                                         softWrap = false,
@@ -2865,7 +3157,7 @@ private fun EpisodeRow(
                                                 fontSize = 10.sp,
                                                 lineHeight = 14.sp,
                                                 fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,
                                                 softWrap = false,
                                             )
@@ -2917,7 +3209,7 @@ private fun EpisodeRow(
                             fontSize = 12.sp,
                             lineHeight = 15.sp,
                             fontWeight = FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -3038,7 +3330,7 @@ private fun InfoSection(anime: com.confused.anikuta.core.common.model.UnifiedAni
             fontFamily = RobotoFamily,
             fontSize = 16.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -3075,14 +3367,14 @@ private fun InfoRow(label: String, value: String) {
             fontFamily = RobotoFamily,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             text = value,
             fontFamily = RobotoFamily,
             fontSize = 14.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -3142,63 +3434,164 @@ private fun ErrorState(message: String) {
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  D-320: Details loading skeleton (shared-element landing spot)
+// ════════════════════════════════════════════════════════════════════════════
+
 /**
- * 3-stage pull-to-refresh indicator overlay for the Details screen (PTR-5).
+ * D-320: Loading-state banner skeleton at the EXACT DetailBanner geometry
+ * (360dp blurred backdrop + gradient + 100×150dp cover at BottomStart + title).
  *
- * Shows a small progress ring that fills as [pullDistancePx] grows from 0 →
- * [thresholdPx3], plus a stage-dependent label:
- *   - stage 0 (pull < thresholdPx1): "Pull to refresh episodes" + onSurfaceVariant.
- *   - stage 1 (≥ thresholdPx1): "Release to refresh episodes" + primary.
- *   - stage 2 (≥ thresholdPx2): "Release to refresh metadata" + tertiary.
- *   - stage 3 (≥ thresholdPx3): "Release to refresh everything" + error.
- *
- * The per-stage color (primary → tertiary → error) gives a clear visual cue of
- * which refresh action will fire on release. Drawn ABOVE the LazyColumn in a
- * Box overlay aligned TopCenter.
- *
- * Haptic feedback is handled in the NestedScrollConnection (not here) — fires
- * exactly once per stage-UP crossing via HapticHelper.stageCross().
+ * Shown only when the source screen handed us a cover via the nav key (the
+ * shared-element transition path): the morphing cover lands here the instant
+ * the details screen composes — no blank flash while the data loads — and the
+ * later swap to the real Success banner is pixel-seamless because the cover
+ * sits at identical bounds. A centered spinner fills the rest of the screen.
  */
 @Composable
-private fun ThreeStagePullIndicator(
-    pullDistancePx: Float,
-    stage: Int,
-    thresholdPx1: Float,
-    thresholdPx3: Float,
+private fun DetailsSkeletonBanner(
+    coverUrl: String,
+    title: String?,
+    sharedCoverKey: String,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Blurred backdrop (same recipe as the real banner).
+            Box(modifier = Modifier.fillMaxWidth().height(360.dp)) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().blur(8.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.2f),
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background,
+                                ),
+                            ),
+                        ),
+                )
+            }
+            // Bottom row: the morphing cover + title.
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(width = 100.dp, height = 150.dp)
+                        .coverSharedElement(sharedCoverKey)
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    if (!title.isNullOrBlank()) {
+                        Text(
+                            text = title,
+                            fontFamily = RobotoFamily,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                                ?: MaterialTheme.colorScheme.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 3.dp,
+            )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-318: Custom pull-to-refresh indicator (details page)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * D-318: A themed refresh indicator that REPLACES the default M3 one (user
+ * report: "it should show a better-looking refresh one coming down, and the
+ * refresh animation should play until it is refreshed properly").
+ *
+ * Behavior (all values derived from [state], no extra recomposition):
+ * - Rest: fully transparent (nothing visible).
+ * - Pulling: slides down from the top edge, scales 0.55→1 with the pull, and a
+ *   determinate arc fills 0→100% of the pull distance (theme primary on a
+ *   floating surface disc with a soft shadow).
+ * - Refreshing: full-size disc with an indeterminate spinner — stays for the
+ *   WHOLE refresh ([isRefreshing] is driven by refreshAll's real completion).
+ *
+ * All per-frame values are read inside graphicsLayer — the composition itself
+ * never invalidates during a pull.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)  // PullToRefreshState
+@Composable
+private fun PullToRefreshIndicator(
+    state: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    isRefreshing: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val (label, color) = when (stage) {
-        3 -> "Release to refresh everything" to MaterialTheme.colorScheme.error
-        2 -> "Release to refresh metadata" to MaterialTheme.colorScheme.tertiary
-        1 -> "Release to refresh episodes" to MaterialTheme.colorScheme.primary
-        else -> "Pull to refresh episodes" to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    // Progress fills proportionally up to thresholdPx3 (the stage-3 ceiling).
-    val progress = (pullDistancePx / thresholdPx3).coerceIn(0f, 1f)
-
-    Column(
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 6.dp,
         modifier = modifier
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(top = 18.dp)
+            .graphicsLayer {
+                val fraction = state.distanceFraction.coerceAtLeast(0f)
+                val appear = fraction.coerceIn(0f, 1f)
+                // While refreshing M3 snaps distanceFraction to 1 → fully shown.
+                val shown = if (isRefreshing) 1f else appear
+                scaleX = 0.55f + 0.45f * shown
+                scaleY = 0.55f + 0.45f * shown
+                alpha = shown
+                // Slide down as the pull grows (subtle — stays near the top).
+                translationY = 10.dp.toPx() * shown
+            },
     ) {
-        CircularProgressIndicator(
-            progress = { progress },
-            color = color,
-            strokeWidth = 2.dp,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = label,
-            color = color,
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-        )
+        Box(
+            modifier = Modifier.padding(9.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isRefreshing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.5.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+            } else {
+                CircularProgressIndicator(
+                    progress = { state.distanceFraction.coerceIn(0f, 1f) },
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.5.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                )
+            }
+        }
     }
 }
 

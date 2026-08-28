@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    :core:ads manifest — intentionally empty.
+    This module has no Activities/Services/Receivers/Providers; it only exposes
+    Kotlin classes (AdsCoordinator, AppLifecycleObserver, AdsRepository) + a
+    Compose interstitial Dialog. The manifest exists to satisfy AGP's expectation
+    for a library module; merge adds nothing to the :app manifest.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

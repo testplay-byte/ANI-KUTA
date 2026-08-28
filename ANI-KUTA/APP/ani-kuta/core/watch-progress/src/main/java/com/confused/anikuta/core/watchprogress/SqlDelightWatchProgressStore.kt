@@ -235,6 +235,29 @@ class SqlDelightWatchProgressStore(
         database.watchQueries.getHighestWatchedEpisodeNumber(mainId).executeAsOne().toInt()
     }
 
+    // D-268: COALESCE(MAX, 0) returns 0 when no episodes watched -> convert to null.
+    override suspend fun getLastWatchedAt(mainId: String): Long? = withContext(dispatchers) {
+        database.watchQueries.getLastWatchedAt(mainId).executeAsOne().takeIf { it > 0 }
+    }
+
+    // D-285: one GROUP BY for the whole table — the Library's batch loader
+    // replaces N per-entry getWatchedEpisodeCount calls with this single read.
+    override suspend fun getAllWatchedCounts(): Map<String, Int> = withContext(dispatchers) {
+        database.watchQueries.getAllWatchedCounts().executeAsList()
+            .associate { it.main_id to it.watched_count.toInt() }
+    }
+
+    // D-285: one GROUP BY for the whole table — the Library's batch loader
+    // replaces N per-entry getLastWatchedAt calls with this single read.
+    // Rows only exist for main_ids with at least one watched episode. A NULL
+    // MAX(last_watched_at) (progress rows without timestamps) is dropped — the
+    // same "no timestamp" contract as the per-entry getLastWatchedAt (null).
+    override suspend fun getAllLastWatchedAt(): Map<String, Long> = withContext(dispatchers) {
+        database.watchQueries.getAllLastWatchedAt().executeAsList()
+            .mapNotNull { row -> row.last_watched_at?.let { row.main_id to it } }
+            .toMap()
+    }
+
     /**
      * D-242: Mark all episodes in [episodeKeys] as watched (sticky).
      * Delegates to [setUserMarkedWatched] for each key — reuses the INSERT-or-UPDATE

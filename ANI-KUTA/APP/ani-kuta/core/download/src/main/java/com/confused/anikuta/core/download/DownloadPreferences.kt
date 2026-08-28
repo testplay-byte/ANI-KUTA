@@ -141,9 +141,17 @@ class DownloadPreferences(private val store: PreferenceStore) {
 
     // ── Advanced downloader ──────────────────────────────────────────────────
 
-    /** Use the multi-threaded advanced downloader for faster downloads. */
+    /**
+     * Use the multi-threaded advanced downloader for faster downloads.
+     *
+     * test-feature branch (Parallel Download Engine): DEFAULT flipped to TRUE —
+     * the parallel engine is the point of this branch (byte-range workers,
+     * per-chunk exponential backoff, concurrent HLS segments + AES-128
+     * decryption). The toggle is the user's off-switch back to the legacy
+     * single-connection path.
+     */
     val advancedDownloader = store.preference(
-        "pref_dl_adv_enabled", false, BooleanSerializer,
+        "pref_dl_adv_enabled", true, BooleanSerializer,
     )
 
     /** Number of parallel connections for the advanced downloader (1..8, default 4). */

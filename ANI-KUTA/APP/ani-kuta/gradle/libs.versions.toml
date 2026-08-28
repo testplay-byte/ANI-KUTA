@@ -7,9 +7,33 @@ gradle = "8.11.1"
 # AndroidX
 coreKtx = "1.15.0"
 activityCompose = "1.10.1"
-lifecycle = "2.8.7"
-composeBom = "2025.03.00"
+# D-322: lifecycle pinned to what the packaged runtime really resolves —
+# koin-android 4.2.2 requires androidx lifecycle 2.10.0 (the JB lifecycle fork
+# path through koin-compose lands at 2.9.4; max-wins → 2.10.0). The alignment
+# guard caught the first pin attempt (2.9.4) being wrong in one CI round.
+lifecycle = "2.10.0"
 palette = "1.0.0"  # D-223: adaptive color extraction from cover images
+
+# Compose — D-322: pinned EXPLICITLY, compose BOM REMOVED.
+#
+# v0.2.60 crashed at startup with NoSuchMethodError: sharedElement$default.
+# Root cause: koin-compose 4.2.2 transitively requires JB Compose 1.10.2 →
+# androidx Compose 1.10.4, and a Gradle platform (BOM) constraint can only
+# RAISE versions — it can never cap a version a dependency REQUIRES. So every
+# release has actually shipped the 1.10.4 runtime while all modules compiled
+# against the BOM's 1.7.8. That held until v0.2.60 added the experimental
+# SharedTransitionScope call, whose API was renamed on the 1.10 line
+# (PlaceHolderSize → PlaceholderSize, sharedElement(state=…) →
+# sharedContentState=…). The BOM never controlled what shipped — these explicit
+# pins do, and :app's checkDependencyAlignment guard enforces it every build.
+#
+# material3 stays at 1.3.1 (the app is built on its API surface; 1.4.x would
+# churn the whole UI). It is binary-compatible on the 1.10.4 runtime — proven
+# by every release shipped so far. material-icons artifacts were deprecated
+# after 1.7.8 (final version, still resolvable under any newer BOM).
+compose = "1.10.4"
+composeMaterial3 = "1.3.1"
+composeMaterialIcons = "1.7.8"
 
 # Navigation — hand-rolled (D-150): Nav3 (androidx.navigation3) REMOVED. No nav dependency.
 
@@ -63,18 +87,22 @@ androidx-documentfile = { group = "androidx.documentfile", name = "documentfile"
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+# D-272: ProcessLifecycleOwner for app foreground/background tracking (smart-link ad "time spent outside" gate).
+androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycle" }
 
 # WorkManager (Phase UP)
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 
-# Compose (managed by BOM)
-androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
-androidx-ui = { group = "androidx.compose.ui", name = "ui" }
-androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
-androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
-androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
-androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+# Compose (D-322: explicit pins — no BOM; see the versions block above)
+androidx-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "compose" }
+androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics", version.ref = "compose" }
+androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling", version.ref = "compose" }
+androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview", version.ref = "compose" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "composeMaterial3" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "compose" }
+androidx-compose-animation = { group = "androidx.compose.animation", name = "animation", version.ref = "compose" }
+androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "compose" }
+androidx-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version.ref = "composeMaterialIcons" }
 
 # Navigation — hand-rolled (D-150): no Nav3 dependency.
 

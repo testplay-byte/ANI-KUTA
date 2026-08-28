@@ -106,6 +106,31 @@ interface WatchProgressStore {
     suspend fun getHighestWatchedEpisodeNumber(mainId: String): Int
 
     /**
+     * D-268: Get the most recent last_watched_at timestamp for an anime (for the
+     * library LAST_WATCHED sort). Returns null if no episodes have been watched.
+     */
+    suspend fun getLastWatchedAt(mainId: String): Long?
+
+    /**
+     * D-285: BATCH variant of [getWatchedEpisodeCount] — one GROUP BY query
+     * returns the completed-watched count for EVERY anime at once. The Library's
+     * batch loader uses this instead of N per-entry queries (a 653-item library
+     * used to cost 653 individual count queries per load).
+     *
+     * Only main_ids with at least one completed episode appear in the map.
+     */
+    suspend fun getAllWatchedCounts(): Map<String, Int>
+
+    /**
+     * D-285: BATCH variant of [getLastWatchedAt] — one GROUP BY query returns
+     * the most recent last_watched_at for EVERY anime at once (for the Library's
+     * batch loader + the LAST_WATCHED sort).
+     *
+     * Only main_ids with at least one watched episode appear in the map.
+     */
+    suspend fun getAllLastWatchedAt(): Map<String, Long>
+
+    /**
      * D-242: Mark all episodes from 1 to [upToEpisodeNumber] (inclusive) as
      * watched for the given [mainId]. Used by the "mark all previous episodes"
      * prompt when the user marks episode N as watched but 1..N-1 aren't.

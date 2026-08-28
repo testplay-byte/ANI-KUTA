@@ -10,6 +10,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import com.confused.anikuta.core.designsystem.theme.Motion
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,10 +57,17 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.animation.LocalNavAnimatedVisibilityScope  // D-320
+import com.confused.anikuta.core.designsystem.animation.LocalSharedTransitionScope  // D-320
+import com.confused.anikuta.core.designsystem.animation.libraryCoverKey  // D-328
+import com.confused.anikuta.core.designsystem.animation.searchCoverKey  // D-328
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.appupdate.AppUpdateManager
+import com.confused.anikuta.core.ads.AdsCoordinator  // D-272: smart-link ad coordinator
+import com.confused.anikuta.core.ads.SmartLinkAdInterstitial  // D-272: ad interstitial overlay
 import com.confused.anikuta.core.designsystem.component.NavIcons
 import com.confused.anikuta.core.designsystem.component.NavItem
+import com.confused.anikuta.core.designsystem.theme.AccentPreset
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.navigation.NavKey
@@ -93,13 +111,17 @@ import com.confused.anikuta.settings.UpdatesSettingsScreen
 import com.confused.anikuta.settings.PlayerSettingsScreen
 import com.confused.anikuta.settings.NotificationsSettingsScreen
 import com.confused.anikuta.settings.NotificationsLibraryScreen
+import com.confused.anikuta.settings.VideoCachingScreen
 import com.confused.anikuta.settings.ThemeMode
 import com.confused.anikuta.settings.ThemePreferences
 import com.confused.anikuta.updates.UpdateBottomSheet
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import com.confused.anikuta.core.preferences.AppPreferences
 import org.koin.compose.koinInject
 
 class MainActivity : androidx.fragment.app.FragmentActivity() {
@@ -132,14 +154,28 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
             val prefs = koinInject<ThemePreferences>()
             val themeMode = prefs.themeMode.value
             val amoled = prefs.amoled.value
-            // Accent seed: resolves CUSTOM → stored custom color, else preset seed.
+            // Accent seed: resolves CUSTOM → stored custom accent, else preset seed.
             val accentSeed = prefs.resolveAccentSeed()
+            // D-254: the fully-custom per-element theme — active only when the
+            // CUSTOM preset is selected. Reading prefs.customTheme.value here
+            // subscribes this composition to every custom-palette edit, so the
+            // whole app re-themes LIVE from the editor sheet (CORE_RULES §23).
+            val customTheme = if (prefs.accentPreset.value == AccentPreset.CUSTOM) {
+                prefs.customTheme.value
+            } else {
+                null
+            }
             val isDark = when (themeMode) {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
-            AnikutaTheme(darkTheme = isDark, amoled = amoled, accentSeed = accentSeed) {
+            AnikutaTheme(
+                darkTheme = isDark,
+                amoled = amoled,
+                accentSeed = accentSeed,
+                customTheme = customTheme,
+            ) {
                 AppRoot()
             }
         }
@@ -250,6 +286,10 @@ object EpisodeSettingsKey : NavKey
 @Serializable
 object PlayerSettingsKey : NavKey
 
+// Video caching settings (test-feature/video-cache-new-download branch).
+@Serializable
+object VideoCachingKey : NavKey
+
 // About & Updates screen — hosts the app-update UI (version, auto-check toggle,
 // manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
 // from AppRoot (below) gated on AppUpdateManager.shouldShowUpdateSheet.
@@ -305,6 +345,7 @@ private val allowedUpdateSheetKeys = setOf(
     DetailsPageSettingsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
+    VideoCachingKey::class,
     ProfileKey::class,
     com.confused.anikuta.feature.updates.UpdatesKey::class,
     com.confused.anikuta.feature.animehistory.HistoryKey::class,
@@ -322,6 +363,7 @@ private val allowedUpdateSheetKeys = setOf(
  *   in both light and dark mode.
  */
 @androidx.compose.material3.ExperimentalMaterial3Api
+@OptIn(ExperimentalSharedTransitionApi::class)  // D-320: cover transition
 @Composable
 fun AppRoot() {
     // D-209: captured here so the Cloudflare "Open in WebView" callbacks (non-
@@ -335,7 +377,16 @@ fun AppRoot() {
             NavItem("more", "More", NavIcons.More),
         )
     }
-    var currentTab by remember { mutableStateOf("browse") }
+    val appPreferences = koinInject<AppPreferences>() // D-267: last-tab persistence
+    // D-282: only Browse/Library are valid cold-start restores — More + Search
+    // are deliberately EXCLUDED (user instruction): closing the app on More (or
+    // Search) and reopening it must land on one of the two main sections, never
+    // More/Search. Sanitize at read time so a legacy persisted "more"/"search"
+    // value (from D-267, which persisted all four) also falls back correctly.
+    val startTab = appPreferences.lastTab
+        .takeIf { it == "browse" || it == "library" }
+        ?: "browse"
+    var currentTab by remember { mutableStateOf(startTab) }
 
     // D-143: Library selection mode state — shared between LibraryScreen + AppRoot.
     val librarySelectionMode = remember { LibrarySelectionMode() }
@@ -366,9 +417,26 @@ fun AppRoot() {
     FirstRunSetupDialog(preferences = downloadPreferences)
 
     val backstack = remember {
-        androidx.compose.runtime.mutableStateListOf<NavKey>(AnimeBrowseKey)
+        // D-282: startTab is already sanitized to "browse"/"library" — the old
+        // "search"/"more" mappings are intentionally gone (cold start never
+        // restores onto those sections).
+        val initialKey = when (startTab) {
+            "library" -> AnimeLibraryKeyImpl
+            else -> AnimeBrowseKey
+        }
+        androidx.compose.runtime.mutableStateListOf<NavKey>(initialKey)
     }
     val currentKey = backstack.last()
+
+    // D-272: smart-link ad coordinator. Wraps every navigate-to-Details call so
+    // the ad interstitial can gate it (one ad per 6h, try-again flow, time-spent-
+    // outside verification). Declared AFTER `backstack` because it closes over
+    // `backstack.add`. Notification deep-links (LaunchedEffect above) deliberately
+    // bypass the gate — they're system-initiated, not a user tap on an entry.
+    val adsCoordinator = koinInject<AdsCoordinator>()
+    val navigateToDetails: (AnimeDetailsKey) -> Unit = { key ->
+        adsCoordinator.requestNavigation { backstack.add(key) }
+    }
 
     // D-222: AniList OAuth redirect — auto-navigate to the Trackers page
     // after a successful login (the redirect opens the app fresh on Browse).
@@ -482,9 +550,83 @@ fun AppRoot() {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
-        when (currentKey) {
+        // ── D-320: shared-element navigation shell ──
+        // SharedTransitionLayout + AnimatedContent replace the plain
+        // `when (currentKey)` switch so covers can morph between screens
+        // (Browse/Search/Library cards ⇄ the Details banner cover — the
+        // experimental cover transition; reverse-morphs on back).
+        //   • Details in/out → 450ms emphasized crossfade (D-324). D-327: the
+        //     flying cover's OWN bounds morph runs LONGER (600ms,
+        //     Motion.DurationSharedFlight) on the SAME emphasized curve — the
+        //     page settles early while the cover keeps gliding (user spec:
+        //     "the details page can open up early but the image will move
+        //     slowly"). What must stay in sync is the EASING CURVE, not the
+        //     duration (mismatched curves at equal duration were the v0.2.61
+        //     jitter; decoupled durations on one curve are safe).
+        //     Every other switch → snap() = the previous instant behavior,
+        //     unchanged. NOTE: shared elements match by key across the two
+        //     simultaneously-composed screens even on snap switches — that's
+        //     why keys are screen-namespaced (D-328): Library ⇄ Search must
+        //     NEVER match (the v0.2.62 ghost-morph bug); only list ⇄ Details
+        //     is allowed to.
+        //   • SaveableStateProvider keyed by screen type preserves each
+        //     screen's rememberSaveable state (e.g. the browse grid scroll)
+        //     while it is disposed — required for the reverse morph to land
+        //     back on the tapped card, and a general navigation improvement.
+        //   • The inner lambda parameter SHADOWS the outer `currentKey` val on
+        //     purpose — every existing `when` branch body keeps working
+        //     verbatim.
+        val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            AnimatedContent(
+                targetState = currentKey,
+                transitionSpec = {
+                    val detailsInvolved =
+                        targetState is AnimeDetailsKey || initialState is AnimeDetailsKey
+                    if (detailsInvolved) {
+                        // D-324/D-327: the crossfade runs 450ms emphasized;
+                        // the cover's bounds morph runs 600ms on the SAME
+                        // curve (see coverSharedElement). Curve sync is the
+                        // anti-jitter rule — duration sync is NOT required
+                        // (the page settles first, the cover glides in).
+                        fadeIn(
+                            tween(
+                                Motion.DurationContainer,
+                                easing = Motion.EasingEmphasized,
+                            ),
+                        ) togetherWith fadeOut(
+                            tween(
+                                Motion.DurationContainer,
+                                easing = Motion.EasingEmphasized,
+                            ),
+                        )
+                    } else {
+                        // Instant switch — identical to the pre-D-320 behavior
+                        // (androidx.compose.animation has no snap() ContentTransform).
+                        EnterTransition.None togetherWith ExitTransition.None
+                    }
+                },
+                label = "appNav",
+            ) { currentKey ->
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedVisibilityScope provides this,
+                ) {
+                    saveableStateHolder.SaveableStateProvider(
+                        currentKey::class.simpleName ?: "screen",
+                    ) {
+                        when (currentKey) {
             is AnimeBrowseKey -> BrowseScreen(
-                onNavigate = { navKey -> backstack.add(navKey) }
+                onNavigate = { navKey ->
+                    // D-272: route Details navigations through the ad gate;
+                    // everything else (e.g. Watch from a Continue-Watching card,
+                    // which Browse no longer surfaces but the contract holds)
+                    // pushes directly onto the backstack.
+                    when (navKey) {
+                        is AnimeDetailsKey -> navigateToDetails(navKey)
+                        else -> backstack.add(navKey)
+                    }
+                },
             )
             is AnimeDetailsKey -> {
                 // Handle both AniList and Extension variants of the sealed key.
@@ -566,15 +708,25 @@ fun AppRoot() {
                     // D-140: Navigate based on the entry type.
                     // If it has an anilistId → open via AniList.
                     // If it only has an extension source → open via Extension.
+                    // D-320: carry coverUrl/title + the shared-element key so
+                    // the cover morphs from the tapped card (experimental).
                     if (entry.hasAniListId) {
-                        backstack.add(AnimeDetailsKey.AniList(entry.anilistId!!))
+                        navigateToDetails(
+                            AnimeDetailsKey.AniList(
+                                entry.anilistId!!,
+                                coverUrl = entry.coverUrl,
+                                title = entry.title,
+                                transitionKey = libraryCoverKey(entry.coverUrl),
+                            )
+                        )
                     } else if (entry.hasExtensionSource) {
-                        backstack.add(
+                        navigateToDetails(
                             AnimeDetailsKey.Extension(
                                 entry.sourceId!!,
                                 entry.animeUrl!!,
                                 entry.title,
                                 entry.coverUrl,
+                                transitionKey = libraryCoverKey(entry.coverUrl),
                             )
                         )
                     } else {
@@ -584,11 +736,28 @@ fun AppRoot() {
                 }
             )
             is AnimeSearchKey -> SearchScreen(
-                onNavigateToDetails = { animeId ->
-                    backstack.add(AnimeDetailsKey.AniList(animeId))
+                onNavigateToDetails = { anime ->
+                    navigateToDetails(
+                        AnimeDetailsKey.AniList(
+                            anime.id,
+                            coverUrl = anime.coverUrl,
+                            title = anime.displayName,
+                            // D-328: namespaced key — MUST match the search
+                            // card's modifier key (searchCoverKey).
+                            transitionKey = searchCoverKey(anime.coverUrl),
+                        )
+                    )
                 },
                 onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
-                    backstack.add(AnimeDetailsKey.Extension(sourceId, animeUrl, title, thumbnailUrl))
+                    navigateToDetails(
+                        AnimeDetailsKey.Extension(
+                            sourceId,
+                            animeUrl,
+                            title,
+                            thumbnailUrl,
+                            transitionKey = searchCoverKey(thumbnailUrl),
+                        )
+                    )
                 },
                 // D-209: Cloudflare manual solver — launched from the Search error card.
                 onOpenCloudflareWebView = { url, sourceName ->
@@ -648,11 +817,11 @@ fun AppRoot() {
                         val details = contentRepository.getContentDetails(mainId)
                         val anilistId = details?.anilistId
                         if (anilistId != null) {
-                            backstack.add(AnimeDetailsKey.AniList(anilistId))
+                            navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                         } else {
                             // Extension-only entry.
                             if (details != null) {
-                                backstack.add(AnimeDetailsKey.Extension(
+                                navigateToDetails(AnimeDetailsKey.Extension(
                                     sourceId = details.sourceId ?: 0L,
                                     animeUrl = details.animeUrl ?: content.animeUrl ?: "",
                                     title = content.title,
@@ -672,6 +841,7 @@ fun AppRoot() {
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
+                onOpenVideoCaching = { backstack.add(VideoCachingKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
                 onBack = pop,
             )
@@ -753,10 +923,24 @@ fun AppRoot() {
             is PlayerSettingsKey -> PlayerSettingsScreen(
                 onBack = pop,
             )
+            is VideoCachingKey -> VideoCachingScreen(
+                onBack = pop,
+                // Tap-to-play (session-2): build a WatchKey from the cache entry — the
+                // exact same server/quality/resolution (guaranteed by the cache identity)
+                // + the stored external track lists; the resume position comes from the
+                // watch progress store (WP-B3 lookup on FILE_LOADED).
+                onPlayEntry = { entry ->
+                    Logger.i("Anikuta:Settings:VideoCaching") {
+                        "play-entry: launching '${entry.animeTitle}' EP ${entry.episodeNumber} " +
+                            "from cache (hls=${entry.isHls}, ${entry.cachedBytes}B, complete=${entry.complete})"
+                    }
+                    backstack.add(buildWatchKeyFromCacheEntry(entry))
+                },
+            )
             is ProfileKey -> com.confused.anikuta.profile.ProfileScreen(
                 onBack = pop,
                 onNavigateToAnime = { anilistId ->
-                    backstack.add(AnimeDetailsKey.AniList(anilistId))
+                    navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                 },
             )
             is WatchKey -> WatchScreen(
@@ -773,10 +957,10 @@ fun AppRoot() {
                             val details = contentRepository.getContentDetails(mainId)
                             val anilistId = details?.anilistId
                             if (anilistId != null) {
-                                backstack.add(AnimeDetailsKey.AniList(anilistId))
+                                navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                             } else {
                                 if (details != null) {
-                                    backstack.add(AnimeDetailsKey.Extension(
+                                    navigateToDetails(AnimeDetailsKey.Extension(
                                         details.sourceId ?: 0L,
                                         details.animeUrl ?: content.animeUrl ?: "",
                                         content.title,
@@ -799,11 +983,11 @@ fun AppRoot() {
                             val details = contentRepository.getContentDetails(mainId)
                             val anilistId = details?.anilistId
                             if (anilistId != null) {
-                                backstack.add(AnimeDetailsKey.AniList(anilistId))
+                                navigateToDetails(AnimeDetailsKey.AniList(anilistId))
                             } else {
                                 // Extension-only content — use the source ID + URL.
                                 if (details != null) {
-                                    backstack.add(AnimeDetailsKey.Extension(
+                                    navigateToDetails(AnimeDetailsKey.Extension(
                                         details.sourceId ?: 0L,
                                         details.animeUrl ?: content.animeUrl ?: "",
                                         content.title,
@@ -824,6 +1008,10 @@ fun AppRoot() {
                 }
             }
         }
+                    } // end saveableStateHolder.SaveableStateProvider
+                } // end CompositionLocalProvider(D-320 scopes)
+            } // end AnimatedContent content
+        } // end SharedTransitionLayout (D-320)
 
         // Bottom navigation — ONLY show on root tab screens (not sub-screens)
         val showBottomNav = currentKey::class in rootTabKeys
@@ -848,6 +1036,14 @@ fun AppRoot() {
                 currentRoute = currentTab,
                 onSelect = { route ->
                     currentTab = route
+                    // D-267/D-282: persist for next cold start — ONLY Browse +
+                    // Library. More + Search are session-scoped by design (user
+                    // instruction): a full close + reopen must land on one of the
+                    // two main sections. The pref keeps the last VALID tab, so
+                    // Browse → More → close → reopen restores Browse.
+                    if (route == "browse" || route == "library") {
+                        appPreferences.lastTab = route
+                    }
                     backstack.clear()
                     when (route) {
                         "browse" -> backstack.add(AnimeBrowseKey)
@@ -891,6 +1087,11 @@ fun AppRoot() {
                 onDismiss = { },
             )
         }
+
+        // D-272: smart-link ad interstitial overlay. Renders on top of every screen
+        // when AdsCoordinator.state is active (AdPending / AdInProgress / AdTryAgain).
+        // Idle = no-op (renders nothing). Sibling of UpdateBottomSheet above.
+        SmartLinkAdInterstitial()
         } // end CompositionLocalProvider Box
     } // end CompositionLocalProvider
 }
@@ -1532,4 +1733,40 @@ private suspend fun scanSubtitleFilesOnDisk(mainId: String, episodeNumber: Int):
     }
 
     return results
+}
+
+/**
+ * Tap-to-play from the Video Caching settings screen (session-2):
+ * builds a [WatchKey] from a cache entry so playback uses the EXACT same
+ * server/quality/resolution (guaranteed — the cache identity is
+ * mainId+episode+sourceId+serverKey) and resumes from the stored watch
+ * progress (WP-B3 store lookup on FILE_LOADED).
+ *
+ * Limitations (by design, v1): episode switching inside the watch screen is not
+ * available from a cache-origin launch (no episode list is stored on the entry —
+ * open the anime from Details for the full experience), and the QualitySheet has
+ * no server list (no registry key). The stale upstream URL is refreshed by the
+ * cache manager on first serve; if it's dead, playback fails like any dead link —
+ * reopen the episode from Details to re-resolve.
+ */
+private fun buildWatchKeyFromCacheEntry(
+    entry: com.confused.anikuta.core.playbackcache.PlaybackCacheStore.Entry,
+): WatchKey {
+    return WatchKey(
+        videoUrl = entry.upstreamUrl,
+        animeTitle = entry.animeTitle,
+        quality = entry.quality,
+        episodeUrl = "",
+        episodeNumber = entry.episodeNumber.toFloat(),
+        episodeTitle = entry.episodeTitle,
+        episodeListSerialized = "",
+        videoHeaders = entry.upstreamHeaders,
+        resolvedVideosKey = "",
+        sourceId = entry.sourceId,
+        mainId = entry.mainId,
+        subtitleTracksSerialized = entry.subtitleTracks,
+        audioTracksSerialized = entry.audioTracks,
+        episodeMetadataSerialized = "",
+        startPosition = 0L, // WP-B3 falls back to the watch-progress store lookup.
+    )
 }

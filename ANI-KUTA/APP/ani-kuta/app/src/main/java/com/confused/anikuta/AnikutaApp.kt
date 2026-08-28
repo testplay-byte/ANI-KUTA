@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import app.cash.sqldelight.db.SqlDriver
 import com.confused.anikuta.core.activitytracker.activityTrackerModule
+import com.confused.anikuta.core.ads.di.adsModule  // D-272: smart-link ad system
 import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
 import com.confused.anikuta.core.common.Logger
@@ -34,11 +35,13 @@ import com.confused.anikuta.core.updates.di.updatesModule
 import com.confused.anikuta.core.schedule.di.scheduleModule
 import com.confused.anikuta.core.ratings.di.ratingsModule
 import com.confused.anikuta.core.notifications.di.notificationsModule
+import com.confused.anikuta.core.playbackcache.di.playbackCacheModule
 import com.confused.anikuta.feature.updates.di.updatesFeatureModule
 import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
 import com.confused.anikuta.settings.NotificationsSettingsViewModel
 import com.confused.anikuta.settings.NotificationsLibraryViewModel
+import com.confused.anikuta.settings.VideoCachingViewModel
 import com.confused.anikuta.profile.ProfileViewModel
 import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -109,6 +112,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 notificationsModule,
                 activityTrackerModule,
                 appUpdateModule,
+                adsModule,  // D-272: smart-link ad system
                 extensionModule,
                 playerModule,
                 videoResolverModule,
@@ -120,6 +124,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 smartMatcherModule,
                 contentModule,
                 dataCacheModule,
+                playbackCacheModule,
                 appModule,
             )
             // Debug-only Koin modules (debug-bubble, etc.). No-op in release
@@ -190,6 +195,21 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             }
         } catch (e: Exception) {
             Logger.w("AnikutaApp") { "Failed to run download folder scan: ${e.message}" }
+        }
+
+        // Video caching (test-feature branch): pre-start the cache proxy server
+        // (avoids a bind() on the main thread at first play) + startup maintenance
+        // (stale sweep + LRU eviction). Background scope — non-blocking, best-effort.
+        try {
+            val playbackCacheManager = org.koin.core.context.GlobalContext.get()
+                .get<com.confused.anikuta.core.playbackcache.PlaybackCacheManager>()
+            kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+            ).launch {
+                playbackCacheManager.start()
+            }
+        } catch (e: Exception) {
+            Logger.w("AnikutaApp") { "Failed to start playback cache: ${e.message}" }
         }
     }
 
@@ -263,6 +283,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)
             viewModelOf(::NotificationsLibraryViewModel)
+            viewModelOf(::VideoCachingViewModel) // Video caching settings (test-feature branch)
             viewModelOf(::ProfileViewModel) // Profile page
 
             // D.2: Download orchestrator + re-resolver (bridges :core:video-resolver + :core:download)

@@ -97,6 +97,26 @@ sealed class AnimeExtension {
         override val isTorrent: Boolean = false,
     ) : AnimeExtension()
 
+    /**
+     * D-296: An installed, TRUSTED extension that failed to LOAD (classloader /
+     * instantiation error). Previously [com.confused.anikuta.data.extension.model.LoadResult.Error]
+     * results were silently dropped — the extension vanished from every list
+     * ("trusted it and it disappeared"). Now it gets a visible row in the
+     * extensions screen with the failure reason + Retry / Uninstall actions.
+     */
+    data class Errored(
+        override val name: String,
+        override val pkgName: String,
+        override val versionName: String,
+        override val versionCode: Long,
+        override val libVersion: Double,
+        override val lang: String? = null,
+        override val isNsfw: Boolean = false,
+        override val isTorrent: Boolean = false,
+        val message: String,
+        val icon: Drawable? = null,
+    ) : AnimeExtension()
+
     companion object {
         /** Parse the lib version from a versionName like "1.4.3" → 1.4. */
         fun parseLibVersion(versionName: String): Double =

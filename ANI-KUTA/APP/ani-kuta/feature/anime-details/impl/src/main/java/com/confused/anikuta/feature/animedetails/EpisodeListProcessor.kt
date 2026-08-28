@@ -106,7 +106,10 @@ fun applyEpisodeListPreferences(
         }
     }
 
-    return sorted
+    // D-304 review tip: extensions can return the same URL twice in one episode
+    // list (the same duplicate-key crash class the search grid hit). The episode
+    // rows are keyed by URL — dedupe here so no source can crash the list.
+    return sorted.distinctBy { it.url }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -178,6 +181,105 @@ fun groupEpisodes(
         rangeStart = rangeEnd + 1
     }
     return groups
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  D-307: Season grouping — splits the episode list by detected season tags
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * A season bucket for the season selector UI.
+ *
+ * @param season The season number, or null for the "Other" bucket (episodes
+ *        WITHOUT a season tag — specials/OVAs/mislabeled rows).
+ * @param episodes The episodes in this season (the user's sort order from
+ *        [applyEpisodeListPreferences] is preserved).
+ */
+data class SeasonGroup(
+    val season: Int?,
+    val episodes: List<SEpisode>,
+)
+
+/**
+ * D-317: Everything the Details screen needs about seasons, from ONE analysis
+ * pass (the old D-307/D-312 path ran the detector twice).
+ *
+ * @param groups The season buckets (null = no multi-season structure — the
+ *        caller falls back to the number-range/flat pipeline). Includes the
+ *        trailing "Other" bucket (season = null) when untagged episodes exist.
+ * @param assignmentsByEpisodeUrl Per-episode season assignment (name tag or
+ *        provider hint), keyed by episode URL — drives the "S-3/E-5" tag.
+ * @param seasonNumbersByEpisodeUrl The per-season DISPLAY number for each
+ *        episode URL (S2E1 → 1) — drives the plain tag inside a selected
+ *        season slice. Guaranteed unique within each season bucket.
+ */
+data class EpisodeSeasonInfo(
+    val groups: List<SeasonGroup>?,
+    val assignmentsByEpisodeUrl: Map<String, com.confused.anikuta.core.seasons.SeasonAssignment>,
+    val seasonNumbersByEpisodeUrl: Map<String, Int>,
+)
+
+/**
+ * D-307/D-312/D-317: One-pass season analysis using the :core:seasons
+ * [com.confused.anikuta.core.seasons.SeasonDetector] — name tags first, with
+ * OPTIONAL provider hints (AniZip/Kitsu `seasonNumber` metadata) filling the
+ * gaps. The activation rule (≥2 distinct seasons AND ≥50% coverage) lives in
+ * the detector's [com.confused.anikuta.core.seasons.SeasonAnalysis].
+ *
+ * @param providerHints Optional parallel list (same size/index as [episodes])
+ *        of nullable provider season hints — when an episode's NAME carries no
+ *        season tag but the metadata knows its season, the hint assigns it.
+ */
+fun analyzeEpisodeSeasons(
+    episodes: List<SEpisode>,
+    providerHints: List<com.confused.anikuta.core.seasons.ProviderSeasonHint?>? = null,
+): EpisodeSeasonInfo {
+    val analysis = com.confused.anikuta.core.seasons.SeasonDetector.analyze(
+        names = episodes.map { it.name },
+        providerHints = providerHints,
+    )
+    val assignmentsByEpisodeUrl = buildMap {
+        episodes.forEachIndexed { i, ep -> put(ep.url, analysis.assignments[i]) }
+    }
+
+    val groups: List<SeasonGroup>? = if (analysis.isMultiSeason) {
+        val buckets = analysis.seasons.map { season ->
+            SeasonGroup(season, episodes.filterIndexed { i, _ -> analysis.assignments[i].season == season })
+        }
+        val untagged = episodes.filterIndexed { i, _ -> analysis.assignments[i].season == null }
+        if (untagged.isNotEmpty()) buckets + SeasonGroup(null, untagged) else buckets
+    } else {
+        null
+    }
+
+    // Per-season display numbers — unique within each bucket (duplicate tags
+    // were the user's original complaint). Prefer the tag's own episode-in-
+    // season numbers when EVERY episode in the bucket carries a distinct one;
+    // otherwise rank by (own number ?: episode_number) and enumerate 1..N.
+    val seasonNumbers = mutableMapOf<String, Int>()
+    groups?.forEach { group ->
+        val own = group.episodes.map { assignmentsByEpisodeUrl[it.url]?.episodeInSeason }
+        val ownAllDistinct = own.size == group.episodes.size &&
+            own.filterNotNull().distinct().size == own.size &&
+            own.none { it == null }
+        if (ownAllDistinct) {
+            group.episodes.forEachIndexed { i, ep -> seasonNumbers[ep.url] = own[i]!! }
+        } else {
+            val ranked = group.episodes.sortedWith(
+                compareBy(
+                    { assignmentsByEpisodeUrl[it.url]?.episodeInSeason ?: Int.MAX_VALUE },
+                    { it.episode_number },
+                ),
+            )
+            ranked.forEachIndexed { i, ep -> seasonNumbers[ep.url] = i + 1 }
+        }
+    }
+
+    return EpisodeSeasonInfo(
+        groups = groups,
+        assignmentsByEpisodeUrl = assignmentsByEpisodeUrl,
+        seasonNumbersByEpisodeUrl = seasonNumbers,
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════════════

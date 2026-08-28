@@ -1,4 +1,4 @@
-package com.confused.anikuta.core.player.controls
+package com.confused.anikuta.core.designsystem.component
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement

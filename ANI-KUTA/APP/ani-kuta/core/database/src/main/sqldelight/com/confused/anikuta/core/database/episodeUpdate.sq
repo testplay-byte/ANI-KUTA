@@ -69,6 +69,10 @@ UPDATE episode_update SET acknowledged = 1, acknowledged_at = :timestamp WHERE m
 acknowledgeUpdatesByMainId:
 UPDATE episode_update SET acknowledged = 1, acknowledged_at = :timestamp WHERE main_id = :main_id AND acknowledged = 0;
 
+-- D-249: clear ALL updates (user tapped "Clear" — remove every row, acknowledged or not).
+deleteAllUpdates:
+DELETE FROM episode_update;
+
 -- Retention cleanup: delete acknowledged updates older than the cutoff (M9 — 7-day retention).
 deleteOldAcknowledged:
 DELETE FROM episode_update WHERE acknowledged = 1 AND acknowledged_at < :cutoff;

@@ -12,14 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -34,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -61,6 +58,8 @@ fun DetailsPageSettingsScreen(
     var tintEnabled by remember { mutableStateOf(appPrefs.detailsBannerTint) }
     var bgSource by remember { mutableStateOf(appPrefs.detailsBackgroundSource) }
     var animationEnabled by remember { mutableStateOf(appPrefs.detailsBannerAnimation) }
+    // D-320: experimental shared-element cover transition.
+    var coverTransitionEnabled by remember { mutableStateOf(appPrefs.coverTransitionEnabled) }
 
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
@@ -72,23 +71,7 @@ fun DetailsPageSettingsScreen(
                 title = "Details page",
                 collapsed = collapsed,
                 actions = {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(50),
-                            )
-                            .clickable(onClick = onBack),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    BackAction(onBack)
                 },
             )
 
@@ -178,6 +161,21 @@ fun DetailsPageSettingsScreen(
                             onCheckedChange = {
                                 animationEnabled = it
                                 appPrefs.detailsBannerAnimation = it
+                            },
+                        )
+                    }
+                    // ── D-320: experimental cover transition ──
+                    item {
+                        SettingsSectionLabel("Navigation")
+                    }
+                    item {
+                        SwitchCard(
+                            title = "Cover transition (experimental)",
+                            subtitle = "Tapping a cover on Browse, Search or Library morphs it into the details page, and back again on return",
+                            checked = coverTransitionEnabled,
+                            onCheckedChange = {
+                                coverTransitionEnabled = it
+                                appPrefs.coverTransitionEnabled = it
                             },
                         )
                     }

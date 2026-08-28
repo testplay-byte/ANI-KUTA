@@ -36,11 +36,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -81,8 +80,11 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,29 +99,48 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import android.graphics.Bitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.request.bitmapConfig
+import coil3.request.crossfade
+import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
+import com.confused.anikuta.core.designsystem.animation.libraryCoverKey  // D-328
+import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.common.HapticHelper
+import com.confused.anikuta.core.designsystem.badge.PointedSide
+import com.confused.anikuta.core.designsystem.badge.PointedTagShape
+import com.confused.anikuta.core.designsystem.badge.rememberBadgeColorScheme
 import com.confused.anikuta.core.designsystem.component.EmptyState
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.component.SearchField
+import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
+import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
+import com.confused.anikuta.core.designsystem.theme.LocalHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import org.koin.compose.viewmodel.koinViewModel
+import kotlin.math.abs
 
 /**
  * Library screen — the user's personal anime collection.
@@ -157,19 +178,94 @@ import org.koin.compose.viewmodel.koinViewModel
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
  * All text uses fontFamily = RobotoFamily; titles/labels use FontWeight.ExtraBold.
  */
+// ── D-291: reveal-once cover animation infrastructure ─────────────────────
+
+/**
+ * D-291: the reveal-once animation context threaded from the screen down to
+ * every [LibraryCoverImage] cell.
+ *
+ * Device feedback on v0.2.55: "the loading of the images is not smooth. All
+ * the images just outright jump into it … I wanted a smoother experience for
+ * the images to come into view, like they would all show up one by one with a
+ * smoother animation … The speed of them will be faster as the users scroll
+ * faster … if I scroll to the very bottom and then back to the very top it
+ * should not be loading any images."
+ *
+ * - [velocity] — 0f (idle) … 1f (fast fling); sampled NON-reactively when a
+ *   load completes, so a fast scroll yields snappy ~70ms fades and a calm
+ *   view yields gentle ~240ms fades (reading it inside the cell would
+ *   recompose every cell on every scroll frame — exactly the jank D-287
+ *   removed).
+ * - [isRevealed] / [markRevealed] — the once-only gate (backed by the VM's
+ *   revealedCoverKeys, which survives tab switches and is cleared only by
+ *   pull-to-refresh).
+ */
+internal class CoverRevealController(
+    val velocity: State<Float>,
+    val isRevealed: (String) -> Boolean,
+    val markRevealed: (String) -> Unit,
+)
+
+/**
+ * D-291: tracks how fast the library is scrolling (0f idle … 1f hard fling).
+ *
+ * [position] returns a coarse scroll signal (firstVisibleItemIndex * 4096 +
+ * firstVisibleItemScrollOffset — the multiplier just keeps the index term
+ * dominant). The signal feeds an EMA speed estimate; a 150ms decay loop fades
+ * the factor back to idle after scrolling stops, so covers that finish
+ * loading AFTER a fling ends still get the calm (slow) fade — "if the user
+ * jumps into some area directly then it will slow down that area smoothly".
+ */
+@Composable
+private fun rememberScrollVelocityFactor(position: () -> Int): State<Float> {
+    val factor = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(position) {
+        var lastSignal = position()
+        var lastTime = 0L
+        snapshotFlow { position() }.collect { signal ->
+            val now = System.nanoTime()
+            if (lastTime == 0L) {
+                lastTime = now
+                lastSignal = signal
+                return@collect
+            }
+            val dtMs = (now - lastTime) / 1_000_000f
+            if (dtMs >= 1f && signal != lastSignal) {
+                // signal-units per ms; ~3/ms reads as a hard fling.
+                val speed = abs(signal - lastSignal) / dtMs
+                val instant = (speed / 3.0f).coerceIn(0f, 1f)
+                factor.floatValue = factor.floatValue * 0.4f + instant * 0.6f
+                lastSignal = signal
+                lastTime = now
+            }
+        }
+    }
+    // Decay toward idle when no scroll signals arrive (scroll stopped).
+    LaunchedEffect(position) {
+        while (true) {
+            delay(150)
+            if (factor.floatValue > 0.01f) {
+                factor.floatValue *= 0.5f
+            }
+        }
+    }
+    return factor
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     onNavigateToDetails: (LibraryEntry) -> Unit,
     viewModel: LibraryViewModel = koinViewModel(),
 ) {
-    // D-140: live reload on resume — when the user navigates back to the
+    // D-140/D-290: live reload on resume — when the user navigates back to the
     // library (e.g. after bookmarking from the details page), the list should
     // refresh. LaunchedEffect(Unit) runs once per composition entering the
     // back stack entry (i.e. each time the screen becomes visible again).
-    // D-141: still calls loadLibrary() (NOT reloadFromCache) on resume so the
-    // user gets fresh AniList data; tab switches go through selectCategory
-    // which uses reloadFromCache internally (no network).
+    // With D-290's SINGLE-emission loads + structural-equality conflation, an
+    // unchanged library produces an equal Success state that StateFlow DROPS —
+    // the resume refresh is now truly invisible (no grid teardown, no flash,
+    // no scroll disturbance), while genuinely changed data still swaps in.
     LaunchedEffect(Unit) {
         viewModel.loadLibrary()
     }
@@ -203,6 +299,8 @@ fun LibraryScreen(
     val listTitlePosition by viewModel.listTitlePosition.collectAsState()
     // D-242-fix21: Comfortable border mode.
     val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
+    // D-251: hide-titles toggle for Comfortable mode.
+    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
     val totalEntries by viewModel.totalEntries.collectAsState()
     // D.5: refresh state for pull-to-refresh.
@@ -236,8 +334,46 @@ fun LibraryScreen(
         }
     }
 
-    val gridState = rememberLazyGridState()
-    val listState = rememberLazyListState()
+    // D-286: scroll states live in the (Activity-scoped) ViewModel so they
+    // SURVIVE tab switches — the old rememberLazyGridState()/rememberLazyListState()
+    // died with the composable when the user left the Library tab, snapping the
+    // grid back to the top on every return. Coming back now shows the list
+    // exactly where the user left it.
+    val gridState = viewModel.gridState
+    val listState = viewModel.listState
+
+    // D-291: scroll-velocity tracker feeding the reveal-once cover fades.
+    // The position signal follows whichever list is actually on screen
+    // (comfortable masonry / list / grid). remember(displayMode) keeps the
+    // lambda identity STABLE between recompositions (a fresh lambda every
+    // recomposition would restart the tracker's LaunchedEffects), while still
+    // switching signals when the display mode changes.
+    val revealPositionSignal = remember(displayMode) {
+        when (displayMode) {
+            LibraryDisplayMode.COMFORTABLE_GRID -> ({
+                viewModel.staggeredState.firstVisibleItemIndex * 4096 +
+                    viewModel.staggeredState.firstVisibleItemScrollOffset
+            })
+            LibraryDisplayMode.LIST -> ({
+                viewModel.listState.firstVisibleItemIndex * 4096 +
+                    viewModel.listState.firstVisibleItemScrollOffset
+            })
+            else -> ({
+                viewModel.gridState.firstVisibleItemIndex * 4096 +
+                    viewModel.gridState.firstVisibleItemScrollOffset
+            })
+        }
+    }
+    val revealVelocity = rememberScrollVelocityFactor(position = revealPositionSignal)
+    // D-291: one shared controller threaded to every cover cell (see
+    // [CoverRevealController]).
+    val revealController = remember(viewModel) {
+        CoverRevealController(
+            velocity = revealVelocity,
+            isRevealed = { viewModel.isCoverRevealed(it) },
+            markRevealed = { viewModel.markCoverRevealed(it) },
+        )
+    }
 
     var showSearchBar by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
@@ -265,10 +401,20 @@ fun LibraryScreen(
     }
 
     val isList = displayMode == LibraryDisplayMode.LIST
-    val collapsed = if (!isList) {
-        gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 20
-    } else {
-        listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20
+    // D-269: wrap in derivedStateOf so the parent only recomposes when collapsed
+    // FLIPS (true<->false), not on every scroll frame. Without this, every scroll
+    // frame reads gridState/listState in the composition body -> parent recomposes
+    // -> re-allocates onEntryClick/onEntryLongClick lambdas -> children can't skip
+    // -> all per-card anti-patterns re-run (compounds on fling). THE primary scroll-
+    // perf fix.
+    val collapsed by remember(isList) {
+        derivedStateOf {
+            if (!isList) {
+                gridState.firstVisibleItemIndex > 0 || gridState.firstVisibleItemScrollOffset > 20
+            } else {
+                listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 20
+            }
+        }
     }
 
     // D-141: click + long-click handlers — depend on selection mode.
@@ -566,6 +712,8 @@ fun LibraryScreen(
                             LibraryGrid(
                                 entries = s.entries,
                                 gridState = gridState,
+                                staggeredState = viewModel.staggeredState,
+                                reveal = revealController,
                                 columns = columns,
                                 titleLines = titleLines,
                                 isSelectionMode = isSelectionMode,
@@ -584,11 +732,13 @@ fun LibraryScreen(
                                 displayMode = displayMode,
                                 showAllCaughtUpTag = showAllCaughtUpTag,
                                 comfortableBorderMode = comfortableBorderMode,
+                                hideTitlesInComfortable = hideTitlesInComfortable,
                             )
                         } else {
                             LibraryList(
                                 entries = s.entries,
                                 listState = listState,
+                                reveal = revealController,
                                 titleLines = titleLines,
                                 isSelectionMode = isSelectionMode,
                                 selectedMainIds = selectedMainIds,
@@ -685,6 +835,8 @@ fun LibraryScreen(
                 onActiveTabChange = { customizeSheetActiveTab = it },
                 comfortableBorderMode = comfortableBorderMode,
                 onComfortableBorderModeChange = viewModel::setComfortableBorderMode,
+                hideTitlesInComfortable = hideTitlesInComfortable,
+                onHideTitlesInComfortableChange = viewModel::setHideTitlesInComfortable,
                 onDismiss = { showSettingsSheet = false },
             )
         }
@@ -1186,7 +1338,7 @@ private fun LibraryHeader(
                     fontSize = fontSize.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = (-0.02).sp,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                 )
                 if (subtitle != null) {
@@ -1195,7 +1347,7 @@ private fun LibraryHeader(
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
                 }
@@ -1338,6 +1490,9 @@ private fun CustomizeSheet(
     onActiveTabChange: (Int) -> Unit,
     comfortableBorderMode: ComfortableBorderMode,
     onComfortableBorderModeChange: (ComfortableBorderMode) -> Unit,
+    // D-251: hide-titles toggle for Comfortable mode.
+    hideTitlesInComfortable: Boolean,
+    onHideTitlesInComfortableChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1514,6 +1669,7 @@ private fun CustomizeSheet(
                         showAllCaughtUpTag = showAllCaughtUpTag,
                         listDensity = listDensity,
                         listTitlePosition = listTitlePosition,
+                        hideTitlesInComfortable = hideTitlesInComfortable,
                         onDisplayModeChange = onDisplayModeChange,
                         onColumnsChange = onColumnsChange,
                         onTitleLinesChange = onTitleLinesChange,
@@ -1527,6 +1683,7 @@ private fun CustomizeSheet(
                         onShowAllCaughtUpTagChange = onShowAllCaughtUpTagChange,
                         onListDensityChange = onListDensityChange,
                         onListTitlePositionChange = onListTitlePositionChange,
+                        onHideTitlesInComfortableChange = onHideTitlesInComfortableChange,
                     )
                     2 -> uiTab(
                         coverBorderEnabled = coverBorderEnabled,
@@ -1664,6 +1821,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     showAllCaughtUpTag: Boolean,
     listDensity: ListDensity,
     listTitlePosition: ListTitlePosition,
+    hideTitlesInComfortable: Boolean,
     onDisplayModeChange: (LibraryDisplayMode) -> Unit,
     onColumnsChange: (Int) -> Unit,
     onTitleLinesChange: (Int) -> Unit,
@@ -1677,6 +1835,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
     onShowAllCaughtUpTagChange: (Boolean) -> Unit,
     onListDensityChange: (ListDensity) -> Unit,
     onListTitlePositionChange: (ListTitlePosition) -> Unit,
+    onHideTitlesInComfortableChange: (Boolean) -> Unit,
 ) {
     // ═══════════════════════════════════════════════════════════════════════
     // SECTION 1: DISPLAY (Display Mode, Columns, Title lines)
@@ -1743,9 +1902,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
         }
     }
 
-    // ── Title lines (hidden for COVER_ONLY — no titles in that mode) ──
+    // ── Title lines (hidden for COVER_ONLY — no titles in that mode; also
+    // hidden in COMFORTABLE when the Hide Titles toggle is on) ──
     // D-242-fix17: Smoothly disappears when COVER_ONLY is selected.
-    if (displayMode != LibraryDisplayMode.COVER_ONLY) {
+    // D-251: Also disappears when Comfortable titles are hidden.
+    if (displayMode != LibraryDisplayMode.COVER_ONLY &&
+        !(displayMode == LibraryDisplayMode.COMFORTABLE_GRID && hideTitlesInComfortable)
+    ) {
         item {
             Spacer(Modifier.height(16.dp))
             OptionLabel("Title lines")
@@ -1755,6 +1918,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.displayBadgesTab(
                 options = listOf("1" to 1, "2" to 2, "3" to 3),
                 selected = titleLines,
                 onSelect = onTitleLinesChange,
+            )
+        }
+    }
+
+    // ── D-251: Hide Titles (Comfortable mode only) ──
+    // Hides the title text under covers for a cover-only look that KEEPS
+    // Comfortable's rounded corners and grid spacing — distinct from the
+    // COVER_ONLY mode (square corners, edge-to-edge, zero gaps).
+    if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
+        item {
+            Spacer(Modifier.height(16.dp))
+            TwoWayButton(
+                label = "Hide Titles",
+                selected = hideTitlesInComfortable,
+                onChange = onHideTitlesInComfortableChange,
             )
         }
     }
@@ -2472,6 +2650,8 @@ private fun SectionSeparator(title: String) {
 private fun LibraryGrid(
     entries: List<LibraryEntry>,
     gridState: LazyGridState,
+    staggeredState: LazyStaggeredGridState,
+    reveal: CoverRevealController?,
     columns: Int,
     titleLines: Int,
     isSelectionMode: Boolean,
@@ -2490,12 +2670,14 @@ private fun LibraryGrid(
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
     showAllCaughtUpTag: Boolean = false,
     comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
+    hideTitlesInComfortable: Boolean = false,
 ) {
     // D-242-fix21: Comfortable grid uses LazyVerticalStaggeredGrid (masonry
     // layout) so items in a column can have different heights (shorter items
     // don't force taller items to have gaps). All other modes use LazyVerticalGrid.
+    // D-290: staggeredState is VM-held (survives tab switches) — was
+    // rememberLazyStaggeredGridState() which died with the composable.
     if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
-        val staggeredState = rememberLazyStaggeredGridState()
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(columns.coerceIn(2, 5)),
             state = staggeredState,
@@ -2509,9 +2691,10 @@ private fun LibraryGrid(
             verticalItemSpacing = 8.dp,
             modifier = Modifier.fillMaxSize(),
         ) {
-            staggeredItems(entries, key = { it.mainId }) { item ->
+            staggeredItems(entries, key = { it.mainId }, contentType = { "card" }) { item ->
                 LibraryGridCard(
                     anime = item,
+                    reveal = reveal,
                     titleLines = titleLines,
                     isSelectionMode = isSelectionMode,
                     isSelected = item.mainId in selectedMainIds,
@@ -2529,26 +2712,39 @@ private fun LibraryGrid(
                     displayMode = displayMode,
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
+                    hideTitles = hideTitlesInComfortable,
                 )
             }
         }
     } else {
+        // D-251: COVER_ONLY is a full-bleed cover wall — square covers, zero gaps
+        // between neighbors (horizontal AND vertical) and no side/top padding;
+        // covers run edge-to-edge. COMPACT_GRID keeps the standard layout.
+        val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
         // D-141: in selection mode, reserve extra bottom space for the action bar.
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(columns.coerceIn(2, 5)),
-            contentPadding = PaddingValues(
-                start = 12.dp,
-                end = 12.dp,
-                top = 4.dp,
-                bottom = if (isSelectionMode) 160.dp else 90.dp,
-            ),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = if (isCoverOnly) {
+                PaddingValues(
+                    top = 0.dp,
+                    bottom = if (isSelectionMode) 160.dp else 90.dp,
+                )
+            } else {
+                PaddingValues(
+                    start = 12.dp,
+                    end = 12.dp,
+                    top = 4.dp,
+                    bottom = if (isSelectionMode) 160.dp else 90.dp,
+                )
+            },
+            horizontalArrangement = Arrangement.spacedBy(if (isCoverOnly) 0.dp else 8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isCoverOnly) 0.dp else 8.dp),
         ) {
-            items(entries, key = { it.mainId }) { item ->
+            items(entries, key = { it.mainId }, contentType = { "card" }) { item ->
                 LibraryGridCard(
                     anime = item,
+                    reveal = reveal,
                     titleLines = titleLines,
                     isSelectionMode = isSelectionMode,
                     isSelected = item.mainId in selectedMainIds,
@@ -2572,9 +2768,120 @@ private fun LibraryGrid(
     }
 }
 
+/**
+ * D-287 + D-291: Library cover AsyncImage with a scroll-tuned Coil request and
+ * a REVEAL-ONCE fade-in animation.
+ *
+ * D-287 kept two request tweaks from the v0.2.54 scroll-perf work:
+ * 1. **`crossfade(false)`** — the underlying Coil request never animates; the
+ *    reveal-once system below owns ALL animation (one fade per cover, first
+ *    load only — no per-cell crossfades re-running on every scroll-back).
+ * 2. **`bitmapConfig(RGB_565)`** — 2 bytes/pixel halves each cover's memory
+ *    cache footprint, so a 653-cover "All" grid stops evicting itself during a
+ *    full scroll; scroll-back hits the memory cache instead of re-decoding.
+ *
+ * D-291 (device feedback on v0.2.55: "All the images just outright jump into
+ * it … show up one by one with a smoother animation … faster as the users
+ * scroll faster … if previously loaded then no need to reload"):
+ * - **Reveal-once gate** — [CoverRevealController.isRevealed] (VM-backed set
+ *   that survives tab switches; cleared only by pull-to-refresh). An
+ *   unrevealed cover starts at alpha 0 and fades in when its load succeeds.
+ *   A revealed cover renders at full alpha INSTANTLY — scroll-back and
+ *   tab-return are smooth sailing, no re-animation, exactly "progressive
+ *   loading should only work if they were not loaded".
+ * - **Velocity-adaptive duration** — the fade duration is sampled from the
+ *   screen-level scroll-velocity factor at the moment the load completes
+ *   (non-reactive read — no per-cell recomposition on scroll frames): ~240ms
+ *   when calm, ~70ms during a hard fling.
+ * - **Draw-phase animation** — the fade alpha is read inside a
+ *   `graphicsLayer { }` block, so animating it only re-DRAWS the cell; the
+ *   cell (and its 5-column neighbors) never recompose during the fade.
+ * - **Soft placeholder** — a low-alpha surfaceVariant tint sits behind the
+ *   image so an unrevealed cover reads as "reserved space", not a black hole.
+ */
+@Composable
+private fun LibraryCoverImage(
+    url: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    revealKey: String? = null,
+    reveal: CoverRevealController? = null,
+) {
+    val context = LocalContext.current
+    // D-320/D-328: shared-element key for the experimental cover transition.
+    // Screen-namespaced (cover:library:<url>) so a Library card can never
+    // collide with a Search card showing the SAME anime — during a Library ⇄
+    // Search switch both screens compose at once, and pre-D-328 both built
+    // "cover:<url>", making the shared cover fly BETWEEN the two pages.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val sharedElementKey = if (appPrefs.coverTransitionEnabled) {
+        libraryCoverKey(url)
+    } else null
+    val request = remember(url, context) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .crossfade(false)
+            .bitmapConfig(Bitmap.Config.RGB_565)
+            .build()
+    }
+
+    // ── D-291: reveal-once state ──
+    // Initially revealed (alpha 1, instant) unless a controller + key say this
+    // cover has never been revealed. Both states are remembered per key so a
+    // cell that scrolls away mid-load and comes back keeps its promise.
+    val hasReveal = revealKey != null && reveal != null
+    var revealed by remember(revealKey) {
+        mutableStateOf(if (hasReveal) reveal!!.isRevealed(revealKey!!) else true)
+    }
+    var fadeDurationMs by remember(revealKey) { mutableStateOf(220) }
+    // Target alpha: 0 until first load success (or 1 immediately when already
+    // revealed / no reveal controller). The animate*AsState spec is rebuilt
+    // when fadeDurationMs changes, which only happens at reveal time — the
+    // tween the fade actually runs with is the one sampled below in onState.
+    val revealAlpha = animateFloatAsState(
+        targetValue = if (revealed) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = fadeDurationMs,
+            easing = FastOutSlowInEasing,
+        ),
+        label = "coverReveal",
+    )
+
+    Box(
+        modifier = modifier.background(
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        ),
+    ) {
+        AsyncImage(
+            model = request,
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            onState = { state ->
+                if (state is AsyncImagePainter.State.Success && hasReveal && !revealed) {
+                    // Sample the scroll velocity NON-reactively right now and
+                    // map it to the fade duration: calm ≈ 240ms, fling ≈ 70ms.
+                    fadeDurationMs = (240 - 170 * reveal!!.velocity.value)
+                        .toInt()
+                        .coerceIn(70, 240)
+                    reveal!!.markRevealed(revealKey!!)
+                    revealed = true
+                }
+            },
+            // Draw-phase alpha read: animating the fade re-draws ONLY this
+            // cell's layer — zero recomposition churn in the grid.
+            modifier = Modifier
+                .fillMaxSize()
+                .coverSharedElement(sharedElementKey)
+                .graphicsLayer { alpha = revealAlpha.value },
+        )
+    }
+}
+
 @Composable
 private fun LibraryGridCard(
     anime: LibraryEntry,
+    reveal: CoverRevealController? = null,
     titleLines: Int,
     isSelectionMode: Boolean,
     isSelected: Boolean,
@@ -2592,6 +2899,7 @@ private fun LibraryGridCard(
     displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
     showAllCaughtUpTag: Boolean = false,
     comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
+    hideTitles: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -2618,7 +2926,16 @@ private fun LibraryGridCard(
     // cover Box (not the outer card). In all other cases, border wraps the
     // entire card.
     val isDark = isSystemInDarkTheme()
-    val adaptiveColor = rememberCoverAccentColor(anime.coverUrl)
+    // D-292: extract the adaptive color ONLY when it can actually be used —
+    // this used to run UNCONDITIONALLY for every card entering the viewport
+    // (a 100×100 Coil load + Palette per card during scroll, with generate()
+    // on the main thread before the D-292 off-main fix — a major scroll-jank
+    // source in the 653-item grid even with borders disabled).
+    val adaptiveColor = if (coverBorderEnabled && coverBorderColor == CoverBorderColor.ADAPTIVE) {
+        rememberCoverAccentColor(anime.coverUrl)
+    } else {
+        null
+    }
     val resolvedBorderColor = when (coverBorderColor) {
         CoverBorderColor.THEME_ADAPTIVE -> if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
         CoverBorderColor.ADAPTIVE -> adaptiveColor ?: MaterialTheme.colorScheme.outline
@@ -2627,11 +2944,21 @@ private fun LibraryGridCard(
     val isComfortable = displayMode == LibraryDisplayMode.COMFORTABLE_GRID
     val borderOnCoverOnly = isComfortable && comfortableBorderMode == ComfortableBorderMode.COVER_ONLY
 
+    // D-251: COVER_ONLY uses perfectly square covers (no rounding); every other
+    // grid mode keeps the 12dp rounded corners.
+    val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
+    val cardShape = if (isCoverOnly) RectangleShape else RoundedCornerShape(12.dp)
+
+    // D-252: badge rows clip their outer corner to match the cover's corner —
+    // 0.dp on COVER_ONLY's square covers so the badge reaches the corner pixel
+    // (the old hard-coded 12dp left a curved sliver of cover art visible).
+    val badgeCornerRadius = if (isCoverOnly) 0.dp else 12.dp
+
     val outerBorderModifier = if (coverBorderEnabled && !borderOnCoverOnly) {
         Modifier.border(
             width = coverBorderWidth.widthDp.dp,
             color = resolvedBorderColor,
-            shape = RoundedCornerShape(12.dp),
+            shape = cardShape,
         )
     } else {
         Modifier
@@ -2640,7 +2967,7 @@ private fun LibraryGridCard(
         Modifier.border(
             width = coverBorderWidth.widthDp.dp,
             color = resolvedBorderColor,
-            shape = RoundedCornerShape(12.dp),
+            shape = cardShape,
         )
     } else {
         Modifier
@@ -2651,7 +2978,7 @@ private fun LibraryGridCard(
 
     val cardModifier = Modifier
         .graphicsLayer { scaleX = scale; scaleY = scale; alpha = cardAlpha }
-        .clip(RoundedCornerShape(12.dp))
+        .clip(cardShape)
         .then(outerBorderModifier)
         .combinedClickable(
             interactionSource = interactionSource,
@@ -2671,13 +2998,14 @@ private fun LibraryGridCard(
                     .aspectRatio(2f / 3f)
                     .then(coverBorderModifier),
             ) {
-                AsyncImage(
-                    model = anime.coverUrl,
+                LibraryCoverImage(
+                    url = anime.coverUrl,
                     contentDescription = anime.title,
-                    contentScale = ContentScale.Crop,
+                    revealKey = anime.coverUrl,
+                    reveal = reveal,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp)),
+                        .clip(cardShape),
                 )
 
                 // Cover badges (same as compact grid).
@@ -2751,10 +3079,18 @@ private fun LibraryGridCard(
                     }
 
                     if (topStartBadges.isNotEmpty()) {
-                        CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
+                        CoverBadgeRow(
+                            badges = topStartBadges,
+                            position = BadgePosition.TOP_START,
+                            coverCornerRadius = badgeCornerRadius,
+                        )
                     }
                     if (topEndBadges.isNotEmpty()) {
-                        CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
+                        CoverBadgeRow(
+                            badges = topEndBadges,
+                            position = BadgePosition.TOP_END,
+                            coverCornerRadius = badgeCornerRadius,
+                        )
                     }
                 }
 
@@ -2778,17 +3114,22 @@ private fun LibraryGridCard(
 
             // Title BELOW the cover (no gradient overlay — clean text on surface).
             // D-242-fix21: Explicit lineHeight to reduce gap between title lines.
-            Text(
-                text = anime.title,
-                fontFamily = RobotoFamily,
-                fontSize = 11.sp,
-                lineHeight = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = titleLines,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-            )
+            // D-251: Hidden when the Comfortable "Hide Titles" toggle is on —
+            // cover-only look, but keeps Comfortable's rounded corners + spacing
+            // (distinct from the square edge-to-edge COVER_ONLY mode).
+            if (!hideTitles) {
+                Text(
+                    text = anime.title,
+                    fontFamily = RobotoFamily,
+                    fontSize = 11.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
+                    maxLines = titleLines,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
         }
     } else {
         // ── COMPACT_GRID / COVER_ONLY: Box layout (title overlaid on cover) ──
@@ -2796,14 +3137,15 @@ private fun LibraryGridCard(
             modifier = cardModifier,
         ) {
             // Cover image — 2:3 aspect ratio
-            AsyncImage(
-                model = anime.coverUrl,
+            LibraryCoverImage(
+                url = anime.coverUrl,
                 contentDescription = anime.title,
-                contentScale = ContentScale.Crop,
+                revealKey = anime.coverUrl,
+                reveal = reveal,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(12.dp)),
+                    .clip(cardShape),
             )
 
             // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
@@ -2873,10 +3215,18 @@ private fun LibraryGridCard(
                 }
 
                 if (topStartBadges.isNotEmpty()) {
-                    CoverBadgeRow(badges = topStartBadges, position = BadgePosition.TOP_START)
+                    CoverBadgeRow(
+                        badges = topStartBadges,
+                        position = BadgePosition.TOP_START,
+                        coverCornerRadius = badgeCornerRadius,
+                    )
                 }
                 if (topEndBadges.isNotEmpty()) {
-                    CoverBadgeRow(badges = topEndBadges, position = BadgePosition.TOP_END)
+                    CoverBadgeRow(
+                        badges = topEndBadges,
+                        position = BadgePosition.TOP_END,
+                        coverCornerRadius = badgeCornerRadius,
+                    )
                 }
             }
 
@@ -2909,7 +3259,7 @@ private fun LibraryGridCard(
                         fontSize = 11.sp,
                         lineHeight = 12.sp, // D-242-fix21: reduce gap between title lines
                         fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                         maxLines = titleLines,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
@@ -2925,7 +3275,7 @@ private fun LibraryGridCard(
                         .border(
                             width = 2.dp,
                             color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = cardShape,
                         ),
                 )
             }
@@ -2972,6 +3322,7 @@ private data class ListDetailTag(val text: String, val container: Color, val con
 private fun LibraryList(
     entries: List<LibraryEntry>,
     listState: LazyListState,
+    reveal: CoverRevealController? = null,
     titleLines: Int,
     isSelectionMode: Boolean,
     selectedMainIds: Set<String>,
@@ -2999,9 +3350,10 @@ private fun LibraryList(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(entries, key = { it.mainId }) { item ->
+        items(entries, key = { it.mainId }, contentType = { "row" }) { item ->
             LibraryListRow(
                 anime = item,
+                reveal = reveal,
                 isSelectionMode = isSelectionMode,
                 isSelected = item.mainId in selectedMainIds,
                 onClick = onClickEntry,
@@ -3033,6 +3385,7 @@ private fun LibraryList(
 @Composable
 private fun LibraryListRow(
     anime: LibraryEntry,
+    reveal: CoverRevealController? = null,
     isSelectionMode: Boolean,
     isSelected: Boolean,
     onClick: (LibraryEntry) -> Unit,
@@ -3064,7 +3417,13 @@ private fun LibraryListRow(
 
     // D-242-fix19: Resolve border color — ADAPTIVE extracts per-cover color.
     val isDark = isSystemInDarkTheme()
-    val adaptiveColor = rememberCoverAccentColor(anime.coverUrl)
+    // D-292: extract ONLY when the ADAPTIVE border is actually enabled (same
+    // unconditional-per-card scroll cost as the grid card above).
+    val adaptiveColor = if (coverBorderEnabled && coverBorderColor == CoverBorderColor.ADAPTIVE) {
+        rememberCoverAccentColor(anime.coverUrl)
+    } else {
+        null
+    }
     val resolvedBorderColor = when (coverBorderColor) {
         CoverBorderColor.THEME_ADAPTIVE -> if (isDark) Color(0xFFFFFFFF) else Color(0xFF000000)
         CoverBorderColor.ADAPTIVE -> adaptiveColor ?: MaterialTheme.colorScheme.outline
@@ -3158,10 +3517,11 @@ private fun LibraryListRow(
     ) {
         // Cover thumbnail (with optional D-141 selection badge in the corner)
         Box {
-            AsyncImage(
-                model = anime.coverUrl,
+            LibraryCoverImage(
+                url = anime.coverUrl,
                 contentDescription = anime.title,
-                contentScale = ContentScale.Crop,
+                revealKey = anime.coverUrl,
+                reveal = reveal,
                 modifier = Modifier
                     .width(listDensity.coverWidth.dp)
                     .height(listDensity.coverHeight.dp)
@@ -3210,7 +3570,7 @@ private fun LibraryListRow(
                     fontSize = listDensity.titleFontSize.sp,
                     lineHeight = (listDensity.titleFontSize + 1).sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                     maxLines = titleLines,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -3231,7 +3591,7 @@ private fun LibraryListRow(
                     fontSize = listDensity.titleFontSize.sp,
                     lineHeight = (listDensity.titleFontSize + 1).sp, // D-242-fix21
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
                     maxLines = titleLines,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -3644,8 +4004,7 @@ private fun ReleasedAudioFilterCard(
 
 /**
  * D-242-fix11: Renders multiple badges side-by-side in a single Row at a corner.
- * Edge-to-edge — sits flush with the cover corner.
- * Compact: 8sp, 1dp vertical, Bold.
+ * Edge-to-edge — sits flush with the cover corner. Compact: 9sp, 1dp vertical, Bold.
  *
  * D-242-fix15: Now supports compound badges (via [CoverBadgeData.secondary]).
  * When a badge has a secondary segment, it renders as a SINGLE badge with:
@@ -3654,13 +4013,19 @@ private fun ReleasedAudioFilterCard(
  * - Right half: [secondary.containerColor] background, [secondary.icon] +
  *   [secondary.text] in [secondary.contentColor]
  *
- * This merges SUB+DUB into one compact badge instead of two separate tags,
- * saving space and looking cleaner (per user feedback D-242-fix15).
+ * D-252 (pointed tags): the chip nearest the cover CENTER now tapers into a
+ * 45° triangle tip ([PointedTagShape]) — badges read as pointed flags pointing
+ * INTO the cover, per the user's "make pointier" request. The outer corner of
+ * the whole row clips to [coverCornerRadius] so it stays flush with the cover's
+ * corner — 0.dp for COVER_ONLY's square covers (fixes the curved-sliver defect
+ * where the old hard-coded 12dp outer rounding left cover art visible behind
+ * the badge corner), 12.dp for rounded-cover modes.
  */
 @Composable
 private fun BoxScope.CoverBadgeRow(
     badges: List<CoverBadgeData>,
     position: BadgePosition,
+    coverCornerRadius: Dp = 12.dp,
 ) {
     val alignment = when (position) {
         BadgePosition.TOP_START -> Alignment.TopStart
@@ -3668,13 +4033,19 @@ private fun BoxScope.CoverBadgeRow(
         BadgePosition.BOTTOM_START -> Alignment.BottomStart
         BadgePosition.BOTTOM_END -> Alignment.BottomEnd
     }
-    // Outer shape matches the cover's 12dp corner on the outer side.
+    // Outer shape matches the cover's corner on the OUTER side only (D-252:
+    // the old 4dp inner-corner rounding clipped the pointed tip's base — removed).
     val outerShape = when (position) {
-        BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 4.dp)
-        BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 4.dp, bottomEnd = 0.dp)
-        BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 4.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
-        BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 4.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
+        BadgePosition.TOP_START -> RoundedCornerShape(topStart = coverCornerRadius)
+        BadgePosition.TOP_END -> RoundedCornerShape(topEnd = coverCornerRadius)
+        BadgePosition.BOTTOM_START -> RoundedCornerShape(bottomStart = coverCornerRadius)
+        BadgePosition.BOTTOM_END -> RoundedCornerShape(bottomEnd = coverCornerRadius)
     }
+    // Which chip is nearest the cover center (the innermost chip) — that one
+    // gets the pointed tip. For END-aligned rows the FIRST chip is innermost
+    // (point on its START side); for START-aligned rows the LAST chip is
+    // innermost (point on its END side).
+    val pointFirstChip = position == BadgePosition.TOP_END || position == BadgePosition.BOTTOM_END
     Surface(
         modifier = Modifier.align(alignment),
         color = Color.Transparent,
@@ -3694,50 +4065,124 @@ private fun BoxScope.CoverBadgeRow(
                     )
                 }
 
+                // D-252: this chip carries the pointed tip when it is the
+                // innermost one. Extra horizontal padding keeps the content
+                // clear of the transparent 45° tip (tip depth ≈ height/2 ≈ 7dp).
+                val isPointedChip = if (pointFirstChip) idx == 0 else idx == badges.lastIndex
+                val pointedShape = when {
+                    !isPointedChip -> null
+                    pointFirstChip -> PointedTagShape(PointedSide.START)
+                    else -> PointedTagShape(PointedSide.END)
+                }
+                val tipPadding = if (isPointedChip) 4.dp else 0.dp
+
                 if (badge.secondary != null) {
                     // ── Compound badge: single Surface with split background ──
                     // Left half = subContainer, right half = dubContainer,
                     // separated by a 45° diagonal line.
                     // D-242-fix16: Tightened spacing — segments are closer together
                     // to feel like a single cohesive badge (not two separate parts).
+                    //
+                    // D-252 (clip order): the split-painting drawBehind sits on the
+                    // Surface MODIFIER, and M3 Surface applies its own shape-clip
+                    // AFTER the user modifier — so the drawn halves would spill past
+                    // a pointed shape. Fix: clip(pointedShape) BEFORE drawBehind in
+                    // the modifier chain, so the halves are trimmed to the tip.
+                    //
+                    // D-257: 1dp outline (content color @ 50%) drawn after the fills
+                    // so the badge reads crisp against busy cover art (device
+                    // feedback: tags need borders). Follows the exact PointedTagShape
+                    // geometry (tip = h/2, 45°) — a Surface border param can't be
+                    // used here because the paint is hand-drawn.
                     val sec = badge.secondary
+                    val compoundShape = pointedShape ?: RoundedCornerShape(0.dp)
+                    val outlineColor = badge.contentColor.copy(alpha = 0.5f)
                     Surface(
                         color = Color.Transparent,
                         shape = RoundedCornerShape(0.dp),
-                        modifier = Modifier.drawBehind {
-                            val w = size.width
-                            val h = size.height
-                            // The diagonal is at the horizontal center, tilted
-                            // by half the badge height on each side → ~45° angle.
-                            val centerX = w * 0.5f
-                            val tilt = h * 0.5f
+                        modifier = Modifier
+                            .clip(compoundShape)
+                            .drawBehind {
+                                val w = size.width
+                                val h = size.height
+                                // The diagonal is at the horizontal center, tilted
+                                // by half the badge height on each side → ~45° angle.
+                                val centerX = w * 0.5f
+                                val tilt = h * 0.5f
 
-                            // Left half (sub color) — fill entire background first.
-                            drawRect(badge.containerColor)
+                                // Left half (sub color) — fill entire background first.
+                                drawRect(badge.containerColor)
 
-                            // Right half (dub color) — drawn as a path with
-                            // a diagonal left edge.
-                            val rightPath = Path().apply {
-                                moveTo(centerX + tilt, 0f)
-                                lineTo(w, 0f)
-                                lineTo(w, h)
-                                lineTo(centerX - tilt, h)
-                                close()
-                            }
-                            drawPath(rightPath, sec.containerColor)
+                                // Right half (dub color) — drawn as a path with
+                                // a diagonal left edge.
+                                val rightPath = Path().apply {
+                                    moveTo(centerX + tilt, 0f)
+                                    lineTo(w, 0f)
+                                    lineTo(w, h)
+                                    lineTo(centerX - tilt, h)
+                                    close()
+                                }
+                                drawPath(rightPath, sec.containerColor)
 
-                            // 45° diagonal separator line (white, semi-transparent
-                            // for a subtle visual divide).
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.5f),
-                                start = Offset(centerX + tilt, 0f),
-                                end = Offset(centerX - tilt, h),
-                                strokeWidth = 0.8.dp.toPx(),
-                            )
-                        },
+                                // 45° diagonal separator line (white, semi-transparent
+                                // for a subtle visual divide).
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    start = Offset(centerX + tilt, 0f),
+                                    end = Offset(centerX - tilt, h),
+                                    strokeWidth = 0.8.dp.toPx(),
+                                )
+
+                                // D-257: outline following the pointed geometry —
+                                // mirrors PointedTagShape (tip = h/2, 45° taper).
+                                // The outer half of the stroke is clipped by the
+                                // shape clip above, so the visible line is ~0.5dp.
+                                val outlinePath = Path().apply {
+                                    val tip = h * 0.5f
+                                    when {
+                                        pointedShape == null -> {
+                                            // Flat rectangle.
+                                            moveTo(0f, 0f)
+                                            lineTo(w, 0f)
+                                            lineTo(w, h)
+                                            lineTo(0f, h)
+                                            close()
+                                        }
+                                        pointFirstChip -> {
+                                            // PointedSide.START — left end tapers
+                                            // to a point at the vertical center.
+                                            moveTo(0f, h / 2f)
+                                            lineTo(tip, 0f)
+                                            lineTo(w, 0f)
+                                            lineTo(w, h)
+                                            lineTo(tip, h)
+                                            close()
+                                        }
+                                        else -> {
+                                            // PointedSide.END — right end tapers.
+                                            moveTo(0f, 0f)
+                                            lineTo(w - tip, 0f)
+                                            lineTo(w, h / 2f)
+                                            lineTo(w - tip, h)
+                                            lineTo(0f, h)
+                                            close()
+                                        }
+                                    }
+                                }
+                                drawPath(
+                                    path = outlinePath,
+                                    color = outlineColor,
+                                    style = Stroke(width = 1.dp.toPx()),
+                                )
+                            },
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                            modifier = Modifier.padding(
+                                start = 4.dp + tipPadding,
+                                end = 4.dp + tipPadding,
+                                top = 1.dp,
+                                bottom = 1.dp,
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // ── Left segment (SUB) ──
@@ -3785,12 +4230,23 @@ private fun BoxScope.CoverBadgeRow(
                     }
                 } else {
                     // ── Simple badge (no secondary) ──
+                    // D-252: pointed tip on the innermost chip; flat otherwise.
+                    // D-257: 1dp border (content color @ 50%) so the tag reads
+                    // crisp against busy cover art (device feedback: tags need
+                    // borders) — same treatment as the Browse score tag.
+                    val chipShape = pointedShape ?: RoundedCornerShape(0.dp)
                     Surface(
                         color = badge.containerColor,
-                        shape = RoundedCornerShape(0.dp),
+                        shape = chipShape,
+                        border = BorderStroke(1.dp, badge.contentColor.copy(alpha = 0.5f)),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                            modifier = Modifier.padding(
+                                start = 5.dp + tipPadding,
+                                end = 5.dp + tipPadding,
+                                top = 1.dp,
+                                bottom = 1.dp,
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
@@ -3819,45 +4275,5 @@ private fun BoxScope.CoverBadgeRow(
     }
 }
 
-/**
- * D-242-fix9: Edge-to-edge cover badge — sits flush with the cover corner.
- * Matches the cover's 12dp corner radius on the outer corner; flat on the inner side.
- * Theme-adaptive: uses colorScheme container/content colors (not hardcoded).
- * Compact: minimal padding to avoid taking more height than needed.
- * NOTE: Must be called inside a BoxScope (the parent Box provides the alignment).
- */
-@Composable
-private fun BoxScope.CoverBadge(
-    text: String,
-    position: BadgePosition,
-    containerColor: Color,
-    contentColor: Color,
-) {
-    val alignment = when (position) {
-        BadgePosition.TOP_START -> Alignment.TopStart
-        BadgePosition.TOP_END -> Alignment.TopEnd
-        BadgePosition.BOTTOM_START -> Alignment.BottomStart
-        BadgePosition.BOTTOM_END -> Alignment.BottomEnd
-    }
-    // Edge-to-edge: NO padding from the corner. The badge clips to match the
-    // cover's 12dp rounded corner on the outer side, flat on the inner side.
-    Surface(
-        modifier = Modifier.align(alignment),
-        color = containerColor,
-        shape = when (position) {
-            BadgePosition.TOP_START -> RoundedCornerShape(topStart = 12.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 8.dp)
-            BadgePosition.TOP_END -> RoundedCornerShape(topStart = 0.dp, topEnd = 12.dp, bottomStart = 8.dp, bottomEnd = 0.dp)
-            BadgePosition.BOTTOM_START -> RoundedCornerShape(topStart = 0.dp, topEnd = 8.dp, bottomStart = 12.dp, bottomEnd = 0.dp)
-            BadgePosition.BOTTOM_END -> RoundedCornerShape(topStart = 8.dp, topEnd = 0.dp, bottomStart = 0.dp, bottomEnd = 12.dp)
-        },
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            color = contentColor,
-            maxLines = 1,
-        )
-    }
-}
+// D-252: the legacy single `CoverBadge` composable (D-242-fix9) was removed —
+// it had zero call sites since CoverBadgeRow superseded it.

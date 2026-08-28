@@ -24,6 +24,14 @@ class AppPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_LOGGING_ENABLED, true)
         set(value) = store.putBoolean(KEY_LOGGING_ENABLED, value)
 
+    // ── D-267: last-selected top-level tab (persisted across cold start + recents) ──
+    // The user wants the app to open in the tab they were last on, even after a
+    // full process kill (return from recents). SharedPreferences survives process
+    // death; AppRoot's remember { } re-reads this on first composition.
+    var lastTab: String
+        get() = store.getString(KEY_LAST_TAB, "browse")
+        set(value) = store.putString(KEY_LAST_TAB, value)
+
     // ── Phase DB-OPT (extension trust fix): per-package enabled flag ──
     // Stores the package names of extensions the user has EXPLICITLY enabled.
     // Trust is by-signer (TrustService); enabled is by-package (this set).
@@ -73,15 +81,28 @@ class AppPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_DETAILS_BANNER_ANIMATION, true)
         set(value) = store.putBoolean(KEY_DETAILS_BANNER_ANIMATION, value)
 
+    /**
+     * D-320: EXPERIMENTAL shared-element cover transition — tapping a cover on
+     * Browse / Search / Library morphs it into the details page's banner cover
+     * (and back on back-navigation). Default: on (the user is evaluating it);
+     * toggle lives in Settings → Appearance → Details page.
+     */
+    var coverTransitionEnabled: Boolean
+        get() = store.getBoolean(KEY_COVER_TRANSITION_ENABLED, true)
+        set(value) = store.putBoolean(KEY_COVER_TRANSITION_ENABLED, value)
+
     companion object {
         private const val KEY_CONTENT_MODE = "content_mode"
         private const val KEY_TRACKING_RETENTION = "tracking_retention_days"
         private const val KEY_ANIMATIONS_ENABLED = "animations_enabled"
         private const val KEY_LOGGING_ENABLED = "logging_enabled"
+        private const val KEY_LAST_TAB = "last_tab" // D-267: last-selected tab
         private const val KEY_ENABLED_EXTENSIONS = "enabled_extensions"
         // D-236: Details page background customization.
         private const val KEY_DETAILS_BANNER_TINT = "details_banner_tint"
         private const val KEY_DETAILS_BG_SOURCE = "details_bg_source"
         private const val KEY_DETAILS_BANNER_ANIMATION = "details_banner_animation"
+        // D-320: experimental shared-element cover transition.
+        private const val KEY_COVER_TRANSITION_ENABLED = "cover_transition_enabled"
     }
 }

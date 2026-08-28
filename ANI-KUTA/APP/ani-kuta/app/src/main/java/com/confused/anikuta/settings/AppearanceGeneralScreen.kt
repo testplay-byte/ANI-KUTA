@@ -30,8 +30,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -39,6 +39,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.AccentPreset
@@ -62,9 +66,11 @@ import org.koin.compose.koinInject
  * Layout (top to bottom):
  * 1. **Theme mode** (Light / Dark / System) — 3-way segmented toggle.
  * 2. **Palettes** — horizontal carousel (LazyRow) of preset color cards.
- *    Ponytail: for now the cards are static placeholders (no real palette
- *    switching). Phase 5+ will wire AccentPreset / PaletteMode.
+ *    D-254: tapping CUSTOM while it's ALREADY selected opens the
+ *    [CustomPaletteSheet] (the per-element color + brightness editor) below
+ *    the palettes; the Custom card shows a palette (edit) badge when active.
  * 3. **AMOLED** toggle — below palettes, only in dark mode (smooth expand/collapse).
+ *    Ignored while the CUSTOM theme is active (custom background wins).
  * 4. **Adaptive colors** — 2 toggle rows (details + player).
  * 5. **Effects** — Header blur effect toggle.
  *
@@ -81,6 +87,9 @@ fun AppearanceGeneralScreen(
     val adaptiveDetails = prefs.adaptiveColorsDetails.value
     val adaptivePlayer = prefs.adaptiveColorsPlayer.value
     val headerBlur = prefs.headerBlurEffect.value
+
+    // D-254: the custom palette editor sheet (open = CUSTOM already selected + re-tapped).
+    var showCustomPalette by remember { mutableStateOf(false) }
 
     val isDark = when (themeMode) {
         ThemeMode.LIGHT -> false
@@ -134,17 +143,27 @@ fun AppearanceGeneralScreen(
                     item {
                         PalettesCarousel(
                             currentPreset = prefs.accentPreset.value,
-                            customColor = Color(prefs.customAccentColor.value.toLong() and 0xFFFFFFFF),
+                            customColor = prefs.customTheme.value.accent,
                             isDark = isDark,
-                            onSelectPreset = { prefs.setAccentPreset(it) },
+                            onSelectPreset = { preset ->
+                                if (preset == AccentPreset.CUSTOM && prefs.accentPreset.value == AccentPreset.CUSTOM) {
+                                    // D-254: re-tapping Custom opens the editor.
+                                    showCustomPalette = true
+                                } else {
+                                    prefs.setAccentPreset(preset)
+                                }
+                            },
                         )
                     }
 
                     // ── AMOLED (dark-only, smooth expand/collapse) ──
+                    // D-255: hidden while the CUSTOM palette is active — the
+                    // custom theme ignores AMOLED by design (custom background
+                    // wins), so showing a dead toggle would be dishonest UI.
                     item {
                         Column {
                             AnimatedVisibility(
-                                visible = isDark,
+                                visible = isDark && prefs.accentPreset.value != AccentPreset.CUSTOM,
                                 enter = fadeIn() + expandVertically(),
                                 exit = fadeOut() + shrinkVertically(),
                             ) {
@@ -210,6 +229,16 @@ fun AppearanceGeneralScreen(
             }
         }
     }
+
+    // D-254: the custom palette editor — opens below the palettes when the
+    // user re-taps the (already-selected) Custom card. Every edit re-themes
+    // the app LIVE via ThemePreferences → MainActivity recomposition.
+    if (showCustomPalette) {
+        CustomPaletteSheet(
+            prefs = prefs,
+            onDismiss = { showCustomPalette = false },
+        )
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -226,8 +255,9 @@ fun AppearanceGeneralScreen(
  * bar use the preset's seed color. The active preset gets an accent-colored
  * ring + a check badge.
  *
- * CUSTOM applies the stored custom color (defaults to Lime). The color-picker
- * UI is Phase 5 — selection + storage work now.
+ * D-254: CUSTOM applies the stored custom theme; the card's selected badge is
+ * a PALETTE (edit) icon instead of a check — re-tapping it opens the
+ * [CustomPaletteSheet] (handled by the caller's onSelectPreset).
  */
 @Composable
 private fun PalettesCarousel(
@@ -253,6 +283,7 @@ private fun PalettesCarousel(
                     cardColor = previewCard,
                     accentColor = accent,
                     isSelected = currentPreset == preset,
+                    isCustom = preset == AccentPreset.CUSTOM,
                     onClick = { onSelectPreset(preset) },
                 )
             }
@@ -267,6 +298,7 @@ private fun PalettePreviewCard(
     cardColor: Color,
     accentColor: Color,
     isSelected: Boolean,
+    isCustom: Boolean = false,
     onClick: () -> Unit,
 ) {
     // Selection ring: animated accent-colored border.
@@ -290,7 +322,9 @@ private fun PalettePreviewCard(
                 .fillMaxSize()
                 .padding(10.dp),
         ) {
-            // Top row: accent dot (left) + check badge (right, only when selected)
+            // Top row: accent dot (left) + selected badge (right).
+            // D-254: the CUSTOM card shows a palette (edit) badge when active —
+            // tapping it again opens the editor.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -311,8 +345,8 @@ private fun PalettePreviewCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = null,
+                            imageVector = if (isCustom) Icons.Filled.Palette else Icons.Filled.Check,
+                            contentDescription = if (isCustom) "Edit custom palette" else "Selected",
                             tint = Color.White,
                             modifier = Modifier.size(12.dp),
                         )
@@ -463,29 +497,5 @@ private fun SegmentedToggle(
                 }
             }
         }
-    }
-}
-
-/**
- * A small circular back button used in the header's actions slot.
- */
-@Composable
-private fun BackAction(onBack: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .background(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(50),
-            )
-            .clickable(onClick = onBack),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "Back",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
     }
 }

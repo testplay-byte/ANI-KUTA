@@ -49,6 +49,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.component.ColorPickerSheet
+import com.confused.anikuta.core.designsystem.component.NumericEntrySheet
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.PlayerPreferences
 
@@ -385,6 +387,10 @@ private fun SubtitleSettingsPanel(
         ColorPickerSheet(
             title = title,
             initialColor = current,
+            // D-259: the picker's default became a 5-color generic set — the
+            // subtitle context keeps its own 5 (White/Black for text+borders,
+            // Yellow/Cyan classic sub colors, Transparent for "no background").
+            swatches = SubtitleColorSwatches,
             onLiveChange = { v ->
                 setter(v)
                 onSettingsChanged()
@@ -647,3 +653,16 @@ private fun DelayStepperRow(
         }
     }
 }
+
+/**
+ * D-259: the subtitle color picker's preset set — five distinct, subtitle-
+ * relevant colors in a single line (Transparent = "no background", drawn with
+ * a diagonal slash by the picker).
+ */
+private val SubtitleColorSwatches: List<Pair<Int, String>> = listOf(
+    0xFFFFFFFF.toInt() to "White",
+    0xFF000000.toInt() to "Black",
+    0xFFFFEB3B.toInt() to "Yellow",
+    0xFF4DD0E1.toInt() to "Cyan",
+    0x00000000 to "Transparent",
+)

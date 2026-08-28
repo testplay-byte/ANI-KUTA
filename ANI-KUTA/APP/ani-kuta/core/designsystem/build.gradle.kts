@@ -7,13 +7,15 @@ android {
 }
 
 dependencies {
-    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.foundation)
-    implementation("androidx.compose.material:material-icons-extended")
+    // D-320: SharedTransitionScope/AnimatedVisibilityScope for the experimental
+    // cover transition locals + helper.
+    implementation(libs.androidx.compose.animation)  // D-322: explicit 1.10.4 pin — API renamed on this line (see SharedTransitionLocals.kt)
+    implementation(libs.androidx.material.icons.extended)  // D-322: explicit pin (icons deprecated after 1.7.8)
     // D-223: Palette API for adaptive color extraction from cover images.
     implementation(libs.androidx.palette.ktx)
     implementation(libs.androidx.core.ktx)

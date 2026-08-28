@@ -23,6 +23,7 @@ include(":app")
 
 // ── :core ──
 include(":core:common")
+include(":core:seasons")  // D-312: dedicated season-management engine (pattern registry + provider-hint fusion)
 include(":core:designsystem")
 include(":core:database")
 include(":core:preferences")
@@ -48,6 +49,8 @@ include(":core:schedule")
 include(":core:ratings")
 include(":core:notifications")
 include(":core:app-update")
+include(":core:ads")  // Ad system — smart-link interstitial (D-272)
+include(":core:playback-cache")  // Video caching (test-feature/video-cache-new-download)
 include(":core:debug-api")
 
 // ── :data ──

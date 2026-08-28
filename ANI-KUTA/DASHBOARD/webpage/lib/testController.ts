@@ -36,8 +36,8 @@ export const TC_METRICS: {
 }[] = [
   {
     label: "Gradle modules",
-    value: "48",
-    hint: "46 release + :core:test-api + :core:test-controller (debug)",
+    value: "49",
+    hint: "47 release + :core:test-api + :core:test-controller (debug)",
     accent: "var(--c-primary, #6366f1)",
   },
   {

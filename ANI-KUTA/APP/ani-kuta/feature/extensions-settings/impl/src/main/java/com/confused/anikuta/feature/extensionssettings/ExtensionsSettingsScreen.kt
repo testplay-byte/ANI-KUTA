@@ -1,14 +1,23 @@
 package com.confused.anikuta.feature.extensionssettings
 
 import android.graphics.drawable.Drawable
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,10 +40,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle  // D-311: install-success indicator
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -72,6 +84,7 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.data.extension.installer.InstallStep
+import com.confused.anikuta.data.extension.installer.isCompleted
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
@@ -115,16 +128,18 @@ fun ExtensionsSettingsScreen(
 ) {
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
     val untrustedExtensions by extensionManager.untrustedExtensions.collectAsState()
+    val erroredExtensions by extensionManager.erroredExtensions.collectAsState()
     val availableExtensions by extensionManager.availableExtensions.collectAsState()
     val repos by repoRepository.repos.collectAsState()
     val installStates by extensionManager.installStates.collectAsState()
+    val updateCheckState by extensionManager.updateCheckState.collectAsState()
 
     val scope = rememberCoroutineScope()
-    var isRefreshing by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf(ExtensionSortMode.NAME) }
     var showNsfw by remember { mutableStateOf(true) }
+    var langFilter by remember { mutableStateOf<String?>(null) }
     var reorderMode by remember { mutableStateOf(false) }
     var reorderedInstalled by remember { mutableStateOf<List<AnimeExtension.Installed>>(emptyList()) }
 
@@ -132,12 +147,16 @@ fun ExtensionsSettingsScreen(
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
 
-    // Fetch available extensions when repos exist (auto-refresh on repo changes).
+    // D-301: auto update-check when the user enters the extensions page — smooth
+    // (throttled to once per 30 min inside the manager) + non-blocking.
+    LaunchedEffect(Unit) {
+        extensionManager.checkForUpdates()
+    }
+
+    // Force a fresh check whenever the repo set changes.
     LaunchedEffect(repos.size) {
         if (repos.isNotEmpty()) {
-            isRefreshing = true
-            extensionManager.findAvailableExtensions()
-            isRefreshing = false
+            extensionManager.checkForUpdates(force = true)
         }
     }
 
@@ -149,23 +168,43 @@ fun ExtensionsSettingsScreen(
     val installedPkgs = installedExtensions.map { it.pkgName }.toSet()
     val untrustedPkgs = untrustedExtensions.map { it.pkgName }.toSet()
 
+    // D-298: language filter — the distinct set of languages across all sections.
+    val allLanguages = remember(installedExtensions, untrustedExtensions, erroredExtensions, availableExtensions) {
+        (installedExtensions.mapNotNull { it.lang } +
+            untrustedExtensions.mapNotNull { it.lang } +
+            erroredExtensions.mapNotNull { it.lang } +
+            availableExtensions.mapNotNull { it.lang })
+            .distinct()
+            .sorted()
+    }
+
     // ── Filtering + sorting ──
     val filteredInstalled = reorderedInstalled.filter { ext ->
-        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
+        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+            (langFilter == null || ext.lang == langFilter)
     }.let { if (reorderMode) it else sortExtensions(it, sortMode) }
         // Phase 2d: disabled extensions sorted to the bottom (enabled first).
         .let { sorted -> if (reorderMode) sorted else sorted.sortedBy { !it.isEnabled } }
 
+    val filteredErrored = erroredExtensions.filter { ext ->
+        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+            (langFilter == null || ext.lang == langFilter)
+    }.let { sortExtensions(it, sortMode) }
+
     val filteredUntrusted = untrustedExtensions.filter { ext ->
-        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
+        matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+            (langFilter == null || ext.lang == langFilter)
     }.let { sortExtensions(it, sortMode) }
 
     val filteredAvailable = availableExtensions
         .filter { it.pkgName !in installedPkgs && it.pkgName !in untrustedPkgs }
         .filter { ext ->
-            matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw)
+            matchesSearch(ext.name, searchQuery) && (showNsfw || !ext.isNsfw) &&
+                (langFilter == null || ext.lang == langFilter)
         }
         .let { sortExtensions(it, sortMode) }
+
+    val isCheckingUpdates = updateCheckState == ExtensionManager.UpdateCheckState.Checking
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -215,6 +254,9 @@ fun ExtensionsSettingsScreen(
                     onSortModeChange = { sortMode = it },
                     showNsfw = showNsfw,
                     onToggleNsfw = { showNsfw = !showNsfw },
+                    languages = allLanguages,
+                    langFilter = langFilter,
+                    onLangFilterChange = { langFilter = it },
                 )
             }
 
@@ -223,17 +265,29 @@ fun ExtensionsSettingsScreen(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // D-299: every section header is its own item and every row is its
+                    // own item (keys + contentType) — the Available section (80+ rows
+                    // from a full repo) previously composed ALL rows inside a single
+                    // non-virtualized item.
+
                     // ── Trusted Sources ──
-                    item {
-                        ExtensionSectionCard(title = "Trusted Sources", count = filteredInstalled.size) {
-                            if (filteredInstalled.isEmpty()) {
-                                EmptySectionBody("No trusted sources. Install an extension to get started.")
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    filteredInstalled.forEachIndexed { index, ext ->
-                                        InstalledExtensionRow(
+                    item(key = "header-installed", contentType = "sectionHeader") {
+                        SectionHeader(
+                            title = "Trusted Sources",
+                            count = filteredInstalled.size,
+                            isEmpty = filteredInstalled.isEmpty(),
+                            emptyMessage = "No trusted sources. Install an extension to get started.",
+                        )
+                    }
+                    items(
+                        filteredInstalled,
+                        key = { "installed-${it.pkgName}" },
+                        contentType = { "installedRow" },
+                    ) { ext ->
+                        val index = filteredInstalled.indexOf(ext)
+                        InstalledExtensionRow(
                                         extension = ext,
                                         isReordering = reorderMode,
                                         canMoveUp = reorderMode && index > 0,
@@ -260,59 +314,95 @@ fun ExtensionsSettingsScreen(
                                             if (ext.isEnabled) extensionManager.disableExtension(ext.pkgName)
                                             else extensionManager.enableExtension(ext.pkgName)
                                         },
-                                        onUntrust = { extensionManager.untrustExtension(ext) },
-                                        onDelete = { extensionManager.uninstallExtension(ext) },
-                                    )
+                            onUntrust = { extensionManager.untrustExtension(ext) },
+                            onDelete = { extensionManager.uninstallExtension(ext) },
+                            // D-301: direct update action when a newer version is
+                            // available from the configured repos.
+                            onUpdate = if (ext.hasUpdate) {
+                                {
+                                    availableExtensions.find { it.pkgName == ext.pkgName }?.let { latest ->
+                                        scope.launch {
+                                            extensionManager.installExtension(latest).collectLatest { }
+                                        }
+                                    }
                                 }
-                            }
+                            } else null,
+                            // D-309: live install state for the progress animation.
+                            installStep = installStates[ext.pkgName],
+                        )
+                    }
+
+                    // ── Failed to Load (D-296) ──
+                    if (filteredErrored.isNotEmpty()) {
+                        item(key = "header-errored", contentType = "sectionHeader") {
+                            SectionHeader(title = "Failed to Load", count = filteredErrored.size, isEmpty = false)
+                        }
+                        items(
+                            filteredErrored,
+                            key = { "errored-${it.pkgName}" },
+                            contentType = { "erroredRow" },
+                        ) { ext ->
+                            ErroredExtensionRow(
+                                extension = ext,
+                                onRetry = { extensionManager.retryExtension(ext) },
+                                onUntrust = { extensionManager.untrustExtension(ext) },
+                                onDelete = { extensionManager.uninstallExtension(ext) },
+                            )
                         }
                     }
-                }
 
-                // ── Untrusted ──
-                if (filteredUntrusted.isNotEmpty()) {
-                    item {
-                        ExtensionSectionCard(title = "Untrusted", count = filteredUntrusted.size) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                filteredUntrusted.forEach { ext ->
-                                    UntrustedExtensionRow(
-                                        extension = ext,
-                                        onTrust = { extensionManager.trustExtension(ext) },
-                                        onDelete = { extensionManager.uninstallExtension(ext) },
-                                    )
-                                }
-                            }
+                    // ── Untrusted ──
+                    if (filteredUntrusted.isNotEmpty()) {
+                        item(key = "header-untrusted", contentType = "sectionHeader") {
+                            SectionHeader(title = "Untrusted", count = filteredUntrusted.size, isEmpty = false)
+                        }
+                        items(
+                            filteredUntrusted,
+                            key = { "untrusted-${it.pkgName}" },
+                            contentType = { "untrustedRow" },
+                        ) { ext ->
+                            UntrustedExtensionRow(
+                                extension = ext,
+                                onTrust = { extensionManager.trustExtension(ext) },
+                                onDelete = { extensionManager.uninstallExtension(ext) },
+                            )
                         }
                     }
-                }
 
-                // ── Available Extensions ──
-                item {
-                    ExtensionSectionCard(title = "Available Extensions", count = filteredAvailable.size) {
-                        when {
-                            repos.isEmpty() -> EmptySectionBody("No repositories configured. Tap the settings icon to add one.")
-                            isRefreshing && filteredAvailable.isEmpty() -> Box(
+                    // ── Available Extensions ──
+                    item(key = "header-available", contentType = "sectionHeader") {
+                        SectionHeader(title = "Available Extensions", count = filteredAvailable.size, isEmpty = false)
+                    }
+                    when {
+                        repos.isEmpty() -> item(key = "available-empty-repos", contentType = "availableBody") {
+                            EmptySectionBody("No repositories configured. Tap the settings icon to add one.")
+                        }
+                        isCheckingUpdates && filteredAvailable.isEmpty() -> item(key = "available-loading", contentType = "availableBody") {
+                            Box(
                                 modifier = Modifier.fillMaxWidth().padding(32.dp),
                                 contentAlignment = Alignment.Center,
                             ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
-                            filteredAvailable.isEmpty() -> EmptySectionBody("No extensions found in your repositories.")
-                            else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                filteredAvailable.forEach { ext ->
-                                    val installStep = installStates[ext.pkgName]
-                                    AvailableExtensionRow(
-                                        extension = ext,
-                                        installStep = installStep,
-                                        onInstall = {
-                                            scope.launch {
-                                                extensionManager.installExtension(ext).collectLatest { }
-                                            }
-                                        },
-                                    )
-                                }
-                            }
+                        }
+                        filteredAvailable.isEmpty() -> item(key = "available-empty", contentType = "availableBody") {
+                            EmptySectionBody("No extensions found in your repositories.")
+                        }
+                        else -> items(
+                            filteredAvailable,
+                            key = { "available-${it.pkgName}-${it.versionCode}" },
+                            contentType = { "availableRow" },
+                        ) { ext ->
+                            val installStep = installStates[ext.pkgName]
+                            AvailableExtensionRow(
+                                extension = ext,
+                                installStep = installStep,
+                                onInstall = {
+                                    scope.launch {
+                                        extensionManager.installExtension(ext).collectLatest { }
+                                    }
+                                },
+                            )
                         }
                     }
-                }
                 }
 
                 // Phase 3: scroll blur overlay inside the Box (below the header, on top of the list).
@@ -341,8 +431,12 @@ private fun ExtensionFiltersBar(
     onSortModeChange: (ExtensionSortMode) -> Unit,
     showNsfw: Boolean,
     onToggleNsfw: () -> Unit,
+    languages: List<String>,
+    langFilter: String?,
+    onLangFilterChange: (String?) -> Unit,
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
+    var showLangMenu by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -371,6 +465,34 @@ private fun ExtensionFiltersBar(
                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = RobotoFamily, fontSize = 13.sp),
             )
             Spacer(Modifier.width(8.dp))
+            // D-298: language filter — All + the distinct languages across every section.
+            if (languages.isNotEmpty()) {
+                Box {
+                    HeaderIconButton(
+                        icon = Icons.Filled.Language,
+                        contentDescription = "Filter by language",
+                        onClick = { showLangMenu = !showLangMenu },
+                    )
+                    DropdownMenu(expanded = showLangMenu, onDismissRequest = { showLangMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("All languages", fontFamily = RobotoFamily) },
+                            onClick = { onLangFilterChange(null); showLangMenu = false },
+                            trailingIcon = if (langFilter == null) {
+                                { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                        )
+                        languages.forEach { lang ->
+                            DropdownMenuItem(
+                                text = { Text(lang, fontFamily = RobotoFamily) },
+                                onClick = { onLangFilterChange(lang); showLangMenu = false },
+                                trailingIcon = if (langFilter == lang) {
+                                    { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                            )
+                        }
+                    }
+                }
+            }
             Box {
                 HeaderIconButton(
                     icon = Icons.Filled.FilterList,
@@ -399,18 +521,20 @@ private fun ExtensionFiltersBar(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Section card (dedicated background with clear separation)
+//  Section header (D-299 — standalone item so section ROWS can be virtualized
+//  as individual LazyColumn items instead of one giant Column-in-item)
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun ExtensionSectionCard(
+private fun SectionHeader(
     title: String,
     count: Int,
-    content: @Composable () -> Unit,
+    isEmpty: Boolean,
+    emptyMessage: String? = null,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp),
+        shape = if (isEmpty) RoundedCornerShape(16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         tonalElevation = 1.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -438,16 +562,249 @@ private fun ExtensionSectionCard(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                 thickness = 0.5.dp,
             )
-            Box(modifier = Modifier.padding(12.dp)) {
-                content()
+            if (isEmpty && emptyMessage != null) {
+                Box(modifier = Modifier.padding(12.dp)) {
+                    EmptySectionBody(emptyMessage)
+                }
             }
         }
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Row composables
+//  D-309: ExtensionUpdateControl — the update/install progress control.
+//  Was: a bare Refresh icon (indistinguishable from Retry) with ZERO feedback
+//  during the APK download. Now: a filled "Update" pill that morphs into a
+//  live download-progress animation (ring + %) and an installing state.
 // ════════════════════════════════════════════════════════════════════════════
+
+/** Internal UI states of [ExtensionUpdateControl] (drives AnimatedContent).
+ *  Deliberately carries NO progress payload — a new data class per 200ms tick
+ *  would restart the cross-fade constantly (D-309 review fix). The live
+ *  progress is read from [InstallStep.Downloading] inside the content lambda. */
+private enum class UpdateControlPhase {
+    /** No update available and nothing installing — control hidden. */
+    HIDDEN,
+
+    /** Update available — show the "Update" pill button. */
+    READY,
+
+    /** Queued on the install mutex. */
+    PENDING,
+
+    /** APK downloading. */
+    DOWNLOADING,
+
+    /** PackageInstaller session open (OS prompt imminent). */
+    INSTALLING,
+
+    /**
+     * D-311: install SUCCEEDED — brief success state while the manager's
+     * post-install refresh ([ExtensionManager.onInstallResult] → `loadAll`)
+     * lands. Previously this terminal state fell into READY, which resurrected
+     * the Update pill on the STALE `hasUpdate = true` row for a moment (the
+     * user saw "Update" again right after installing), and worse: when the
+     * refresh then flipped `onUpdate` to null mid-AnimatedContent-transition,
+     * the exiting READY slot recomposed with `onUpdate!!` → NPE CRASH
+     * (ExtensionsSettingsScreen.kt:621, device report 2026-08-28 13:59).
+     */
+    INSTALLED,
+}
+
+@Composable
+private fun ExtensionUpdateControl(
+    installStep: InstallStep?,
+    onUpdate: (() -> Unit)?,
+) {
+    val phase = when (installStep) {
+        is InstallStep.Pending -> UpdateControlPhase.PENDING
+        is InstallStep.Downloading -> UpdateControlPhase.DOWNLOADING
+        is InstallStep.Installing -> UpdateControlPhase.INSTALLING
+        // D-311: success is its OWN phase (see UpdateControlPhase.INSTALLED) — it
+        // must NOT fall through to READY and resurrect the Update pill.
+        is InstallStep.Installed -> UpdateControlPhase.INSTALLED
+        // Terminal / null / Idle / Error → the button (when an update is available).
+        else -> if (onUpdate != null) UpdateControlPhase.READY else UpdateControlPhase.HIDDEN
+    }
+
+    AnimatedContent(
+        targetState = phase,
+        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+        label = "extUpdateControl",
+    ) { target ->
+        when (target) {
+            UpdateControlPhase.HIDDEN -> Spacer(Modifier.width(0.dp))
+            UpdateControlPhase.READY -> {
+                // D-311 CRASH FIX: NEVER `onUpdate!!` here. During a READY→HIDDEN
+                // fade-out, the EXITING slot recomposes with the LATEST captured
+                // onUpdate — which is null once the post-install refresh flips
+                // hasUpdate to false. Render nothing in that window instead of
+                // crashing with a NullPointerException on the main thread.
+                val click = onUpdate
+                if (click != null) {
+                    UpdatePillButton(onClick = click)
+                } else {
+                    Spacer(Modifier.width(0.dp))
+                }
+            }
+            UpdateControlPhase.PENDING -> InstallProgressIndicator(
+                label = null,
+                progress = null,
+            )
+            UpdateControlPhase.DOWNLOADING -> {
+                // Read the LIVE progress here (re-composed per tick) — the
+                // AnimatedContent target stays DOWNLOADING so the transition
+                // runs only once (no per-tick cross-fade flicker).
+                val progress = (installStep as? InstallStep.Downloading)?.progress ?: -1
+                InstallProgressIndicator(
+                    label = if (progress >= 0) "$progress%" else null,
+                    progress = progress.takeIf { it >= 0 },
+                )
+            }
+            UpdateControlPhase.INSTALLING -> InstallProgressIndicator(
+                label = "Installing",
+                progress = null,
+                pulsing = true,
+            )
+            UpdateControlPhase.INSTALLED -> InstallSuccessIndicator()
+        }
+    }
+}
+
+/**
+ * D-311: brief post-install success state — a check + "Done" shown between the
+ * OS install completing and the manager's `loadAll()` refresh clearing the
+ * install state (the row then shows the new version with no Update pill).
+ */
+@Composable
+private fun InstallSuccessIndicator() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.CheckCircle,
+            contentDescription = "Updated",
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "Done",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/** The filled "Update" pill (primary bg, Download icon, press-scale feedback). */
+@Composable
+private fun UpdatePillButton(onClick: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = tween(150),
+        label = "updatePillScale",
+    )
+    Surface(
+        color = MaterialTheme.colorScheme.primary,
+        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {
+                    com.confused.anikuta.core.common.HapticHelper.lightTick(context)
+                    onClick()
+                },
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = "Update",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+    }
+}
+
+/**
+ * Compact install-progress indicator: determinate ring (0..100) when the size
+ * is known, indeterminate ring otherwise; optional label; `pulsing` animates
+ * the label alpha (used for the "Installing" phase).
+ */
+@Composable
+private fun InstallProgressIndicator(
+    label: String?,
+    progress: Int?,
+    pulsing: Boolean = false,
+) {
+    val labelAlpha = if (pulsing) {
+        val transition = rememberInfiniteTransition(label = "installPulse")
+        transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(700, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "installPulseAlpha",
+        ).value
+    } else 1f
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    ) {
+        if (progress != null) {
+            // Determinate ring — fills as the APK streams in.
+            CircularProgressIndicator(
+                progress = { progress / 100f },
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.5.dp,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        } else {
+            // Indeterminate (unknown size / queued / installing).
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.5.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (label != null) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.graphicsLayer { alpha = labelAlpha },
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun InstalledExtensionRow(
@@ -462,6 +819,11 @@ private fun InstalledExtensionRow(
     onToggleEnabled: () -> Unit,
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
+    onUpdate: (() -> Unit)? = null,
+    // D-309: live install state (from ExtensionManager.installStates) so the
+    // update control can animate the download progress. Previously the row
+    // ignored install state entirely — no feedback during an update download.
+    installStep: InstallStep? = null,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -527,6 +889,13 @@ private fun InstalledExtensionRow(
             }
             if (!isReordering) {
                 // Phase 2c: enable/disable toggle removed from list — moved to detail page.
+                // D-301/D-309: update control — a filled "Update" pill (was a bare
+                // Refresh icon indistinguishable from Retry) that transforms into a
+                // live download-progress animation while the update installs.
+                ExtensionUpdateControl(
+                    installStep = installStep,
+                    onUpdate = onUpdate,
+                )
                 ActionIconButton(
                     icon = Icons.Filled.VerifiedUser,
                     contentDescription = "Untrust",
@@ -634,6 +1003,100 @@ private fun UntrustedExtensionRow(
 }
 
 @Composable
+private fun ErroredExtensionRow(
+    extension: AnimeExtension.Errored,
+    onRetry: () -> Unit,
+    onUntrust: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ExtensionIcon(extension.icon, extension.name)
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = extension.name,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "Failed to load · v${extension.versionName}".ifEmpty { "Failed to load" },
+                        fontFamily = RobotoFamily,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                // D-296: Retry (re-attempt the load — e.g. after an app update
+                // shipped the missing APIs), Untrust (back to the untrusted list),
+                // Delete (uninstall).
+                ActionIconButton(
+                    icon = Icons.Filled.Refresh,
+                    contentDescription = "Retry",
+                    onClick = onRetry,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                ActionIconButton(
+                    icon = Icons.Filled.VerifiedUser,
+                    contentDescription = "Untrust",
+                    onClick = onUntrust,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ActionIconButton(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Delete",
+                    onClick = { showDeleteConfirm = true },
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+            // The actual failure reason straight from the loader (exception class
+            // + message per source class) — no more silent vanishing.
+            Text(
+                text = extension.message,
+                fontFamily = RobotoFamily,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 52.dp, top = 4.dp),
+            )
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Uninstall extension?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = { Text("This will uninstall ${extension.name} from your device.", fontFamily = RobotoFamily) },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onDelete() }) {
+                    Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
+    }
+}
+
+@Composable
 private fun AvailableExtensionRow(
     extension: AnimeExtension.Available,
     installStep: InstallStep?,
@@ -679,11 +1142,21 @@ private fun AvailableExtensionRow(
                 )
             }
             if (isInstalling) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                // D-309: live install feedback (was: a bare indeterminate spinner
+                // for the whole install). Determinate ring + % while downloading;
+                // pulsing "Installing" during the PackageInstaller phase.
+                when (installStep) {
+                    is InstallStep.Downloading -> InstallProgressIndicator(
+                        label = if (installStep.progress >= 0) "${installStep.progress}%" else null,
+                        progress = installStep.progress.takeIf { it >= 0 },
+                    )
+                    is InstallStep.Installing -> InstallProgressIndicator(
+                        label = "Installing",
+                        progress = null,
+                        pulsing = true,
+                    )
+                    else -> InstallProgressIndicator(label = null, progress = null)
+                }
             } else {
                 ActionIconButton(
                     icon = Icons.Filled.Download,

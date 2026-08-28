@@ -1,0 +1,126 @@
+-- Video playback cache (test-feature/video-cache-new-download — Video Caching feature).
+--
+-- One row per cached video, keyed by a STABLE identity hash (NOT the video URL —
+-- extension localhost proxy URLs change every resolve; see PLAN.md A.3).
+-- Identity = sha256("$mainId\u001F$episodeNumber\u001F$sourceId\u001F$serverKey")
+-- where serverKey = ResolverVideo.videoTitle minus the volatile urlHash segment.
+--
+-- The .bin data file lives at <filesDir>/playback-cache/<cache_key>.bin
+-- (progressive files: merged byte ranges) and HLS segment files under
+-- <filesDir>/playback-cache/<cache_key>.seg/ (one file per media segment +
+-- init segment, named with a URL hash for playlist-drift safety).
+-- cached_ranges is a merged, sorted, "a-b,c-d" string of byte ranges present in
+-- the .bin file (progressive only; HLS uses segment_total/segments_cached).
+-- cached_bytes = total bytes covered by ranges (progressive) or the sum of
+-- cached segment file sizes (HLS).
+-- No FK to main_entry: cache data is denormalized + disposable (entries may
+-- outlive content rows; cleanup is eviction, not cascade).
+--
+-- Video Caching plan: APP/ani-kuta/DOCUMENTATION/planning/video-cache-parallel-downloads/PLAN.md
+
+CREATE TABLE IF NOT EXISTS playback_cache_entry (
+    cache_key TEXT PRIMARY KEY NOT NULL,
+    main_id TEXT NOT NULL,
+    anime_title TEXT NOT NULL,
+    episode_number REAL NOT NULL,
+    episode_title TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    server_key TEXT NOT NULL,
+    quality TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'video/mp4',
+    upstream_url TEXT NOT NULL,
+    upstream_headers TEXT NOT NULL DEFAULT '',
+    content_length INTEGER,
+    cached_bytes INTEGER NOT NULL DEFAULT 0,
+    cached_ranges TEXT NOT NULL DEFAULT '',
+    complete INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_accessed_at INTEGER NOT NULL,
+    segment_total INTEGER NOT NULL DEFAULT 0,
+    segments_cached INTEGER NOT NULL DEFAULT 0,
+    subtitle_tracks TEXT NOT NULL DEFAULT '',
+    audio_tracks TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_playback_cache_main ON playback_cache_entry(main_id);
+
+-- Insert or replace (NOT plain INSERT): two concurrent proxy first-opens could
+-- race on the PK (ratings.sq upsert precedent).
+insertEntry:
+INSERT OR REPLACE INTO playback_cache_entry(
+    cache_key, main_id, anime_title, episode_number, episode_title, source_id,
+    server_key, quality, content_type, upstream_url, upstream_headers,
+    content_length, cached_bytes, cached_ranges, complete, created_at, last_accessed_at,
+    segment_total, segments_cached, subtitle_tracks, audio_tracks
+) VALUES (
+    :cache_key, :main_id, :anime_title, :episode_number, :episode_title, :source_id,
+    :server_key, :quality, :content_type, :upstream_url, :upstream_headers,
+    :content_length, :cached_bytes, :cached_ranges, :complete, :created_at, :last_accessed_at,
+    :segment_total, :segments_cached, :subtitle_tracks, :audio_tracks
+);
+
+getEntry:
+SELECT * FROM playback_cache_entry
+WHERE cache_key = :cache_key
+LIMIT 1;
+
+-- Refresh the upstream URL/headers + external track lists (URLs change every
+-- resolve) + LRU touch.
+updateUpstream:
+UPDATE playback_cache_entry
+SET upstream_url = :upstream_url, upstream_headers = :upstream_headers,
+    subtitle_tracks = :subtitle_tracks, audio_tracks = :audio_tracks,
+    last_accessed_at = :last_accessed_at
+WHERE cache_key = :cache_key;
+
+-- Progress flush (tombstone-aware: the caller checks deletion state before
+-- invoking; this is UPDATE-only so a deleted row is never resurrected).
+updateProgress:
+UPDATE playback_cache_entry
+SET cached_bytes = :cached_bytes, cached_ranges = :cached_ranges, complete = :complete,
+    content_length = :content_length, content_type = :content_type
+WHERE cache_key = :cache_key;
+
+-- HLS segment stats (cached_bytes = sum of cached segment file sizes).
+updateSegmentStats:
+UPDATE playback_cache_entry
+SET segments_cached = :segments_cached, cached_bytes = :cached_bytes,
+    segment_total = :segment_total, complete = :complete
+WHERE cache_key = :cache_key;
+
+touchEntry:
+UPDATE playback_cache_entry
+SET last_accessed_at = :last_accessed_at
+WHERE cache_key = :cache_key;
+
+deleteEntry:
+DELETE FROM playback_cache_entry
+WHERE cache_key = :cache_key;
+
+deleteAll:
+DELETE FROM playback_cache_entry;
+
+listEntries:
+SELECT * FROM playback_cache_entry
+ORDER BY last_accessed_at DESC;
+
+-- LRU candidates for eviction (oldest first).
+listEntriesForEviction:
+SELECT * FROM playback_cache_entry
+ORDER BY last_accessed_at ASC;
+
+-- D-246: cross-session identity recovery — after process death the in-memory
+-- ResolvedVideosRegistry is empty, so WatchScreen can't rebuild the cache identity
+-- from a ResolverVideo. This lookup finds prior entries for the same content+
+-- episode+source so the manager can decide whether a SAFE identity reuse is
+-- possible (single matching entry + matching quality).
+findEntriesByIdentity:
+SELECT * FROM playback_cache_entry
+WHERE main_id = :main_id AND episode_number = :episode_number AND source_id = :source_id
+ORDER BY last_accessed_at DESC;
+
+totalCachedBytes:
+SELECT COALESCE(SUM(cached_bytes), 0) FROM playback_cache_entry;
+
+countEntries:
+SELECT COUNT(*) FROM playback_cache_entry;

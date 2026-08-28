@@ -11,8 +11,8 @@
 
 - **GitHub**: `testplay-byte/ANI-KUTA`
 - **App ID**: `com.confused.anikuta`
-- **Tech**: Kotlin 2.2.0 + Jetpack Compose (BOM 2025.03.00) + MPV (aniyomi-mpv-lib 1.18.n) + SQLDelight 2.0.2 + Koin 4.2.2 (primary DI) + Injekt (secondary, extension binary compat) + Coil 3.0.4 + OkHttp 5.0.0-alpha.14
-- **Builds**: GitHub Actions only — ARM `arm64-v8a` + `armeabi-v7a` only. Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
+- **Tech**: Kotlin 2.2.0 + Jetpack Compose (explicit 1.10.4-line pins — BOM REMOVED D-322; material3 1.3.1) + MPV (aniyomi-mpv-lib 1.18.n) + SQLDelight 2.0.2 + Koin 4.2.2 (primary DI) + Injekt (secondary, extension binary compat) + Coil 3.0.4 + OkHttp 5.0.0-alpha.14
+- **Builds**: GitHub Actions only — ARM `arm64-v8a` ONLY (D-251; test-only x86_64 emulator builds never ship). Never local. Never install Android SDK/JDK locally (CORE_RULES §8).
 - **SDK**: compileSdk 36, targetSdk 36, minSdk 24, JDK 17.
 
 ---
@@ -25,7 +25,7 @@ Per CORE_RULES §4, the repo root contains exactly ONE wrapper folder (`ANI-KUTA
 ANI-KUTA/                        ← repo root (git)
 ├── ANI-KUTA/                    ← SINGLE wrapper folder (all project zones inside)
 │   ├── AGENT-CONTEXT/           ← you are here (agent memory + rules, versioned in repo)
-│   ├── APP/ani-kuta/            ← Android app (46 Gradle modules, 331 .kt, 26 DB tables / 15 .sq files)
+│   ├── APP/ani-kuta/            ← Android app (50 Gradle modules, 408 .kt, 25 DB tables / 17 .sq files)
 │   ├── DASHBOARD/webpage/       ← Next.js dashboard (14 pages → GitHub Pages)
 │   └── REFERENCES/              ← old-kuta + animiru + webview-cloudflare-captcha (read-only)
 └── .github/workflows/           ← CI: build APK + deploy dashboard
@@ -51,6 +51,7 @@ ANI-KUTA/                        ← repo root (git)
 - Building UI → `APP/ani-kuta/DESIGN-LANGUAGE.md` (canonical ~140 lines)
 - Dashboard work → `knowledge/dashboard.md` + `DASHBOARD/webpage/DESIGN.md`
 - Download system → `download-research/` (17 research docs + 5 reviews + REVIEW-D0 + FUTURE-PHASE-DL-GAPS) + `download-research/13-implementation-plan.md` (status table at top)
+- **Testing on the sandbox emulator → `knowledge/emulator-testing.md`** (setup from scratch, the sandbox rules — double-fork detach, timeout-wrapped adb, input-text limits, 4GB memory cgroup — daily workflow commands, app testing tricks, troubleshooting). Read it BEFORE touching adb.
 - Writing docs → `CORE_RULES.md` §21 (documentation folder organization — CRITICAL)
 - Anything else → `navigation.md` (full file index)
 
@@ -72,11 +73,13 @@ ANI-KUTA/                        ← repo root (git)
 
 ## Current Status
 
-- **Branch**: `main` (all feature branches — `download-system-plan`, `feature/watch-progress-history-updates`, `feature/debug-bubble`, `feature/db-optimization-ratings-cw` — merged + deleted; only `main` remains).
-- **Phase**: **ALL MAJOR PHASES COMPLETE.** Phases 0-4, 5a/5b/5c, Phase B (auto-link), Phase C (content identity), Phase D (data-management), Phase DL (download system DL.0-DL.8), Phase WP (watch progress — SQLDelight-persisted), Phase HI (history), Phase UP (updates + WorkManager), Phase SC (schedule + calendar), Phase TR (ratings store), Phase NOTIF (notifications), Phase CW (continue-watching logic), the Debug Bubble (DB-1..DB-9), and Profile UI v1-v6 are ALL DONE and on `main`.
-- **Modules**: 46 Gradle modules (1 `:app` + 26 `:core:*` + 1 `:data:extension` + 18 `:feature:*` with api/impl splits). 26 SQLDelight tables across 15 `.sq` files. 331 Kotlin files. Decisions D-001..D-193. 163 lessons learned.
-- **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/` (14 pages, data updated this session).
-- **Current focus** (next session): **Database management + quality** — user will provide a fresh DB export (via debug bubble) after a clean-install test run. Agent will analyze the DB for flaws (things not updating correctly, structural issues) and propose improvements.
+- **Branch**: `test-feature/video-cache-new-download` — the long-lived active branch; every shipped version since v0.2.48 was built here. `main` is the old pre-v0.2.48 baseline; merging is USER-GATED (CORE_RULES §8).
+- **Phase**: **ALL MAJOR PHASES COMPLETE** (Phases 0-4, 5a/5b/5c, B/C/D/DL/WP/HI/UP/SC/TR/NOTIF/CW, Debug Bubble, Profile UI v1-v6) — plus the ongoing device-feedback polish loop that has produced v0.2.48 → v0.2.62 (seasons module, episode-list integrity, pull-to-refresh, cover viewer + zoom, shared-element cover transitions, compose 1.10.4 runtime alignment… see `memory/decisions.md` D-240..D-326).
+- **Release cadence**: each feedback batch ships as a tagged GitHub Release (in-app updater discovers it); the user device-tests every build on a real OnePlus phone.
+- **Modules**: 50 Gradle modules (1 `:app` + 30 `:core:*` + 1 `:data:extension` + 18 `:feature:*` with api/impl splits). 25 SQLDelight tables across 17 `.sq` files. 408 Kotlin files. Decisions D-001..D-326. 180+ lessons learned.
+- **Dashboard URL**: `https://testplay-byte.github.io/ANI-KUTA/`.
+- **Current focus**: the device-feedback loop (fixes + polish per user report, version bump, release). v0.2.61 (compose compile==runtime alignment, D-322) verified crash-free on device; v0.2.62 (smoother shared-element morph + multi-season-only episode tags) awaiting push after a sandbox-wipe token loss (see SESSION.md).
+- **Build sanity guard**: `:app` `checkDependencyAlignment` (D-322) fails any build whose packaged compose/lifecycle versions deviate from the pins in `gradle/libs.versions.toml`.
 - **Deferred Concerns** (saved in `memory/progress.md` → "Deferred Concerns"):
   - `HttpDownloader.reResolver` orphaned (D-149) — built but not wired; `:app ReResolver` signatures mismatched.
   - Main-thread `runBlocking` in Downloads→Watch SAF scan (MainActivity.kt:428) — ANR risk.

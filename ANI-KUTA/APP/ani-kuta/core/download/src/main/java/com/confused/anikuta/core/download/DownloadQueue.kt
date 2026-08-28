@@ -84,6 +84,15 @@ class DownloadQueue(
     /** REVIEW-5 M43: guards the 10s auto-clear (prevents the leak per §A.11 fix #12). */
     private val autoClearScheduled = mutableSetOf<Long>()
 
+    /**
+     * D-246: tasks auto-paused by network loss — auto-resumed when connectivity
+     * returns. In-memory by design: it only needs to live as long as the process
+     * (the DownloadService's NetworkCallback drives the transitions). A user-initiated
+     * pause/cancel removes the task from this set (their intent wins over auto-resume).
+     */
+    private val networkPausedTasks: MutableSet<Long> =
+        java.util.Collections.synchronizedSet(mutableSetOf())
+
     init {
         // Reset stale DOWNLOADING + RETRYING tasks to QUEUED (REVIEW-5 M6).
         store.resetDownloadingToQueued()
@@ -142,10 +151,12 @@ class DownloadQueue(
         tryStartNext()
     }
 
-    /** Pauses a task (cancels the in-flight download). */
+    /** Pauses a task (cancels the in-flight download). A user-initiated pause CANCELS
+     * auto-resume eligibility (D-246) — the task leaves the network-paused set. */
     suspend fun pause(taskId: Long) = mutex.withLock {
         pauseInternal(taskId)
     }.also {
+        synchronized(networkPausedTasks) { networkPausedTasks.remove(taskId) }
         tryStartNext()
     }
 
@@ -168,12 +179,15 @@ class DownloadQueue(
         tryStartNext()
     }
 
-    /** Cancels a task (removes it from the queue entirely). */
+    /** Cancels a task (removes it from the queue entirely). D-246: a cancelled task
+     * must also leave the network-paused set — otherwise the DownloadService stays
+     * foreground forever waiting to auto-resume a deleted task. */
     suspend fun cancel(taskId: Long) = mutex.withLock {
         jobs.remove(taskId)?.cancel()
         _tasks.value = _tasks.value.filterNot { it.id == taskId }
         store.deleteTask(taskId)
     }.also {
+        synchronized(networkPausedTasks) { networkPausedTasks.remove(taskId) }
         tryStartNext()
     }
 
@@ -199,15 +213,31 @@ class DownloadQueue(
             completedAt = null,
             errorMessage = null,
         )
+        // D-246: clear the PERSISTED progress + tracker state too. The old code only
+        // reset the in-memory task — the restored prevTotal/prevEstimate/recentRatios
+        // made the restarted bar jump to a stale estimate (and downloaded-bytes could
+        // exceed the fresh total). retry() means restart-from-scratch: zero everything.
+        store.updateProgress(
+            id = taskId,
+            progress = 0,
+            downloadedBytes = 0L,
+            totalBytes = -1L,
+            prevTotal = 0L,
+            prevEstimate = 0L,
+            recentRatios = emptyList(),
+        )
     }.also {
         tryStartNext()
     }
 
-    /** Pauses all active (DOWNLOADING + RETRYING) tasks. */
+    /** Pauses all active (DOWNLOADING + RETRYING) tasks. A user-initiated pause-all
+     * cancels ALL auto-resume eligibility (D-246) — their intent wins over the
+     * network-regain auto-resume. */
     suspend fun pauseAll() = mutex.withLock {
         _tasks.value
             .filter { it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RETRYING }
             .forEach { pauseInternal(it.id) }
+        synchronized(networkPausedTasks) { networkPausedTasks.clear() }
     }
 
     /** Cancels all tasks (clears the queue). */
@@ -217,6 +247,7 @@ class DownloadQueue(
             store.deleteTask(task.id)
         }
         _tasks.value = emptyList()
+        synchronized(networkPausedTasks) { networkPausedTasks.clear() }
     }
 
     /** Resumes all PAUSED + ERROR tasks. */
@@ -269,20 +300,80 @@ class DownloadQueue(
         scope.launch {
             mutex.withLock {
                 if (!hasInternet || (preferences.wifiOnly.get() && !isWifi)) {
-                    // Pause all DOWNLOADING + RETRYING tasks.
+                    // D-246 (user-reported gap): network lost — pause ALL active tasks
+                    // (DOWNLOADING/RETRYING/QUEUED) and REMEMBER them. The old code
+                    // paused but never resumed: PAUSED tasks are invisible to
+                    // tryStartNext(), so nothing restarted when the internet came back.
                     _tasks.value
                         .filter {
                             it.status == DownloadStatus.DOWNLOADING ||
-                                it.status == DownloadStatus.RETRYING
+                                it.status == DownloadStatus.RETRYING ||
+                                it.status == DownloadStatus.QUEUED
                         }
-                        .forEach { pauseInternal(it.id) }
+                        .forEach {
+                            pauseInternal(it.id)
+                            networkPausedTasks.add(it.id)
+                            DownloadLogger.i {
+                                "onNetworkChanged — task ${it.id} auto-paused (network lost); " +
+                                    "will auto-resume when connectivity returns"
+                            }
+                        }
                 }
             }
-            // Outside the lock — tryStartNext re-acquires the mutex itself.
+            // Outside the lock — resume() re-acquires the mutex itself.
             if (hasInternet && (!preferences.wifiOnly.get() || isWifi)) {
-                tryStartNext()
+                resumeNetworkPaused("network restored")
             }
         }
+    }
+
+    /**
+     * D-246: auto-resumes tasks that were paused by network loss. MUST be called
+     * WITHOUT the mutex held ([resume] acquires it).
+     */
+    private suspend fun resumeNetworkPaused(reason: String) {
+        val toResume = synchronized(networkPausedTasks) {
+            val snapshot = networkPausedTasks.toList()
+            networkPausedTasks.clear()
+            snapshot
+        }
+        if (toResume.isEmpty()) {
+            tryStartNext()
+            return
+        }
+        DownloadLogger.i { "resumeNetworkPaused — $reason: auto-resuming ${toResume.size} download(s): $toResume" }
+        for (id in toResume) {
+            runCatching { resume(id) }
+                .onFailure { DownloadLogger.e(it) { "resumeNetworkPaused — resume($id) failed" } }
+        }
+        tryStartNext()
+    }
+
+    /**
+     * D-246: true when tasks are paused by network loss — the DownloadService stays
+     * alive while this is true so its NetworkCallback can fire the auto-resume when
+     * connectivity returns (the old code stopped the service once everything was
+     * paused, killing the callback → no auto-restart ever).
+     */
+    fun hasNetworkPausedTasks(): Boolean = synchronized(networkPausedTasks) { networkPausedTasks.isNotEmpty() }
+
+    /**
+     * D-246: marks a task PAUSED + remembers it for auto-resume on network regain.
+     * Called from the error path when a transport failure happens while the network
+     * is disallowed — pause instead of burning retry attempts into ERROR.
+     */
+    private suspend fun pauseForNetwork(taskId: Long) {
+        mutex.withLock {
+            val current = _tasks.value.firstOrNull { it.id == taskId } ?: return@withLock
+            if (current.status != DownloadStatus.DOWNLOADING &&
+                current.status != DownloadStatus.QUEUED &&
+                current.status != DownloadStatus.RETRYING
+            ) {
+                return@withLock
+            }
+            pauseInternal(taskId)
+        }
+        networkPausedTasks.add(taskId)
     }
 
     // ── Internal pause (M42 — assumes the mutex is held) ─────────────────────
@@ -422,7 +513,13 @@ class DownloadQueue(
                     }
 
                     DownloadLogger.i { "launchDownload — calling downloader.download for task ${task.id}" }
-                    val completed = downloader.download(task) { downloaded, total ->
+                    val completed = downloader.download(task) { downloaded, totalIn ->
+                        // D-246 (user-reported display bug "downloaded > total"): the reported
+                        // total is an ESTIMATE (HLS running-average convergence can lag the
+                        // real bytes; the persisted total from a prior run may be stale). When
+                        // downloaded exceeds it, GROW the total to reality — the bar never
+                        // exceeds 100% and the bytes row never shows "120 MB / 96 MB".
+                        val total = if (totalIn in 1..downloaded) downloaded else totalIn
                         DownloadLogger.d { "launchDownload — progress: task=${task.id}, downloaded=$downloaded, total=$total" }
                         // REVIEW-5 M31: maintain the moving-average window in place.
                         val currentRatio = if (total > 0) (downloaded.toFloat() / total) else 0f
@@ -517,6 +614,21 @@ class DownloadQueue(
                         // REVIEW-5 M37: pause/cancel — never retry, just propagate.
                         throw e
                     } catch (e: Exception) {
+                        // D-246 (user-reported robustness gap): transport error while the
+                        // network is disallowed (offline, or Wi-Fi lost with wifi-only) →
+                        // PAUSE for auto-resume instead of burning retry attempts into
+                        // ERROR. This is what makes Wi-Fi-outage recovery smooth: the
+                        // task waits for connectivity instead of dying.
+                        val networkAllowed = runCatching { connectivityCheck() }.getOrDefault(true)
+                        if (!networkAllowed && (e is java.io.IOException || e is HttpException)) {
+                            DownloadLogger.w {
+                                "launchDownload — transport error while network disallowed " +
+                                    "for task ${task.id}: ${e.message}. Auto-pausing; will resume " +
+                                    "when connectivity returns."
+                            }
+                            pauseForNetwork(task.id)
+                            return@launch
+                        }
                         // D-151-fix: check if retryable.
                         if (retryPolicy.shouldRetry(e, attempt)) {
                             val backoff = retryPolicy.backoffMillis(attempt)

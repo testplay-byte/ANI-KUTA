@@ -73,6 +73,12 @@ class UpdateStore(
         Logger.d(TAG) { "acknowledgeUpdatesByMainId: mainId=$mainId" }
     }
 
+    /** D-249: Clear ALL updates (the "Clear" button — removes every row). */
+    fun deleteAllUpdates() {
+        database.episodeUpdateQueries.deleteAllUpdates()
+        Logger.i(TAG) { "deleteAllUpdates: all episode_update rows cleared" }
+    }
+
     /** Retention cleanup: delete acknowledged updates older than the cutoff (M9 — 7-day). */
     fun deleteOldAcknowledged(cutoff: Long) {
         database.episodeUpdateQueries.deleteOldAcknowledged(cutoff)

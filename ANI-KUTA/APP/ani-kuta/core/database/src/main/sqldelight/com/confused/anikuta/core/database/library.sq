@@ -76,7 +76,9 @@ SELECT EXISTS(SELECT 1 FROM library_item WHERE main_id = :mainId);
 isInCategory:
 SELECT EXISTS(SELECT 1 FROM library_item WHERE main_id = :mainId AND category_id = :categoryId);
 
--- Get all library items (all categories) — for the full library view
+-- Get all library items (all categories) — for the full library view.
+-- D-285: also the Library batch loader's single read — the category filter,
+-- per-category counts, and totals all derive from this one list in memory.
 getAllLibraryItems:
 SELECT * FROM library_item ORDER BY added_at DESC;
 

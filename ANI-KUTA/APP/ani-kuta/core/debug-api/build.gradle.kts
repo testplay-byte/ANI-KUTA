@@ -11,6 +11,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     // Compose runtime — LocalDebugContext uses compositionLocalOf.
-    implementation(platform(libs.androidx.compose.bom))
-    implementation("androidx.compose.runtime:runtime")
+    implementation(libs.androidx.compose.runtime)  // D-322: explicit pin
 }

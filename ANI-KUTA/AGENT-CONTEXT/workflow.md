@@ -76,7 +76,7 @@
 
 - **Frontend first** (so the user can see progress), then backend (CORE_RULES workflow.md step 3).
 - **Modular complexity**: split big work across multiple files. Document as you go.
-- Use sub-agents for **read-only research** (Explore type) and **compile-error review** (Explore type — they can read files + compare against reference code).
+- Use sub-agents for **read-only research** (Explore type). **Do NOT use sub-agents for compile-error review** (removed by user instruction, D-281 — CI is the compiler of record; see Step 7).
 - **Do NOT use sub-agents for code changes** to `AGENT-CONTEXT/` — only the main agent touches AGENT-CONTEXT (CORE_RULES §14).
 - Sub-agents for webpage work: work ONLY in `DASHBOARD/webpage/`, never `AGENT-CONTEXT/` (CORE_RULES §14, §19).
 - Apply `skills/ponytail.md`: simplest solution that works. Stdlib/native before new deps.
@@ -97,18 +97,17 @@
 
 **Output:** A clean commit on the feature branch.
 
-### Step 7 — VERIFY (sub-agent review before push)
+### Step 7 — VERIFY (CI — the primary gate)
 
-**For non-trivial changes: launch an Explore sub-agent to review for compile errors.**
+**Commit + push, then let GitHub Actions build. Do NOT dispatch sub-agents to pre-review for compile errors (user instruction, D-281).**
 
-- The sub-agent reads ALL changed files + checks: SQLDelight query interface usage, Kotlin type matching, import presence, method signatures, `.copy()` field preservation, Koin DI graph resolution.
-- The sub-agent reports: ✅ (clean), ❌ (compile error + fix), ⚠️ (concern but not definitely broken).
-- Fix all ❌ items before pushing. Address ⚠️ items if the concern is real.
-- **You CANNOT build locally** (CORE_RULES §8 — CI-only builds). Sub-agent review is the pre-push verification gate.
+- The change was written against the researched call sites; CI compiles it for real.
+- The pre-push loop is: fix → push → read CI results → fix → push again. Straight to CI, no sub-agent detour.
+- **You CANNOT build locally** (CORE_RULES §8 — CI-only builds). CI IS the verification gate.
 
-**Output:** Confidence that the code will compile on CI. Not a guarantee — CI is the final judge.
+**Output:** A pushed commit whose build result is read from the GitHub Actions API — not assumed.
 
-### Step 8 — VERIFY (CI — the final gate)
+### Step 8 — VERIFY (CI — reading the result)
 
 **Push to the feature branch. Wait for CI to build. Read the result.**
 
@@ -155,7 +154,7 @@
 3. **Plan before building.** Split into phases. Identify dependencies.
 4. **Build a comprehensive todo list AFTER research.** Not a random one at the start.
 5. **Execute one phase at a time.** Verify each before moving to the next.
-6. **Sub-agent review before push.** Catch compile errors without building locally.
+6. **Push straight to CI.** No sub-agent compile pre-review (D-281) — GitHub Actions builds are the verification.
 7. **CI is the final judge.** Poll the API. Read failures. Fix. Repeat.
 8. **Update docs in the same session.** No drift.
 9. **Notify after each phase.** Close the loop.

@@ -63,9 +63,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
+import com.confused.anikuta.core.designsystem.animation.searchCoverKey  // D-328
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
+import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.feature.animesearch.ExtensionAnime
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import org.koin.compose.viewmodel.koinViewModel
@@ -86,7 +91,9 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun SearchScreen(
-    onNavigateToDetails: (Int) -> Unit,
+    // D-320: passes the full anime so the nav key can carry the cover/title
+    // + the shared-element key (experimental cover transition).
+    onNavigateToDetails: (AniListAnime) -> Unit,
     onNavigateToExtensionAnime: (Long, String, String, String?) -> Unit = { _, _, _, _ -> },
     // D-209: callback to open the Cloudflare WebView solver (launched from the
     // CloudflareBlocked error state). MainActivity launches CloudflareWebViewActivity.
@@ -98,7 +105,6 @@ fun SearchScreen(
     val source by viewModel.source.collectAsState()
     val sort by viewModel.sort.collectAsState()
     val recents by viewModel.recents.collectAsState()
-    val recentsCollapsed by viewModel.recentsCollapsed.collectAsState()
     val pendingFilters by viewModel.pendingFilters.collectAsState()
     val trustedSources by viewModel.trustedSources.collectAsState()
     val selectedSourceId by viewModel.selectedSourceId.collectAsState()
@@ -114,12 +120,10 @@ fun SearchScreen(
     var showSourcePicker by remember { mutableStateOf(false) }
     val activeFilterCount = pendingFilters.activeCount
 
-    // D-242-fix7: Do NOT auto-load trending on screen enter.
-    // The recents card only renders in Idle state — loading trending
-    // transitions to Success which hides the recents. The user wants
-    // to see their search history when they open the search page.
-    // Trending loads when the user clears a query or switches sources.
-    // LaunchedEffect(Unit) intentionally removed.
+    // D-248: trending now auto-loads on first entry (SearchViewModel.init) — recents
+    // are no longer Idle-exclusive (they render as the results grid's header item and
+    // scroll away with the content; the top bar collapses to title + compact search
+    // bar). Recents hide only when the user actually searches (query non-blank).
 
     // D-210: Auto-refresh when the user returns from the Cloudflare WebView.
     // The ViewModel sets pendingWebViewRefresh=true when the user taps "Open in
@@ -164,7 +168,31 @@ fun SearchScreen(
             // D-242-fix3: Show recents ABOVE the results (collapsed by default)
             // when results are displayed. Previously recents only showed in Idle
             // state — they disappeared as soon as results loaded.
-            when (uiState) {
+            //
+            // D-305: mode-consistent rendering. The sealed UI state is shared by
+            // both modes, so an AniList state must NEVER render in Extension mode
+            // and vice versa. A mismatch can only be transient (every mode/source
+            // change launches a fresh load via onSourceChange), so it renders as
+            // Loading until the matching state lands — previously a stale
+            // cross-mode state rendered (e.g. AniList results inside the
+            // Extension tab after a fast switch).
+            val effectiveState = when (source) {
+                SearchSource.ANILIST -> when (uiState) {
+                    is SearchUiState.ExtensionSuccess,
+                    is SearchUiState.ExtensionError,
+                    is SearchUiState.ExtensionEmpty,
+                    SearchUiState.ExtensionNotAvailable,
+                    is SearchUiState.CloudflareBlocked -> SearchUiState.Loading
+                    else -> uiState
+                }
+                SearchSource.EXTENSION -> when (uiState) {
+                    is SearchUiState.Success,
+                    SearchUiState.Empty,
+                    SearchUiState.Error -> SearchUiState.Loading
+                    else -> uiState
+                }
+            }
+            when (effectiveState) {
                 is SearchUiState.Idle -> {
                     Column(
                         modifier = Modifier
@@ -175,8 +203,6 @@ fun SearchScreen(
                         if (recents.isNotEmpty()) {
                             RecentSearchesCard(
                                 recents = recents,
-                                collapsed = recentsCollapsed,
-                                onToggleCollapsed = viewModel::toggleRecentsCollapsed,
                                 onPick = viewModel::onPickRecent,
                                 onRemove = viewModel::onRemoveRecent,
                                 onClear = viewModel::onClearRecents,
@@ -221,7 +247,7 @@ fun SearchScreen(
                 )
 
                 is SearchUiState.ExtensionError -> {
-                    val msg = (uiState as SearchUiState.ExtensionError).message
+                    val msg = (effectiveState as SearchUiState.ExtensionError).message
                     SearchPromptCard(
                         title = "Source error",
                         description = msg,
@@ -235,7 +261,7 @@ fun SearchScreen(
                     // D-209+D-212: Cloudflare blocked the request + the headless solver failed.
                     // D-212: shorter description + switched button colors (Refresh=primary,
                     // Open in WebView=tertiary — the user asked to switch them).
-                    val cf = uiState as SearchUiState.CloudflareBlocked
+                    val cf = effectiveState as SearchUiState.CloudflareBlocked
                     SearchPromptCard(
                         title = "Cloudflare protection",
                         description = "${cf.sourceName} is behind Cloudflare. Solve it in " +
@@ -254,7 +280,7 @@ fun SearchScreen(
                 is SearchUiState.ExtensionEmpty -> {
                     // D-209+D-210+D-212: extension returned 0 results — shorter description +
                     // switched button colors (Refresh=primary, Open in WebView=tertiary).
-                    val ee = uiState as SearchUiState.ExtensionEmpty
+                    val ee = effectiveState as SearchUiState.ExtensionEmpty
                     SearchPromptCard(
                         title = "No results from ${ee.sourceName}",
                         description = "0 results. If Cloudflare-protected, solve it in the WebView.",
@@ -272,22 +298,32 @@ fun SearchScreen(
                 }
 
                 is SearchUiState.Success -> {
-                    val results = (uiState as SearchUiState.Success).results
+                    val results = (effectiveState as SearchUiState.Success).results
                     ResultsGrid(
                         results = results,
                         gridState = gridState,
                         onResultTap = onNavigateToDetails,
+                        // D-248: recents coexist with the default/trending results — shown as
+                        // the grid's header (scrolls away with content; the top bar collapses
+                        // to title + compact search bar). They hide only when the user
+                        // actually searches (query non-blank → Loading).
+                        recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
+                            RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                        } else null,
                     )
                 }
 
                 is SearchUiState.ExtensionSuccess -> {
-                    val results = (uiState as SearchUiState.ExtensionSuccess).results
+                    val results = (effectiveState as SearchUiState.ExtensionSuccess).results
                     ExtensionResultsGrid(
                         results = results,
                         gridState = gridState,
                         onResultTap = { anime ->
                             onNavigateToExtensionAnime(anime.sourceId, anime.url, anime.title, anime.thumbnailUrl)
                         },
+                        recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
+                            RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                        } else null,
                     )
                 }
             }
@@ -343,11 +379,20 @@ fun SearchScreen(
 
 // ── Results grid ──
 
+// D-248/D-258: everything the results grids need to render the recents card as a header item.
+private class RecentsHeaderData(
+    val recents: List<String>,
+    val onPick: (String) -> Unit,
+    val onRemove: (String) -> Unit,
+    val onClear: () -> Unit,
+)
+
 @Composable
 private fun ResultsGrid(
     results: List<AniListAnime>,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
-    onResultTap: (Int) -> Unit,
+    onResultTap: (AniListAnime) -> Unit,
+    recentsHeader: RecentsHeaderData? = null,
 ) {
     LazyVerticalGrid(
         state = gridState,
@@ -362,6 +407,16 @@ private fun ResultsGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (recentsHeader != null) {
+            item(key = "recents-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                RecentSearchesCard(
+                    recents = recentsHeader.recents,
+                    onPick = recentsHeader.onPick,
+                    onRemove = recentsHeader.onRemove,
+                    onClear = recentsHeader.onClear,
+                )
+            }
+        }
         items(results, key = { it.id }) { anime ->
             ResultCard(anime, onResultTap)
         }
@@ -369,7 +424,7 @@ private fun ResultsGrid(
 }
 
 @Composable
-private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
+private fun ResultCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -377,6 +432,15 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "resultCardScale",
     )
+    // D-320/D-328: shared-element key — screen-namespaced (cover:search:<url>)
+    // so a Search card can never collide with a Library card showing the SAME
+    // anime (pre-D-328 both built "cover:<url>", and the shared cover flew
+    // between the two pages on every Library ⇄ Search switch). Null when the
+    // experimental transition is disabled or the cover is missing.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val transitionKey = if (appPrefs.coverTransitionEnabled) {
+        searchCoverKey(anime.coverUrl)
+    } else null
 
     Box(
         modifier = Modifier
@@ -385,7 +449,7 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onClick(anime.id) },
+                onClick = { onClick(anime) },
             ),
     ) {
         AsyncImage(
@@ -395,6 +459,7 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
+                .coverSharedElement(transitionKey)
                 .clip(RoundedCornerShape(12.dp)),
         )
 
@@ -423,7 +488,7 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
@@ -473,7 +538,7 @@ private fun SearchPromptCard(
             fontFamily = RobotoFamily,
             fontSize = 18.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onBackground,
         )
         Spacer(Modifier.height(8.dp))
         Text(
@@ -481,7 +546,7 @@ private fun SearchPromptCard(
             fontFamily = RobotoFamily,
             fontSize = 14.sp,
             fontWeight = FontWeight.Normal,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = LocalCardDescriptionColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             // D-209: allow more lines for the longer Cloudflare description.
             maxLines = 8,
@@ -532,7 +597,15 @@ private fun ExtensionResultsGrid(
     results: List<ExtensionAnime>,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onResultTap: (ExtensionAnime) -> Unit,
+    recentsHeader: RecentsHeaderData? = null,
 ) {
+    // D-304 defense-in-depth: even though the ViewModel dedupes by URL, the
+    // grid keys rows by "sourceId:url" — a duplicate would CRASH LazyGrid
+    // (device-reported IllegalArgumentException). Dedupe again at render time
+    // so no future code path can reintroduce the crash.
+    val distinctResults = remember(results) {
+        results.distinctBy { "${it.sourceId}:${it.url}" }
+    }
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(3),
@@ -546,7 +619,17 @@ private fun ExtensionResultsGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(results, key = { "${it.sourceId}:${it.url}" }) { anime ->
+        if (recentsHeader != null) {
+            item(key = "recents-header", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                RecentSearchesCard(
+                    recents = recentsHeader.recents,
+                    onPick = recentsHeader.onPick,
+                    onRemove = recentsHeader.onRemove,
+                    onClear = recentsHeader.onClear,
+                )
+            }
+        }
+        items(distinctResults, key = { "${it.sourceId}:${it.url}" }) { anime ->
             ExtensionResultCard(anime, onResultTap)
         }
     }
@@ -561,6 +644,13 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "extResultCardScale",
     )
+    // D-320/D-328: shared-element key for extension results (cover:search:<url>
+    // — same namespace as the AniList result cards above; the two lists never
+    // compose together, so uniqueness within the screen is what matters).
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val transitionKey = if (appPrefs.coverTransitionEnabled) {
+        searchCoverKey(anime.thumbnailUrl)
+    } else null
 
     Box(
         modifier = Modifier
@@ -579,6 +669,7 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
+                .coverSharedElement(transitionKey)
                 .clip(RoundedCornerShape(12.dp)),
         )
 
@@ -607,7 +698,7 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),

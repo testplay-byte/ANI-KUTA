@@ -277,6 +277,31 @@ class DatabaseDriverFactory(private val context: Context) {
                     if (!hasColumn(db, "content_details", "cover_accent_argb")) {
                         db.execSQL("ALTER TABLE content_details ADD COLUMN cover_accent_argb INTEGER")
                     }
+
+                    // ── Video caching: create playback_cache_entry table if it doesn't exist ──
+                    // (test-feature/video-cache-new-download branch.) Existing installs
+                    // need this guard — the settings screen's reactive Flows query the
+                    // table directly and would crash with "no such table" without it.
+                    if (!hasColumn(db, "playback_cache_entry", "cache_key")) {
+                        onCreate(db)
+                    }
+
+                    // ── Video caching session 2: schema additions on existing installs ──
+                    // (HLS segment stats + external track lists for tap-to-play.)
+                    // New installs get these via CREATE TABLE; existing installs (which
+                    // already have playback_cache_entry) need ALTERs (D-223 pattern).
+                    if (!hasColumn(db, "playback_cache_entry", "segment_total")) {
+                        db.execSQL("ALTER TABLE playback_cache_entry ADD COLUMN segment_total INTEGER NOT NULL DEFAULT 0")
+                    }
+                    if (!hasColumn(db, "playback_cache_entry", "segments_cached")) {
+                        db.execSQL("ALTER TABLE playback_cache_entry ADD COLUMN segments_cached INTEGER NOT NULL DEFAULT 0")
+                    }
+                    if (!hasColumn(db, "playback_cache_entry", "subtitle_tracks")) {
+                        db.execSQL("ALTER TABLE playback_cache_entry ADD COLUMN subtitle_tracks TEXT NOT NULL DEFAULT ''")
+                    }
+                    if (!hasColumn(db, "playback_cache_entry", "audio_tracks")) {
+                        db.execSQL("ALTER TABLE playback_cache_entry ADD COLUMN audio_tracks TEXT NOT NULL DEFAULT ''")
+                    }
                 }
 
                 /**

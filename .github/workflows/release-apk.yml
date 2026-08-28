@@ -1,0 +1,138 @@
+# ANI-KUTA — Release APK
+#
+# Creates a versioned GitHub Release with the arm64-v8a-only APK attached, so
+# the in-app updater (Settings → About → Check for Updates) can discover and
+# install updates directly (user instruction, D-251).
+#
+# Trigger: push a tag `v{versionName}` (e.g. v0.2.48) whose version matches
+# AndroidConfig.kt's versionName — the workflow verifies the match and fails
+# on mismatch. Can also be run via workflow_dispatch with an existing tag.
+#
+# Rules (CORE_RULES §8):
+#   - Release APK contains ONLY arm64-v8a (verified post-build).
+#   - The release is published as a STABLE release (never prerelease) —
+#     /releases/latest and the in-app updater rely on it.
+#   - x86_64 emulator-test APKs are NEVER attached to releases (test-only,
+#     built on demand by build-apk.yml's workflow_dispatch input).
+#
+# NOTE: the APK is a debug-signed build (same signature as all CI-artifact
+# builds shipped so far — release build + dedicated signing is a future phase).
+
+name: Release APK
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to release (e.g. v0.2.48 — must match AndroidConfig.versionName)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ANI-KUTA/APP/ani-kuta
+    steps:
+      - name: Checkout (tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          # Full history + tags needed for release-notes generation below.
+          fetch-depth: 0
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+        with:
+          min-wrapper-count: 1
+          allow-snapshots: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify tag matches AndroidConfig.versionName
+        working-directory: .
+        run: |
+          set -e
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          TAG_VERSION="${TAG#v}"
+          CONFIG_VERSION=$(grep -oP 'versionName = "\K[^"]+' ANI-KUTA/APP/ani-kuta/build-logic/src/main/kotlin/anikuta/buildlogic/AndroidConfig.kt)
+          echo "tag=$TAG version=$TAG_VERSION config_versionName=$CONFIG_VERSION"
+          if [ "$TAG_VERSION" != "$CONFIG_VERSION" ]; then
+            echo "::error::Tag '$TAG' does not match AndroidConfig.versionName '$CONFIG_VERSION'. Bump AndroidConfig before tagging."
+            exit 1
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
+
+      - name: Build release APK (arm64-v8a only)
+        run: ./gradlew assembleDebug
+
+      - name: Verify ABIs (only arm64-v8a allowed in RELEASE APKs)
+        working-directory: .
+        run: |
+          set -e
+          apk=ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/debug/app-debug.apk
+          echo "Inspecting: $apk"
+          found_bad=0
+          bad=$(unzip -Z1 "$apk" | grep -E '^lib/[^/]+/' || true)
+          for entry in $bad; do
+            abi=$(echo "$entry" | cut -d'/' -f2)
+            case "$abi" in
+              arm64-v8a) ;;
+              *) echo "::error::Forbidden ABI '$abi' found in $apk ($entry)"; found_bad=1 ;;
+            esac
+          done
+          exit $found_bad
+
+      - name: Stage release APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk "app/build/outputs/apk/debug/ani-kuta-v${VERSION}.apk"
+
+      - name: Create GitHub Release (stable, never prerelease)
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          # Title: the annotated tag's subject line (falls back to a default).
+          SUBJECT=$(git tag -l --format='%(contents:subject)' "$TAG" | head -1)
+          if [ -z "$SUBJECT" ] || [ "$SUBJECT" = "$TAG" ]; then
+            SUBJECT="ANI-KUTA v${VERSION}"
+          fi
+          # Body: commits since the previous tag + install note.
+          PREV_TAG=$(git describe --abbrev=0 --tags "$TAG"^ 2>/dev/null || true)
+          RANGE="$TAG"
+          if [ -n "$PREV_TAG" ]; then RANGE="${PREV_TAG}..${TAG}"; fi
+          {
+            echo "## What's new"
+            echo
+            git log --oneline --no-decorate "$RANGE"
+            echo
+            echo "---"
+            echo "APK: \`ani-kuta-v${VERSION}.apk\` — arm64-v8a only. Install over your existing build; in-app Check for Updates finds this release automatically."
+          } > /tmp/release_body.md
+          echo "Release title: $SUBJECT"
+          cat /tmp/release_body.md
+          gh release create "$TAG" \
+            --title "$SUBJECT" \
+            --notes-file /tmp/release_body.md \
+            --latest \
+            "ANI-KUTA/APP/ani-kuta/app/build/outputs/apk/debug/ani-kuta-v${VERSION}.apk"

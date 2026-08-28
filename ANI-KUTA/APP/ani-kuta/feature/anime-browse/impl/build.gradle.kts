@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:debug-api"))  // DB-7: LocalDebugContext
     implementation(project(":core:navigation-api"))
     implementation(project(":core:designsystem"))
+    implementation(project(":core:preferences"))  // D-320: cover-transition gate
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
     implementation(project(":core:data-cache"))
@@ -20,7 +21,6 @@ dependencies {
     implementation(project(":core:watch-progress"))
     implementation(project(":core:content"))
 
-    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)

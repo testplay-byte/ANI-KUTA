@@ -28,12 +28,13 @@
 |------|---------|
 | `knowledge/project-overview.md` | What ANI-KUTA is, goals, scope, current status. |
 | `knowledge/tech-stack.md` | Actual technologies + versions (verified against `libs.versions.toml`). |
-| `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, actual 46-module graph, nav, DB, DI wiring, known debt. |
+| `knowledge/architecture.md` | Architecture **design/concept**: layer diagrams, actual 50-module graph, nav, DB, DI wiring, known debt. |
 | `APP/ani-kuta/DESIGN-LANGUAGE.md` | The app's UI design language (canonical ~140 lines — lime accent, warm darks, translucent cards, floating pill nav, scroll blur). |
-| `knowledge/module-map.md` | All 46 modules: name, job, dependencies, key files. |
+| `knowledge/module-map.md` | All 50 modules: name, job, dependencies, key files. |
 | `knowledge/ui-customization.md` | How UI customization works (theme tokens, component variants, layout, behavior toggles, subtitle settings). |
 | `knowledge/dashboard.md` | Dashboard approach: 14 pages, data files, deployment, update process, sub-agent rules. |
 | `knowledge/old-vs-new.md` | Old project (REFERENCES/old-kuta/) vs new project comparison + migration notes. |
+| `knowledge/emulator-testing.md` | **The sandbox Android emulator environment**: setup from scratch, sandbox rules (double-fork detach, timeout-wrapped adb, input-text limits, 4GB cgroup), daily workflow commands, app testing tricks (prefs injection, extension repo injection), smoke-test checklist, troubleshooting table. Read BEFORE any emulator work. |
 
 ## 📁 REFERENCES/ (read-only references)
 | Path | Purpose |
@@ -74,4 +75,5 @@
 4. `memory/progress.md` (live status)
 5. `workflow.md` (when starting a task)
 6. The specific `knowledge/` or `skills/` file relevant to the task.
-7. (Optional) `/home/z/my-project/worklog.md` for sub-agent execution detail.
+7. `knowledge/emulator-testing.md` (when testing on the sandbox emulator — BEFORE touching adb).
+8. (Optional) `/home/z/my-project/worklog.md` for sub-agent execution detail.

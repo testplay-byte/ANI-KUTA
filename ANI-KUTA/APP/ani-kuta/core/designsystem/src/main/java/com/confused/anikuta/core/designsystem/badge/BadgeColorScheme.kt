@@ -1,11 +1,10 @@
-package com.confused.anikuta.feature.animelibrary
+package com.confused.anikuta.core.designsystem.badge
 
-import android.graphics.Color as AndroidColor
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 /**
  * D-242-fix18: Hand-picked, theme-adaptive badge colors.
@@ -22,8 +21,14 @@ import androidx.compose.ui.graphics.Color
  * - **AllCaughtUp (red/rose)**: A warm red indicating "completed". Red 100/900
  *   (light), Red 200/900 (dark).
  *
- * The `rememberBadgeColorScheme()` function adapts the selection based on
- * whether the app is in dark or light mode.
+ * D-252: Moved from `:feature:anime-library` to `:core:designsystem` — the
+ * Browse page reuses the same badge color language (score corner tags), so the
+ * scheme is now shared (2 consumers; precedent: BackAction promotion, D-250).
+ *
+ * Dark/light detection follows the **applied** theme (Material background
+ * luminance), NOT `isSystemInDarkTheme()` — the app allows forcing a theme
+ * mode that differs from the system setting, and the badges must follow what
+ * the user actually sees.
  */
 data class BadgeColorScheme(
     val subContainer: Color,
@@ -40,11 +45,13 @@ data class BadgeColorScheme(
 
 /**
  * Returns a [BadgeColorScheme] with hand-picked colors adapted to the current
- * light/dark mode. Recomputes only when dark/light mode changes.
+ * light/dark mode. Recomputes only when the applied theme's dark state changes
+ * (derived from the Material background luminance — works for preset, AMOLED
+ * and custom backgrounds alike).
  */
 @Composable
 fun rememberBadgeColorScheme(): BadgeColorScheme {
-    val isDark = isSystemInDarkTheme()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     return remember(isDark) {
         if (isDark) {

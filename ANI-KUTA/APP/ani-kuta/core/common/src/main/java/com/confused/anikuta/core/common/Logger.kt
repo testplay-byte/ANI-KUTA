@@ -40,6 +40,15 @@ object Logger {
         this.enabled = enabled
     }
 
+    /**
+     * D-313: read accessor for callers that mirror a message into BOTH logcat
+     * (always) and the Logger pipeline (when enabled) — e.g. the episode-list
+     * dumper, which must reach logcat in release builds but should also appear
+     * in the debug console when one is attached.
+     */
+    val isEnabled: Boolean
+        get() = enabled
+
     fun setMinLevel(level: LogLevel) {
         minLevel = level
     }

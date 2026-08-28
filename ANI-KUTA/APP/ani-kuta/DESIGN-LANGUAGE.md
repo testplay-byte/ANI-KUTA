@@ -75,6 +75,105 @@ the **entire top section smoothly hides** when the user scrolls down, and
 
 ---
 
+### 2.4 — Nav-Row Icon Language (unified across More + Settings hubs)
+
+Every list row that navigates to a sub-screen — whether on the **More** page or
+any **Settings / Appearance / Notifications** hub — uses the **same icon
+treatment**: a **bare 24dp `Icon` tinted `primary`, no container box.**
+
+- **Implementation:** reuse [`MoreListRow`](#1-more-page) directly for every
+  nav-row slot. Do NOT create a per-screen `*NavRow` variant and do NOT wrap
+  the icon in a `primaryContainer` "chip"/"tile" `Surface` — that was the old
+  `SettingsNavRow` / `AppearanceNavRow` pattern and it looked like a different
+  visual format from the More page (user feedback, D-250).
+- **Typography:** title `RobotoFamily ExtraBold 16sp`, subtitle `Normal 13sp`,
+  trailing `Icons.Filled.ChevronRight`. All inherited from `MoreListRow`.
+- **Back button:** every settings sub-screen's `CollapsingHeader` `actions` slot
+  uses the shared `BackAction` from `:core:designsystem` (36dp `CircleShape`
+  `surfaceVariant` button + 18dp `Icons.AutoMirrored.Filled.ArrowBack`). No
+  per-screen copies.
+- **Established:** D-250 (2026-08-24) — user reported that the Settings page
+  icons "change to some other kind of format" vs. the More page; root cause was
+  the chip-box `primaryContainer` wrapper. Unified to bare icons everywhere.
+
+---
+
+### 2.5 — Cover Badge Language (pointed tags, D-252)
+
+Badges overlaid on cover art (Library grid modes, Browse cards) share one
+visual language:
+
+- **Pointed tip**: the chip nearest the cover CENTER tapers into a 45°
+  triangle tip (`PointedTagShape` in `:core:designsystem:badge`) — badges
+  read as pointed flags pointing INTO the cover. Text keeps +4dp padding on
+  the pointed side so it never overlaps the transparent tip.
+- **Corner-flush**: the badge row sits flush with the cover corner; its outer
+  corner clips to the cover's corner radius (12dp rounded modes, 0dp for
+  COVER_ONLY's square covers — `coverCornerRadius` param). No floating
+  badges with inset padding on grid covers.
+- **Shared colors**: `BadgeColorScheme` (designsystem) — SUB blue / DUB
+  orange / Total green / Score amber / All-Caught-Up red, hand-picked Material
+  pairs that adapt to the APPLIED theme (background luminance, not the system
+  setting). Browse's score tag uses the same amber score colors — no
+  per-screen badge palettes.
+- **Compound badges** (SUB+DUB split) draw their split background with
+  `drawBehind` — always `Modifier.clip(shape).drawBehind { ... }` (clip BEFORE
+  draw), because M3 Surface applies its own shape-clip AFTER user modifiers.
+- **Outlined (D-257)**: every cover badge carries a 1dp outline at the chip's
+  own content color @ 50% alpha (Browse score tag + Library simple chips via
+  the m3 `Surface(border=…)` param — the stroke follows `PointedTagShape`
+  incl. the 45° tip; the compound sub|dub badge draws its outline as a manual
+  stroked Path inside the same drawBehind, replicating the pointed geometry —
+  a Surface border can't trace hand-drawn paint). Keeps the tags crisp
+  against busy cover art.
+
+### 2.6 — Custom Theme (D-254 / D-261)
+
+When the CUSTOM accent preset is active, the theme comes entirely from the
+user's `CustomThemeColors` — six elements (D-261 added `cardHeading` +
+`cardDescription`; brightness offsets were removed entirely per device feedback
+"there is no need for the brightness sliders at all"):
+
+- `accent` → primary color family seed (`AccentColors.from` derivation).
+- `background` → the app canvas; surface ramp derived (lerps toward text).
+- `heading` → big screen titles → `LocalHeadingColor` (CollapsingHeader, plus
+  the Library header clone since D-261).
+- `card` → blocks/surfaces family → surfaceVariant + surfaceContainer tiers.
+- `cardHeading` → D-261 NEW — title text inside cards/blocks →
+  `LocalCardHeadingColor` (Browse cards, Library grid/list titles, Search
+  result cards, Details anime title + block headers + episode rows).
+- `cardDescription` → D-261 NEW — body/description text inside cards/blocks →
+  `LocalCardDescriptionColor` (Browse subtitles, Library list meta, Details
+  synopsis body + episode meta).
+
+Custom colors apply **as-is in both light & dark mode**; the mode toggle only
+affects presets. AMOLED is skipped while custom is active. One pick derives a
+coherent theme: text colors by background luminance; surface ramp = background
+lerped toward text; card family → surfaceVariant/containers.
+
+Editor + picker sheet rules (D-259 / D-261):
+- Editor sheets (CustomPaletteSheet) use a STICKY header (title + Reset
+  OUTSIDE the scroll area; no X button — dismiss via swipe/scrim) with a
+  scroll-driven `ScrollBlurOverlay` scrim at the top of the content.
+- All RGBA channel sliders in ColorPickerSheet are **colorful** (D-263): the
+  red slider's track is a black→red gradient, green's is black→green, blue's
+  is black→blue, alpha's is transparent→opaque of the current color.
+- Every numeric value renders as a TAPPABLE chip that opens the shared
+  `NumericEntrySheet` keypad (live-applied).
+- Presets are exactly FIVE distinct colors in a single equal-width line of
+  rounded tiles.
+- **Random palette (D-263)**: a Random button (`Icons.Filled.Casino`) sits
+  left of the Reset button; tapping opens a nested `RandomPaletteSheet` with
+  three options — Random dark / Random light / Completely random. Each
+  generates a palette (constrained-HSV for the first two; fully-random
+  per-channel with alpha forced opaque for chaos) and applies it via the
+  same `setCustomTheme` path (persists across restart — D-261 fixed the
+  v0.2.49/v0.2.50 persistence bug).
+- The editor forces alpha opaque — translucent theme surfaces are not
+  supported.
+
+---
+
 ## 3. Future Rules (pending user confirmation)
 
 Rules the user has hinted at but not yet confirmed. Don't implement until
@@ -86,7 +185,9 @@ confirmed.
 - *Bottom-up sheet* cap at 70% screen height (D-052).
 - *Floating pill bottom nav* (4 tabs, translucent).
 - *Translucent cards* (no shadow, surfaceVariant at low alpha).
-- *Accent palette system* (D-053 — 10 presets + CUSTOM).
+- *Hero pager* — IMPLEMENTED (D-253 full-bleed → D-256 poster+banner → **D-257 hero v3**:
+  inset 16:9 rounded 20dp card, infinite forward-only auto-advance, dots below
+  the card). Promote to a confirmed rule after user device verification of v3.
 
 ---
 
@@ -101,6 +202,8 @@ rules solidify.)
 - **AMOLED:** Pure black backgrounds/surfaces when `amoled = true` + dark.
 - **Accent override:** `AnikutaTheme(accentSeed = ...)` overrides the primary
   family (D-053). Background/surface ramp stays fixed.
+- **Custom theme (D-254):** `AnikutaTheme(customTheme = ...)` builds the whole
+  scheme from the user's per-element picks — see §2.6.
 
 ---
 
@@ -117,8 +220,33 @@ rules solidify.)
 
 ## 6. Motion
 
-- **Duration:** Standard 300ms, Short 150ms.
-- **Easing:** `FastOutSlowInEasing` for all transitions.
+- **Duration:** Standard 300ms, Short 150ms, Long 400ms (theme cross-fade),
+  Container 450ms (the Details nav crossfade — D-324), SharedFlight 600ms
+  (the shared-element cover's own bounds morph — D-327).
+- **Easing:** `FastOutSlowInEasing` for standard transitions; the M3
+  `EasingEmphasized` cubic (0.2, 0, 0, 1) for the Details crossfade AND the
+  shared-element morph. The two durations are deliberately DECOUPLED
+  (D-327): the page crossfade settles at 450ms while the cover keeps gliding
+  to 600ms — "the details page can open up early but the image will move
+  slowly" (user spec). What MUST stay in sync is the easing CURVE — the
+  crossfade and the morph may run different durations on the same curve
+  safely (only one thing is still moving once the page settles), but
+  mismatched curves at equal duration read as jitter on device (the
+  v0.2.61 lesson).
+- **Shared-element keys are NAMESPACED PER SCREEN** (D-328):
+  `cover:library:<url>`, `cover:search:<url>`, `cover:browse:<section>:<url>`
+  — built ONLY through the canonical builders in `SharedTransitionLocals.kt`.
+  During a screen switch both screens compose simultaneously, and ANY two
+  matching keys morph — even across an instant snap switch. Library and
+  Search once shared the `cover:<url>` format, so an anime present on both
+  pages had its cover fly between them on every Library ⇄ Search switch
+  (device-reported ghost morph). Details never constructs a key — it carries
+  the source card's key through `AnimeDetailsKey.transitionKey`, so only
+  list ⇄ Details (and its reverse) can ever match.
+- **Shared-element morphs keep their shape:** while a cover morphs in the
+  shared-transition overlay it is clipped to its rounded-12dp shape for the
+  whole flight (the overlay's default parent-rectangle clip made rounded
+  cards fly square and snap back to rounded on landing — D-324).
 - **60fps target:** No heavy work on main thread during animation. Use
   `graphicsLayer` for scale/alpha (avoids recomposition).
 - **No instant cuts:** State changes (expand/collapse, appear/disappear)

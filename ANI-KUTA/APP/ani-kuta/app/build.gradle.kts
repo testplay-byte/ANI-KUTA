@@ -54,6 +54,7 @@ dependencies {
     implementation(project(":core:smart-matcher"))
     implementation(project(":core:content"))
     implementation(project(":core:data-cache"))
+    implementation(project(":core:playback-cache"))  // Video caching (test-feature branch)
 
     // Data modules
     implementation(project(":data:extension"))
@@ -81,6 +82,7 @@ dependencies {
     implementation(project(":core:ratings"))
     implementation(project(":core:notifications"))
     implementation(project(":core:app-update"))
+    implementation(project(":core:ads"))  // Ad system — smart-link interstitial (D-272)
     implementation(project(":core:debug-api"))  // always on classpath (types only)
 
     // Debug bubble — debug builds only (D-163). Release builds contain zero
@@ -99,12 +101,11 @@ dependencies {
     implementation(libs.androidx.documentfile)
 
     // Compose
-    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.foundation)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.material.icons.extended)  // D-322: explicit pin (icons deprecated after 1.7.8)
     debugImplementation(libs.androidx.ui.tooling)
 
     // Navigation — hand-rolled (D-150): mutableStateListOf<NavKey> + when(currentKey).
@@ -126,3 +127,84 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 }
+
+// ── D-322: dependency/runtime alignment guard ────────────────────────────────
+//
+// The v0.2.60 startup crash (NoSuchMethodError: sharedElement$default) happened
+// because koin-compose 4.2.2 transitively requires androidx Compose 1.10.x,
+// which silently overrode the compose BOM's 1.7.8 constraint in the PACKAGED
+// runtime classpath while every module compiled against 1.7.8. A Gradle
+// platform constraint can only RAISE versions — it can never cap a version a
+// dependency requires, so the BOM never actually controlled what shipped.
+//
+// This task fails the build whenever the compose/lifecycle versions that would
+// be packaged into the APK deviate from the explicit pins in
+// gradle/libs.versions.toml. Any future dependency that tries to drag the
+// compose line above the pin (the exact v0.2.60 failure mode) breaks the build
+// loudly here instead of crashing on the user's device at startup.
+//
+// Scope notes:
+//  - androidx.compose.material3 → the pinned material3 line (1.3.1).
+//  - androidx.compose.material / material-icons-* → the pinned icons line
+//    (1.7.8; icons artifacts were deprecated after 1.7.8).
+//  - androidx.compose.material (non-icons: `material`, `material-ripple`) and
+//    androidx.compose.material3.adaptive are UNPINNED internal transitives
+//    (required only by material3 1.3.1 / seeker) — no app code compiles
+//    against them, so their exact version is not asserted.
+//  - Every other androidx.compose.* artifact must match the pinned compose line.
+//  - androidx.lifecycle must match the pinned lifecycle line.
+val composeLineVersion = libs.versions.compose.get()
+val material3LineVersion = libs.versions.composeMaterial3.get()
+val materialIconsLineVersion = libs.versions.composeMaterialIcons.get()
+val lifecycleLineVersion = libs.versions.lifecycle.get()
+
+tasks.register("checkDependencyAlignment") {
+    doLast {
+        fun expectedVersion(group: String, name: String): String? = when {
+            group == "androidx.compose.material3" -> material3LineVersion
+            group == "androidx.compose.material" && name.startsWith("material-icons") ->
+                materialIconsLineVersion
+            // Unpinned internal transitives — see scope notes above.
+            group == "androidx.compose.material" -> null
+            group == "androidx.compose.material3.adaptive" -> null
+            group.startsWith("androidx.compose.") -> composeLineVersion
+            group == "androidx.lifecycle" -> lifecycleLineVersion
+            else -> null
+        }
+
+        val resolvedModules = configurations.getByName("releaseRuntimeClasspath")
+            .resolvedConfiguration
+            .lenientConfiguration
+            .allModuleDependencies
+            .associate { "${it.moduleGroup}:${it.moduleName}" to it.moduleVersion }
+
+        val mismatches = resolvedModules.entries
+            .sortedBy { it.key }
+            .mapNotNull { (ga, version) ->
+                val group = ga.substringBefore(':')
+                val name = ga.substringAfter(':')
+                val expected = expectedVersion(group, name) ?: return@mapNotNull null
+                if (version != expected) "$ga — resolved $version, pinned $expected" else null
+            }
+
+        if (mismatches.isNotEmpty()) {
+            throw GradleException(
+                buildString {
+                    appendLine("Dependency/runtime alignment failure (D-322 guard):")
+                    appendLine("The compose/lifecycle versions that would be PACKAGED into the APK do not")
+                    appendLine("match the project pins in gradle/libs.versions.toml — a dependency is pulling")
+                    appendLine("a different version. Compile/runtime skew is how the v0.2.60 startup crash")
+                    appendLine("happened (see D-322). Align the dependency or bump the pin deliberately:")
+                    mismatches.forEach { appendLine("  - $it") }
+                }
+            )
+        }
+
+        val guarded = resolvedModules.count { (ga, _) ->
+            expectedVersion(ga.substringBefore(':'), ga.substringAfter(':')) != null
+        }
+        logger.lifecycle("D-322 dependency alignment OK: $guarded compose/lifecycle artifacts match the pins.")
+    }
+}
+
+tasks.named("preBuild") { dependsOn("checkDependencyAlignment") }

@@ -76,7 +76,19 @@ class ExtensionInstallService : Service() {
                     stopSelf()
                     return@launch
                 }
-                backend.install(apkFile, pkgName)
+                val result = backend.install(apkFile, pkgName)
+                // D-309 review fix: report the terminal result to the manager.
+                // The SUCCESS path also fires the PACKAGE_ADDED broadcast
+                // (→ loadAll re-scan), but the user-DENIED (Idle) and FAILURE
+                // (Error) paths fire NOTHING — without this the install state
+                // sticks on "Installing" in the UI forever.
+                runCatching {
+                    org.koin.core.context.GlobalContext.get()
+                        .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
+                        .onInstallResult(pkgName, result)
+                }.onFailure { reportErr ->
+                    Logger.w(TAG) { "Could not report install result for $pkgName: ${reportErr.message}" }
+                }
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Install failed for $pkgName" }
             } finally {

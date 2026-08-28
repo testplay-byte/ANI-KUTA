@@ -8,10 +8,12 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.content.ContentRepository
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.preferences.PreferenceStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * ViewModel for the Library screen (Phase C, D-140, D-141).
@@ -65,6 +67,8 @@ class LibraryViewModel(
         private const val KEY_LIST_TITLE_POSITION = "library_list_title_position"
         // D-242-fix21: Comfortable border mode.
         private const val KEY_COMFORTABLE_BORDER_MODE = "library_comfortable_border_mode"
+        // D-251: Hide titles in Comfortable mode (cover-only look, rounded corners kept).
+        private const val KEY_COMFORTABLE_HIDE_TITLES = "library_comfortable_hide_titles"
     }
 
     private val _state = MutableStateFlow<LibraryState>(LibraryState.Loading)
@@ -193,9 +197,96 @@ class LibraryViewModel(
     private val _comfortableBorderMode = MutableStateFlow(ComfortableBorderMode.COVER_AND_TITLE)
     val comfortableBorderMode: StateFlow<ComfortableBorderMode> = _comfortableBorderMode
 
+    // D-251: When true + display mode = COMFORTABLE_GRID, the title text under
+    // covers is hidden (cover-only look, but keeps Comfortable's rounded corners
+    // and grid spacing — distinct from the square, edge-to-edge COVER_ONLY mode).
+    private val _hideTitlesInComfortable = MutableStateFlow(false)
+    val hideTitlesInComfortable: StateFlow<Boolean> = _hideTitlesInComfortable
+
     init {
         loadPreferences()
         loadLibrary()
+    }
+
+    // ── D-286: scroll state survives tab switches ──────────────────────────
+    //
+    // The Library composable leaves composition when the user switches to
+    // Browse/Search/More — rememberLazyGridState()/rememberLazyListState() die
+    // with it, so returning to the Library always snapped back to the top (part
+    // of the "whole page reloads" feel). The ViewModel is Activity-scoped
+    // (koinViewModel resolves against the Activity's ViewModelStore), so states
+    // held HERE persist across tab switches: coming back shows the grid exactly
+    // where the user left it. LazyGridState/LazyListState are plain @Stable
+    // classes — constructing them outside composition is a standard pattern.
+    /** Grid-mode scroll position — shared with LibraryScreen (D-286). */
+    val gridState = androidx.compose.foundation.lazy.grid.LazyGridState()
+
+    /** List-mode scroll position — shared with LibraryScreen (D-286). */
+    val listState = androidx.compose.foundation.lazy.LazyListState()
+
+    // D-290: Comfortable-mode masonry scroll position — SAME retention as
+    // gridState/listState. It used to be rememberLazyStaggeredGridState()
+    // INSIDE LibraryGrid (died on every tab switch → Comfortable users lost
+    // their scroll on every return) while the VM-held gridState went stale at
+    // an old index — switching display modes re-attached that stale index.
+    /** Comfortable-grid (masonry) scroll position — shared with LibraryScreen (D-290). */
+    val staggeredState = androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState()
+
+    /**
+     * D-290: resets all three scroll states to the top. Called when the
+     * DATASET identity changes (category switch, search query change) — a new
+     * dataset should present from its top, and a stale retained index would
+     * otherwise land the grid mid-list (or clamp to a bottom when the new set
+     * is smaller). requestScrollToItem is the non-suspend 1.7+ API: it
+     * schedules the position for the next remeasure, so it is safe to call
+     * while the grid is between compositions.
+     */
+    private fun resetScrollToTop() {
+        runCatching {
+            gridState.requestScrollToItem(0, 0)
+            listState.requestScrollToItem(0, 0)
+            staggeredState.requestScrollToItem(0, 0)
+        }
+    }
+
+    // ── D-290: master list + single-emission state pipeline ────────────────
+    //
+    // Device feedback on v0.2.55: "the library page … scrolled way too much
+    // down automatically by itself … about the middle" after refresh.
+    // Root cause (R-1 research): loadLibraryImpl emitted Success(entries) in
+    // DATE_ADDED order and THEN applyFilters() re-emitted the sorted list. If
+    // a recomposition landed between the two writes (preemption/GC pause on
+    // the Default dispatcher), the grid composed the UNSORTED list and
+    // LazyGrid's key-based anchoring (key = mainId) followed the previously
+    // first-visible item to its DATE_ADDED rank — the middle of the list.
+    // Fix: the master list is stored unfiltered here, and the state flow is
+    // only ever written ONCE per load, with the final filtered+sorted list —
+    // no intermediate ordering is ever visible to composition. (This also
+    // fixes a latent bug: applyFilters() used to re-filter the ALREADY
+    // filtered state — clearing a search query could never restore removed
+    // entries until a full reload.)
+    /** The unfiltered, unsorted entries of the current category view (D-290). */
+    private var masterEntries: List<LibraryEntry> = emptyList()
+
+    /**
+     * D-291: cover-URL keys whose image has been revealed at least once.
+     *
+     * Drives the reveal-once cover animation in LibraryCoverImage: a cover
+     * fades in the FIRST time it loads; after that it renders instantly (no
+     * re-animation on scroll-back or tab switches — "if they were previously
+     * loaded then there is no need to reload them completely"). Lives in the
+     * Activity-scoped VM so it survives tab switches; cleared ONLY by
+     * [refreshLibrary] (a pull-to-refresh is the user's explicit "reload
+     * everything" signal).
+     */
+    val revealedCoverKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** Read-only check — is this cover's key already revealed? (D-291) */
+    fun isCoverRevealed(key: String): Boolean = key in revealedCoverKeys
+
+    /** Records that a cover's key has started its reveal (D-291). */
+    fun markCoverRevealed(key: String) {
+        revealedCoverKeys.add(key)
     }
 
     /**
@@ -207,63 +298,96 @@ class LibraryViewModel(
      * EXACT duration of the load — no hardcoded delays.
      */
     fun loadLibrary() {
-        _state.value = LibraryState.Loading
-        viewModelScope.launch {
-            loadLibraryImpl()
+        // D-286: INSTANT TAB SWITCH — when the grid is already showing, keep it
+        // on screen and refresh silently in the background. The old unconditional
+        // `_state.value = LibraryState.Loading` tore the whole grid down on EVERY
+        // tab switch (Browse → Library → Browse → …), flashing a loading spinner
+        // and re-showing the list from scratch; now the already-loaded entries
+        // stay visible while the (batched, fast) reload swaps the result in.
+        if (_state.value is LibraryState.Success) {
+            viewModelScope.launch {
+                loadLibraryImpl()
+            }
+        } else {
+            _state.value = LibraryState.Loading
+            viewModelScope.launch {
+                loadLibraryImpl()
+            }
         }
     }
 
     /**
-     * The suspend body of [loadLibrary]. Loads categories + counts, builds the
-     * [LibraryEntry] list (cache-first, AniList-fetch-on-miss, extension-fallback),
-     * and pushes the resulting [LibraryState] to [_state].
+     * The suspend body of [loadLibrary]. D-285: BATCHED load — the whole library
+     * comes from 7 queries total (categories, library items, main entries,
+     * content details, watched counts, last-watched timestamps, episode audio
+     * rows), assembled in memory. The previous implementation issued
+     * getMainEntryByMainId + getContentDetails + getEpisodeMetadata +
+     * getWatchedEpisodeCount + getLastWatchedAt PER ENTRY (5×N queries — a
+     * 653-item library cost ~3,300 queries, 4-5 seconds) and ran them all on
+     * the MAIN thread (viewModelScope defaults to Main.immediate), freezing the
+     * UI for the full duration. Now: [Dispatchers.Default] + batch reads.
+     *
+     * Fully offline: entries without a data-source link show the stored
+     * extension-axis fallback — the OLD "fetch AniList on miss" branch was
+     * unreachable dead code (anilistId is non-null only when dataSourceType ==
+     * "anilist", which makes hasDataSourceLink true, which always takes the
+     * cached branch first); entries with no data link have no stored AniList
+     * ID to fetch with, so there is nothing to backfill.
      *
      * Does NOT touch [_isRefreshing] — that's the caller's responsibility
      * (see [refreshLibrary]).
      */
-    private suspend fun loadLibraryImpl() {
+    private suspend fun loadLibraryImpl() = withContext(Dispatchers.Default) {
         try {
-            // Load ALL categories + counts.
+            // Batch query 1: all categories.
             val cats = contentRepository.getAllCategories()
             _categories.value = cats
 
-            // Count items per category.
+            // Batch query 2: every library_item row (mainId + categoryId + addedAt,
+            // newest first). The category filter, per-category counts, and the
+            // total count all derive from this ONE list in memory.
+            val items = contentRepository.getAllLibraryItems()
+            val selectedCategoryId = _selectedCategoryId.value
+
+            // Per-category counts + total across ALL categories (D-143). The
+            // unique (main_id, category_id) index guarantees at most one row per
+            // pair, so counting rows == counting distinct mainIds per category.
             val counts = mutableMapOf<Long, Int>()
-            for (cat in cats) {
-                counts[cat.id] = contentRepository.countItemsInCategory(cat.id)
+            for (item in items) {
+                counts[item.categoryId] = (counts[item.categoryId] ?: 0) + 1
             }
             _categoryCounts.value = counts
+            _totalEntries.value = items.map { it.mainId }.distinct().size
 
-            // Get library mainIds — filtered by selected category if set.
-            val mainIds = if (_selectedCategoryId.value != null) {
-                contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
+            // mainIds in view — filtered by the selected category when set.
+            // Preserves the added_at DESC order (the DATE_ADDED sort relies on it).
+            val uniqueMainIds = if (selectedCategoryId != null) {
+                items.filter { it.categoryId == selectedCategoryId }.map { it.mainId }.distinct()
             } else {
-                contentRepository.getLibraryMainIds()
+                items.map { it.mainId }.distinct()
             }
 
-            // Deduplicate mainIds (a content can be in multiple categories).
-            val uniqueMainIds = mainIds.distinct()
-            // D-143: totalEntries should show the TOTAL across ALL categories,
-            // not just the selected category. Fetch the full count separately.
-            val allMainIds = contentRepository.getLibraryMainIds()
-            _totalEntries.value = allMainIds.distinct().size
-            Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${_selectedCategoryId.value ?: "all"})" }
+            Logger.i(TAG) { "Library: ${uniqueMainIds.size} items in view, ${_totalEntries.value} total (category=${selectedCategoryId ?: "all"})" }
 
             if (uniqueMainIds.isEmpty()) {
                 _state.value = LibraryState.Empty
-                return
+                return@withContext
             }
 
-            // Build LibraryEntry for each content.
-            val entries = mutableListOf<LibraryEntry>()
-            for (mainId in uniqueMainIds) {
-                val content = contentRepository.getMainEntryByMainId(mainId) ?: continue
+            // Batch queries 3+4: every library main_entry (added_at DESC) + every
+            // content_details row — joined in memory by mainId.
+            val recordsById = contentRepository.getAllLibraryContentRecords()
+                .associateBy { it.mainId }
+            val detailsById = contentRepository.getAllContentDetailsMap()
 
-                // D-198: anime_metadata_cache was absorbed into content_details (data-axis).
-                // Check the data-source axis first — if populated, use it as the cached metadata.
-                val details = contentRepository.getContentDetails(mainId)
+            val entries = mutableListOf<LibraryEntry>()
+
+            for (mainId in uniqueMainIds) {
+                val content = recordsById[mainId] ?: continue
+                val details = detailsById[mainId]
+
                 if (details != null && details.hasDataSourceLink) {
-                    // Use content_details data-axis — instant display.
+                    // data-axis populated — instant display (D-198).
                     entries.add(
                         LibraryEntry(
                             mainId = mainId,
@@ -271,86 +395,25 @@ class LibraryViewModel(
                             sourceId = content.extensionId,
                             animeUrl = content.animeUrl,
                             title = content.title,
-                            coverUrl = details.dataCoverUrl,
+                            // D-248: two-way cover fallback — AniList cover first,
+                            // extension cover when AniList's is missing/null.
+                            coverUrl = details.dataCoverUrl ?: details.extThumbnailUrl,
                             averageScore = details.dataScore?.toInt(),
                             episodes = details.dataEpisodes?.toInt(),
                             seasonYear = details.dataSeasonYear?.toInt(),
                             status = details.dataStatus,
                         ),
                     )
-                    continue
-                }
-
-                // Not cached — try AniList detail (for fetching + caching).
-                val anilistId = details?.anilistId
-                if (details != null && anilistId != null) {
-                    // Fetch fresh AniList data (first time only — will be cached after this).
-                    try {
-                        val anime = anilistApi.fetchAnimeDetails(anilistId)
-                        // D-198: cache the AniList metadata in content_details (data-axis).
-                        contentRepository.updateDataSourceAxis(
-                            com.confused.anikuta.core.content.ContentDetails(
-                                mainId = mainId,
-                                dataSourceType = "anilist",
-                                dataSourceRefId = anilistId.toString(),
-                                dataScore = anime.averageScore?.toLong(),
-                                dataEpisodes = anime.episodes?.toLong(),
-                                dataSeason = anime.season,
-                                dataSeasonYear = anime.seasonYear?.toLong(),
-                                dataStatus = anime.status,
-                                dataGenres = anime.genres?.joinToString(", "),
-                                dataSynopsis = anime.description,
-                                dataCoverUrl = anime.coverUrl,
-                                dataBannerUrl = anime.bannerImage,
-                                dataUpdatedAt = System.currentTimeMillis(),
-                                // Extension axis preserved (call updateDataSourceAxis — not full upsert).
-                                extensionType = details.extensionType,
-                                extensionId = details.extensionId,
-                                sourceId = details.sourceId,
-                                animeUrl = details.animeUrl,
-                                extDescription = details.extDescription,
-                                extGenres = details.extGenres,
-                                extStatus = details.extStatus,
-                                extAuthor = details.extAuthor,
-                                extArtist = details.extArtist,
-                                extThumbnailUrl = details.extThumbnailUrl,
-                                extExtraJson = details.extExtraJson,
-                                extUpdatedAt = details.extUpdatedAt,
-                            ),
-                        )
-                        entries.add(
-                            LibraryEntry.fromAniList(
-                                mainId = mainId,
-                                anime = anime,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                            ),
-                        )
-                    } catch (e: Exception) {
-                        Logger.w(TAG) { "AniList fetch failed for $anilistId: ${e.message}" }
-                        // Fall back to stored data.
-                        entries.add(
-                            LibraryEntry(
-                                mainId = mainId,
-                                anilistId = anilistId,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                                title = content.title,
-                                coverUrl = details.dataCoverUrl,
-                                averageScore = details.dataScore?.toInt(),
-                                episodes = details.dataEpisodes?.toInt(),
-                                seasonYear = details.dataSeasonYear?.toInt(),
-                                status = details.dataStatus,
-                            ),
-                        )
-                    }
                 } else {
-                    // Extension-only content — use stored data.
+                    // No data-axis link — stored fallback (extension axis, or bare
+                    // main_entry title when even the details row is missing — D-222).
                     entries.add(
                         LibraryEntry.fromExtension(
                             mainId = mainId,
                             title = content.title,
-                            coverUrl = details?.extThumbnailUrl,
+                            // D-248: two-way cover fallback — extension cover first,
+                            // AniList cover when the extension's is missing/null.
+                            coverUrl = details?.extThumbnailUrl ?: details?.dataCoverUrl,
                             sourceId = content.extensionId ?: details?.sourceId,
                             animeUrl = content.animeUrl ?: details?.animeUrl,
                         ),
@@ -359,12 +422,23 @@ class LibraryViewModel(
             }
 
             if (entries.isEmpty()) {
+                masterEntries = emptyList()
                 _state.value = LibraryState.Empty
             } else {
-                // D-242-fix10: enrich entries with badge data (released count, audio, watched)
+                // Batch queries 5-7: badge enrichment (released count, audio, watched).
                 enrichEntriesWithBadgeData(entries)
-                _state.value = LibraryState.Success(entries)
-                applyFilters()
+                // D-290: SINGLE emission — the final filtered+sorted list is
+                // computed BEFORE any state write, so no unsorted intermediate
+                // ordering can ever be composed (the key-anchor jump bug).
+                masterEntries = entries
+                _state.value = LibraryState.Success(
+                    filterAndSort(
+                        entries = entries,
+                        query = _searchQuery.value,
+                        sortType = _sortType.value,
+                        ascending = _sortAscending.value,
+                    ),
+                )
             }
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to load library: ${e.message}" }
@@ -374,89 +448,16 @@ class LibraryViewModel(
 
     /**
      * Reload library but use cached data only (no network fetch).
-     * Used when switching tabs — just re-filters from the content DB.
+     * Used when switching category tabs — just re-filters from the content DB.
+     *
+     * D-285: delegates to the BATCHED [loadLibraryImpl] — the per-entry query
+     * loop this used to duplicate is gone (one implementation, 7 queries total,
+     * background-dispatched). The old entries stay on screen until the fresh
+     * state arrives (~tens of ms) — no loading flash on category switches.
      */
     fun reloadFromCache() {
         viewModelScope.launch {
-            try {
-                val mainIds = if (_selectedCategoryId.value != null) {
-                    contentRepository.getMainIdsByCategory(_selectedCategoryId.value!!)
-                } else {
-                    contentRepository.getLibraryMainIds()
-                }
-                val uniqueMainIds = mainIds.distinct()
-                // D-143: totalEntries = total across ALL categories.
-                val allMainIds = contentRepository.getLibraryMainIds()
-                _totalEntries.value = allMainIds.distinct().size
-
-                if (uniqueMainIds.isEmpty()) {
-                    _state.value = LibraryState.Empty
-                    return@launch
-                }
-
-                val entries = mutableListOf<LibraryEntry>()
-                for (mainId in uniqueMainIds) {
-                    val content = contentRepository.getMainEntryByMainId(mainId) ?: continue
-
-                    // D-198: anime_metadata_cache absorbed into content_details (data-axis).
-                    // Use content_details (no network on tab switch).
-                    val details = contentRepository.getContentDetails(mainId)
-                    if (details != null && details.hasDataSourceLink) {
-                        entries.add(
-                            LibraryEntry(
-                                mainId = mainId,
-                                anilistId = details.anilistId,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                                title = content.title,
-                                coverUrl = details.dataCoverUrl,
-                                averageScore = details.dataScore?.toInt(),
-                                episodes = details.dataEpisodes?.toInt(),
-                                seasonYear = details.dataSeasonYear?.toInt(),
-                                status = details.dataStatus,
-                            ),
-                        )
-                    } else if (details != null) {
-                        // Extension-only content — use stored data on the ext_* axis.
-                        entries.add(
-                            LibraryEntry.fromExtension(
-                                mainId = mainId,
-                                title = content.title,
-                                coverUrl = details.extThumbnailUrl,
-                                sourceId = content.extensionId ?: details.sourceId,
-                                animeUrl = content.animeUrl ?: details.animeUrl,
-                            ),
-                        )
-                    } else {
-                        // D-222 FIX: content_details row is missing (e.g. populate
-                        // didn't create it, or it was deleted). Fall back to the
-                        // main_entry's title so the entry is at least visible.
-                        // This mirrors the fallback in loadLibraryImpl (lines 292-303)
-                        // and prevents the Library grid from appearing empty when
-                        // switching category tabs.
-                        entries.add(
-                            LibraryEntry.fromExtension(
-                                mainId = mainId,
-                                title = content.title,
-                                coverUrl = null,
-                                sourceId = content.extensionId,
-                                animeUrl = content.animeUrl,
-                            ),
-                        )
-                    }
-                }
-
-                if (entries.isEmpty()) {
-                    _state.value = LibraryState.Empty
-                } else {
-                    // D-242-fix10: enrich entries with badge data
-                    enrichEntriesWithBadgeData(entries)
-                    _state.value = LibraryState.Success(entries)
-                    applyFilters()
-                }
-            } catch (e: Exception) {
-                Logger.e(TAG, e) { "reloadFromCache failed: ${e.message}" }
-            }
+            loadLibraryImpl()
         }
     }
 
@@ -470,8 +471,11 @@ class LibraryViewModel(
     }
 
     fun setSearchQuery(query: String) {
+        val changed = _searchQuery.value != query
         _searchQuery.value = query
         applyFilters()
+        // D-290: a changed query is a changed dataset — present it from the top.
+        if (changed) resetScrollToTop()
     }
 
     // ── Category management (D-138, D-140) ──
@@ -485,6 +489,10 @@ class LibraryViewModel(
         // D-242-fix3: persist the selected category across app restarts.
         // -1L sentinel = "All" (null selection).
         preferenceStore.putLong(KEY_SELECTED_CATEGORY, categoryId ?: -1L)
+        // D-290: switching category switches DATASET — start it from the top
+        // (a retained index from the previous category would land mid-list or
+        // clamp to the bottom of a smaller set).
+        resetScrollToTop()
         reloadFromCache()
     }
 
@@ -505,6 +513,12 @@ class LibraryViewModel(
             _isRefreshing.value = true
             try {
                 clearCache()
+                // D-291: a pull-to-refresh is the user's explicit "reload
+                // everything" signal — clear the reveal-once set so covers
+                // fade back in as they re-load (progressive loading "should
+                // only work if they were not loaded … unless the user refreshes
+                // the whole page again").
+                revealedCoverKeys.clear()
                 loadLibraryImpl()
             } catch (e: Exception) {
                 Logger.e(TAG, e) { "Library refresh failed: ${e.message}" }
@@ -826,6 +840,13 @@ class LibraryViewModel(
         Logger.i(TAG) { "setComfortableBorderMode — $mode" }
     }
 
+    // D-251: Hide-titles-in-Comfortable setter.
+    fun setHideTitlesInComfortable(value: Boolean) {
+        _hideTitlesInComfortable.value = value
+        preferenceStore.putBoolean(KEY_COMFORTABLE_HIDE_TITLES, value)
+        Logger.i(TAG) { "setHideTitlesInComfortable — $value" }
+    }
+
     /**
      * D-242-fix10: Enriches LibraryEntry list with badge data:
      * - releasedEpisodes: count of cached episodes (actual aired count)
@@ -833,53 +854,40 @@ class LibraryViewModel(
      * - watchedCount: how many episodes the user has watched
      *
      * D-242-fix14: Also counts per-audio-type episode counts (subEpisodeCount,
-     * dubEpisodeCount) for the advanced RELEASED badge sub-options. Logs the
-     * enrichment result for each entry at DEBUG level.
+     * dubEpisodeCount) for the advanced RELEASED badge sub-options.
+     *
+     * D-285: BATCHED — 3 queries for the WHOLE library (audio aggregates,
+     * watched counts, last-watched timestamps) instead of the old per-entry loop
+     * (3 queries × N entries; a 653-item library cost ~1,959 queries here).
+     * Called from [loadLibraryImpl]'s Dispatchers.Default context, so the reads
+     * stay off the main thread. Semantics are identical to the old loop.
      */
     private suspend fun enrichEntriesWithBadgeData(entries: MutableList<LibraryEntry>) {
+        val audioAggregates = dataCacheRepository.getAllEpisodeAudioAggregates()
+        val watchedCounts = watchProgressStore?.getAllWatchedCounts() ?: emptyMap()
+        val lastWatchedMap = watchProgressStore?.getAllLastWatchedAt() ?: emptyMap()
+
         for (i in entries.indices) {
             val entry = entries[i]
-            try {
-                val cachedEpisodes = dataCacheRepository.getEpisodeMetadata(entry.mainId)
-                val releasedCount = cachedEpisodes.size.takeIf { it > 0 }
-
-                // Aggregate audio availability across all episodes + count per type.
-                var hasSub = false
-                var hasDub = false
-                var hasHsub = false
-                var subCount = 0
-                var dubCount = 0
-                for (ep in cachedEpisodes) {
-                    val audio = com.confused.anikuta.core.common.parseAudioAvailability(
-                        ep.scanlator,
-                        ep.sourceName ?: ep.title ?: "",
-                    )
-                    if (audio.hasSub) { hasSub = true; subCount++ }
-                    if (audio.hasDub) { hasDub = true; dubCount++ }
-                    if (audio.hasHsub) hasHsub = true
-                }
-                val audioAvail = if (hasSub || hasDub || hasHsub) {
-                    com.confused.anikuta.core.common.AudioAvailability(hasSub, hasDub, hasHsub)
+            val audio = audioAggregates[entry.mainId]
+            val audioAvail = audio?.let {
+                if (it.hasSub || it.hasDub || it.hasHsub) {
+                    com.confused.anikuta.core.common.AudioAvailability(it.hasSub, it.hasDub, it.hasHsub)
                 } else null
-
-                val watched = watchProgressStore?.getWatchedEpisodeCount(entry.mainId)?.takeIf { it > 0 }
-
-                entries[i] = entry.copy(
-                    releasedEpisodes = releasedCount,
-                    audioAvailability = audioAvail,
-                    watchedCount = watched,
-                    subEpisodeCount = subCount.takeIf { it > 0 },
-                    dubEpisodeCount = dubCount.takeIf { it > 0 },
-                )
-
-                Logger.d(TAG) {
-                    "enrichEntriesWithBadgeData — ${entry.title}: " +
-                    "released=$releasedCount, sub=$subCount, dub=$dubCount, " +
-                    "watched=$watched, audio=$audioAvail"
-                }
-            } catch (e: Exception) {
-                Logger.w(TAG) { "enrichEntriesWithBadgeData — failed for ${entry.mainId}: ${e.message}" }
             }
+
+            entries[i] = entry.copy(
+                releasedEpisodes = audio?.releasedCount?.takeIf { it > 0 },
+                audioAvailability = audioAvail,
+                watchedCount = watchedCounts[entry.mainId]?.takeIf { it > 0 },
+                lastWatchedAt = lastWatchedMap[entry.mainId],
+                subEpisodeCount = audio?.subCount?.takeIf { it > 0 },
+                dubEpisodeCount = audio?.dubCount?.takeIf { it > 0 },
+            )
+        }
+
+        Logger.d(TAG) {
+            "enrichEntriesWithBadgeData — batched: ${entries.size} entries enriched from 3 queries"
         }
     }
 
@@ -941,6 +949,9 @@ class LibraryViewModel(
             .getString(KEY_COMFORTABLE_BORDER_MODE, ComfortableBorderMode.COVER_AND_TITLE.name)
             .let { runCatching { ComfortableBorderMode.valueOf(it) }.getOrDefault(ComfortableBorderMode.COVER_AND_TITLE) }
 
+        // D-251: load hide-titles-in-Comfortable toggle.
+        _hideTitlesInComfortable.value = preferenceStore.getBoolean(KEY_COMFORTABLE_HIDE_TITLES, false)
+
         // D-242-fix3: restore last-selected category across app restarts.
         // -1L sentinel = "All" (null selection).
         val savedCatId = preferenceStore.getLong(KEY_SELECTED_CATEGORY, -1L)
@@ -951,33 +962,81 @@ class LibraryViewModel(
         val current = _state.value
         if (current !is LibraryState.Success) return
 
-        var filtered = current.entries
+        // D-290: re-derive from the MASTER list, not the already-filtered
+        // state (the old re-filter could never restore entries removed by a
+        // previous query once the query was cleared).
+        _state.value = LibraryState.Success(
+            filterAndSort(
+                entries = masterEntries,
+                query = _searchQuery.value,
+                sortType = _sortType.value,
+                ascending = _sortAscending.value,
+            ),
+        )
+    }
 
-        val query = _searchQuery.value
+    /**
+     * D-290: the pure filter+sort pipeline shared by [loadLibraryImpl] (single
+     * emission) and [applyFilters] (query/sort changes). No state writes —
+     * callers decide what to emit.
+     */
+    private fun filterAndSort(
+        entries: List<LibraryEntry>,
+        query: String,
+        sortType: LibrarySortType,
+        ascending: Boolean,
+    ): List<LibraryEntry> {
+        var filtered = entries
+
         if (query.isNotBlank()) {
             filtered = filtered.filter { it.title.contains(query, ignoreCase = true) }
         }
 
-        filtered = when (_sortType.value) {
-            LibrarySortType.TITLE -> if (_sortAscending.value) {
+        filtered = when (sortType) {
+            LibrarySortType.TITLE -> if (ascending) {
                 filtered.sortedBy { it.title.lowercase() }
             } else {
                 filtered.sortedByDescending { it.title.lowercase() }
             }
-            LibrarySortType.SCORE -> if (_sortAscending.value) {
+            LibrarySortType.SCORE -> if (ascending) {
                 filtered.sortedBy { it.averageScore ?: 0 }
             } else {
                 filtered.sortedByDescending { it.averageScore ?: 0 }
             }
-            LibrarySortType.DATE_ADDED -> if (_sortAscending.value) {
+            LibrarySortType.DATE_ADDED -> if (ascending) {
                 filtered.asReversed()
             } else {
                 filtered
             }
-            LibrarySortType.LAST_WATCHED -> filtered
+            // D-268: LAST_WATCHED — was a no-op stub; now sorts by last_watched_at.
+            // ascending = oldest-watched first; descending = most-recent first.
+            LibrarySortType.LAST_WATCHED -> if (ascending) {
+                filtered.sortedBy { it.lastWatchedAt ?: 0L }
+            } else {
+                filtered.sortedByDescending { it.lastWatchedAt ?: 0L }
+            }
+            // D-268: BEHIND — caught-up (unwatchedCount 0) at top, behind (positive) at bottom.
+            // ascending = caught-up first; descending = behind first.
+            LibrarySortType.BEHIND -> if (ascending) {
+                filtered.sortedWith(
+                    compareBy<LibraryEntry> { it.unwatchedCount ?: 0 }
+                        .thenBy { it.title.lowercase() }
+                )
+            } else {
+                filtered.sortedWith(
+                    compareByDescending<LibraryEntry> { it.unwatchedCount ?: 0 }
+                        .thenBy { it.title.lowercase() }
+                )
+            }
+            // D-268: SEASON_YEAR — ascending = oldest year first; descending = newest first.
+            LibrarySortType.SEASON_YEAR -> if (ascending) {
+                filtered.sortedBy { it.seasonYear ?: 0 }
+            } else {
+                filtered.sortedByDescending { it.seasonYear ?: 0 }
+            }
         }
 
-        _state.value = LibraryState.Success(filtered)
+        return filtered
     }
 }
 
@@ -993,6 +1052,8 @@ enum class LibrarySortType(val displayName: String) {
     SCORE("Score"),
     DATE_ADDED("Date Added"),
     LAST_WATCHED("Last Watched"),
+    BEHIND("Behind"),        // D-268: caught-up top, behind bottom (by unwatchedCount)
+    SEASON_YEAR("Year"),     // D-268: by season year
 }
 
 enum class LibraryDisplayMode {
