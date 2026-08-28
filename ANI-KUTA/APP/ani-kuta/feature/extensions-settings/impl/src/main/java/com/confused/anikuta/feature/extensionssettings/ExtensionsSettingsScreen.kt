@@ -1,14 +1,23 @@
 package com.confused.anikuta.feature.extensionssettings
 
 import android.graphics.drawable.Drawable
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +43,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
@@ -74,6 +84,7 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.data.extension.installer.InstallStep
+import com.confused.anikuta.data.extension.installer.isCompleted
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
@@ -316,6 +327,8 @@ fun ExtensionsSettingsScreen(
                                     }
                                 }
                             } else null,
+                            // D-309: live install state for the progress animation.
+                            installStep = installStates[ext.pkgName],
                         )
                     }
 
@@ -559,8 +572,174 @@ private fun SectionHeader(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Row composables
+//  D-309: ExtensionUpdateControl — the update/install progress control.
+//  Was: a bare Refresh icon (indistinguishable from Retry) with ZERO feedback
+//  during the APK download. Now: a filled "Update" pill that morphs into a
+//  live download-progress animation (ring + %) and an installing state.
 // ════════════════════════════════════════════════════════════════════════════
+
+/** Internal UI states of [ExtensionUpdateControl] (drives AnimatedContent). */
+private sealed interface UpdateControlState {
+    /** No update available and nothing installing — control hidden. */
+    data object Hidden : UpdateControlState
+
+    /** Update available — show the "Update" pill button. */
+    data object Ready : UpdateControlState
+
+    /** Queued on the install mutex. */
+    data object Pending : UpdateControlState
+
+    /** APK downloading. -1 = unknown size (indeterminate). */
+    data class Downloading(val progress: Int) : UpdateControlState
+
+    /** PackageInstaller session open (OS prompt imminent). */
+    data object Installing : UpdateControlState
+}
+
+@Composable
+private fun ExtensionUpdateControl(
+    installStep: InstallStep?,
+    onUpdate: (() -> Unit)?,
+) {
+    val state = when (installStep) {
+        is InstallStep.Pending -> UpdateControlState.Pending
+        is InstallStep.Downloading -> UpdateControlState.Downloading(installStep.progress)
+        is InstallStep.Installing -> UpdateControlState.Installing
+        // Terminal / null / Idle → the button (when an update is available).
+        else -> if (onUpdate != null) UpdateControlState.Ready else UpdateControlState.Hidden
+    }
+
+    AnimatedContent(
+        targetState = state,
+        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+        label = "extUpdateControl",
+    ) { target ->
+        when (target) {
+            UpdateControlState.Hidden -> Spacer(Modifier.width(0.dp))
+            UpdateControlState.Ready -> UpdatePillButton(onClick = onUpdate!!)
+            UpdateControlState.Pending -> InstallProgressIndicator(
+                label = null,
+                progress = null,
+            )
+            is UpdateControlState.Downloading -> InstallProgressIndicator(
+                label = if (target.progress >= 0) "${target.progress}%" else null,
+                progress = target.progress.takeIf { it >= 0 },
+            )
+            UpdateControlState.Installing -> InstallProgressIndicator(
+                label = "Installing",
+                progress = null,
+                pulsing = true,
+            )
+        }
+    }
+}
+
+/** The filled "Update" pill (primary bg, Download icon, press-scale feedback). */
+@Composable
+private fun UpdatePillButton(onClick: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = tween(150),
+        label = "updatePillScale",
+    )
+    Surface(
+        color = MaterialTheme.colorScheme.primary,
+        shape = RoundedCornerShape(50),
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {
+                    com.confused.anikuta.core.common.HapticHelper.lightTick(context)
+                    onClick()
+                },
+            ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                text = "Update",
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        }
+    }
+}
+
+/**
+ * Compact install-progress indicator: determinate ring (0..100) when the size
+ * is known, indeterminate ring otherwise; optional label; `pulsing` animates
+ * the label alpha (used for the "Installing" phase).
+ */
+@Composable
+private fun InstallProgressIndicator(
+    label: String?,
+    progress: Int?,
+    pulsing: Boolean = false,
+) {
+    val labelAlpha = if (pulsing) {
+        val transition = rememberInfiniteTransition(label = "installPulse")
+        transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(700, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "installPulseAlpha",
+        ).value
+    } else 1f
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    ) {
+        if (progress != null) {
+            // Determinate ring — fills as the APK streams in.
+            CircularProgressIndicator(
+                progress = { progress / 100f },
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.5.dp,
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        } else {
+            // Indeterminate (unknown size / queued / installing).
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.5.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (label != null) {
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                fontFamily = RobotoFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.graphicsLayer { alpha = labelAlpha },
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun InstalledExtensionRow(
@@ -576,6 +755,10 @@ private fun InstalledExtensionRow(
     onUntrust: () -> Unit,
     onDelete: () -> Unit,
     onUpdate: (() -> Unit)? = null,
+    // D-309: live install state (from ExtensionManager.installStates) so the
+    // update control can animate the download progress. Previously the row
+    // ignored install state entirely — no feedback during an update download.
+    installStep: InstallStep? = null,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -641,15 +824,13 @@ private fun InstalledExtensionRow(
             }
             if (!isReordering) {
                 // Phase 2c: enable/disable toggle removed from list — moved to detail page.
-                // D-301: update button when a newer version is available in the repos.
-                if (onUpdate != null) {
-                    ActionIconButton(
-                        icon = Icons.Filled.Refresh,
-                        contentDescription = "Update",
-                        onClick = onUpdate,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                // D-301/D-309: update control — a filled "Update" pill (was a bare
+                // Refresh icon indistinguishable from Retry) that transforms into a
+                // live download-progress animation while the update installs.
+                ExtensionUpdateControl(
+                    installStep = installStep,
+                    onUpdate = onUpdate,
+                )
                 ActionIconButton(
                     icon = Icons.Filled.VerifiedUser,
                     contentDescription = "Untrust",
@@ -896,11 +1077,21 @@ private fun AvailableExtensionRow(
                 )
             }
             if (isInstalling) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                // D-309: live install feedback (was: a bare indeterminate spinner
+                // for the whole install). Determinate ring + % while downloading;
+                // pulsing "Installing" during the PackageInstaller phase.
+                when (installStep) {
+                    is InstallStep.Downloading -> InstallProgressIndicator(
+                        label = if (installStep.progress >= 0) "${installStep.progress}%" else null,
+                        progress = installStep.progress.takeIf { it >= 0 },
+                    )
+                    is InstallStep.Installing -> InstallProgressIndicator(
+                        label = "Installing",
+                        progress = null,
+                        pulsing = true,
+                    )
+                    else -> InstallProgressIndicator(label = null, progress = null)
+                }
             } else {
                 ActionIconButton(
                     icon = Icons.Filled.Download,
