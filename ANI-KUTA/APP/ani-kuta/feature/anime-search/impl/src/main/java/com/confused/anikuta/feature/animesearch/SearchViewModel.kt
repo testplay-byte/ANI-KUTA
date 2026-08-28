@@ -87,6 +87,32 @@ class SearchViewModel(
     private var showingDefaults = false
     private var defaultsJob: Job? = null
 
+    // D-305: request identity. Every user intent that starts a new load (query
+    // change, mode switch, source switch, retry) funnels through
+    // [beginRequest], which bumps [requestGeneration] and cancels in-flight
+    // loads. Each loader captures the generation at launch and only writes UI
+    // state while still current. This kills the device-reported races where a
+    // slower, superseded response (an older query or ANOTHER source) completed
+    // last and overwrote newer state ("reverts to an older state / shows the
+    // result from some other extension").
+    private var searchJob: Job? = null
+    private var requestGeneration = 0
+
+    /** D-305: starts a new request — cancels superseded loads, returns its generation. */
+    private fun beginRequest(): Int {
+        searchJob?.cancel()
+        defaultsJob?.cancel()
+        searchJob = null
+        defaultsJob = null
+        // The "defaults are showing" bookkeeping is invalidated by any new
+        // request; the loader re-establishes it when it actually serves defaults.
+        showingDefaults = false
+        return ++requestGeneration
+    }
+
+    /** D-305: true while [gen] is still the latest request (nothing superseded it). */
+    private fun isCurrent(gen: Int): Boolean = gen == requestGeneration
+
     /** The trusted extension sources available for browsing. */
     val trustedSources: StateFlow<List<AnimeCatalogueSource>> =
         extensionManager.sources.map { sourceMap ->
@@ -135,8 +161,12 @@ class SearchViewModel(
                         val top = sources.first()
                         _selectedSourceId.value = top.id
                         preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, top.id)
-                        // If the user is already in Extension mode, load the new source's popular.
-                        if (_source.value == SearchSource.EXTENSION) {
+                        // If the user is already in Extension mode, load the new
+                        // source's popular — but NEVER interrupt a live search
+                        // (D-305: the collector fires on any trust/reload of the
+                        // sources map; racing an in-flight search would cancel
+                        // and replace the user's results mid-typing).
+                        if (_source.value == SearchSource.EXTENSION && _query.value.isBlank()) {
                             loadExtensionPopular()
                         }
                     }
@@ -180,10 +210,15 @@ class SearchViewModel(
     fun onSourceChange(source: SearchSource) {
         _source.value = source
         if (source == SearchSource.EXTENSION) {
-            // Load the selected source's popular anime. If no source is selected
-            // yet (auto-select hasn't run), the state stays ExtensionNotAvailable
-            // until the init block's collector picks a source.
-            loadExtensionPopular()
+            // D-305: with a live query, SEARCH the selected source immediately.
+            // Previously this always loaded popular and then DISCARDED it at the
+            // blankness guard — the user saw nothing for the new mode while a
+            // stale AniList/old-source response could still land afterwards.
+            if (_query.value.isNotBlank()) {
+                search(_query.value)
+            } else {
+                loadExtensionPopular()
+            }
         } else {
             if (_query.value.isNotBlank()) {
                 search(_query.value)
@@ -272,12 +307,19 @@ class SearchViewModel(
 
     /**
      * Select an extension source for browsing. Persists the choice.
-     * Triggers a load of that source's popular anime.
+     * D-305: with a live query, searches the NEWLY selected source for that
+     * query — previously it loaded popular and discarded it, while the OLD
+     * source's in-flight search could still complete and show its results
+     * under the new selection (the "result from some other extension" bug).
      */
     fun onSelectExtensionSource(sourceId: Long) {
         _selectedSourceId.value = sourceId
         preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, sourceId)
-        loadExtensionPopular()
+        if (_query.value.isNotBlank()) {
+            search(_query.value)
+        } else {
+            loadExtensionPopular()
+        }
     }
 
     @OptIn(FlowPreview::class)
@@ -315,8 +357,9 @@ class SearchViewModel(
         )
 
         showingDefaults = false
+        val gen = beginRequest()
         _uiState.value = SearchUiState.Loading
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             try {
                 Logger.i(TAG) { "Searching AniList for '$q' (sort=${_sort.value.apiValue})" }
                 val results = anilistApi.searchAnime(
@@ -329,14 +372,18 @@ class SearchViewModel(
                 // D-258 staleness guard: the query was cleared while this
                 // search was in flight — don't clobber the restored defaults.
                 if (_query.value.isBlank()) return@launch
+                // D-305: a newer request superseded this one — drop the result.
+                if (!isCurrent(gen)) return@launch
                 _uiState.value = if (results.isEmpty()) {
                     SearchUiState.Empty
                 } else {
                     SearchUiState.Success(results = results)
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Logger.e(TAG, e) { "Search failed for '$q': ${e.message}" }
                 if (_query.value.isBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
                 _uiState.value = SearchUiState.Error
             }
         }
@@ -378,6 +425,7 @@ class SearchViewModel(
      *   (fail + no cache → Idle).
      */
     private fun loadTrending(): Job {
+        val gen = beginRequest()
         _uiState.value = SearchUiState.Loading
         return viewModelScope.launch {
             // D-278: serve the cached trending payload first (instant, offline).
@@ -392,7 +440,7 @@ class SearchViewModel(
                         Logger.w(TAG) { "Trending cache parse failed: ${parseErr.message}" }
                         emptyList()
                     }
-                    if (cachedResults.isNotEmpty() && _query.value.isBlank()) {
+                    if (cachedResults.isNotEmpty() && _query.value.isBlank() && isCurrent(gen)) {
                         Logger.i(TAG) { "Serving ${cachedResults.size} cached trending as default" }
                         showingDefaults = true
                         _uiState.value = SearchUiState.Success(results = cachedResults)
@@ -407,6 +455,8 @@ class SearchViewModel(
                 // D-258 staleness guard: the user typed a query while the
                 // trending fetch was in flight — don't clobber the search.
                 if (_query.value.isNotBlank()) return@launch
+                // D-305: a newer request superseded this one — drop the result.
+                if (!isCurrent(gen)) return@launch
                 if (results.isEmpty()) {
                     // Network returned empty — only fall to Idle if we have
                     // NO cached fallback already showing (D-278).
@@ -416,14 +466,16 @@ class SearchViewModel(
                     _uiState.value = SearchUiState.Success(results = results)
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Logger.e(TAG, e) { "Trending load failed: ${e.message}" }
                 if (_query.value.isNotBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
                 // D-278: if cache already served (showingDefaults), keep it —
                 // don't clobber with Idle. Only fall to Idle when we have
                 // nothing cached to show.
                 if (!showingDefaults) _uiState.value = SearchUiState.Idle
             }
-        }
+        }.also { defaultsJob = it }
     }
 
     /**
@@ -446,18 +498,26 @@ class SearchViewModel(
             return Job().apply { complete() }
         }
 
+        val gen = beginRequest()
         _uiState.value = SearchUiState.Loading
         return viewModelScope.launch {
             try {
                 Logger.i(TAG) { "Fetching popular anime from source: ${source.name}" }
                 val page = withContext(Dispatchers.IO) { source.getPopularAnime(1) }
-                val results = page.animes.map {
+                // D-304: some extensions (e.g. moviebox) return the same entry
+                // multiple times in one page (overlapping carousel/row sections).
+                // Dedupe by URL — the results grid keys rows by "sourceId:url"
+                // and LazyGrid CRASHES on duplicate keys (device-reported
+                // IllegalArgumentException on a moviebox search).
+                val results = page.animes.distinctBy { it.url }.map {
                     it.toExtensionAnime(sourceId, source.name)
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 // D-258 staleness guard: the user typed a query while the
                 // popular fetch was in flight — don't clobber the search.
                 if (_query.value.isNotBlank()) return@launch
+                // D-305: a newer request superseded this one — drop the result.
+                if (!isCurrent(gen)) return@launch
                 _uiState.value = if (results.isEmpty()) {
                     // D-209: distinguish extension-empty from AniList-empty so the
                     // UI can show the source name + a Refresh button (the empty result
@@ -469,8 +529,11 @@ class SearchViewModel(
                 }
             } catch (e: Throwable) {
                 // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
+                // Cancellation must propagate (D-305 request superseding).
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 // D-209: detect CloudflareException → show the "Open in WebView" button.
                 if (_query.value.isNotBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
                 if (e is CloudflareException) {
                     Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
                     _uiState.value = SearchUiState.CloudflareBlocked(
@@ -484,7 +547,7 @@ class SearchViewModel(
                     )
                 }
             }
-        }
+        }.also { defaultsJob = it }
     }
 
     /**
@@ -506,20 +569,26 @@ class SearchViewModel(
         }
 
         showingDefaults = false
+        val gen = beginRequest()
         _uiState.value = SearchUiState.Loading
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             try {
                 Logger.i(TAG) { "Searching source ${source.name} for '$q'" }
                 val page = withContext(Dispatchers.IO) {
                     source.getSearchAnime(1, q, AnimeFilterList())
                 }
-                val results = page.animes.map {
+                // D-304: dedupe by URL — see loadExtensionPopular. Extensions can
+                // emit the same URL twice in one results page; LazyGrid keys on
+                // "sourceId:url" and crashes on duplicates.
+                val results = page.animes.distinctBy { it.url }.map {
                     it.toExtensionAnime(sourceId, source.name)
                 }
                 Logger.i(TAG) { "Got ${results.size} results from ${source.name}" }
                 // D-258 staleness guard: the query was cleared while this
                 // search was in flight — don't clobber the restored defaults.
                 if (_query.value.isBlank()) return@launch
+                // D-305: a newer request superseded this one — drop the result.
+                if (!isCurrent(gen)) return@launch
                 _uiState.value = if (results.isEmpty()) {
                     // D-209: distinguish extension-empty from AniList-empty.
                     SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
@@ -527,8 +596,12 @@ class SearchViewModel(
                     SearchUiState.ExtensionSuccess(results = results)
                 }
             } catch (e: Throwable) {
+                // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
+                // Cancellation must propagate (D-305 request superseding).
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 // D-209: detect CloudflareException → show the "Open in WebView" button.
                 if (_query.value.isBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
                 if (e is CloudflareException) {
                     Logger.w(TAG) { "Cloudflare blocked ${source.name}: ${e.reason} (url=${e.url})" }
                     _uiState.value = SearchUiState.CloudflareBlocked(

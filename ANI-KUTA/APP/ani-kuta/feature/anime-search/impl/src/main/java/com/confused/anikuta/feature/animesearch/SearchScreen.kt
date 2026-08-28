@@ -163,7 +163,31 @@ fun SearchScreen(
             // D-242-fix3: Show recents ABOVE the results (collapsed by default)
             // when results are displayed. Previously recents only showed in Idle
             // state — they disappeared as soon as results loaded.
-            when (uiState) {
+            //
+            // D-305: mode-consistent rendering. The sealed UI state is shared by
+            // both modes, so an AniList state must NEVER render in Extension mode
+            // and vice versa. A mismatch can only be transient (every mode/source
+            // change launches a fresh load via onSourceChange), so it renders as
+            // Loading until the matching state lands — previously a stale
+            // cross-mode state rendered (e.g. AniList results inside the
+            // Extension tab after a fast switch).
+            val effectiveState = when (source) {
+                SearchSource.ANILIST -> when (uiState) {
+                    is SearchUiState.ExtensionSuccess,
+                    is SearchUiState.ExtensionError,
+                    is SearchUiState.ExtensionEmpty,
+                    SearchUiState.ExtensionNotAvailable,
+                    is SearchUiState.CloudflareBlocked -> SearchUiState.Loading
+                    else -> uiState
+                }
+                SearchSource.EXTENSION -> when (uiState) {
+                    is SearchUiState.Success,
+                    SearchUiState.Empty,
+                    SearchUiState.Error -> SearchUiState.Loading
+                    else -> uiState
+                }
+            }
+            when (effectiveState) {
                 is SearchUiState.Idle -> {
                     Column(
                         modifier = Modifier
@@ -218,7 +242,7 @@ fun SearchScreen(
                 )
 
                 is SearchUiState.ExtensionError -> {
-                    val msg = (uiState as SearchUiState.ExtensionError).message
+                    val msg = (effectiveState as SearchUiState.ExtensionError).message
                     SearchPromptCard(
                         title = "Source error",
                         description = msg,
@@ -232,7 +256,7 @@ fun SearchScreen(
                     // D-209+D-212: Cloudflare blocked the request + the headless solver failed.
                     // D-212: shorter description + switched button colors (Refresh=primary,
                     // Open in WebView=tertiary — the user asked to switch them).
-                    val cf = uiState as SearchUiState.CloudflareBlocked
+                    val cf = effectiveState as SearchUiState.CloudflareBlocked
                     SearchPromptCard(
                         title = "Cloudflare protection",
                         description = "${cf.sourceName} is behind Cloudflare. Solve it in " +
@@ -251,7 +275,7 @@ fun SearchScreen(
                 is SearchUiState.ExtensionEmpty -> {
                     // D-209+D-210+D-212: extension returned 0 results — shorter description +
                     // switched button colors (Refresh=primary, Open in WebView=tertiary).
-                    val ee = uiState as SearchUiState.ExtensionEmpty
+                    val ee = effectiveState as SearchUiState.ExtensionEmpty
                     SearchPromptCard(
                         title = "No results from ${ee.sourceName}",
                         description = "0 results. If Cloudflare-protected, solve it in the WebView.",
@@ -269,7 +293,7 @@ fun SearchScreen(
                 }
 
                 is SearchUiState.Success -> {
-                    val results = (uiState as SearchUiState.Success).results
+                    val results = (effectiveState as SearchUiState.Success).results
                     ResultsGrid(
                         results = results,
                         gridState = gridState,
@@ -285,7 +309,7 @@ fun SearchScreen(
                 }
 
                 is SearchUiState.ExtensionSuccess -> {
-                    val results = (uiState as SearchUiState.ExtensionSuccess).results
+                    val results = (effectiveState as SearchUiState.ExtensionSuccess).results
                     ExtensionResultsGrid(
                         results = results,
                         gridState = gridState,
@@ -560,6 +584,13 @@ private fun ExtensionResultsGrid(
     onResultTap: (ExtensionAnime) -> Unit,
     recentsHeader: RecentsHeaderData? = null,
 ) {
+    // D-304 defense-in-depth: even though the ViewModel dedupes by URL, the
+    // grid keys rows by "sourceId:url" — a duplicate would CRASH LazyGrid
+    // (device-reported IllegalArgumentException). Dedupe again at render time
+    // so no future code path can reintroduce the crash.
+    val distinctResults = remember(results) {
+        results.distinctBy { "${it.sourceId}:${it.url}" }
+    }
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(3),
@@ -583,7 +614,7 @@ private fun ExtensionResultsGrid(
                 )
             }
         }
-        items(results, key = { "${it.sourceId}:${it.url}" }) { anime ->
+        items(distinctResults, key = { "${it.sourceId}:${it.url}" }) { anime ->
             ExtensionResultCard(anime, onResultTap)
         }
     }
