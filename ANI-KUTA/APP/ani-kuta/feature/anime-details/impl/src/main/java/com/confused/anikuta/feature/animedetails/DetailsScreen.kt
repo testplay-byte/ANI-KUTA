@@ -262,7 +262,7 @@ fun DetailsScreen(
         initial = episodeListPrefs.showNextEpisode.get(),
     )
 
-    // D-307/D-308: Season detection on the RAW episode list — shared by the
+    // D-307/D-308/D-312: Season detection on the RAW episode list — shared by the
     // episode pipeline (Success branch) AND the settings sheet (rendered
     // outside it), so it lives here at the top level. Built from the raw list
     // (not the filtered one) so the season structure stays stable regardless
@@ -272,9 +272,28 @@ fun DetailsScreen(
     // organizeBySeasons preference) so the settings sheet keeps offering the
     // Seasons/Number-groups choice even right after the user switches it off
     // (D-307 review fix — the section used to vanish mid-sheet).
+    //
+    // D-312: provider hints — when an episode's NAME carries no season tag but
+    // the provider metadata (AniZip/Kitsu, keyed by episode number) knows its
+    // season, the hint assigns it. Keyed on episodeMetadata too, so the season
+    // structure improves when provider metadata arrives after the list.
     val rawEpisodesForSeasons = (episodeState as? EpisodeState.Loaded)?.episodes
-    val detectedSeasons = remember(rawEpisodesForSeasons) {
-        rawEpisodesForSeasons?.let { groupEpisodesBySeason(it) }
+    val detectedSeasons = remember(rawEpisodesForSeasons, episodeMetadata) {
+        rawEpisodesForSeasons?.let { eps ->
+            val hints = eps.map { ep ->
+                val meta = episodeMetadata[ep.episode_number.toInt()]
+                val sn = meta?.seasonNumber?.takeIf { it > 0 }
+                if (meta != null && sn != null) {
+                    com.confused.anikuta.core.seasons.ProviderSeasonHint(
+                        seasonNumber = sn,
+                        episodeNumberInSeason = meta.episodeNumberInSeason,
+                    )
+                } else {
+                    null
+                }
+            }
+            groupEpisodesBySeason(eps, hints)
+        }
     }
     val seasonGroups = if (organizeBySeasons) detectedSeasons else null
 

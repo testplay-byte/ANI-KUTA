@@ -1,5 +1,7 @@
 package com.confused.anikuta.core.common
 
+import com.confused.anikuta.core.seasons.SeasonDetector
+
 /**
  * Parses episode names to extract clean titles + formats episode numbers.
  *
@@ -89,6 +91,8 @@ object EpisodeTitleParser {
         if (looksLikeCodeOrHash(name)) return null
 
         // D-307: season-prefixed name → the title is whatever follows the tag.
+        // D-312: SeasonDetector now lives in its own :core:seasons module (pattern
+        // registry + provider-hint fusion) — same parse API, richer diagnostics.
         val seasonTag = SeasonDetector.parseSeasonTag(name)
         if (seasonTag != null) {
             return seasonTag.title?.takeUnless { looksLikeCodeOrHash(it) }

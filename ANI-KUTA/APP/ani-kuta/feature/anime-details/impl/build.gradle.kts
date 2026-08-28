@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
+    implementation(project(":core:seasons"))  // D-312: season detection engine (groupEpisodesBySeason + hints)
     implementation(project(":core:metadata"))
     implementation(project(":core:navigation-api"))
     implementation(project(":core:preferences"))

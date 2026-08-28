@@ -23,6 +23,7 @@ include(":app")
 
 // ── :core ──
 include(":core:common")
+include(":core:seasons")  // D-312: dedicated season-management engine (pattern registry + provider-hint fusion)
 include(":core:designsystem")
 include(":core:database")
 include(":core:preferences")

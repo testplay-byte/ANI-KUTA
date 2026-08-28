@@ -201,34 +201,36 @@ data class SeasonGroup(
 )
 
 /**
- * D-307: Splits episodes into season groups using [SeasonDetector] on each
- * episode's name.
+ * D-307/D-312: Splits episodes into season groups using the :core:seasons
+ * [com.confused.anikuta.core.seasons.SeasonDetector] — name tags first, with
+ * OPTIONAL provider hints (AniZip/Kitsu `seasonNumber` metadata) filling the
+ * gaps. The activation rule (≥2 distinct seasons AND ≥50% coverage) now
+ * lives inside the detector's [com.confused.anikuta.core.seasons.SeasonAnalysis].
  *
- * Returns **null** when the list has no detectable multi-season structure
- * (fewer than 2 distinct season tags) — the caller then falls back to the
- * normal number-range grouping pipeline. Season mode only activates for
- * series that are genuinely "divided into multiple seasons" (user spec).
+ * Returns **null** when the list has no detectable multi-season structure —
+ * the caller then falls back to the normal number-range grouping pipeline.
+ * Season mode only activates for series that are genuinely "divided into
+ * multiple seasons" (user spec). The settings-sheet "Organize by" toggle
+ * remains the manual override.
  *
- * Untagged episodes (no "Season N" prefix) land in a trailing "Other" bucket
- * (season = null), only included when non-empty.
+ * @param providerHints Optional parallel list (same size/index as [episodes])
+ *        of nullable provider season hints — when an episode's NAME carries no
+ *        season tag but the metadata knows its season, the hint assigns it.
  */
-fun groupEpisodesBySeason(episodes: List<SEpisode>): List<SeasonGroup>? {
-    val tags = episodes.map { com.confused.anikuta.core.common.SeasonDetector.parseSeasonTag(it.name) }
-    val seasonNumbers = com.confused.anikuta.core.common.SeasonDetector.detectSeasons(
-        episodes.map { it.name },
+fun groupEpisodesBySeason(
+    episodes: List<SEpisode>,
+    providerHints: List<com.confused.anikuta.core.seasons.ProviderSeasonHint?>? = null,
+): List<SeasonGroup>? {
+    val analysis = com.confused.anikuta.core.seasons.SeasonDetector.analyze(
+        names = episodes.map { it.name },
+        providerHints = providerHints,
     )
-    // Activation guard (D-307 review fix): seasons take over the default
-    // organization only when BOTH (a) ≥2 distinct seasons AND (b) a MAJORITY of
-    // episodes carry tags — a couple of mislabeled episodes in a 1000-episode
-    // series must not hijack it into season mode (number-range grouping would
-    // silently disappear). The settings-sheet toggle remains the manual override.
-    val taggedCount = tags.count { it != null }
-    if (seasonNumbers.size < 2 || taggedCount * 2 < episodes.size) return null
+    if (!analysis.isMultiSeason) return null
 
-    val seasonBuckets = seasonNumbers.map { season ->
-        SeasonGroup(season, episodes.filterIndexed { i, _ -> tags[i]?.season == season })
+    val seasonBuckets = analysis.seasons.map { season ->
+        SeasonGroup(season, episodes.filterIndexed { i, _ -> analysis.assignments[i].season == season })
     }
-    val untagged = episodes.filterIndexed { i, _ -> tags[i] == null }
+    val untagged = episodes.filterIndexed { i, _ -> analysis.assignments[i].season == null }
     return if (untagged.isNotEmpty()) seasonBuckets + SeasonGroup(null, untagged) else seasonBuckets
 }
 
