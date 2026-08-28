@@ -7,12 +7,12 @@
 
 ## ⚡ Who You Are
 You are the AI agent for **ANI-KUTA** (Android app rebuild + companion web dashboard).
-GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active branch: `test-feature/video-cache-new-download` (long-lived; all shipped versions since v0.2.48 built here; NOT merged into `main` — user gate per CORE_RULES §8).
+GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active line: `main` — `test-feature/video-cache-new-download` was MERGED into `main` on 2026-08-29 (v0.2.63, user-gated gate opened; first merge since 26e47722). New branch `streaming/CLOUDSTREAM` was created FROM the new main for upcoming user-directed work (purpose TBD by the user — do NOT start work on it until instructed).
 
 ## 📂 If The Environment Was Just Cloned
-1. Clone to `/home/z/ANI-KUTA-WORK/ANI-KUTA` and `git checkout test-feature/video-cache-new-download` (the repo is public — read access works without a token; PUSH needs the GitHub token in the remote URL, ask the user if it was lost in a sandbox wipe).
+1. Clone to `/home/z/ANI-KUTA-WORK/ANI-KUTA` (the repo is public — read access works without a token; PUSH needs the GitHub token in the remote URL — **ask the user for repo URL + token AT THE START of the session**, they may have been lost in a sandbox wipe). Checkout `main` (or `streaming/CLOUDSTREAM` if the user directs the new work there).
 2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers + **Deferred Concerns** (read the top sections first).
-3. Read `AGENT-CONTEXT/memory/decisions.md` → latest = D-326 (v0.2.62 batch; all pending items answered).
+3. Read `AGENT-CONTEXT/memory/decisions.md` → latest = D-329 (v0.2.63 merged to main).
 4. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task.
 
 ## 🔑 Key Rules (full detail in `CORE_RULES.md` — 30 sections)
@@ -75,9 +75,9 @@ ANI-KUTA/                        ← repo root (git)
 ```
 
 ## ❓ Currently Blocked On / Open Items
-- **Nothing blocked** — v0.2.62 was pushed, tagged and released on 2026-08-29 after the user re-provided the GitHub token (the 3rd sandbox wipe had lost it; unblock log: push 1377a79 → Build APK green → tag v0.2.62 → Release APK green → release verified + ntfy sent). ⚠ Token-loss insurance: keep a git bundle of unpushed commits in `/tmp/my-project` (wipe-surviving) — done for v0.2.62.
-- **Ongoing device-feedback loop:** the user tests every release on a real OnePlus device and reports back; each session = fix/polish batch + version bump + release. v0.2.62 (D-324 smoother shared-element morph w/ rounded corners + D-325 multi-season-only episode tags) awaiting device feedback; v0.2.61 verified working on device.
-- **Branch merge into `main`:** user-gated (CORE_RULES §8); the long-lived branch is 100+ commits ahead.
+- **Nothing blocked** — v0.2.63 shipped 2026-08-29 and `test-feature/video-cache-new-download` was MERGED into `main` (user-gated gate opened; --no-ff merge; tag v0.2.63 + release built FROM the merge commit; APK verified ~59.4MB arm64-v8a). `streaming/CLOUDSTREAM` branch created from the new main — AWAITING the user's instructions for its purpose (explicitly no work started on it).
+- **Ongoing device-feedback loop:** the user tests every release on a real OnePlus device and reports back; each session = fix/polish batch + version bump + release. v0.2.63 (D-327 calmer 600ms cover flight + D-328 Library⇄Search ghost-morph fix) awaiting device feedback; v0.2.62 verified working + satisfactory on device.
+- **Branch hygiene note:** the merge commit on main also carried the 2 user web-UI "Add files via upload" commits (moviebox v16.1139 APK + an empty commit) — no conflicts (disjoint paths). The old feature branch still exists remotely (kept for history).
 - See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list (older items like library-badge testing, download-system device testing, Nav3, doc-debt are all resolved/historical — see decisions.md).
 
 ---

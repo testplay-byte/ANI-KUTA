@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
+import com.confused.anikuta.core.designsystem.animation.searchCoverKey  // D-328
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
@@ -431,11 +432,14 @@ private fun ResultCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "resultCardScale",
     )
-    // D-320: shared-element key (search covers are unique per URL); null when
-    // the experimental transition is disabled or the cover is missing.
+    // D-320/D-328: shared-element key — screen-namespaced (cover:search:<url>)
+    // so a Search card can never collide with a Library card showing the SAME
+    // anime (pre-D-328 both built "cover:<url>", and the shared cover flew
+    // between the two pages on every Library ⇄ Search switch). Null when the
+    // experimental transition is disabled or the cover is missing.
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
     val transitionKey = if (appPrefs.coverTransitionEnabled) {
-        anime.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" }
+        searchCoverKey(anime.coverUrl)
     } else null
 
     Box(
@@ -640,10 +644,12 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "extResultCardScale",
     )
-    // D-320: shared-element key for extension results (unique per thumbnail).
+    // D-320/D-328: shared-element key for extension results (cover:search:<url>
+    // — same namespace as the AniList result cards above; the two lists never
+    // compose together, so uniqueness within the screen is what matters).
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
     val transitionKey = if (appPrefs.coverTransitionEnabled) {
-        anime.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" }
+        searchCoverKey(anime.thumbnailUrl)
     } else null
 
     Box(

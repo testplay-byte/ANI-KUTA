@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
+import com.confused.anikuta.core.designsystem.animation.browseCoverKey  // D-328
 import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.badge.PointedSide
@@ -122,12 +123,14 @@ private fun BrowseAnimeCard(
     )
     val badgeColors = rememberBadgeColorScheme()
     val coverShape = RoundedCornerShape(12.dp)
-    // D-320: shared-element key — section-qualified so the same cover URL in
-    // two different sections never collides. Null when the experimental
-    // transition is disabled or the cover is missing.
+    // D-320/D-328: shared-element key — screen-namespaced AND section-qualified
+    // (cover:browse:<section>:<url>) so the same cover URL in two different
+    // browse sections never collides, and a Browse card can never collide
+    // with a Library/Search card showing the same anime either. Null when the
+    // experimental transition is disabled or the cover is missing.
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
     val transitionKey = if (appPrefs.coverTransitionEnabled) {
-        anime.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$sectionKey:$it" }
+        browseCoverKey(sectionKey, anime.coverUrl)
     } else null
 
     Column(

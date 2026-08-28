@@ -121,6 +121,7 @@ import coil3.request.ImageRequest
 import coil3.request.bitmapConfig
 import coil3.request.crossfade
 import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
+import com.confused.anikuta.core.designsystem.animation.libraryCoverKey  // D-328
 import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.common.HapticHelper
@@ -2808,11 +2809,14 @@ private fun LibraryCoverImage(
     reveal: CoverRevealController? = null,
 ) {
     val context = LocalContext.current
-    // D-320: shared-element key for the experimental cover transition
-    // (library covers are unique per URL; null when disabled / no cover).
+    // D-320/D-328: shared-element key for the experimental cover transition.
+    // Screen-namespaced (cover:library:<url>) so a Library card can never
+    // collide with a Search card showing the SAME anime — during a Library ⇄
+    // Search switch both screens compose at once, and pre-D-328 both built
+    // "cover:<url>", making the shared cover fly BETWEEN the two pages.
     val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
     val sharedElementKey = if (appPrefs.coverTransitionEnabled) {
-        url?.takeIf { it.isNotBlank() }?.let { "cover:$it" }
+        libraryCoverKey(url)
     } else null
     val request = remember(url, context) {
         ImageRequest.Builder(context)

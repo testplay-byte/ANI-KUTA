@@ -37,8 +37,10 @@ sealed interface AnimeDetailsKey : NavKey {
      *   compatible with previously saved backstacks.
      * @param title D-320: display hint (the title the source screen showed).
      * @param transitionKey D-320: the shared-element key the SOURCE card used
-     *   (`"cover:<section>:<url>"`). When present, the details cover morphs
-     *   from the tapped card's position (experimental cover transition).
+     *   (`cover:<screen>[:<section>]:<url>` — see the canonical builders in
+     *   `SharedTransitionLocals.kt`, D-328). When present, the details cover
+     *   morphs from the tapped card's position (experimental cover
+     *   transition).
      */
     @Serializable
     data class AniList(

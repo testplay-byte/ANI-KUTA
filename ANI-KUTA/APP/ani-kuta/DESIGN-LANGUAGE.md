@@ -221,12 +221,28 @@ rules solidify.)
 ## 6. Motion
 
 - **Duration:** Standard 300ms, Short 150ms, Long 400ms (theme cross-fade),
-  Container 450ms (shared-element / container morphs — D-324).
+  Container 450ms (the Details nav crossfade — D-324), SharedFlight 600ms
+  (the shared-element cover's own bounds morph — D-327).
 - **Easing:** `FastOutSlowInEasing` for standard transitions; the M3
-  `EasingEmphasized` cubic (0.2, 0, 0, 1) for container morphs and their
-  accompanying screen crossfades — a morphing cover and the fading screens
-  MUST run the same duration + easing (mismatched velocity profiles read as
-  jitter on device).
+  `EasingEmphasized` cubic (0.2, 0, 0, 1) for the Details crossfade AND the
+  shared-element morph. The two durations are deliberately DECOUPLED
+  (D-327): the page crossfade settles at 450ms while the cover keeps gliding
+  to 600ms — "the details page can open up early but the image will move
+  slowly" (user spec). What MUST stay in sync is the easing CURVE — the
+  crossfade and the morph may run different durations on the same curve
+  safely (only one thing is still moving once the page settles), but
+  mismatched curves at equal duration read as jitter on device (the
+  v0.2.61 lesson).
+- **Shared-element keys are NAMESPACED PER SCREEN** (D-328):
+  `cover:library:<url>`, `cover:search:<url>`, `cover:browse:<section>:<url>`
+  — built ONLY through the canonical builders in `SharedTransitionLocals.kt`.
+  During a screen switch both screens compose simultaneously, and ANY two
+  matching keys morph — even across an instant snap switch. Library and
+  Search once shared the `cover:<url>` format, so an anime present on both
+  pages had its cover fly between them on every Library ⇄ Search switch
+  (device-reported ghost morph). Details never constructs a key — it carries
+  the source card's key through `AnimeDetailsKey.transitionKey`, so only
+  list ⇄ Details (and its reverse) can ever match.
 - **Shared-element morphs keep their shape:** while a cover morphs in the
   shared-transition overlay it is clipped to its rounded-12dp shape for the
   whole flight (the overlay's default parent-rectangle clip made rounded

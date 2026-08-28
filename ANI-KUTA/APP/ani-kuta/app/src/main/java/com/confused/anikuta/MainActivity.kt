@@ -59,6 +59,8 @@ import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.animation.LocalNavAnimatedVisibilityScope  // D-320
 import com.confused.anikuta.core.designsystem.animation.LocalSharedTransitionScope  // D-320
+import com.confused.anikuta.core.designsystem.animation.libraryCoverKey  // D-328
+import com.confused.anikuta.core.designsystem.animation.searchCoverKey  // D-328
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.ads.AdsCoordinator  // D-272: smart-link ad coordinator
@@ -553,12 +555,20 @@ fun AppRoot() {
         // `when (currentKey)` switch so covers can morph between screens
         // (Browse/Search/Library cards ⇄ the Details banner cover — the
         // experimental cover transition; reverse-morphs on back).
-        //   • Details in/out → 450ms emphasized crossfade (D-324: SAME token
-        //     + easing the cover morph's BoundsTransform runs on — the screens
-        //     and the flying cover accelerate/settle in lockstep; mismatched
-        //     curves at the old 300ms read as fast + jittery on device).
+        //   • Details in/out → 450ms emphasized crossfade (D-324). D-327: the
+        //     flying cover's OWN bounds morph runs LONGER (600ms,
+        //     Motion.DurationSharedFlight) on the SAME emphasized curve — the
+        //     page settles early while the cover keeps gliding (user spec:
+        //     "the details page can open up early but the image will move
+        //     slowly"). What must stay in sync is the EASING CURVE, not the
+        //     duration (mismatched curves at equal duration were the v0.2.61
+        //     jitter; decoupled durations on one curve are safe).
         //     Every other switch → snap() = the previous instant behavior,
-        //     unchanged.
+        //     unchanged. NOTE: shared elements match by key across the two
+        //     simultaneously-composed screens even on snap switches — that's
+        //     why keys are screen-namespaced (D-328): Library ⇄ Search must
+        //     NEVER match (the v0.2.62 ghost-morph bug); only list ⇄ Details
+        //     is allowed to.
         //   • SaveableStateProvider keyed by screen type preserves each
         //     screen's rememberSaveable state (e.g. the browse grid scroll)
         //     while it is disposed — required for the reverse morph to land
@@ -574,10 +584,11 @@ fun AppRoot() {
                     val detailsInvolved =
                         targetState is AnimeDetailsKey || initialState is AnimeDetailsKey
                     if (detailsInvolved) {
-                        // D-324: duration + easing MUST match the shared
-                        // element's BoundsTransform (coverSharedElement) —
-                        // differing velocity profiles between the fading
-                        // screens and the morphing cover are visible as jitter.
+                        // D-324/D-327: the crossfade runs 450ms emphasized;
+                        // the cover's bounds morph runs 600ms on the SAME
+                        // curve (see coverSharedElement). Curve sync is the
+                        // anti-jitter rule — duration sync is NOT required
+                        // (the page settles first, the cover glides in).
                         fadeIn(
                             tween(
                                 Motion.DurationContainer,
@@ -705,7 +716,7 @@ fun AppRoot() {
                                 entry.anilistId!!,
                                 coverUrl = entry.coverUrl,
                                 title = entry.title,
-                                transitionKey = entry.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
+                                transitionKey = libraryCoverKey(entry.coverUrl),
                             )
                         )
                     } else if (entry.hasExtensionSource) {
@@ -715,7 +726,7 @@ fun AppRoot() {
                                 entry.animeUrl!!,
                                 entry.title,
                                 entry.coverUrl,
-                                transitionKey = entry.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
+                                transitionKey = libraryCoverKey(entry.coverUrl),
                             )
                         )
                     } else {
@@ -731,9 +742,9 @@ fun AppRoot() {
                             anime.id,
                             coverUrl = anime.coverUrl,
                             title = anime.displayName,
-                            // D-320: shared-element key (search grid covers are
-                            // unique per URL).
-                            transitionKey = anime.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
+                            // D-328: namespaced key — MUST match the search
+                            // card's modifier key (searchCoverKey).
+                            transitionKey = searchCoverKey(anime.coverUrl),
                         )
                     )
                 },
@@ -744,7 +755,7 @@ fun AppRoot() {
                             animeUrl,
                             title,
                             thumbnailUrl,
-                            transitionKey = thumbnailUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
+                            transitionKey = searchCoverKey(thumbnailUrl),
                         )
                     )
                 },

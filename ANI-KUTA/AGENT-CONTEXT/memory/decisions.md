@@ -2506,3 +2506,24 @@ Device-feedback batch: D-324 + D-325.
 - **Files:** AndroidConfig.kt.
 - **Status:** ✅ Implemented; tag v0.2.62 + release after CI green.
 - **Date:** 2026-08-29.
+
+### D-327 — Cover flight is 600ms, decoupled from the 450ms page crossfade ("details opens early, image glides")
+
+Device feedback on v0.2.62 (morph works and looks good, but): "the speed of the cover image moving is apparently way too fast… make the speed a little bit slower so that it looks smoother and proper. The details page can open up early but the image will move slowly." Fix: NEW `Motion.DurationSharedFlight` = 600ms — the shared-element cover's own BoundsTransform runs 600ms (was 450) while the Details nav crossfade stays at `DurationContainer` = 450ms. Both keep the SAME EasingEmphasized curve — that is the part that must stay in sync (D-324's jitter was mismatched CURVES at equal duration; decoupled durations on one curve are safe because only one thing is still moving once the page settles). The page content is fully visible at 450ms while the cover glides the remaining 150ms into the banner — the exact "open early, move slowly" behavior requested. The reverse morph (back) picks up the same BoundsTransform automatically. Motion.kt / SharedTransitionLocals.kt / MainActivity comments + DESIGN-LANGUAGE §6 updated to the refined rule: easing-CURVE sync is mandatory, duration sync is not.
+- **Files:** Motion.kt, SharedTransitionLocals.kt, MainActivity.kt, DESIGN-LANGUAGE.md (§6).
+- **Status:** ✅ Implemented (v0.2.63).
+- **Date:** 2026-08-29.
+
+### D-328 — Shared-element keys are screen-namespaced (kills the Library ⇄ Search ghost morph)
+
+Device feedback: "when I switch between the library page and the search page, specific anime content apparently moves from one place to another… the same kind of animation is going between these two pages." Root cause: Library cards AND Search cards both built their shared-element key as `"cover:<url>"`. During ANY AnimatedContent screen switch both screens compose simultaneously, and shared-element matching is independent of the transitionSpec — so an anime visible on both pages (in the library + in the search results) had MATCHING keys on both sides, and its cover morphed ACROSS the two list pages on every Library ⇄ Search switch — even though those switches are instant snap transitions (EnterTransition.None). Fix: canonical screen-namespaced key builders in SharedTransitionLocals.kt — `libraryCoverKey` (`cover:library:<url>`), `searchCoverKey` (`cover:search:<url>`), `browseCoverKey` (`cover:browse:<section>:<url>`) — now used at ALL 7 construction sites (the card-modifier keys in LibraryScreen/SearchScreen×2/BrowseCards + the 4 nav-arg keys MainActivity builds for AnimeDetailsKey). List ⇄ list can never match again (disjoint namespaces); list ⇄ Details still morphs because Details never constructs a key — it carries the source card's key through `AnimeDetailsKey.transitionKey`. Side benefit: the card-modifier key and the nav-arg key for each screen are now built by the SAME function, so the two ends of every morph are structurally unable to drift apart.
+- **Files:** SharedTransitionLocals.kt, MainActivity.kt, LibraryScreen.kt, SearchScreen.kt, BrowseCards.kt, AnimeDetailsKey.kt (doc), DESIGN-LANGUAGE.md (§6).
+- **Status:** ✅ Implemented (v0.2.63).
+- **Date:** 2026-08-29.
+
+### D-329 — Version 0.2.63 + branch merged into main + `streaming/CLOUDSTREAM` branch created
+
+User gate opened: "After doing it I would like you to directly merge this branch with the main branch… verify it afterwards… the APK is being built properly from the main branch, the size is proper… then create a new branch from the new main branch named /streaming/CLOUDSTREAM." Version 0.2.62 → 0.2.63 (versionCode 63). Pipeline: fixes on `test-feature/video-cache-new-download` → CI green → merge into `main` (main had diverged from the merge-base 26e47722 by exactly 2 user web-UI "Add files via upload" commits — the moviebox v16.1139 APK + one empty commit — disjoint paths, clean `--no-ff` merge) → tag v0.2.63 on the merge commit → Release APK built FROM main → verify APK + size (~59.4MB arm64-v8a expected) → create `streaming/CLOUDSTREAM` from the new main for upcoming user-directed work (purpose TBD — explicitly NO work started on it). NOTE: the user asked for "/streaming/CLOUDSTREAM"; a leading slash is not a valid git refname component (empty first path element), so the branch is `streaming/CLOUDSTREAM`.
+- **Files:** AndroidConfig.kt + memory docs.
+- **Status:** ✅ Implemented; tag v0.2.63 + release after CI green.
+- **Date:** 2026-08-29.
