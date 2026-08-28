@@ -46,7 +46,11 @@ object SeasonDetector {
             val season = match.groupValues.getOrNull(1)?.toIntOrNull() ?: continue
             if (season <= 0) continue
 
-            val episodeInSeason = match.groups.getOrNull(2)?.value?.toIntOrNull()
+            // groupValues returns "" for unmatched groups — the season-only
+            // pattern has no second group, so episodeInSeason stays null there.
+            val episodeInSeason = match.groupValues.getOrNull(2)
+                ?.takeIf { it.isNotEmpty() }
+                ?.toIntOrNull()
             var title = name.substring(match.range.last + 1).trim()
             // Drop the matching trailing paren when the name opened with one
             // (handles "( ... )" and "( ... ) trailing junk" safely).
