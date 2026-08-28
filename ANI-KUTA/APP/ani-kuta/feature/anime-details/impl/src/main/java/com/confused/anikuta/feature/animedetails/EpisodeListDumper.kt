@@ -147,7 +147,7 @@ object EpisodeListDumper {
      */
     private fun log(line: String) {
         Log.i(TAG, line)
-        if (Logger.enabled) {
+        if (Logger.isEnabled) {
             Logger.d(TAG) { line }
         }
     }
