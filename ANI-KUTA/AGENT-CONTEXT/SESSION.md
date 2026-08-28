@@ -75,8 +75,8 @@ ANI-KUTA/                        ← repo root (git)
 ```
 
 ## ❓ Currently Blocked On / Open Items
-- **v0.2.62 push (2026-08-29):** the sandbox was wiped (3rd time) and the GitHub token — which lived only in the old clone's remote URL — was lost. The complete v0.2.62 work (D-324 smoother shared-element morph + D-325 multi-season-only episode tags) is committed locally on `test-feature/video-cache-new-download`; push + CI + tag + release resume the moment the token is re-provided.
-- **Ongoing device-feedback loop:** the user tests every release on a real OnePlus device and reports back; each session = fix/polish batch + version bump + release. v0.2.61 (compose 1.10.4 alignment — D-322) verified working on device.
+- **Nothing blocked** — v0.2.62 was pushed, tagged and released on 2026-08-29 after the user re-provided the GitHub token (the 3rd sandbox wipe had lost it; unblock log: push 1377a79 → Build APK green → tag v0.2.62 → Release APK green → release verified + ntfy sent). ⚠ Token-loss insurance: keep a git bundle of unpushed commits in `/tmp/my-project` (wipe-surviving) — done for v0.2.62.
+- **Ongoing device-feedback loop:** the user tests every release on a real OnePlus device and reports back; each session = fix/polish batch + version bump + release. v0.2.62 (D-324 smoother shared-element morph w/ rounded corners + D-325 multi-season-only episode tags) awaiting device feedback; v0.2.61 verified working on device.
 - **Branch merge into `main`:** user-gated (CORE_RULES §8); the long-lived branch is 100+ commits ahead.
 - See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list (older items like library-badge testing, download-system device testing, Nav3, doc-debt are all resolved/historical — see decisions.md).
 
