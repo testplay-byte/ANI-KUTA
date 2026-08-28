@@ -63,11 +63,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.anilist.model.AniListAnime
+import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.LocalCardDescriptionColor
 import com.confused.anikuta.core.designsystem.theme.LocalCardHeadingColor
 import com.confused.anikuta.core.designsystem.theme.Motion
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.feature.animesearch.ExtensionAnime
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import org.koin.compose.viewmodel.koinViewModel
@@ -88,7 +90,9 @@ import org.koin.compose.viewmodel.koinViewModel
  */
 @Composable
 fun SearchScreen(
-    onNavigateToDetails: (Int) -> Unit,
+    // D-320: passes the full anime so the nav key can carry the cover/title
+    // + the shared-element key (experimental cover transition).
+    onNavigateToDetails: (AniListAnime) -> Unit,
     onNavigateToExtensionAnime: (Long, String, String, String?) -> Unit = { _, _, _, _ -> },
     // D-209: callback to open the Cloudflare WebView solver (launched from the
     // CloudflareBlocked error state). MainActivity launches CloudflareWebViewActivity.
@@ -386,7 +390,7 @@ private class RecentsHeaderData(
 private fun ResultsGrid(
     results: List<AniListAnime>,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
-    onResultTap: (Int) -> Unit,
+    onResultTap: (AniListAnime) -> Unit,
     recentsHeader: RecentsHeaderData? = null,
 ) {
     LazyVerticalGrid(
@@ -419,7 +423,7 @@ private fun ResultsGrid(
 }
 
 @Composable
-private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
+private fun ResultCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -427,6 +431,12 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "resultCardScale",
     )
+    // D-320: shared-element key (search covers are unique per URL); null when
+    // the experimental transition is disabled or the cover is missing.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val transitionKey = if (appPrefs.coverTransitionEnabled) {
+        anime.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" }
+    } else null
 
     Box(
         modifier = Modifier
@@ -435,7 +445,7 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onClick(anime.id) },
+                onClick = { onClick(anime) },
             ),
     ) {
         AsyncImage(
@@ -445,6 +455,7 @@ private fun ResultCard(anime: AniListAnime, onClick: (Int) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
+                .coverSharedElement(transitionKey)
                 .clip(RoundedCornerShape(12.dp)),
         )
 
@@ -629,6 +640,11 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
         animationSpec = tween(Motion.DurationShort, easing = FastOutSlowInEasing),
         label = "extResultCardScale",
     )
+    // D-320: shared-element key for extension results (unique per thumbnail).
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val transitionKey = if (appPrefs.coverTransitionEnabled) {
+        anime.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" }
+    } else null
 
     Box(
         modifier = Modifier
@@ -647,6 +663,7 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
+                .coverSharedElement(transitionKey)
                 .clip(RoundedCornerShape(12.dp)),
         )
 

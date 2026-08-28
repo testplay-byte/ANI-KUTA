@@ -199,8 +199,15 @@ fun BrowseScreen(
                             }
                             item(key = "trending_carousel") {
                                 BrowseSection(visible = s.anime.isNotEmpty()) {
-                                    AnimeCarousel(anime = s.anime) { anime ->
-                                        onNavigate(AnimeDetailsKey.AniList(anime.id))
+                                    AnimeCarousel(anime = s.anime, sectionKey = "trending") { anime, transitionKey ->
+                                        onNavigate(
+                                            AnimeDetailsKey.AniList(
+                                                anime.id,
+                                                coverUrl = anime.coverUrl,
+                                                title = anime.displayName,
+                                                transitionKey = transitionKey,
+                                            )
+                                        )
                                     }
                                 }
                             }
@@ -213,8 +220,15 @@ fun BrowseScreen(
                             }
                             item(key = "popular_carousel") {
                                 BrowseSection(visible = popular.isNotEmpty()) {
-                                    AnimeCarousel(anime = popular) { anime ->
-                                        onNavigate(AnimeDetailsKey.AniList(anime.id))
+                                    AnimeCarousel(anime = popular, sectionKey = "popular") { anime, transitionKey ->
+                                        onNavigate(
+                                            AnimeDetailsKey.AniList(
+                                                anime.id,
+                                                coverUrl = anime.coverUrl,
+                                                title = anime.displayName,
+                                                transitionKey = transitionKey,
+                                            )
+                                        )
                                     }
                                 }
                             }
@@ -227,8 +241,15 @@ fun BrowseScreen(
                             }
                             item(key = "top_rated_carousel") {
                                 BrowseSection(visible = topRated.isNotEmpty()) {
-                                    AnimeCarousel(anime = topRated) { anime ->
-                                        onNavigate(AnimeDetailsKey.AniList(anime.id))
+                                    AnimeCarousel(anime = topRated, sectionKey = "top") { anime, transitionKey ->
+                                        onNavigate(
+                                            AnimeDetailsKey.AniList(
+                                                anime.id,
+                                                coverUrl = anime.coverUrl,
+                                                title = anime.displayName,
+                                                transitionKey = transitionKey,
+                                            )
+                                        )
                                     }
                                 }
                             }

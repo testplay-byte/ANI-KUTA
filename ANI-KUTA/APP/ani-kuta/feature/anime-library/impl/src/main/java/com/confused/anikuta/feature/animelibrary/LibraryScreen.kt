@@ -120,6 +120,8 @@ import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.bitmapConfig
 import coil3.request.crossfade
+import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
+import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.core.content.LibraryCategory
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.badge.PointedSide
@@ -2806,6 +2808,12 @@ private fun LibraryCoverImage(
     reveal: CoverRevealController? = null,
 ) {
     val context = LocalContext.current
+    // D-320: shared-element key for the experimental cover transition
+    // (library covers are unique per URL; null when disabled / no cover).
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val sharedElementKey = if (appPrefs.coverTransitionEnabled) {
+        url?.takeIf { it.isNotBlank() }?.let { "cover:$it" }
+    } else null
     val request = remember(url, context) {
         ImageRequest.Builder(context)
             .data(url)
@@ -2860,6 +2868,7 @@ private fun LibraryCoverImage(
             // cell's layer — zero recomposition churn in the grid.
             modifier = Modifier
                 .fillMaxSize()
+                .coverSharedElement(sharedElementKey)
                 .graphicsLayer { alpha = revealAlpha.value },
         )
     }

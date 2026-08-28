@@ -58,6 +58,8 @@ fun DetailsPageSettingsScreen(
     var tintEnabled by remember { mutableStateOf(appPrefs.detailsBannerTint) }
     var bgSource by remember { mutableStateOf(appPrefs.detailsBackgroundSource) }
     var animationEnabled by remember { mutableStateOf(appPrefs.detailsBannerAnimation) }
+    // D-320: experimental shared-element cover transition.
+    var coverTransitionEnabled by remember { mutableStateOf(appPrefs.coverTransitionEnabled) }
 
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
@@ -159,6 +161,21 @@ fun DetailsPageSettingsScreen(
                             onCheckedChange = {
                                 animationEnabled = it
                                 appPrefs.detailsBannerAnimation = it
+                            },
+                        )
+                    }
+                    // ── D-320: experimental cover transition ──
+                    item {
+                        SettingsSectionLabel("Navigation")
+                    }
+                    item {
+                        SwitchCard(
+                            title = "Cover transition (experimental)",
+                            subtitle = "Tapping a cover on Browse, Search or Library morphs it into the details page, and back again on return",
+                            checked = coverTransitionEnabled,
+                            onCheckedChange = {
+                                coverTransitionEnabled = it
+                                appPrefs.coverTransitionEnabled = it
                             },
                         )
                     }

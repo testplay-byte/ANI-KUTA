@@ -145,25 +145,7 @@ fun CoverViewerOverlay(
     var zoomPanX by remember { mutableFloatStateOf(0f) }
     var zoomPanY by remember { mutableFloatStateOf(0f) }
     var imageBoxSize by remember { mutableStateOf(IntSize.Zero) }
-    val zoomResetSpec = tween<Float>(Motion.DurationStandard, easing = Motion.EasingStandard)
-    val transformState = rememberTransformableState(
-        onGestureEnd = {
-            // Auto zoom-out on release.
-            scope.launch {
-                kotlinx.coroutines.coroutineScope {
-                    launch {
-                        animate(zoomScale, 1f, animationSpec = zoomResetSpec) { v, _ -> zoomScale = v }
-                    }
-                    launch {
-                        animate(zoomPanX, 0f, animationSpec = zoomResetSpec) { v, _ -> zoomPanX = v }
-                    }
-                    launch {
-                        animate(zoomPanY, 0f, animationSpec = zoomResetSpec) { v, _ -> zoomPanY = v }
-                    }
-                }
-            }
-        },
-    ) { zoomChange, panChange, _ ->
+    val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         val newScale = (zoomScale * zoomChange).coerceIn(1f, 6f)
         zoomScale = newScale
         if (newScale > 1f && imageBoxSize != IntSize.Zero) {
@@ -176,6 +158,22 @@ fun CoverViewerOverlay(
             zoomPanX = 0f
             zoomPanY = 0f
         }
+    }
+    // Gesture-end detection (foundation 1.7 has no onGestureEnd overload):
+    // observe the state's isTransformInProgress flag — when the fingers lift
+    // it flips false and the zoom + pan animate back to rest.
+    LaunchedEffect(transformState) {
+        androidx.compose.runtime.snapshotFlow { transformState.isTransformInProgress }
+            .collect { inProgress ->
+                if (!inProgress && (zoomScale != 1f || zoomPanX != 0f || zoomPanY != 0f)) {
+                    val resetSpec = tween<Float>(Motion.DurationStandard, easing = Motion.EasingStandard)
+                    kotlinx.coroutines.coroutineScope {
+                        launch { animate(zoomScale, 1f, animationSpec = resetSpec) { v, _ -> zoomScale = v } }
+                        launch { animate(zoomPanX, 0f, animationSpec = resetSpec) { v, _ -> zoomPanX = v } }
+                        launch { animate(zoomPanY, 0f, animationSpec = resetSpec) { v, _ -> zoomPanY = v } }
+                    }
+                }
+            }
     }
 
     fun close() {
@@ -446,11 +444,13 @@ private fun lerpF(a: Float, b: Float, t: Float) = a + (b - a) * t
  */
 private suspend fun fetchCoverBytes(imageLoader: ImageLoader, client: OkHttpClient, url: String): ByteArray {
     imageLoader.diskCache?.let { diskCache ->
-        val entry = diskCache.get(url)
-        val file = entry?.file
-        if (file != null && file.exists() && file.length() > 0) {
-            Logger.d(COVER_VIEWER_TAG) { "Save: using cached bytes (${file.length()}B) for $url" }
-            return file.readBytes()
+        // Coil 3 API: openSnapshot must be closed (use{}); data is an okio Path.
+        diskCache.openSnapshot(url)?.use { snapshot ->
+            val file = snapshot.data.toFile()
+            if (file.exists() && file.length() > 0) {
+                Logger.d(COVER_VIEWER_TAG) { "Save: using cached bytes (${file.length()}B) for $url" }
+                return file.readBytes()
+            }
         }
     }
     Logger.d(COVER_VIEWER_TAG) { "Save: disk cache miss — fetching $url over network" }

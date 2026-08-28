@@ -88,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import androidx.compose.ui.layout.onGloballyPositioned  // D-315: cover bounds
 import androidx.compose.ui.layout.boundsInRoot  // D-315: cover bounds
+import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.common.Logger
@@ -321,6 +322,25 @@ fun DetailsScreen(
     // D-315: full-screen cover viewer (opened by tapping the banner cover).
     var showCoverViewer by remember { mutableStateOf(false) }
     var coverViewerBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+
+    // ── D-320: shared-element cover transition (experimental) ──
+    // The SOURCE screen (Browse/Search/Library card) carries the cover it
+    // rendered + the shared-element key through the nav key. Resolving the key
+    // here lets BOTH the loading skeleton and the banner cover morph from the
+    // tapped card (and back on back-navigation). Null when the feature is
+    // disabled or the source had no cover.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val navKeyCoverUrl = when (val k = detailsKey) {
+        is AnimeDetailsKey.AniList -> k.coverUrl
+        is AnimeDetailsKey.Extension -> k.thumbnailUrl
+    }
+    val navKeyTitle = when (val k = detailsKey) {
+        is AnimeDetailsKey.AniList -> k.title
+        is AnimeDetailsKey.Extension -> k.title
+    }
+    val sharedCoverKey = if (appPrefs.coverTransitionEnabled) {
+        detailsKey.transitionKey
+    } else null
 
     // D-230: Episode list settings sheet + search state.
     var showEpisodeSettingsSheet by remember { mutableStateOf(false) }
@@ -635,12 +655,28 @@ fun DetailsScreen(
                 .background(MaterialTheme.colorScheme.background),
         ) {
             when (val s = state) {
-                is DetailsState.Loading -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
-            }
+                is DetailsState.Loading -> {
+                    // D-320: when the source screen handed us a cover (shared-
+                    // element transition), show a banner SKELETON at the exact
+                    // banner geometry instead of a bare centered spinner — the
+                    // morphing cover has a landing spot the instant the screen
+                    // composes, even before the data loads, and the swap to the
+                    // Success banner is seamless (identical layout).
+                    if (navKeyCoverUrl != null && sharedCoverKey != null) {
+                        DetailsSkeletonBanner(
+                            coverUrl = navKeyCoverUrl,
+                            title = navKeyTitle,
+                            sharedCoverKey = sharedCoverKey,
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 3.dp)
+                        }
+                    }
+                }
 
             is DetailsState.Error -> ErrorState(s.message)
 
@@ -714,6 +750,9 @@ fun DetailsScreen(
                                     coverViewerBounds = bounds
                                     showCoverViewer = true
                                 },
+                                // D-320: shared-element key — the banner cover
+                                // morphs from the source card on entry + back.
+                                sharedCoverKey = sharedCoverKey,
                                 saved = isInLibrary,
                                 onToggleSave = { viewModel.toggleLibrary() },
                                 onLongPressSave = { viewModel.openCategorySheet() },
@@ -1373,6 +1412,8 @@ private fun DetailBanner(
     // D-315: cover tap → full-screen viewer (carries the cover's on-screen
     // bounds so the viewer can expand from the exact position).
     onCoverClick: (androidx.compose.ui.geometry.Rect) -> Unit = {},
+    // D-320: shared-element key for the cover-transition (experimental).
+    sharedCoverKey: String? = null,
     // Phase B: AniList link state + callbacks
     isExtensionEntry: Boolean = false,
     isAniListLinked: Boolean = false,
@@ -1614,6 +1655,7 @@ private fun DetailBanner(
                     contentDescription = anime.displayName,
                     modifier = Modifier
                         .size(width = 100.dp, height = 150.dp)
+                        .coverSharedElement(sharedCoverKey)
                         .clip(RoundedCornerShape(12.dp))
                         .onGloballyPositioned { coverBounds = it.boundsInRoot() }
                         .clickable { onCoverClick(coverBounds) },
@@ -3384,6 +3426,98 @@ private fun ErrorState(message: String) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  D-320: Details loading skeleton (shared-element landing spot)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * D-320: Loading-state banner skeleton at the EXACT DetailBanner geometry
+ * (360dp blurred backdrop + gradient + 100×150dp cover at BottomStart + title).
+ *
+ * Shown only when the source screen handed us a cover via the nav key (the
+ * shared-element transition path): the morphing cover lands here the instant
+ * the details screen composes — no blank flash while the data loads — and the
+ * later swap to the real Success banner is pixel-seamless because the cover
+ * sits at identical bounds. A centered spinner fills the rest of the screen.
+ */
+@Composable
+private fun DetailsSkeletonBanner(
+    coverUrl: String,
+    title: String?,
+    sharedCoverKey: String,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Blurred backdrop (same recipe as the real banner).
+            Box(modifier = Modifier.fillMaxWidth().height(360.dp)) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().blur(8.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.2f),
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background,
+                                ),
+                            ),
+                        ),
+                )
+            }
+            // Bottom row: the morphing cover + title.
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                AsyncImage(
+                    model = coverUrl,
+                    contentDescription = title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(width = 100.dp, height = 150.dp)
+                        .coverSharedElement(sharedCoverKey)
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    if (!title.isNullOrBlank()) {
+                        Text(
+                            text = title,
+                            fontFamily = RobotoFamily,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                                ?: MaterialTheme.colorScheme.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.primary,
+                strokeWidth = 3.dp,
+            )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  D-318: Custom pull-to-refresh indicator (details page)
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -3403,6 +3537,7 @@ private fun ErrorState(message: String) {
  * All per-frame values are read inside graphicsLayer — the composition itself
  * never invalidates during a pull.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)  // PullToRefreshState
 @Composable
 private fun PullToRefreshIndicator(
     state: androidx.compose.material3.pulltorefresh.PullToRefreshState,

@@ -10,6 +10,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.snap
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.confused.anikuta.core.designsystem.component.AnikutaBottomNavBar
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.animation.LocalNavAnimatedVisibilityScope  // D-320
+import com.confused.anikuta.core.designsystem.animation.LocalSharedTransitionScope  // D-320
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.appupdate.AppUpdateManager
 import com.confused.anikuta.core.ads.AdsCoordinator  // D-272: smart-link ad coordinator
@@ -348,6 +359,7 @@ private val allowedUpdateSheetKeys = setOf(
  *   in both light and dark mode.
  */
 @androidx.compose.material3.ExperimentalMaterial3Api
+@OptIn(ExperimentalSharedTransitionApi::class)  // D-320: cover transition
 @Composable
 fun AppRoot() {
     // D-209: captured here so the Cloudflare "Open in WebView" callbacks (non-
@@ -534,7 +546,44 @@ fun AppRoot() {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         ) {
-        when (currentKey) {
+        // ── D-320: shared-element navigation shell ──
+        // SharedTransitionLayout + AnimatedContent replace the plain
+        // `when (currentKey)` switch so covers can morph between screens
+        // (Browse/Search/Library cards ⇄ the Details banner cover — the
+        // experimental cover transition; reverse-morphs on back).
+        //   • Details in/out → 280ms crossfade (gives the shared element a
+        //     transition window); every other switch → snap() = the previous
+        //     instant behavior, unchanged.
+        //   • SaveableStateProvider keyed by screen type preserves each
+        //     screen's rememberSaveable state (e.g. the browse grid scroll)
+        //     while it is disposed — required for the reverse morph to land
+        //     back on the tapped card, and a general navigation improvement.
+        //   • The inner lambda parameter SHADOWS the outer `currentKey` val on
+        //     purpose — every existing `when` branch body keeps working
+        //     verbatim.
+        val saveableStateHolder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            AnimatedContent(
+                targetState = currentKey,
+                transitionSpec = {
+                    val detailsInvolved =
+                        targetState is AnimeDetailsKey || initialState is AnimeDetailsKey
+                    if (detailsInvolved) {
+                        fadeIn(tween(280)) togetherWith fadeOut(tween(280))
+                    } else {
+                        snap()
+                    }
+                },
+                label = "appNav",
+            ) { currentKey ->
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedVisibilityScope provides this,
+                ) {
+                    saveableStateHolder.SaveableStateProvider(
+                        currentKey::class.simpleName ?: "screen",
+                    ) {
+                        when (currentKey) {
             is AnimeBrowseKey -> BrowseScreen(
                 onNavigate = { navKey ->
                     // D-272: route Details navigations through the ad gate;
@@ -627,8 +676,17 @@ fun AppRoot() {
                     // D-140: Navigate based on the entry type.
                     // If it has an anilistId → open via AniList.
                     // If it only has an extension source → open via Extension.
+                    // D-320: carry coverUrl/title + the shared-element key so
+                    // the cover morphs from the tapped card (experimental).
                     if (entry.hasAniListId) {
-                        navigateToDetails(AnimeDetailsKey.AniList(entry.anilistId!!))
+                        navigateToDetails(
+                            AnimeDetailsKey.AniList(
+                                entry.anilistId!!,
+                                coverUrl = entry.coverUrl,
+                                title = entry.title,
+                                transitionKey = entry.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
+                            )
+                        )
                     } else if (entry.hasExtensionSource) {
                         navigateToDetails(
                             AnimeDetailsKey.Extension(
@@ -636,6 +694,7 @@ fun AppRoot() {
                                 entry.animeUrl!!,
                                 entry.title,
                                 entry.coverUrl,
+                                transitionKey = entry.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
                             )
                         )
                     } else {
@@ -645,11 +704,28 @@ fun AppRoot() {
                 }
             )
             is AnimeSearchKey -> SearchScreen(
-                onNavigateToDetails = { animeId ->
-                    navigateToDetails(AnimeDetailsKey.AniList(animeId))
+                onNavigateToDetails = { anime ->
+                    navigateToDetails(
+                        AnimeDetailsKey.AniList(
+                            anime.id,
+                            coverUrl = anime.coverUrl,
+                            title = anime.displayName,
+                            // D-320: shared-element key (search grid covers are
+                            // unique per URL).
+                            transitionKey = anime.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
+                        )
+                    )
                 },
                 onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
-                    navigateToDetails(AnimeDetailsKey.Extension(sourceId, animeUrl, title, thumbnailUrl))
+                    navigateToDetails(
+                        AnimeDetailsKey.Extension(
+                            sourceId,
+                            animeUrl,
+                            title,
+                            thumbnailUrl,
+                            transitionKey = thumbnailUrl?.takeIf { it.isNotBlank() }?.let { "cover:$it" },
+                        )
+                    )
                 },
                 // D-209: Cloudflare manual solver — launched from the Search error card.
                 onOpenCloudflareWebView = { url, sourceName ->
@@ -900,6 +976,10 @@ fun AppRoot() {
                 }
             }
         }
+                    } // end saveableStateHolder.SaveableStateProvider
+                } // end CompositionLocalProvider(D-320 scopes)
+            } // end AnimatedContent content
+        } // end SharedTransitionLayout (D-320)
 
         // Bottom navigation — ONLY show on root tab screens (not sub-screens)
         val showBottomNav = currentKey::class in rootTabKeys

@@ -13,6 +13,9 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.foundation)
+    // D-320: SharedTransitionScope/AnimatedVisibilityScope for the experimental
+    // cover transition locals + helper.
+    implementation("androidx.compose.animation:animation")
     implementation("androidx.compose.material:material-icons-extended")
     // D-223: Palette API for adaptive color extraction from cover images.
     implementation(libs.androidx.palette.ktx)

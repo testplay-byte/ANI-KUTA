@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:debug-api"))  // DB-7: LocalDebugContext
     implementation(project(":core:navigation-api"))
     implementation(project(":core:designsystem"))
+    implementation(project(":core:preferences"))  // D-320: cover-transition gate
     implementation(project(":core:anilist"))
     implementation(project(":core:common"))
     implementation(project(":core:data-cache"))

@@ -41,6 +41,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.confused.anikuta.core.designsystem.animation.coverSharedElement  // D-320
+import org.koin.compose.koinInject  // D-320: prefs gate for the cover transition
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.designsystem.badge.PointedSide
 import com.confused.anikuta.core.designsystem.badge.PointedTagShape
@@ -76,14 +78,18 @@ internal fun BrowseSectionHeader(title: String) {
 @Composable
 internal fun AnimeCarousel(
     anime: List<AniListAnime>,
-    onClick: (AniListAnime) -> Unit,
+    // D-320: section qualifier for the shared-element key — the same anime can
+    // appear in MULTIPLE sections (Trending AND Top Rated), and shared-element
+    // keys must be unique within one composition.
+    sectionKey: String,
+    onClick: (AniListAnime, String?) -> Unit,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         items(anime, key = { it.id }) { item ->
-            BrowseAnimeCard(item, onClick)
+            BrowseAnimeCard(item, sectionKey, onClick)
         }
     }
 }
@@ -102,7 +108,11 @@ internal fun AnimeCarousel(
  * - Press-scale 0.95 (unchanged — the proven card feedback pattern).
  */
 @Composable
-private fun BrowseAnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
+private fun BrowseAnimeCard(
+    anime: AniListAnime,
+    sectionKey: String,
+    onClick: (AniListAnime, String?) -> Unit,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -112,6 +122,13 @@ private fun BrowseAnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit
     )
     val badgeColors = rememberBadgeColorScheme()
     val coverShape = RoundedCornerShape(12.dp)
+    // D-320: shared-element key — section-qualified so the same cover URL in
+    // two different sections never collides. Null when the experimental
+    // transition is disabled or the cover is missing.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val transitionKey = if (appPrefs.coverTransitionEnabled) {
+        anime.coverUrl?.takeIf { it.isNotBlank() }?.let { "cover:$sectionKey:$it" }
+    } else null
 
     Column(
         modifier = Modifier
@@ -120,7 +137,7 @@ private fun BrowseAnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onClick(anime) },
+                onClick = { onClick(anime, transitionKey) },
             ),
     ) {
         // Cover — clipped Box (so the flush badge follows the rounded corner)
@@ -140,7 +157,9 @@ private fun BrowseAnimeCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit
                 model = anime.coverUrl,
                 contentDescription = anime.displayName,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .coverSharedElement(transitionKey),
             )
             // Score badge — amber pointed corner tag, flush at top-start.
             // The outer (top-start) corner is clipped to the cover's 12dp
