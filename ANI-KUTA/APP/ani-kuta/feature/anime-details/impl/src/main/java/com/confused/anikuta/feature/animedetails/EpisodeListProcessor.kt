@@ -201,37 +201,85 @@ data class SeasonGroup(
 )
 
 /**
- * D-307/D-312: Splits episodes into season groups using the :core:seasons
+ * D-317: Everything the Details screen needs about seasons, from ONE analysis
+ * pass (the old D-307/D-312 path ran the detector twice).
+ *
+ * @param groups The season buckets (null = no multi-season structure — the
+ *        caller falls back to the number-range/flat pipeline). Includes the
+ *        trailing "Other" bucket (season = null) when untagged episodes exist.
+ * @param assignmentsByEpisodeUrl Per-episode season assignment (name tag or
+ *        provider hint), keyed by episode URL — drives the "S-3/E-5" tag.
+ * @param seasonNumbersByEpisodeUrl The per-season DISPLAY number for each
+ *        episode URL (S2E1 → 1) — drives the plain tag inside a selected
+ *        season slice. Guaranteed unique within each season bucket.
+ */
+data class EpisodeSeasonInfo(
+    val groups: List<SeasonGroup>?,
+    val assignmentsByEpisodeUrl: Map<String, com.confused.anikuta.core.seasons.SeasonAssignment>,
+    val seasonNumbersByEpisodeUrl: Map<String, Int>,
+)
+
+/**
+ * D-307/D-312/D-317: One-pass season analysis using the :core:seasons
  * [com.confused.anikuta.core.seasons.SeasonDetector] — name tags first, with
  * OPTIONAL provider hints (AniZip/Kitsu `seasonNumber` metadata) filling the
- * gaps. The activation rule (≥2 distinct seasons AND ≥50% coverage) now
- * lives inside the detector's [com.confused.anikuta.core.seasons.SeasonAnalysis].
- *
- * Returns **null** when the list has no detectable multi-season structure —
- * the caller then falls back to the normal number-range grouping pipeline.
- * Season mode only activates for series that are genuinely "divided into
- * multiple seasons" (user spec). The settings-sheet "Organize by" toggle
- * remains the manual override.
+ * gaps. The activation rule (≥2 distinct seasons AND ≥50% coverage) lives in
+ * the detector's [com.confused.anikuta.core.seasons.SeasonAnalysis].
  *
  * @param providerHints Optional parallel list (same size/index as [episodes])
  *        of nullable provider season hints — when an episode's NAME carries no
  *        season tag but the metadata knows its season, the hint assigns it.
  */
-fun groupEpisodesBySeason(
+fun analyzeEpisodeSeasons(
     episodes: List<SEpisode>,
     providerHints: List<com.confused.anikuta.core.seasons.ProviderSeasonHint?>? = null,
-): List<SeasonGroup>? {
+): EpisodeSeasonInfo {
     val analysis = com.confused.anikuta.core.seasons.SeasonDetector.analyze(
         names = episodes.map { it.name },
         providerHints = providerHints,
     )
-    if (!analysis.isMultiSeason) return null
-
-    val seasonBuckets = analysis.seasons.map { season ->
-        SeasonGroup(season, episodes.filterIndexed { i, _ -> analysis.assignments[i].season == season })
+    val assignmentsByEpisodeUrl = buildMap {
+        episodes.forEachIndexed { i, ep -> put(ep.url, analysis.assignments[i]) }
     }
-    val untagged = episodes.filterIndexed { i, _ -> analysis.assignments[i].season == null }
-    return if (untagged.isNotEmpty()) seasonBuckets + SeasonGroup(null, untagged) else seasonBuckets
+
+    val groups: List<SeasonGroup>? = if (analysis.isMultiSeason) {
+        val buckets = analysis.seasons.map { season ->
+            SeasonGroup(season, episodes.filterIndexed { i, _ -> analysis.assignments[i].season == season })
+        }
+        val untagged = episodes.filterIndexed { i, _ -> analysis.assignments[i].season == null }
+        if (untagged.isNotEmpty()) buckets + SeasonGroup(null, untagged) else buckets
+    } else {
+        null
+    }
+
+    // Per-season display numbers — unique within each bucket (duplicate tags
+    // were the user's original complaint). Prefer the tag's own episode-in-
+    // season numbers when EVERY episode in the bucket carries a distinct one;
+    // otherwise rank by (own number ?: episode_number) and enumerate 1..N.
+    val seasonNumbers = mutableMapOf<String, Int>()
+    groups?.forEach { group ->
+        val own = group.episodes.map { assignmentsByEpisodeUrl[it.url]?.episodeInSeason }
+        val ownAllDistinct = own.size == group.episodes.size &&
+            own.filterNotNull().distinct().size == own.size &&
+            own.none { it == null }
+        if (ownAllDistinct) {
+            group.episodes.forEachIndexed { i, ep -> seasonNumbers[ep.url] = own[i]!! }
+        } else {
+            val ranked = group.episodes.sortedWith(
+                compareBy(
+                    { assignmentsByEpisodeUrl[it.url]?.episodeInSeason ?: Int.MAX_VALUE },
+                    { it.episode_number },
+                ),
+            )
+            ranked.forEachIndexed { i, ep -> seasonNumbers[ep.url] = i + 1 }
+        }
+    }
+
+    return EpisodeSeasonInfo(
+        groups = groups,
+        assignmentsByEpisodeUrl = assignmentsByEpisodeUrl,
+        seasonNumbersByEpisodeUrl = seasonNumbers,
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════════════

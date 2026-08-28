@@ -252,32 +252,27 @@ fun DetailsScreen(
     val groupingSize by episodeListPrefs.groupingSize.changes.collectAsState(
         initial = episodeListPrefs.groupingSize.get(),
     )
-    // D-307: Season organization preference (true = seasons win when detected).
-    val organizeBySeasons by episodeListPrefs.organizeBySeasons.changes.collectAsState(
-        initial = episodeListPrefs.organizeBySeasons.get(),
-    )
     // D-234: Show next episode release card.
     val showNextEpisode by episodeListPrefs.showNextEpisode.changes.collectAsState(
         initial = episodeListPrefs.showNextEpisode.get(),
     )
 
-    // D-307/D-308/D-312: Season detection on the RAW episode list — shared by the
-    // episode pipeline (Success branch) AND the settings sheet (rendered
-    // outside it), so it lives here at the top level. Built from the raw list
-    // (not the filtered one) so the season structure stays stable regardless
-    // of active filters. `remember` keyed on the list identity — detection only
-    // re-runs when the episode list actually changes.
-    // `detectedSeasons` is the STRUCTURAL fact (independent of the user's
-    // organizeBySeasons preference) so the settings sheet keeps offering the
-    // Seasons/Number-groups choice even right after the user switches it off
-    // (D-307 review fix — the section used to vanish mid-sheet).
-    //
-    // D-312: provider hints — when an episode's NAME carries no season tag but
-    // the provider metadata (AniZip/Kitsu, keyed by episode number) knows its
-    // season, the hint assigns it. Keyed on episodeMetadata too, so the season
-    // structure improves when provider metadata arrives after the list.
+    // D-317: organize mode (three states) + the season-in-tag toggle.
+    val organizeMode by episodeListPrefs.organizeMode.changes.collectAsState(
+        initial = episodeListPrefs.organizeMode.get(),
+    )
+    val seasonTagInNumber by episodeListPrefs.seasonTagInNumber.changes.collectAsState(
+        initial = episodeListPrefs.seasonTagInNumber.get(),
+    )
+
+    // D-307/D-308/D-312/D-317: Season analysis on the RAW episode list — one
+    // pass produces the groups (selector + settings sheet), the per-episode
+    // assignments (S/E tag), and the per-season display numbers (slice tags).
+    // Built from the raw list (not the filtered one) so the season structure
+    // stays stable regardless of active filters; keyed on episodeMetadata too
+    // so the structure improves when provider hints arrive after the list.
     val rawEpisodesForSeasons = (episodeState as? EpisodeState.Loaded)?.episodes
-    val detectedSeasons = remember(rawEpisodesForSeasons, episodeMetadata) {
+    val seasonInfo = remember(rawEpisodesForSeasons, episodeMetadata) {
         rawEpisodesForSeasons?.let { eps ->
             val hints = eps.map { ep ->
                 val meta = episodeMetadata[ep.episode_number.toInt()]
@@ -291,10 +286,15 @@ fun DetailsScreen(
                     null
                 }
             }
-            groupEpisodesBySeason(eps, hints)
+            analyzeEpisodeSeasons(eps, hints)
         }
     }
-    val seasonGroups = if (organizeBySeasons) detectedSeasons else null
+    // `detectedSeasons` is the STRUCTURAL fact (independent of the user's
+    // organizeMode preference) so the settings sheet keeps offering the
+    // Seasons/Off/Number-groups choice even right after the user switches
+    // away from Seasons (D-307 review fix).
+    val detectedSeasons = seasonInfo?.groups
+    val seasonGroups = if (organizeMode == "SEASONS") detectedSeasons else null
 
     // D-146: Refresh visual feedback
     val isRefreshing by viewModel.isRefreshing.collectAsState()
@@ -783,11 +783,14 @@ fun DetailsScreen(
                         val selectedSeasonIndex = currentSeasonIndex.coerceIn(0, (seasonOptions.size - 1).coerceAtLeast(0))
                         val selectedSeason = seasonOptions.getOrNull(selectedSeasonIndex)
                         val episodeGroups = if (processedEpisodes != null) {
-                            if (seasonGroups != null) {
-                                // Seasons active: one implicit group (the full list).
-                                listOf(EpisodeGroup(0, 0, 0, processedEpisodes))
-                            } else {
-                                groupEpisodes(processedEpisodes, groupingSize)
+                            when {
+                                // Seasons active: one implicit group (the full list) —
+                                // the season chips do the slicing.
+                                seasonGroups != null -> listOf(EpisodeGroup(0, 0, 0, processedEpisodes))
+                                // D-317 OFF mode: a flat list — no season selector,
+                                // no number-range groups (single group → switcher hides).
+                                organizeMode == "OFF" -> listOf(EpisodeGroup(0, 0, 0, processedEpisodes))
+                                else -> groupEpisodes(processedEpisodes, groupingSize)
                             }
                         } else null
                         val currentGroup = if (episodeGroups != null && episodeGroups.size > 1) {
@@ -921,6 +924,29 @@ fun DetailsScreen(
                             items(episodesToShow, key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
+                                // D-317: contextual episode tag.
+                                //  - A specific season is selected → the episode's
+                                //    PER-SEASON number (S1 rows show 1..8, S2 rows
+                                //    show 1..8 — user spec).
+                                //  - All list (+ the season-tag setting is on) →
+                                //    "S-n/E-m" with season + episode in two shades
+                                //    of the theme color.
+                                //  - Otherwise → the plain global number (unchanged).
+                                val episodeTag: EpisodeTag? = when {
+                                    seasonGroups != null && selectedSeason != null -> {
+                                        seasonInfo?.seasonNumbersByEpisodeUrl?.get(episode.url)
+                                            ?.let { EpisodeTag(season = null, number = it.toString()) }
+                                    }
+                                    seasonTagInNumber -> {
+                                        val a = seasonInfo?.assignmentsByEpisodeUrl?.get(episode.url)
+                                        if (a?.season != null && a.episodeInSeason != null) {
+                                            EpisodeTag(season = a.season, number = a.episodeInSeason.toString())
+                                        } else {
+                                            null
+                                        }
+                                    }
+                                    else -> null
+                                }
                                 val stateKey = viewModel.episodeDownloadStateKey(episode)
                                 val downloadState = stateKey?.let { downloadStates[it] }
                                     ?: EpisodeDownloadState.NotDownloaded
@@ -932,6 +958,7 @@ fun DetailsScreen(
                                     EpisodeRow(
                                         episode = episode,
                                         metadata = metadata,
+                                        episodeTag = episodeTag,
                                         onClick = { onEpisodeClick(episode) },
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
@@ -1168,7 +1195,7 @@ fun DetailsScreen(
         MaterialTheme(colorScheme = accentColorScheme) {
             EpisodeListSettingsSheet(
                 onDismiss = { showEpisodeSettingsSheet = false },
-                // D-307: structural flag (independent of the organizeBySeasons
+                // D-307: structural flag (independent of the organizeMode
                 // preference) — only offer the Seasons/Grouping choice when the
                 // current anime actually has a multi-season structure.
                 seasonsDetected = detectedSeasons != null,
@@ -2684,11 +2711,27 @@ private fun buildEpisodeMetadataSerialized(
     }
 }
 
+/**
+ * D-317: Display override for the episode number badge.
+ *
+ * @param season Non-null → render the "S-n/E-m" compound tag (season +
+ *        episode in two shades of the theme color). Null → the plain "EP n"
+ *        badge using [number].
+ * @param number The number text to display (per-season number inside a season
+ *        slice, or whatever the caller resolved).
+ */
+data class EpisodeTag(
+    val season: Int?,
+    val number: String,
+)
+
 @Composable
 private fun EpisodeRow(
     episode: eu.kanade.tachiyomi.animesource.model.SEpisode,
     metadata: com.confused.anikuta.core.metadata.EpisodeMetadata?,
     onClick: () -> Unit,
+    // D-317: contextual episode tag (per-season number / "S-n/E-m" compound).
+    episodeTag: EpisodeTag? = null,
     downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
     // D-229: Fallback cover URL (the anime's cover image) — used when the
     // episode has no per-episode thumbnail. Prevents bare circle placeholders.
@@ -2882,24 +2925,61 @@ private fun EpisodeRow(
                             colorFilter = colorFilter,
                         )
                         // EP tag — themed primary background, 6dp corners, Bold White text.
-                        // Shows 'EP N' (not just 'N').
-                        // Positioned at TopStart (like old project).
+                        // Shows 'EP N' (not just 'N'). Positioned at TopStart (like old project).
+                        // D-317: contextual variants — a per-season number inside a season
+                        // slice, or the "S-3/E-5" compound tag (season + episode in two
+                        // shades of the theme color, slash separator) in the All list when
+                        // the "season in episode tag" setting is on.
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
                         ) {
-                            Text(
-                                text = "EP $epNumText",
-                                fontFamily = RobotoFamily,
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                maxLines = 1,
-                                softWrap = false,
-                            )
+                            if (episodeTag != null && episodeTag.season != null) {
+                                val tagColor = MaterialTheme.colorScheme.onPrimary
+                                val compoundTag = androidx.compose.ui.text.buildAnnotatedString {
+                                    withStyle(
+                                        androidx.compose.ui.text.SpanStyle(
+                                            color = tagColor.copy(alpha = 0.68f),
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    ) { append("S-${episodeTag.season}") }
+                                    withStyle(
+                                        androidx.compose.ui.text.SpanStyle(
+                                            color = tagColor.copy(alpha = 0.45f),
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    ) { append("/") }
+                                    withStyle(
+                                        androidx.compose.ui.text.SpanStyle(
+                                            color = tagColor,
+                                            fontWeight = FontWeight.ExtraBold,
+                                        ),
+                                    ) { append("E-${episodeTag.number}") }
+                                }
+                                Text(
+                                    text = compoundTag,
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    letterSpacing = 0.3.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            } else {
+                                Text(
+                                    text = "EP ${episodeTag?.number ?: epNumText}",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
                         }
                         // Phase 2d: watch progress bar at the bottom of the thumbnail (like YouTube).
                         // Only shows when the episode is partially watched (not when fully watched —

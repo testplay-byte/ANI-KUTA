@@ -116,22 +116,47 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * D-307: When a series' episode names carry season tags
+     * D-307 (legacy): When a series' episode names carry season tags
      * ("( Season 5 - Episode 12 - ... )"), organize the episode list by
      * SEASONS (horizontally-scrollable chip selector) instead of number-range
      * grouping.
      *
-     * - `true` (default) → seasons win when available (user spec: "By default
-     *   it will automatically select the seasons if there are seasons
-     *   available").
-     * - `false` → the user explicitly chose plain number-range grouping; the
-     *   season selector stays hidden.
-     *
-     * Only takes effect when ≥2 distinct seasons are detected — otherwise the
-     * normal grouping pipeline applies.
+     * D-317: superseded by [organizeMode] (three states). KEPT ONLY as the
+     * migration source — the new pref's DEFAULT derives from this value, so
+     * users who explicitly chose "Number groups" before keep that choice.
      */
+    @Deprecated("Superseded by organizeMode (D-317) — kept as the migration source only")
     val organizeBySeasons = store.preference(
         KEY_ORGANIZE_BY_SEASONS, true, BooleanSerializer,
+    )
+
+    /**
+     * D-317: How the episode list is organized (user spec — three states):
+     * - `"SEASONS"` (default) — season chip selector; number-range grouping
+     *   suppressed; within a selected season the rows show per-season numbers.
+     * - `"NUMBER_GROUPS"` — the classic number-range grouping (EP 1-100, …)
+     *   for long series, configured by [groupingSize].
+     * - `"OFF"` — a flat list: no season selector, no range groups.
+     *
+     * Falls back to number-group behavior when no multi-season structure is
+     * detected for the current series (SEASONS with nothing to organize).
+     */
+    val organizeMode = store.preference(
+        KEY_ORGANIZE_MODE,
+        // Migration: users of the old boolean keep their explicit choice.
+        @Suppress("DEPRECATION") if (organizeBySeasons.get()) "SEASONS" else "NUMBER_GROUPS",
+        StringSerializer,
+    )
+
+    /**
+     * D-317: Show the season inside the episode tag — "S-3/E-5" style with the
+     * season + episode in two shades of the theme color. Only applies to the
+     * ALL-episodes list (organize OFF / number groups / the "All" chip) —
+     * within a selected season the plain per-season number is shown instead
+     * (user spec).
+     */
+    val seasonTagInNumber = store.preference(
+        KEY_SEASON_TAG_IN_NUMBER, true, BooleanSerializer,
     )
 
     // ════════════════════════════════════════════════════════════════════════
@@ -170,5 +195,7 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
         private const val KEY_GROUPING_SIZE = "pref_episode_list_grouping_size"
         private const val KEY_SHOW_NEXT_EPISODE = "pref_episode_list_show_next_episode"
         private const val KEY_ORGANIZE_BY_SEASONS = "pref_episode_list_organize_by_seasons"
+        private const val KEY_ORGANIZE_MODE = "pref_episode_list_organize_mode"
+        private const val KEY_SEASON_TAG_IN_NUMBER = "pref_episode_list_season_tag_in_number"
     }
 }

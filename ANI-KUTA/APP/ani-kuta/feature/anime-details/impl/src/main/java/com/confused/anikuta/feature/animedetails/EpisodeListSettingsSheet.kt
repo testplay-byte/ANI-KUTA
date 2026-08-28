@@ -356,7 +356,12 @@ private fun DisplayTab(prefs: EpisodeListPreferences, seasonsDetected: Boolean) 
     val thumbnailFallback by prefs.thumbnailFallback.changes.collectAsState(initial = prefs.thumbnailFallback.get())
     val groupingSize by prefs.groupingSize.changes.collectAsState(initial = prefs.groupingSize.get())
     val showNextEpisode by prefs.showNextEpisode.changes.collectAsState(initial = prefs.showNextEpisode.get())
-    val organizeBySeasons by prefs.organizeBySeasons.changes.collectAsState(initial = prefs.organizeBySeasons.get())
+    val organizeMode by prefs.organizeMode.changes.collectAsState(initial = prefs.organizeMode.get())
+    val seasonTagInNumber by prefs.seasonTagInNumber.changes.collectAsState(initial = prefs.seasonTagInNumber.get())
+
+    // D-317: when no seasons are detected, SEASONS mode falls back to
+    // number-group behavior — the grouping row must still be offered then.
+    val effectiveMode = if (!seasonsDetected && organizeMode == "SEASONS") "NUMBER_GROUPS" else organizeMode
 
     Column(
         modifier = Modifier
@@ -365,22 +370,41 @@ private fun DisplayTab(prefs: EpisodeListPreferences, seasonsDetected: Boolean) 
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // D-307: Seasons vs number-range grouping — only offered when the
-        // current anime actually has a detectable multi-season structure.
+        // D-307/D-317: Season organization — three states (Off / Seasons /
+        // Number groups), offered when the current anime actually has a
+        // detectable multi-season structure.
         if (seasonsDetected) {
             SectionLabel("Organize episodes by")
             SegmentedSelector(
-                options = listOf(true to "Seasons", false to "Number groups"),
-                selected = organizeBySeasons,
-                onSelect = { prefs.organizeBySeasons.set(it) },
+                options = listOf(
+                    "OFF" to "Off",
+                    "SEASONS" to "Seasons",
+                    "NUMBER_GROUPS" to "Numbers",
+                ),
+                selected = organizeMode,
+                onSelect = { prefs.organizeMode.set(it) },
             )
             SectionHint(
-                if (organizeBySeasons)
-                    "Seasons are detected in this series — the list is organized " +
-                        "by season with a season selector."
-                else
-                    "Number-range grouping is used instead of the detected seasons.",
+                when (organizeMode) {
+                    "OFF" -> "A flat list — no season selector, no number-range groups."
+                    "SEASONS" -> "Organized by season with a season selector; each season shows its own numbering."
+                    else -> "Number-range grouping (EP 1-100, …) instead of seasons."
+                },
             )
+            // D-317: the season-in-tag option — only in Off / Number-groups
+            // mode (user spec: NOT offered while organizing by seasons; the
+            // tag only applies to the All list anyway).
+            if (organizeMode != "SEASONS") {
+                ToggleRow(
+                    label = "Season in episode tag",
+                    checked = seasonTagInNumber,
+                    onCheckedChange = { prefs.seasonTagInNumber.set(it) },
+                )
+                SectionHint(
+                    "All-list rows show a \"S-3/E-5\" style tag with the season " +
+                        "and the episode number in two shades of the theme color.",
+                )
+            }
             Spacer(Modifier.height(4.dp))
         }
         SectionLabel("Thumbnail fallback")
@@ -395,20 +419,23 @@ private fun DisplayTab(prefs: EpisodeListPreferences, seasonsDetected: Boolean) 
                     "the anime's cover image is used."
                 else "no image is shown.",
         )
-        Spacer(Modifier.height(4.dp))
-        SectionLabel("Grouping (for long series)")
-        SegmentedSelector(
-            options = listOf(
-                0 to "Off",
-                100 to "100",
-                200 to "200",
-                300 to "300",
-                400 to "400",
-            ),
-            selected = groupingSize,
-            onSelect = { prefs.groupingSize.set(it) },
-        )
-        SectionHint("Only activates when the episode count exceeds the group size.")
+        // D-317: grouping config only applies to the number-groups mode.
+        if (effectiveMode == "NUMBER_GROUPS") {
+            Spacer(Modifier.height(4.dp))
+            SectionLabel("Grouping (for long series)")
+            SegmentedSelector(
+                options = listOf(
+                    0 to "Off",
+                    100 to "100",
+                    200 to "200",
+                    300 to "300",
+                    400 to "400",
+                ),
+                selected = groupingSize,
+                onSelect = { prefs.groupingSize.set(it) },
+            )
+            SectionHint("Only activates when the episode count exceeds the group size.")
+        }
         Spacer(Modifier.height(4.dp))
         SectionLabel("Next episode")
         ToggleRow(

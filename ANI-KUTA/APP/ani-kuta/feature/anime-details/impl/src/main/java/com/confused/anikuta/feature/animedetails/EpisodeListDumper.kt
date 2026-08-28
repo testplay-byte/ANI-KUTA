@@ -164,9 +164,14 @@ object EpisodeListDumper {
      * by this tag).
      */
     private fun log(line: String) {
-        Log.i(TAG, line)
+        // In debug builds Logger.d already writes to logcat (level D) + the
+        // debug console — calling Log.i TOO duplicated every dump line twice in
+        // the user's logcat captures. Release builds (Logger disabled) use the
+        // direct Log.i path.
         if (Logger.isEnabled) {
             Logger.d(TAG) { line }
+        } else {
+            Log.i(TAG, line)
         }
     }
 }

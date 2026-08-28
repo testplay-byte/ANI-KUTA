@@ -21,7 +21,7 @@ package com.confused.anikuta.core.seasons
  * ## Consumers
  *
  * - `EpisodeTitleParser.parseTitle` (title cleanup for tagged names)
- * - `EpisodeListProcessor.groupEpisodesBySeason` (season buckets + activation)
+ * - `EpisodeListProcessor.analyzeEpisodeSeasons` (season buckets + activation)
  * - `EpisodeListDumper` (logs pattern ids so format coverage is verifiable
  *   from device logs — the user sends these back for format tuning)
  *

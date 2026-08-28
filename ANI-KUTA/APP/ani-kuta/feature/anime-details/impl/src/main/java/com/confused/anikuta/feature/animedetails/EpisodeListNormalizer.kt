@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.animedetails
 
+import com.confused.anikuta.core.seasons.SeasonDetector
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 
 /**
@@ -79,8 +80,28 @@ object EpisodeListNormalizer {
             return Result(deduped, renumbered = false, duplicateUrlsDropped = dropped)
         }
 
-        // ── 3. Renumber sequentially in the extension's own list order ──
-        val renumbered = deduped.mapIndexed { index, ep ->
+        // ── 3. Renumber sequentially ──
+        // D-317: when the names carry season tags, order by (season, episode-in-
+        // season, raw index) FIRST so the global numbers run season-by-season
+        // (S1 1..8, S2 9..16). Renumbering by raw order interleaves seasons (the
+        // extension may return date-sorted lists), which made every season slice
+        // show arbitrary global numbers + broke AniList-absolute metadata lookup.
+        // Untagged episodes sort to the END in raw order (they render in the
+        // "Other" bucket anyway). Without season tags, raw order = the
+        // extension's intended order (unchanged from D-313).
+        val seasonTags = deduped.map { SeasonDetector.parseSeasonTag(it.name) }
+        val ordered = if (seasonTags.any { it != null }) {
+            deduped.withIndex().sortedWith(
+                compareBy(
+                    { (i, _) -> seasonTags[i]?.season ?: Int.MAX_VALUE },
+                    { (i, _) -> seasonTags[i]?.episodeInSeason ?: Int.MAX_VALUE },
+                    { (i, _) -> i },
+                ),
+            ).map { it.value }
+        } else {
+            deduped
+        }
+        val renumbered = ordered.mapIndexed { index, ep ->
             SEpisode.create().apply {
                 copyFrom(ep)
                 episode_number = (index + 1).toFloat()
