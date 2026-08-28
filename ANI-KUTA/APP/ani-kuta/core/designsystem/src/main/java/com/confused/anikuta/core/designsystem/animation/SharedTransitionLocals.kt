@@ -8,6 +8,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
 import com.confused.anikuta.core.designsystem.theme.Motion
 
 /**
@@ -37,9 +40,18 @@ import com.confused.anikuta.core.designsystem.theme.Motion
  * - A null/blank key disables the shared element for that instance (used to
  *   gate the feature behind the `coverTransitionEnabled` preference and for
  *   covers that are null).
- * - The default bounds transform uses the app's Motion tokens (emphasized
- *   easing, 300ms — aligned with the nav fade duration) instead of the
- *   library's default spring.
+ * - The default bounds transform uses the app's Motion tokens — the D-324
+ *   container duration (450ms, emphasized easing) shared with the nav
+ *   crossfade so the flying cover and the fading screens accelerate and
+ *   settle in lockstep (mismatched velocity profiles were the device-reported
+ *   "jitter").
+ * - [shape] keeps the corners ROUNDED for the whole flight: the shared
+ *   element's default overlay clip is the parent's plain rectangle, so a
+ *   card whose rounding comes from a parent Box clip would fly with square
+ *   corners and snap back to rounded on landing (device feedback: "keep the
+ *   corners rounded if they were rounded while the animation plays"). All
+ *   call sites use the 12dp cover language, which is also the destination
+ *   banner's shape — the corners read as one continuous rounded surface.
  *
  * ## D-322 note
  *
@@ -60,10 +72,17 @@ val LocalNavAnimatedVisibilityScope = compositionLocalOf<AnimatedVisibilityScope
  * Applies a shared-element modifier bound to [key] (no-op when the key is
  * null/blank or the scopes are absent — e.g. previews, or the feature toggle
  * turned off).
+ *
+ * @param shape The shape the shared element is clipped to WHILE morphing in
+ *        the overlay ([SharedTransitionScope.OverlayClip]). Rounded by
+ *        default so rounded covers stay rounded for the whole flight.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun Modifier.coverSharedElement(key: String?): Modifier {
+fun Modifier.coverSharedElement(
+    key: String?,
+    shape: Shape = RoundedCornerShape(12.dp),
+): Modifier {
     if (key.isNullOrBlank()) return this
     val sharedScope = LocalSharedTransitionScope.current ?: return this
     val animatedScope = LocalNavAnimatedVisibilityScope.current ?: return this
@@ -74,9 +93,16 @@ fun Modifier.coverSharedElement(key: String?): Modifier {
             // crashed v0.2.60 when compile and runtime lines disagreed).
             sharedContentState = rememberSharedContentState(key = key),
             animatedVisibilityScope = animatedScope,
+            // D-324: 450ms emphasized morph — same token + easing the nav
+            // crossfade runs on, so the cover and the screens move in
+            // lockstep (no relative jitter between the two curves).
             boundsTransform = BoundsTransform { _, _ ->
-                tween(Motion.DurationStandard, easing = Motion.EasingEmphasized)
+                tween(Motion.DurationContainer, easing = Motion.EasingEmphasized)
             },
+            // D-324: rounded corners for the whole flight (the default
+            // ParentClip is the parent's plain rectangle — rounded cards flew
+            // square and snapped back to rounded on landing).
+            clipInOverlayDuringTransition = OverlayClip(shape),
         )
     }
 }

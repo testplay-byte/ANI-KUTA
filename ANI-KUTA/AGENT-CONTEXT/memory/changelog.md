@@ -1514,3 +1514,9 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 
 - **D-322** — Fixed the v0.2.60 startup crash (`NoSuchMethodError: sharedElement$default`): the app had been SHIPPING compose 1.10.4 at runtime (silently pulled in by koin-compose 4.2.2's JetBrains-Compose requirement — a BOM constraint cannot cap a required version) while compiling against the BOM's 1.7.8. The compose BOM is now REPLACED by explicit 1.10.4-line pins (compile == runtime == the line every release has actually been running); material3 stays 1.3.1, icons 1.7.8, lifecycle aligned to the really-resolved 2.10.0; the shared-element call ported to the 1.10 API (`sharedContentState` parameter). NEW build guard: `checkDependencyAlignment` fails any build whose packaged compose/lifecycle versions deviate from the pins — this class of skew can never ship silently again.
 - **D-323** — Version 0.2.60 → 0.2.61.
+
+## v0.2.62 — Shared-element morph polish + multi-season-only episode tags (D-324..D-326, 2026-08-29)
+
+- **D-324** — Cover → details morph is smoother and keeps rounded corners: 450ms emphasized flight (was 300ms — felt fast), the nav crossfade now runs the SAME duration + easing as the morph (the mismatched velocity profiles were the jitter), and the shared element is clipped to its rounded-12dp shape for the WHOLE flight (the overlay's default parent-rectangle clip made rounded cards fly square and snap back to rounded on landing).
+- **D-325** — The "S-3/E-5" compound episode tag now only renders for actual multi-season content; no-season and single-season lists always show the plain "EP n" tag.
+- **D-326** — Version 0.2.61 → 0.2.62.

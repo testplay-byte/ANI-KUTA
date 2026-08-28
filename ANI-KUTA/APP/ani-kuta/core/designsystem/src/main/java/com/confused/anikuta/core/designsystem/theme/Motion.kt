@@ -7,15 +7,21 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 /**
  * Motion tokens — animation durations + easings.
  *
- * From DESIGN-LANGUAGE.md §7:
+ * From DESIGN-LANGUAGE.md §6:
  * - 300ms FastOutSlowInEasing is the heartbeat.
  * - 400ms for theme-switch cross-fade.
+ * - 450ms + emphasized easing for container/shared-element morphs (D-324):
+ *   large surfaces traveling across the screen need the longer window and the
+ *   M3 emphasized curve's slow settle — 300ms read as fast + jittery on device.
  */
 object Motion {
     const val DurationInstant = 100
     const val DurationShort = 150
     const val DurationStandard = 300
     const val DurationLong = 400
+
+    /** D-324: shared-element / container-transform morphs (cover → details). */
+    const val DurationContainer = 450
 
     val EasingStandard: Easing = FastOutSlowInEasing
     val EasingEmphasized: Easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)

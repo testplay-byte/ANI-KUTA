@@ -220,8 +220,17 @@ rules solidify.)
 
 ## 6. Motion
 
-- **Duration:** Standard 300ms, Short 150ms.
-- **Easing:** `FastOutSlowInEasing` for all transitions.
+- **Duration:** Standard 300ms, Short 150ms, Long 400ms (theme cross-fade),
+  Container 450ms (shared-element / container morphs — D-324).
+- **Easing:** `FastOutSlowInEasing` for standard transitions; the M3
+  `EasingEmphasized` cubic (0.2, 0, 0, 1) for container morphs and their
+  accompanying screen crossfades — a morphing cover and the fading screens
+  MUST run the same duration + easing (mismatched velocity profiles read as
+  jitter on device).
+- **Shared-element morphs keep their shape:** while a cover morphs in the
+  shared-transition overlay it is clipped to its rounded-12dp shape for the
+  whole flight (the overlay's default parent-rectangle clip made rounded
+  cards fly square and snap back to rounded on landing — D-324).
 - **60fps target:** No heavy work on main thread during animation. Use
   `graphicsLayer` for scale/alpha (avoids recomposition).
 - **No instant cuts:** State changes (expand/collapse, appear/disappear)

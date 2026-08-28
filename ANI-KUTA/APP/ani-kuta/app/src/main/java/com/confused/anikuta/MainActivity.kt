@@ -19,6 +19,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import com.confused.anikuta.core.designsystem.theme.Motion
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -552,9 +553,12 @@ fun AppRoot() {
         // `when (currentKey)` switch so covers can morph between screens
         // (Browse/Search/Library cards ⇄ the Details banner cover — the
         // experimental cover transition; reverse-morphs on back).
-        //   • Details in/out → 280ms crossfade (gives the shared element a
-        //     transition window); every other switch → snap() = the previous
-        //     instant behavior, unchanged.
+        //   • Details in/out → 450ms emphasized crossfade (D-324: SAME token
+        //     + easing the cover morph's BoundsTransform runs on — the screens
+        //     and the flying cover accelerate/settle in lockstep; mismatched
+        //     curves at the old 300ms read as fast + jittery on device).
+        //     Every other switch → snap() = the previous instant behavior,
+        //     unchanged.
         //   • SaveableStateProvider keyed by screen type preserves each
         //     screen's rememberSaveable state (e.g. the browse grid scroll)
         //     while it is disposed — required for the reverse morph to land
@@ -570,7 +574,21 @@ fun AppRoot() {
                     val detailsInvolved =
                         targetState is AnimeDetailsKey || initialState is AnimeDetailsKey
                     if (detailsInvolved) {
-                        fadeIn(tween(300)) togetherWith fadeOut(tween(300))
+                        // D-324: duration + easing MUST match the shared
+                        // element's BoundsTransform (coverSharedElement) —
+                        // differing velocity profiles between the fading
+                        // screens and the morphing cover are visible as jitter.
+                        fadeIn(
+                            tween(
+                                Motion.DurationContainer,
+                                easing = Motion.EasingEmphasized,
+                            ),
+                        ) togetherWith fadeOut(
+                            tween(
+                                Motion.DurationContainer,
+                                easing = Motion.EasingEmphasized,
+                            ),
+                        )
                     } else {
                         // Instant switch — identical to the pre-D-320 behavior
                         // (androidx.compose.animation has no snap() ContentTransform).

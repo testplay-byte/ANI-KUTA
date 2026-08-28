@@ -154,6 +154,11 @@ class EpisodeListPreferences(private val store: PreferenceStore) {
      * ALL-episodes list (organize OFF / number groups / the "All" chip) —
      * within a selected season the plain per-season number is shown instead
      * (user spec).
+     *
+     * D-324: the compound tag only ever renders for ACTIVATED multi-season
+     * content (≥2 detected seasons). No-season and single-season lists always
+     * show the plain "EP n" tag — a season prefix there is noise (user
+     * feedback 2026-08-29).
      */
     val seasonTagInNumber = store.preference(
         KEY_SEASON_TAG_IN_NUMBER, true, BooleanSerializer,

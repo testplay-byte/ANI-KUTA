@@ -981,16 +981,24 @@ fun DetailsScreen(
                                 //  - A specific season is selected → the episode's
                                 //    PER-SEASON number (S1 rows show 1..8, S2 rows
                                 //    show 1..8 — user spec).
-                                //  - All list (+ the season-tag setting is on) →
-                                //    "S-n/E-m" with season + episode in two shades
-                                //    of the theme color.
-                                //  - Otherwise → the plain global number (unchanged).
+                                //  - All list of MULTI-season content (+ the
+                                //    season-tag setting is on) → "S-n/E-m" with
+                                //    season + episode in two shades of the theme
+                                //    color.
+                                //  - Otherwise → the plain global "EP n" tag
+                                //    (unchanged).
+                                // D-324: the compound tag requires an ACTIVATED
+                                // multi-season structure (groups != null ⇔ the
+                                // detector found ≥2 seasons). No-season and
+                                // single-season content ALWAYS shows the plain
+                                // tag — "S-1/E-5" there is noise the user
+                                // explicitly rejected (2026-08-29 feedback).
                                 val episodeTag: EpisodeTag? = when {
                                     seasonGroups != null && selectedSeason != null -> {
                                         seasonInfo?.seasonNumbersByEpisodeUrl?.get(episode.url)
                                             ?.let { EpisodeTag(season = null, number = it.toString()) }
                                     }
-                                    seasonTagInNumber -> {
+                                    seasonTagInNumber && seasonInfo?.groups != null -> {
                                         val a = seasonInfo?.assignmentsByEpisodeUrl?.get(episode.url)
                                         if (a?.season != null && a.episodeInSeason != null) {
                                             EpisodeTag(season = a.season, number = a.episodeInSeason.toString())
@@ -2771,8 +2779,9 @@ private fun buildEpisodeMetadataSerialized(
  * D-317: Display override for the episode number badge.
  *
  * @param season Non-null → render the "S-n/E-m" compound tag (season +
- *        episode in two shades of the theme color). Null → the plain "EP n"
- *        badge using [number].
+ *        episode in two shades of the theme color). D-324: only ever set for
+ *        ACTIVATED multi-season content — no-season and single-season lists
+ *        always use the plain tag below.
  * @param number The number text to display (per-season number inside a season
  *        slice, or whatever the caller resolved).
  */

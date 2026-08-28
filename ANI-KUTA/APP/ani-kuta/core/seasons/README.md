@@ -54,8 +54,12 @@ manual override on top of this.
 ## Consumers
 
 - `:core:common` → `EpisodeTitleParser.parseTitle` (clean titles for tagged names)
-- `:feature:anime-details:impl` → `EpisodeListProcessor.groupEpisodesBySeason`
-  (season buckets + activation, with provider hints wired in `DetailsScreen`)
+- `:feature:anime-details:impl` → `EpisodeListProcessor.analyzeEpisodeSeasons`
+  (one pass: season buckets + per-episode assignments + per-season display
+  numbers, with provider hints wired in `DetailsScreen`; feeds the season
+  selector, the per-season slice tags, and the multi-season-only "S-3/E-5"
+  compound tag — D-324: that tag never renders for no-season / single-season
+  lists)
 - Episode-list dump logs carry `patternId` so format coverage is verifiable
   from device logs
 

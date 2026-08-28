@@ -2485,3 +2485,24 @@ Crash-fix release: D-322.
 - **Files:** AndroidConfig.kt.
 - **Status:** ✅ Implemented; tag v0.2.61 + release after CI green.
 - **Date:** 2026-08-29.
+
+### D-324 — Shared-element cover morph polish: slower/lockstep motion + rounded corners for the whole flight
+
+Device feedback on v0.2.61 (transition works, no crash): "make the animation of opening a content by clicking the cover from the library page or the browse page or the search page smoother and better — it's currently a bit faster and a bit jittery… and keep the corners rounded if they were rounded while the animation plays." Three coordinated fixes: (a) NEW Motion.DurationContainer = 450ms — the bounds morph was 300ms, too quick for a cover traveling across the screen; 450ms with the M3 emphasized curve reads as a deliberate, premium flight (the curve's slow settle removes the hard cut at the end). (b) JITTER ROOT CAUSE = mismatched velocity profiles: the cover morph ran 300ms EasingEmphasized while the nav AnimatedContent crossfade ran 300ms tween-DEFAULT easing (FastOutSlowIn) — two surfaces accelerating on different curves during the same window read as jitter. The crossfade now runs the SAME DurationContainer token + EasingEmphasized (Motion.kt gains the token; MainActivity fade aligned; both must stay in sync — documented in DESIGN-LANGUAGE §6). (c) CORNERS: sharedElement's default clipInOverlayDuringTransition = ParentClip = the parent's plain RECTANGLE — Browse/Library covers get their rounding from a parent Box clip (outside the shared element), so mid-flight they rendered SQUARE and snapped back to rounded on landing. coverSharedElement now passes clipInOverlayDuringTransition = OverlayClip(RoundedCornerShape(12.dp)) — new `shape` parameter (default 12dp = the cover language + the destination banner's own shape, so the whole flight reads as one continuous rounded surface; Search cards' self-clip 12dp ∩ overlay 12dp = unchanged). Reverse morph (back) picks up the same BoundsTransform automatically.
+- **Files:** Motion.kt, SharedTransitionLocals.kt, MainActivity.kt, DESIGN-LANGUAGE.md (§6 rewritten).
+- **Status:** ✅ Implemented (v0.2.62).
+- **Date:** 2026-08-29.
+
+### D-325 — Episode tag: compound "S-n/E-m" is multi-season-only
+
+Device feedback: "the episode tag for no season content or 1 season content — in such content the normal episode tag should show, not the one with the season." Root cause: SeasonDetector.analyze ALWAYS produces per-episode assignments (season=1 for single-season content), and the tag branch only checked the `seasonTagInNumber` setting — so single-season lists rendered "S-1/E-5" on every row. Fix: the compound-tag branch now ALSO requires `seasonInfo?.groups != null` — groups is non-null ONLY when the detector's activation rule fires (≥2 distinct seasons AND ≥50% coverage, i.e. exactly the condition under which the season selector is offered). No-season, single-season, and low-coverage lists always show the plain "EP n" tag; season slices keep their per-season plain numbers; the All view of activated multi-season content keeps the compound tag. Docs updated where the old behavior was described (EpisodeTag kdoc, EpisodeListPreferences.seasonTagInNumber kdoc, core/seasons README consumers section).
+- **Files:** DetailsScreen.kt, EpisodeListPreferences.kt, core/seasons/README.md.
+- **Status:** ✅ Implemented (v0.2.62).
+- **Date:** 2026-08-29.
+
+### D-326 — Version 0.2.62 (versionCode 62)
+
+Device-feedback batch: D-324 + D-325.
+- **Files:** AndroidConfig.kt.
+- **Status:** ✅ Implemented; tag v0.2.62 + release after CI green.
+- **Date:** 2026-08-29.
