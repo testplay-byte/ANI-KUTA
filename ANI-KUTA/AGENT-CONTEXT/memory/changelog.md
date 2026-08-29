@@ -1540,3 +1540,15 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 - **chore:** CI build-apk.yml triggers on `streaming/**` + first unit-test step; jackson 2.13.1/gson 2.11.0/kotlinx-datetime deps; `cloudstreamShowNsfw` pref (G4).
 - **docs:** doc 23 (implementation design record: gates, clean-room protocol, census, module design); tracker impl-1 entry.
 - **status:** CI GREEN (cb00e65); provider execution (browse/search/playback) deliberately deferred to next sessions (doc 23 §7).
+
+## Task 42 — CloudStream Device-Feedback Round 1 (2026-08-29, D-332)
+
+- **fix (CRITICAL):** loader is now IDEMPOTENT — repeat loads return Success with live registry state (was: `Failure("Plugin already loaded")` → EVERY fresh install landed in "Failed to load"; enabling a 2nd plugin evicted the 1st). Updates unload the stale instance only AFTER the verified download replaces the file.
+- **fix:** all manager mutations funnel through one mutex-serialized `refreshLocked()` (loadAll+rebuild atomically — was interleaved/concurrent).
+- **feat:** shared `ExtensionListChrome.kt` — the CloudStream tab now renders from the SAME chrome as the aniyomi tab: Trusted Sources / Failed to Load (conditional) / Available Extensions; normal shared Download control; no size/description/toggles/NSFW-pill; one shared filters bar drives both tabs (search/sort/lang/NSFW; CS NSFW = persisted G4 gate default OFF).
+- **feat:** install animation completes visibly — installer emits `Downloading(100)`+300ms beat; animated ring fill; 700ms `Installed` beat before the list reshuffle ("Done" check plays out).
+- **feat:** repo deletion KEEPS installed plugins (user decision; cascade removed); records persist language/iconUrl/isNsfw at install so rows keep aniyomi-parity after repo deletion; legacy session-1 records decode via defaults (unit-tested).
+- **ui:** source-tab chips + repo-row type badges right-aligned (device report); per-row uninstall confirms match the aniyomi pattern.
+- **refactor:** `isEnabled` removed from CsPluginRecord/Installed model; `setEnabled`/`deleteRepoPlugins` deleted.
+- **docs:** doc 23 §5.4 corrected + session-2 log; D-332 + lesson 12 (idempotent-load contract); local pre-push verification deviation flagged for user ratification.
+- **status:** local verify green (assembleDebug + 32 tests); CI pending this push.

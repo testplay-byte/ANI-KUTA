@@ -4,6 +4,7 @@ import android.content.Context
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.providerapi.InstallStep
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -99,6 +100,12 @@ class CloudstreamPluginInstaller(
                 tempFile.delete()
             }
 
+            // Session-2 device round: small .cs3 files stream in under one progress
+            // tick, so the UI ring never visibly fills. Emit the completed 100%
+            // explicitly and hold it for a beat — the row's animated ring finishes
+            // filling BEFORE the Installing state replaces it.
+            emit(InstallStep.Downloading(100))
+            delay(DOWNLOAD_FILL_BEAT_MS)
             emit(InstallStep.Installing)
         } catch (t: Throwable) {
             tempFile.delete()
@@ -108,6 +115,9 @@ class CloudstreamPluginInstaller(
 
     companion object {
         private const val TAG = "Anikuta:Data:Cloudstream:Installer"
+
+        /** How long the 100% state is held so the progress ring visibly completes. */
+        private const val DOWNLOAD_FILL_BEAT_MS = 300L
 
         /**
          * The repo-salted install path (doc 02 §5.1 / doc 23 §5.3):

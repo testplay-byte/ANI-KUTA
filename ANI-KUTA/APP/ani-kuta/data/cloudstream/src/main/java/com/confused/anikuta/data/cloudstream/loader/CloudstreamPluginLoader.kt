@@ -21,7 +21,8 @@ import kotlinx.serialization.json.Json
  * reason (D-295/D-296 pattern; contrast upstream's toast-and-forget, doc 02 §5.3).
  */
 sealed interface PluginLoadResult {
-    /** Loaded OK; providers are the MainAPI instances the plugin registered. */
+    /** Loaded OK (or was ALREADY loaded — [CloudstreamPluginLoader.loadPlugin]
+     * is idempotent); providers are the MainAPI instances the plugin registered. */
     data class Success(
         val plugin: BasePlugin,
         val manifest: BasePlugin.Manifest,
@@ -47,15 +48,31 @@ sealed interface PluginLoadResult {
  *
  * Counting registered providers before/after gives the provider list; unload
  * removes them again (the classloader itself stays alive — no dex unload on ART).
+ *
+ * IDEMPOTENT (device report, session 2): the manager calls `loadAll()` after
+ * every state change, and `loadAll` re-loads every installed record. Loading a
+ * path that is already active used to return `Failure("Plugin already loaded")`
+ * — which made EVERY fresh install land in "Failed to load" and made enabling
+ * a second plugin evict the first. A repeat load of an unchanged file is now a
+ * [PluginLoadResult.Success] carrying the live registry state. Callers that
+ * REPLACE the file at a known path (update/reinstall) must [unloadPlugin] first
+ * — see CloudstreamPluginManager.installPlugin.
  */
 class CloudstreamPluginLoader(
     private val context: Context,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** Everything remembered about one active plugin, for idempotent re-loads. */
+    private data class LoadedEntry(
+        val plugin: BasePlugin,
+        val manifest: BasePlugin.Manifest,
+        val extractorCount: Int,
+    )
+
     /** provider-name → plugin filePath, so the manager can map back. */
     private val providerOwners = HashMap<String, String>()
-    private val loadedPlugins = HashMap<String, BasePlugin>() // filePath → instance
+    private val loadedPlugins = HashMap<String, LoadedEntry>() // filePath → entry
 
     fun isLoaded(filePath: String): Boolean = loadedPlugins.containsKey(filePath)
 
@@ -66,8 +83,15 @@ class CloudstreamPluginLoader(
 
     fun loadPlugin(file: java.io.File): PluginLoadResult {
         val filePath = file.absolutePath
-        if (loadedPlugins.containsKey(filePath)) {
-            return PluginLoadResult.Failure("Plugin already loaded: ${file.name}")
+        // Idempotent re-load of an already-active plugin: SUCCESS with the live
+        // registry state (see class KDoc — the old Failure here broke installs).
+        loadedPlugins[filePath]?.let { entry ->
+            return PluginLoadResult.Success(
+                plugin = entry.plugin,
+                manifest = entry.manifest,
+                providers = providersFor(filePath),
+                extractorCount = entry.extractorCount,
+            )
         }
         return try {
             // 1. Read-only before opening the dex (Android 14+ SecurityException guard).
@@ -109,19 +133,20 @@ class CloudstreamPluginLoader(
 
             val providersAfter = APIHolder.allProviders.withLock { APIHolder.allProviders.toList() }
             val newProviders = providersAfter.filter { it !in providersBefore }
+            val newExtractorCount = extractorApis.withLock { extractorApis.toList() }.size - extractorsBefore.size
             newProviders.forEach { providerOwners[it.name] = filePath }
-            loadedPlugins[filePath] = plugin
+            loadedPlugins[filePath] = LoadedEntry(plugin, manifest, newExtractorCount)
 
             Logger.i(TAG) {
                 "Loaded ${file.name} v${manifest.version}: ${newProviders.size} provider(s), " +
-                    "${extractorApis.withLock { extractorApis.toList() }.size - extractorsBefore.size} extractor(s)"
+                    "$newExtractorCount extractor(s)"
             }
 
             PluginLoadResult.Success(
                 plugin = plugin,
                 manifest = manifest,
                 providers = newProviders,
-                extractorCount = extractorApis.withLock { extractorApis.toList() }.size - extractorsBefore.size,
+                extractorCount = newExtractorCount,
             )
         } catch (t: Throwable) {
             Logger.e(TAG) { "Failed to load ${file.name}: ${t::class.simpleName}: ${t.message}" }
@@ -131,8 +156,8 @@ class CloudstreamPluginLoader(
 
     /** Removes the plugin's registered providers/extractors (classloader leaks — accepted, W9). */
     fun unloadPlugin(filePath: String) {
-        val plugin = loadedPlugins[filePath] ?: return
-        runCatching { plugin.beforeUnload() }
+        val entry = loadedPlugins[filePath] ?: return
+        runCatching { entry.plugin.beforeUnload() }
         APIHolder.allProviders.withLock {
             APIHolder.allProviders.filter { providerOwners[it.name] == filePath }
                 .forEach { provider ->

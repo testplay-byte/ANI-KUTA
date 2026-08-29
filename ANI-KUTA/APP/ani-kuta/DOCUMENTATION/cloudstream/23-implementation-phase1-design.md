@@ -187,19 +187,26 @@ phase. **No schema change, no dev wipe this session.**
 
 ### 5.4 UI (`:feature:extensions-settings:impl`)
 
-- **Extensions screen** — tab row (`Aniyomi` | `CloudStream`) directly under the header. Visibility:
-  both tabs when both systems have content (installed extensions OR saved repos); single system →
-  its content without tabs; none → current empty state. Aniyomi tab content = existing screen code
-  untouched (zero regression risk). CloudStream tab = new `CloudstreamExtensionsSection` with the
-  same sectioned pattern: Installed (name, version, provider count, repo, enable toggle, uninstall),
-  Update-available pills (version comparison), Failed-to-load (retry/uninstall + reason), Available
-  from repos (icon via `iconUrl` with `%size%` substitution, name, description, language, NSFW
-  badge gated by the toggle, file size, install button with progress).
+- **Extensions screen** — tab row (`Aniyomi` | `CloudStream`) directly under the header, chips
+  right-aligned to the row edge (session 2). Visibility: both tabs when both systems have content
+  (installed extensions/plugins OR saved repos — session 2: installed plugins alone keep the
+  CloudStream tab alive even with zero repos); single system → its content without tabs; none →
+  current empty state. Aniyomi tab content = existing screen code. CloudStream tab =
+  `CloudstreamExtensionsSection` rendering from the SHARED `ExtensionListChrome.kt` (session 2) —
+  the identical section pattern: **Trusted Sources** (installed plugins: icon, name, one metadata
+  line `v{version} · language · NSFW · Update available`, shared Update pill, uninstall), Failed
+  to Load (conditional; retry/uninstall + real reason), **Available Extensions** (icon, name,
+  `v{version} · language · NSFW` — NO file size, NO description, the shared normal Download
+  install control). No per-row toggles and no per-section NSFW pill (session 2): the ONE shared
+  filters bar drives both tabs (search/sort/language/NSFW; the CS NSFW toggle = the persisted G4
+  gate, default OFF).
 - **Repositories screen** — add dialog now auto-detects: fetch pasted URL → parses as CS
   `repo.json` (name + manifestVersion + pluginLists non-null)? → CS repo; else aniyomi
   `index.min.json`/`index.json` (existing flow); else explicit error naming both expected formats.
-  Rows show a type badge (Aniyomi/CloudStream). Deleting a CS repo warns that its plugins are
-  removed (mirrors CS3's `delete_repository_plugins` warning).
+  Rows show a type badge (Aniyomi/CloudStream) right-aligned at the row's trailing edge (session 2).
+  Deleting a CS repo removes ONLY the repository entry — its installed plugins stay on disk and
+  keep working (session 2 device round; they display via install-time-captured metadata and are
+  uninstalled individually from the Extensions page; updates from the deleted repo stop).
 - **Strings**: hardcoded English (house convention). **Icons**: Coil `AsyncImage` (iconUrl).
 
 ### 5.5 Shared `InstallStep`
@@ -252,3 +259,30 @@ implementations. Each lands in its own session against its own doc.
   guest unusable under TCG — verification = CI green + the user's device loop (test checklist in the
   session summary). Deferred to next sessions (§7): provider execution, real extractors, content nav,
   data layer, playback.
+
+- 2026-08-29 (session 2, device-feedback round 1): the user tested on-device and every finding was
+  addressed. **CRITICAL root cause**: the loader rejected repeat loads with
+  `Failure("Plugin already loaded")`, and `installPlugin` → `loadAll()` re-loads every record — so
+  EVERY fresh install landed in "Failed to load", retry was a lottery (unload-then-load race vs.
+  concurrent refreshes), and enabling a second plugin evicted the first. Fix: **the loader is now
+  idempotent** (repeat load of an active path = `Success` with live registry state; updates unload
+  the stale instance AFTER the verified download replaces the file), and **all manager mutations
+  funnel through one mutex-serialized `refreshLocked()`** (loadAll + rebuildLists atomically).
+  UI consistency round (the CloudStream tab now renders from the SAME chrome as the aniyomi tab —
+  new shared `ExtensionListChrome.kt`: SectionHeader cards, ActionIconButton, the D-309/D-311
+  progress machines, icon placeholders): sections renamed/restructured to **Trusted Sources /
+  Failed to Load (conditional) / Available Extensions**; cloud-shaped install button → the shared
+  normal Download control; file size + description dropped from available rows; per-row
+  enable/disable toggles and the section-header NSFW pill removed (the ONE shared filters bar now
+  drives BOTH tabs — search/sort/language/NSFW; CS NSFW = the persisted G4 gate, default OFF);
+  source-tab chips + repo-row type badges right-aligned to the row edge (device report). Install
+  animation: installer explicitly emits `Downloading(100)` + 300ms beat before `Installing`, the
+  ring fill is animated (`animateFloatAsState`), and the manager holds `Installed` for 700ms before
+  the lists reshuffle — the fill visibly completes and the "Done" check plays out. **Repo deletion
+  no longer cascades**: deleting a CS repo removes only the entry; its plugins stay installed and
+  fully usable (records now persist `language`/`iconUrl`/`isNsfw` captured at install so rows
+  render aniyomi-parity even post-repo-delete; legacy session-1 records decode via
+  `ignoreUnknownKeys` defaults — covered by a new unit test). `isEnabled` removed from
+  `CsPluginRecord`/`CloudstreamExtension.Installed`; `setEnabled`/`deleteRepoPlugins` deleted.
+  Verified locally (Temurin JDK 21 + constrained-memory Gradle): `:data:cloudstream` +
+  `:core:cloudstream-api` unit tests (12 + 20) and full `assembleDebug` all green before push.

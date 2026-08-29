@@ -157,11 +157,39 @@ class CloudstreamRepoParsingTest {
             version = 23,
             repoUrl = "https://example.com/repo.json",
             fileHash = "sha256-abc",
+            language = "en",
+            iconUrl = "https://example.com/icon_%size%.png",
+            isNsfw = false,
         )
         val json = Json { ignoreUnknownKeys = true }
         val encoded = json.encodeToString(record)
         val decoded = json.decodeFromString<CsPluginRecord>(encoded)
         assertEquals(record, decoded)
-        assertEquals(true, decoded.isEnabled) // default persists
+        assertEquals("en", decoded.language)
+        assertEquals("https://example.com/icon_%size%.png", decoded.iconUrl)
+        assertEquals(false, decoded.isNsfw)
+    }
+
+    @Test
+    fun pluginRecord_legacyJson_isTolerated() {
+        // Session 1 persisted an `isEnabled` field that session 2 removed, and
+        // pre-enrichment records lack language/iconUrl/isNsfw entirely — devices
+        // upgrading across the boundary must decode cleanly via defaults.
+        val legacy = """{
+            "internalName": "AllMovieLandProvider",
+            "name": "AllMovieLandProvider",
+            "url": "https://example.com/x.cs3",
+            "filePath": "/data/files/CloudstreamExtensions/repo.x/AllMovieLandProvider.123.cs3",
+            "version": 23,
+            "repoUrl": "https://example.com/repo.json",
+            "fileHash": "sha256-abc",
+            "isEnabled": false
+        }"""
+        val decoded = Json { ignoreUnknownKeys = true }.decodeFromString<CsPluginRecord>(legacy)
+        assertEquals("AllMovieLandProvider", decoded.internalName)
+        assertEquals(23, decoded.version)
+        assertNull(decoded.language)
+        assertNull(decoded.iconUrl)
+        assertEquals(false, decoded.isNsfw)
     }
 }

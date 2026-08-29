@@ -68,8 +68,10 @@ import org.koin.compose.koinInject
  * 2. Otherwise the aniyomi flow runs (`<base>/index.min.json` → `index.json`).
  * 3. Neither parses → an error naming both expected formats.
  *
- * Deleting a CloudStream repository removes its installed plugins too
- * (mirrors CS3's `delete_repository_plugins` warning, doc 04 §4.6).
+ * Deleting a CloudStream repository removes ONLY the repository entry — its
+ * installed plugins stay on disk and keep working (session-2 device round:
+ * the user keeps their plugins so the CloudStream tab + its Trusted Sources
+ * section survive; updates from that repo simply stop being offered).
  *
  * CORE_RULES §22: smooth animations. §23: reactive state. §20: tag
  * "Anikuta:Feature:RepoSettings".
@@ -309,7 +311,9 @@ fun ExtensionRepoSettingsScreen(
         )
     }
 
-    // CloudStream repo delete confirmation — plugins from this repo are removed too.
+    // CloudStream repo delete confirmation — the repository entry goes, its
+    // installed PLUGINS STAY (session-2 device round; they remain fully usable
+    // from the Extensions page, and are uninstalled individually from there).
     deleteCsRepoTarget?.let { target ->
         val pluginCount = csInstalled.count { it.repoUrl == target.url }
         AlertDialog(
@@ -324,8 +328,8 @@ fun ExtensionRepoSettingsScreen(
             text = {
                 Text(
                     if (pluginCount > 0) {
-                        "\"${target.name}\" will be removed, along with its $pluginCount installed " +
-                            "plugin${if (pluginCount == 1) "" else "s"}."
+                        "\"${target.name}\" will be removed. Its $pluginCount installed " +
+                            "plugin${if (pluginCount == 1) "" else "s"} will stay installed and keep working."
                     } else {
                         "\"${target.name}\" will be removed."
                     },
@@ -336,7 +340,6 @@ fun ExtensionRepoSettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        csManager.deleteRepoPlugins(target.url)
                         csRepoRepository.delete(target.url)
                     }
                     deleteCsRepoTarget = null
@@ -374,47 +377,48 @@ private fun RepoRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = name,
-                        fontFamily = RobotoFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Spacer(Modifier.size(8.dp))
-                    // Type badge — which ecosystem this repository belongs to.
-                    Surface(
-                        color = if (isCloudstream) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
-                        },
-                        shape = RoundedCornerShape(6.dp),
-                    ) {
-                        Text(
-                            text = typeLabel,
-                            fontFamily = RobotoFamily,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (isCloudstream) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-                }
+                Text(
+                    text = name,
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
                 Text(
                     text = url,
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+            // Type badge — which ecosystem this repository belongs to. Session-2
+            // device round: flush against the row's RIGHT edge (was: hugging the
+            // name on the left), visually separating identity from classification.
+            Surface(
+                color = if (isCloudstream) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
+                },
+                shape = RoundedCornerShape(6.dp),
+            ) {
+                Text(
+                    text = typeLabel,
+                    fontFamily = RobotoFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isCloudstream) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
             androidx.compose.material3.IconButton(onClick = onDelete) {

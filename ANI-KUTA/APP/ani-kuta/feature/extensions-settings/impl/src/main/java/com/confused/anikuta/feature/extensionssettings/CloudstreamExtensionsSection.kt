@@ -1,11 +1,5 @@
 package com.confused.anikuta.feature.extensionssettings
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,21 +10,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,36 +40,75 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
-import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
+import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
 import org.koin.compose.koinInject
 
 /**
- * The CloudStream tab of the unified Extensions screen (doc 23 §5.4, gate G3-adjacent:
- * the user's unified-extensions-page decision). Sectioned exactly like the aniyomi
- * list above it: Installed → Failed to Load → Available. NSFW catalog entries are
- * gated by the persisted app toggle (G4 direction — default OFF).
+ * The CloudStream tab of the unified Extensions screen (doc 23 §5.4, gate
+ * G3-adjacent: the user's unified-extensions-page decision).
+ *
+ * SESSION-2 DEVICE ROUND — this tab now renders with the EXACT same structure,
+ * chrome and row anatomy as the aniyomi tab above it (the user's consistency
+ * report), built from the shared pieces in [ExtensionListChrome.kt]:
+ *
+ * 1. Trusted Sources — installed plugins (the "Failed to load" section of the
+ *    first round is gone from the resting view; plugins load on install now).
+ * 2. Failed to Load — only when a plugin genuinely fails (conditional, same as
+ *    the aniyomi tab; D-295/D-296: never silent).
+ * 3. Available Extensions — the repo catalog, same rows, same normal Download
+ *    button (the round's cloud-shaped button is gone), same progress machine.
+ *
+ * Removed per the report: per-row enable/disable toggles (plugins always load),
+ * the section-header NSFW pill (the shared filters bar owns NSFW now), the file
+ * size and description in available rows, and the custom colors.
+ *
+ * Search / sort / language / NSFW all flow in from the ONE filters bar shared
+ * with the aniyomi tab (G4: NSFW here is the persisted gate, default OFF).
  */
 @Composable
-fun CloudstreamExtensionsSection(
+internal fun CloudstreamExtensionsSection(
     csManager: CloudstreamPluginManager = koinInject(),
-    appPreferences: AppPreferences = koinInject(),
+    csRepoRepository: CloudstreamRepoRepository = koinInject(),
+    searchQuery: String = "",
+    sortMode: ExtensionSortMode = ExtensionSortMode.NAME,
+    langFilter: String? = null,
+    showNsfw: Boolean = false,
 ) {
     val installed by csManager.installed.collectAsState()
     val errored by csManager.errored.collectAsState()
     val available by csManager.available.collectAsState()
     val installStates by csManager.installStates.collectAsState()
     val updateCheckState by csManager.updateCheckState.collectAsState()
-
-    var showNsfw by remember { mutableStateOf(appPreferences.cloudstreamShowNsfw) }
-    var uninstallTarget by remember { mutableStateOf<CloudstreamExtension?>(null) }
+    val csRepos by csRepoRepository.repos.collectAsState()
 
     val listState = rememberLazyListState()
     val isChecking = updateCheckState is CloudstreamPluginManager.UpdateCheckState.Checking
 
-    val visibleAvailable = available.filter { showNsfw || !it.isNsfw }
+    // ── Filtering + sorting (same rules as the aniyomi tab's lists) ──
+    val filteredInstalled = installed
+        .filter {
+            matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
+                (langFilter == null || it.language == langFilter)
+        }
+        .let { sortCsExtensions(it, sortMode) }
+
+    val filteredErrored = errored
+        .filter {
+            matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
+                (langFilter == null || it.language == langFilter)
+        }
+        .let { sortCsErrored(it, sortMode) }
+
+    val filteredAvailable = available
+        .filter { showNsfw || !it.isNsfw }
+        .filter {
+            matchesSearch(it.plugin.name, searchQuery) &&
+                (langFilter == null || it.plugin.language == langFilter)
+        }
+        .let { sortCsAvailable(it, sortMode) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -88,76 +117,72 @@ fun CloudstreamExtensionsSection(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // ── Installed ──
+            // D-299 pattern: every section header + row is its own virtualized item.
+
+            // ── Trusted Sources ──
             item(key = "cs-header-installed", contentType = "csSectionHeader") {
-                CsSectionHeader(
-                    title = "Installed Plugins",
-                    count = installed.size,
-                    nsfwEnabled = showNsfw,
-                    onToggleNsfw = {
-                        showNsfw = !showNsfw
-                        appPreferences.cloudstreamShowNsfw = showNsfw
-                    },
+                SectionHeader(
+                    title = "Trusted Sources",
+                    count = filteredInstalled.size,
+                    isEmpty = filteredInstalled.isEmpty(),
+                    emptyMessage = "No trusted sources. Install a plugin to get started.",
                 )
             }
-            if (installed.isEmpty()) {
-                item(key = "cs-installed-empty", contentType = "csSectionBody") {
-                    CsEmptyBody("No CloudStream plugins installed. Add a repository and install one below.")
-                }
-            } else {
-                items(
-                    installed,
-                    key = { "cs-installed-${it.internalName}" },
-                    contentType = { "csInstalledRow" },
-                ) { ext ->
-                    CsInstalledRow(
-                        extension = ext,
-                        onToggleEnabled = { csManager.setEnabled(ext, !ext.isEnabled) },
-                        onUninstall = { uninstallTarget = ext },
-                        onUpdate = ext.availableUpdateVersion?.let { v ->
-                            {
-                                available.firstOrNull { it.plugin.internalName == ext.internalName }
-                                    ?.let { csManager.installPlugin(it) }
-                            }
-                        },
-                    )
-                }
+            items(
+                filteredInstalled,
+                key = { "cs-installed-${it.internalName}" },
+                contentType = { "csInstalledRow" },
+            ) { ext ->
+                CsInstalledRow(
+                    extension = ext,
+                    installStep = installStates[ext.internalName],
+                    onUpdate = ext.availableUpdateVersion?.let {
+                        {
+                            available.firstOrNull { it.plugin.internalName == ext.internalName }
+                                ?.let(csManager::installPlugin)
+                        }
+                    },
+                    onUninstall = { csManager.uninstallPlugin(ext) },
+                )
             }
 
-            // ── Failed to Load (D-295/D-296 pattern — never silent) ──
-            if (errored.isNotEmpty()) {
+            // ── Failed to Load (conditional — D-296 pattern, never silent) ──
+            if (filteredErrored.isNotEmpty()) {
                 item(key = "cs-header-errored", contentType = "csSectionHeader") {
-                    CsSectionHeader(title = "Failed to Load", count = errored.size)
+                    SectionHeader(title = "Failed to Load", count = filteredErrored.size, isEmpty = false)
                 }
                 items(
-                    errored,
+                    filteredErrored,
                     key = { "cs-errored-${it.internalName}" },
                     contentType = { "csErroredRow" },
                 ) { ext ->
                     CsErroredRow(
                         extension = ext,
                         onRetry = { csManager.retryPlugin(ext) },
-                        onUninstall = { uninstallTarget = ext },
+                        onUninstall = { csManager.uninstallPlugin(ext) },
                     )
                 }
             }
 
-            // ── Available ──
+            // ── Available Extensions ──
             item(key = "cs-header-available", contentType = "csSectionHeader") {
-                CsSectionHeader(title = "Available Plugins", count = visibleAvailable.size)
+                SectionHeader(title = "Available Extensions", count = filteredAvailable.size, isEmpty = false)
             }
             when {
-                isChecking && visibleAvailable.isEmpty() -> item(key = "cs-available-loading", contentType = "csSectionBody") {
+                csRepos.isEmpty() -> item(key = "cs-available-empty-repos", contentType = "csSectionBody") {
+                    EmptySectionBody("No repositories configured. Tap the settings icon to add one.")
+                }
+                isChecking && filteredAvailable.isEmpty() -> item(key = "cs-available-loading", contentType = "csSectionBody") {
                     Box(
                         modifier = Modifier.fillMaxWidth().padding(32.dp),
                         contentAlignment = Alignment.Center,
                     ) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
                 }
-                visibleAvailable.isEmpty() -> item(key = "cs-available-empty", contentType = "csSectionBody") {
-                    CsEmptyBody("No CloudStream plugins available. Add a CloudStream repository in repository settings.")
+                filteredAvailable.isEmpty() -> item(key = "cs-available-empty", contentType = "csSectionBody") {
+                    EmptySectionBody("No plugins found in your repositories.")
                 }
                 else -> items(
-                    visibleAvailable,
+                    filteredAvailable,
                     key = { "cs-available-${it.plugin.internalName}" },
                     contentType = { "csAvailableRow" },
                 ) { ext ->
@@ -179,69 +204,34 @@ fun CloudstreamExtensionsSection(
             modifier = Modifier.align(Alignment.TopCenter),
         )
     }
-
-    // Uninstall confirmation (destructive action — AlertDialog per house convention).
-    uninstallTarget?.let { target ->
-        val targetName = when (target) {
-            is CloudstreamExtension.Installed -> target.name
-            is CloudstreamExtension.Errored -> target.name
-            is CloudstreamExtension.Available -> target.plugin.name
-        }
-        AlertDialog(
-            onDismissRequest = { uninstallTarget = null },
-            title = {
-                Text(
-                    "Uninstall plugin?",
-                    fontFamily = RobotoFamily,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-            },
-            text = {
-                Text(
-                    "\"$targetName\" will be removed from this device.",
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    csManager.uninstallPlugin(target)
-                    uninstallTarget = null
-                }) {
-                    Text("Uninstall", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { uninstallTarget = null }) {
-                    Text("Cancel", fontFamily = RobotoFamily)
-                }
-            },
-        )
-    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Rows
+//  Rows — same card anatomy as the aniyomi rows: 40dp icon, ExtraBold name,
+//  one metadata line, action icon buttons on the trailing edge. Built from the
+//  shared ExtensionListChrome pieces so both tabs stay pixel-identical.
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun CsInstalledRow(
     extension: CloudstreamExtension.Installed,
-    onToggleEnabled: () -> Unit,
-    onUninstall: () -> Unit,
+    installStep: InstallStep?,
     onUpdate: (() -> Unit)?,
+    onUninstall: () -> Unit,
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(if (extension.isDisabledByRepo) 0.6f else 1f),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            CsPluginIcon(iconUrl = extension.iconUrl, name = extension.name)
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = extension.name.removeSuffix("Provider"),
@@ -255,9 +245,11 @@ private fun CsInstalledRow(
                 Text(
                     text = buildString {
                         append("v${extension.version}")
-                        if (extension.providerCount > 0) append("  ·  ${extension.providerCount} provider${if (extension.providerCount == 1) "" else "s"}")
-                        extension.repoName?.let { append("  ·  $it") }
-                        if (extension.isDisabledByRepo) append("  ·  disabled by repository")
+                        extension.language?.let { append(" · $it") }
+                        if (extension.isNsfw) append(" · NSFW")
+                        if (extension.availableUpdateVersion != null) append(" · Update available")
+                        // Repo-side kill switch (plugins.json status 0, doc 04 §4.5).
+                        if (extension.isDisabledByRepo) append(" · Disabled by repo")
                     },
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
@@ -267,26 +259,36 @@ private fun CsInstalledRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-
-            if (onUpdate != null) {
-                TextButton(onClick = onUpdate, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                    Text("Update", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                }
-            }
-            Switch(
-                checked = extension.isEnabled,
-                onCheckedChange = { onToggleEnabled() },
-                modifier = Modifier.padding(start = 4.dp),
+            // D-301/D-309 lineage: the shared "Update" pill → live download ring.
+            ExtensionUpdateControl(
+                installStep = installStep,
+                onUpdate = onUpdate,
             )
-            IconButton(onClick = onUninstall, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = Icons.Filled.Delete,
-                    contentDescription = "Uninstall plugin",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            ActionIconButton(
+                icon = Icons.Filled.Delete,
+                contentDescription = "Uninstall plugin",
+                onClick = { showDeleteConfirm = true },
+                tint = MaterialTheme.colorScheme.error,
+            )
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Uninstall plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = { Text("This will remove ${extension.name.removeSuffix("Provider")} from your device.", fontFamily = RobotoFamily) },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onUninstall() }) {
+                    Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
     }
 }
 
@@ -296,13 +298,20 @@ private fun CsErroredRow(
     onRetry: () -> Unit,
     onUninstall: () -> Unit,
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CsPluginIcon(iconUrl = extension.iconUrl, name = extension.name)
+                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = extension.name.removeSuffix("Provider"),
@@ -311,44 +320,68 @@ private fun CsErroredRow(
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = "v${extension.version}",
+                        text = "Failed to load · v${extension.version}",
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-                IconButton(onClick = onRetry, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Refresh,
-                        contentDescription = "Retry loading plugin",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                IconButton(onClick = onUninstall, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Uninstall plugin",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+                // D-296: Retry (re-attempt the load) + Delete (uninstall).
+                ActionIconButton(
+                    icon = Icons.Filled.Refresh,
+                    contentDescription = "Retry loading plugin",
+                    onClick = onRetry,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                ActionIconButton(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Uninstall plugin",
+                    onClick = { showDeleteConfirm = true },
+                    tint = MaterialTheme.colorScheme.error,
+                )
             }
+            // The real failure reason straight from the loader — no silent vanishing.
             Text(
                 text = extension.message,
                 fontFamily = RobotoFamily,
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.error,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier.padding(start = 52.dp, top = 4.dp),
             )
         }
     }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Uninstall plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = { Text("This will remove ${extension.name.removeSuffix("Provider")} from your device.", fontFamily = RobotoFamily) },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onUninstall() }) {
+                    Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
+    }
 }
 
+/**
+ * Available catalog row — byte-for-byte the aniyomi AvailableExtensionRow
+ * anatomy: icon, name, ONE metadata line (version · language · NSFW — no file
+ * size, no description per the device report), and the shared install control.
+ */
 @Composable
 private fun CsAvailableRow(
     extension: CloudstreamExtension.Available,
@@ -357,7 +390,7 @@ private fun CsAvailableRow(
 ) {
     val plugin = extension.plugin
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -366,7 +399,7 @@ private fun CsAvailableRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CsPluginIcon(iconUrl = plugin.iconUrl, name = plugin.name)
-            Spacer(Modifier.size(12.dp))
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = plugin.name.removeSuffix("Provider"),
@@ -378,12 +411,11 @@ private fun CsAvailableRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = listOfNotNull(
-                        "v${plugin.version}",
-                        plugin.language,
-                        plugin.fileSize?.let { formatKb(it) },
-                        if (extension.isNsfw) "NSFW" else null,
-                    ).joinToString("  ·  "),
+                    text = buildString {
+                        append("v${plugin.version}")
+                        plugin.language?.let { append(" · $it") }
+                        if (extension.isNsfw) append(" · NSFW")
+                    },
                     fontFamily = RobotoFamily,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -391,65 +423,22 @@ private fun CsAvailableRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-                if (!plugin.description.isNullOrBlank()) {
-                    Text(
-                        text = plugin.description!!,
-                        fontFamily = RobotoFamily,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
             }
-
-            // Install action — mirrors the aniyomi install-button state machine.
-            AnimatedContent(
-                targetState = installStep,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
-                label = "csInstallState",
-            ) { step ->
-                when (step) {
-                    is InstallStep.Downloading -> Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 6.dp),
-                    ) {
-                        if (step.progress >= 0) {
-                            CircularProgressIndicator(
-                                progress = { step.progress / 100f },
-                                modifier = Modifier.size(28.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        } else {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(28.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                    InstallStep.Installing -> CircularProgressIndicator(
-                        modifier = Modifier.size(28.dp).padding(2.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    else -> IconButton(onClick = onInstall) {
-                        Icon(
-                            imageVector = Icons.Filled.CloudDownload,
-                            contentDescription = "Install plugin",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
-                }
-            }
+            // The SAME state machine + normal Download button as the aniyomi
+            // rows (the round's cloud-shaped button is gone).
+            AvailableInstallControl(
+                installStep = installStep,
+                onInstall = onInstall,
+            )
         }
     }
 }
 
-/** Plugin icon via iconUrl (%size% substitution, doc 04 §3.3) with initial fallback. */
+/**
+ * Plugin icon via iconUrl (%size% substitution, doc 04 §3.3) with the shared
+ * colorful letter tile as fallback (ExtensionListChrome — same placeholder the
+ * aniyomi rows use).
+ */
 @Composable
 private fun CsPluginIcon(iconUrl: String?, name: String) {
     val resolved = iconUrl?.replace("%size%", "64")?.replace("%exact_size%", "64")
@@ -460,84 +449,24 @@ private fun CsPluginIcon(iconUrl: String?, name: String) {
             modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
         )
     } else {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = name.take(1).uppercase(),
-                fontFamily = RobotoFamily,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        ExtensionIconPlaceholder(name.removeSuffix("Provider"))
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Section chrome
-// ════════════════════════════════════════════════════════════════════════════
+// ── Sorting (CloudStream twins of the shared aniyomi comparators) ───────────
 
-@Composable
-private fun CsSectionHeader(
-    title: String,
-    count: Int,
-    nsfwEnabled: Boolean? = null,
-    onToggleNsfw: (() -> Unit)? = null,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            fontFamily = RobotoFamily,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = "  $count",
-            fontFamily = RobotoFamily,
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.weight(1f))
-        if (onToggleNsfw != null && nsfwEnabled != null) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(10.dp),
-                onClick = onToggleNsfw,
-            ) {
-                Text(
-                    text = if (nsfwEnabled) "NSFW shown" else "NSFW hidden",
-                    fontFamily = RobotoFamily,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
-        }
+private fun <T> sortCsBase(list: List<T>, mode: ExtensionSortMode, name: (T) -> String, lang: (T) -> String?, nsfw: (T) -> Boolean): List<T> =
+    when (mode) {
+        ExtensionSortMode.NAME -> list.sortedBy { name(it).lowercase() }
+        ExtensionSortMode.LANGUAGE -> list.sortedBy { (lang(it) ?: "zz").lowercase() }
+        ExtensionSortMode.NSFW -> list.sortedByDescending(nsfw)
     }
-}
 
-@Composable
-private fun CsEmptyBody(message: String) {
-    Text(
-        text = message,
-        fontFamily = RobotoFamily,
-        fontSize = 13.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 14.dp),
-    )
-}
+private fun sortCsExtensions(list: List<CloudstreamExtension.Installed>, mode: ExtensionSortMode): List<CloudstreamExtension.Installed> =
+    sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
 
-private fun formatKb(bytes: Long): String = when {
-    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576f)
-    bytes >= 1024 -> "${bytes / 1024} KB"
-    else -> "$bytes B"
-}
+private fun sortCsErrored(list: List<CloudstreamExtension.Errored>, mode: ExtensionSortMode): List<CloudstreamExtension.Errored> =
+    sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
+
+private fun sortCsAvailable(list: List<CloudstreamExtension.Available>, mode: ExtensionSortMode): List<CloudstreamExtension.Available> =
+    sortCsBase(list, mode, name = { it.plugin.name }, lang = { it.plugin.language }, nsfw = { it.isNsfw })

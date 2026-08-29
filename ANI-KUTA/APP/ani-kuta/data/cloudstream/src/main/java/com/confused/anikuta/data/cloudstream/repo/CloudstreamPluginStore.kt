@@ -13,7 +13,10 @@ import kotlinx.serialization.json.Json
 /**
  * The persisted record of an installed CloudStream plugin (our PluginData analog,
  * doc 04 §4.1). File existence is the install check; this record carries the
- * identity + version + repo linkage for update checks.
+ * identity + version + repo linkage for update checks, plus the catalog display
+ * metadata (language / iconUrl / isNsfw) captured at install time so installed
+ * rows render aniyomi-parity EVEN AFTER their repository is deleted (session 2:
+ * repo deletion no longer cascades to plugins).
  */
 @Serializable
 data class CsPluginRecord(
@@ -24,7 +27,9 @@ data class CsPluginRecord(
     val version: Int,
     val repoUrl: String?,
     val fileHash: String? = null,
-    val isEnabled: Boolean = true,
+    val language: String? = null,
+    val iconUrl: String? = null,
+    val isNsfw: Boolean = false,
 )
 
 /**

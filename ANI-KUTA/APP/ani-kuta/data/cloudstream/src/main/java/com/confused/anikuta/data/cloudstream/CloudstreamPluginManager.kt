@@ -19,6 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,8 +35,13 @@ import java.io.File
  * throttled update checks (D-301 pattern), per-plugin error surfacing (D-295/D-296).
  *
  * Lifecycle: Koin singleton — lazily constructed on first injection; init{}
- * loads all enabled installed plugins from disk. Disabled plugins stay on disk
- * unloaded (the G4 "highly customizable later" direction).
+ * loads all installed plugins from disk.
+ *
+ * Session-2 device round: every list mutation now funnels through
+ * [refreshLocked] under the ONE [installMutex] (concurrent loadAll/rebuild calls
+ * previously interleaved and produced glitchy section state), and the loader is
+ * idempotent so a loaded plugin STAYS loaded across refreshes (the
+ * "Plugin already loaded" → Failed-to-load loop is gone — see the loader KDoc).
  */
 class CloudstreamPluginManager(
     private val context: Context,
@@ -74,18 +80,29 @@ class CloudstreamPluginManager(
     @Volatile
     private var onlinePlugins: List<Pair<SitePlugin, Pair<String, String>>> = emptyList() // plugin → (repoUrl, repoName)
 
+    /** Serializes EVERY store/loader mutation + list rebuild (one coherent state). */
     private val installMutex = Mutex()
+
     @Volatile
     private var lastUpdateCheck = 0L
 
     init {
         loadAll()
-        scope.launch { repoRepository.repos.collect { refreshAvailableInternal() } }
+        scope.launch {
+            repoRepository.repos.collect {
+                runCatching { installMutex.withLock { refreshAvailableInternal() } }
+                    .onFailure { Logger.w(TAG) { "Repo refresh failed: ${it.message}" } }
+            }
+        }
     }
 
     // ── Loading ─────────────────────────────────────────────────────────────
 
-    /** Loads every enabled installed plugin from disk; disabled ones stay unloaded. */
+    /**
+     * Loads every installed plugin from disk. Already-active plugins are
+     * re-reported from the live registry (the loader is idempotent — no unload,
+     * no "already loaded" failures); genuinely fresh files get a real load.
+     */
     fun loadAll() {
         val records = pluginStore.loadAll()
         val installedList = mutableListOf<CloudstreamExtension.Installed>()
@@ -96,10 +113,6 @@ class CloudstreamPluginManager(
             if (!file.exists()) {
                 // File vanished (user cleared data / partial state) — drop the record.
                 scope.launch { pluginStore.delete(record.internalName) }
-                continue
-            }
-            if (!record.isEnabled) {
-                installedList += record.toInstalled(providerCount = 0)
                 continue
             }
             when (val result = loader.loadPlugin(file)) {
@@ -113,13 +126,7 @@ class CloudstreamPluginManager(
                         .toInstalled(providerCount = result.providers.size)
                 }
                 is PluginLoadResult.Failure -> {
-                    erroredList += CloudstreamExtension.Errored(
-                        internalName = record.internalName,
-                        name = record.name,
-                        version = record.version,
-                        filePath = record.filePath,
-                        message = result.reason,
-                    )
+                    erroredList += record.toErrored(result.reason)
                 }
             }
         }
@@ -129,8 +136,11 @@ class CloudstreamPluginManager(
 
     // ── Available catalog ───────────────────────────────────────────────────
 
-    /** Fetches all repos' plugin lists and updates the Available/Installed states. */
-    suspend fun refreshAvailableInternal() {
+    /**
+     * Fetches all repos' plugin lists and updates the Available/Installed states.
+     * MUST be called under [installMutex] (network + [rebuildLists]).
+     */
+    private suspend fun refreshAvailableInternal() {
         val repos = repoRepository.repos.value
         val entries = mutableListOf<Pair<SitePlugin, Pair<String, String>>>()
         for (repo in repos) {
@@ -143,6 +153,7 @@ class CloudstreamPluginManager(
         rebuildLists()
     }
 
+    /** Rebuilds the Available list + update/disable flags. Under [installMutex]. */
     private fun rebuildLists() {
         val records = pluginStore.loadAll()
         val installedNames = records.map { it.internalName }.toSet()
@@ -161,6 +172,12 @@ class CloudstreamPluginManager(
         _installed.value = installedNow
     }
 
+    /** loadAll + rebuildLists — the ONE coherent refresh every mutation ends with. */
+    private suspend fun refreshLocked() {
+        loadAll()
+        rebuildLists()
+    }
+
     /** The documented update predicate (doc 04 §4.5). */
     fun isUpdate(onlineVersion: Int, savedVersion: Int): Boolean = isCsUpdate(onlineVersion, savedVersion)
 
@@ -171,18 +188,24 @@ class CloudstreamPluginManager(
         if (_updateCheckState.value is UpdateCheckState.Checking) return
         _updateCheckState.value = UpdateCheckState.Checking
         scope.launch(Dispatchers.IO) {
-            runCatching { refreshAvailableInternal() }
+            runCatching { installMutex.withLock { refreshAvailableInternal() } }
                 .onFailure { Logger.w(TAG) { "Update check failed: ${it.message}" } }
             lastUpdateCheck = System.currentTimeMillis()
             _updateCheckState.value = UpdateCheckState.Done(lastUpdateCheck)
         }
     }
 
-    // ── Install / uninstall / enable ────────────────────────────────────────
+    // ── Install / uninstall ─────────────────────────────────────────────────
 
     /**
      * Downloads + verifies + installs + loads one available plugin. Emits progress
      * via [installStates] (shared InstallStep model, doc 23 §5.5).
+     *
+     * Session-2 sequencing (device round): the installer explicitly emits
+     * Downloading(100) + a beat before Installing, and after the load completes
+     * the terminal Installed state is held for [COMPLETION_BEAT_MS] BEFORE the
+     * lists refresh — so the row's ring visibly fills to 100% and the "Done"
+     * check plays out before the plugin moves into Trusted Sources.
      */
     fun installPlugin(extension: CloudstreamExtension.Available) {
         val plugin = extension.plugin
@@ -195,6 +218,12 @@ class CloudstreamPluginManager(
                     installer.download(plugin.url, plugin.fileHash, target).collect { step ->
                         _installStates.value = _installStates.value + (internalName to step)
                     }
+                    // Download verified + moved into place — NOW swap the in-memory
+                    // instance: update/reinstall replaces the file at the SAME
+                    // deterministic path, so drop the stale classloader before the
+                    // fresh dex loads. (A failed download above leaves the old
+                    // plugin loaded and its file untouched.)
+                    loader.unloadPlugin(target.absolutePath)
                     val record = CsPluginRecord(
                         internalName = internalName,
                         name = plugin.name,
@@ -203,29 +232,28 @@ class CloudstreamPluginManager(
                         version = plugin.version,
                         repoUrl = extension.repoUrl,
                         fileHash = plugin.fileHash,
-                        isEnabled = true,
+                        language = plugin.language,
+                        iconUrl = plugin.iconUrl,
+                        isNsfw = extension.isNsfw,
                     )
                     pluginStore.upsert(record)
                     when (val result = loader.loadPlugin(target)) {
-                        is PluginLoadResult.Success -> {
-                            _installStates.value = _installStates.value + (internalName to InstallStep.Installed)
-                            loadAll()
-                            rebuildLists()
-                        }
-                        is PluginLoadResult.Failure -> {
-                            // Installed but failed to load — visible Errored row (honest state).
-                            _installStates.value = _installStates.value + (internalName to InstallStep.Installed)
-                            loadAll()
-                            rebuildLists()
+                        is PluginLoadResult.Success -> Unit
+                        is PluginLoadResult.Failure ->
+                            // Installed but failed to load — honest Errored row (D-295).
                             Logger.w(TAG) { "Plugin $internalName installed but load failed: ${result.reason}" }
-                        }
                     }
+                    // Terminal state first, THEN the list move (after the beat) —
+                    // the available row animates to a full ring + "Done" first.
+                    _installStates.value = _installStates.value + (internalName to InstallStep.Installed)
+                    delay(COMPLETION_BEAT_MS)
+                    refreshLocked()
                 } catch (t: Throwable) {
                     Logger.e(TAG) { "Install failed for $internalName: ${t.message}" }
                     _installStates.value = _installStates.value + (internalName to InstallStep.Error)
                 } finally {
                     scope.launch {
-                        kotlinx.coroutines.delay(1500)
+                        kotlinx.coroutines.delay(INSTALL_STATE_CLEAR_MS)
                         _installStates.value =
                             _installStates.value - internalName // clear terminal state after a beat
                     }
@@ -247,8 +275,7 @@ class CloudstreamPluginManager(
                 // Clean the (now-empty) repo dir if this was its last plugin.
                 File(filePath).parentFile?.takeIf { it.list()?.isEmpty() == true }?.delete()
                 pluginStore.delete(internalName)
-                loadAll()
-                rebuildLists()
+                refreshLocked()
             }
         }
     }
@@ -258,36 +285,7 @@ class CloudstreamPluginManager(
         scope.launch {
             installMutex.withLock {
                 loader.unloadPlugin(extension.filePath) // clear any partial state
-                loadAll()
-                rebuildLists()
-            }
-        }
-    }
-
-    fun setEnabled(extension: CloudstreamExtension.Installed, enabled: Boolean) {
-        scope.launch {
-            pluginStore.update(extension.internalName) { it.copy(isEnabled = enabled) }
-            if (!enabled) {
-                loader.unloadPlugin(extension.filePath)
-            }
-            loadAll()
-            rebuildLists()
-        }
-    }
-
-    /** Repo deletion: unload + delete every plugin from that repo (doc 04 §4.6). */
-    fun deleteRepoPlugins(repoUrl: String) {
-        scope.launch {
-            installMutex.withLock {
-                val removed = pluginStore.deleteForRepo(repoUrl)
-                removed.forEach { record ->
-                    loader.unloadPlugin(record.filePath)
-                    File(record.filePath).delete()
-                }
-                CloudstreamPluginInstaller.pluginPath(context.filesDir, "x", repoUrl).parentFile
-                    ?.takeIf { it.exists() }?.deleteRecursively()
-                loadAll()
-                rebuildLists()
+                refreshLocked()
             }
         }
     }
@@ -303,14 +301,33 @@ class CloudstreamPluginManager(
             version = version,
             filePath = filePath,
             repoUrl = repoUrl,
-            repoName = repoUrl?.let { repoRepository.find(it)?.name },
-            isEnabled = isEnabled,
+            language = language,
+            iconUrl = iconUrl,
+            isNsfw = isNsfw,
             providerCount = providerCount,
+        )
+
+    private fun CsPluginRecord.toErrored(message: String): CloudstreamExtension.Errored =
+        CloudstreamExtension.Errored(
+            internalName = internalName,
+            name = name,
+            version = version,
+            filePath = filePath,
+            language = language,
+            iconUrl = iconUrl,
+            isNsfw = isNsfw,
+            message = message,
         )
 
     companion object {
         private const val TAG = "Anikuta:Data:Cloudstream:Manager"
         private const val UPDATE_CHECK_THROTTLE_MS = 30 * 60 * 1000L // D-301 pattern
+
+        /** How long the success state plays on the row before the list reshuffles. */
+        private const val COMPLETION_BEAT_MS = 700L
+
+        /** How long a terminal install state lingers after everything settled. */
+        private const val INSTALL_STATE_CLEAR_MS = 1500L
     }
 }
 
