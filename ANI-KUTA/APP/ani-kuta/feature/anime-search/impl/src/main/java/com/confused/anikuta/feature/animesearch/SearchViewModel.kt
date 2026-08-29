@@ -804,7 +804,8 @@ class SearchViewModel(
                     // Task 45: pass the provider's site URL — the empty card's
                     // "Open in WebView" button needs it (round-4 report: the card
                     // said "solve it in the WebView" but offered no button).
-                    SearchUiState.ExtensionEmpty(source.providerName, source.mainUrl.takeIf { it.isNotBlank() })
+                    // Guard: providers that never set mainUrl report "NONE".
+                    SearchUiState.ExtensionEmpty(source.providerName, source.mainUrl.takeHttpUrl())
                 } else {
                     showingDefaults = true
                     SearchUiState.ExtensionBrowseSuccess(
@@ -829,7 +830,7 @@ class SearchViewModel(
                 if (e is com.lagradost.cloudstream3.network.CloudflareBlockedException) {
                     Logger.w(TAG) { "CloudStream browse blocked by Cloudflare: ${e.message}" }
                     _uiState.value = SearchUiState.CloudflareBlocked(
-                        url = source.mainUrl.takeIf { it.isNotBlank() } ?: "https://${e.host}",
+                        url = source.mainUrl.takeHttpUrl() ?: "https://${e.host}",
                         sourceName = source.providerName,
                     )
                 } else {
@@ -871,7 +872,7 @@ class SearchViewModel(
                 _uiState.value = if (results.isEmpty()) {
                     // Task 45: pass the provider's site URL — the empty card's
                     // "Open in WebView" button needs it.
-                    SearchUiState.ExtensionEmpty(source.providerName, source.mainUrl.takeIf { it.isNotBlank() })
+                    SearchUiState.ExtensionEmpty(source.providerName, source.mainUrl.takeHttpUrl())
                 } else {
                     SearchUiState.ExtensionSuccess(results)
                 }
@@ -884,7 +885,7 @@ class SearchViewModel(
                 if (e is com.lagradost.cloudstream3.network.CloudflareBlockedException) {
                     Logger.w(TAG) { "CloudStream search blocked by Cloudflare: ${e.message}" }
                     _uiState.value = SearchUiState.CloudflareBlocked(
-                        url = source.mainUrl.takeIf { it.isNotBlank() } ?: "https://${e.host}",
+                        url = source.mainUrl.takeHttpUrl() ?: "https://${e.host}",
                         sourceName = source.providerName,
                     )
                 } else {
@@ -906,6 +907,12 @@ class SearchViewModel(
     private fun csErrorMessage(e: Throwable): String =
         (e as? com.lagradost.cloudstream3.network.CloudflareBlockedException)?.userMessage
             ?: "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+
+    /**
+     * A WebView-openable site URL, or null when the provider never set a real
+     * one (MainAPI's default mainUrl is the literal "NONE").
+     */
+    private fun String.takeHttpUrl(): String? = takeIf { it.startsWith("http") }
 
     /**
      * CsContentCard → the shared results-grid model (sourceKey carries the CS
