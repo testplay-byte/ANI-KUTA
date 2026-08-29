@@ -96,6 +96,12 @@ dependencies {
     // AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // Task 44: AppCompat — MainActivity extends AppCompatActivity so CloudStream
+    // plugins receive an AppCompatActivity as their load() Context (the documented
+    // plugin pattern stashes it for settings dialogs). Also puts
+    // androidx.appcompat.* on the runtime classpath for plugin dexes that
+    // reference it (parent-first resolution against the host).
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

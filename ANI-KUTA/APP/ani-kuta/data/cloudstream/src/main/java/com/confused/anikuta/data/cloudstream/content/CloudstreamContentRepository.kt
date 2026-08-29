@@ -62,6 +62,16 @@ data class CsContentCard(
     val year: Int?,
 )
 
+/**
+ * One browse shelf rendered as its own titled row on the search page (Task 44,
+ * device round 3: "show a popular, latest and other sections in row format").
+ * [title] is the provider's own shelf name ("Latest Updated", "Most Popular", …).
+ */
+data class CsBrowseSection(
+    val title: String,
+    val items: List<CsContentCard>,
+)
+
 /** One page of results (page 1 only in phase 1 — the aniyomi flow is page-1 too). */
 data class CsContentPage(
     val items: List<CsContentCard>,
@@ -156,45 +166,85 @@ class CloudstreamContentRepository(
     // ── Execution ───────────────────────────────────────────────────────────
 
     /**
-     * MainAPI.getMainPage(page, mainPage.first()) — the blank-query browse.
-     * All shelves of the response are merged into one grid (distinct by url —
-     * the D-304 LazyGrid duplicate-key crash guard) and capped.
+     * The blank-query browse, SECTIONED (Task 44, device round 3): every shelf
+     * of the provider's mainPage list is fetched (page 1, in PARALLEL) and
+     * mapped to one [CsBrowseSection] — "Latest Updated", "Most Popular", etc.,
+     * each rendered as its own titled horizontal row on the search page (the
+     * user's "popular, latest and other sections in row format" request).
      *
      * Callers check [CsProviderSource.hasMainPage] first; a provider that
      * didn't implement getMainPage throws NotImplementedError, which surfaces
      * as a normal error (never silent).
+     *
+     * Per-shelf failure is TOLERATED (logged with the shelf name under the
+     * `browse:` prefix — one broken shelf never blanks the whole page); only a
+     * failure of EVERY shelf yields an empty result. Coroutine cancellation
+     * still propagates from inside the parallel fetches.
      */
-    suspend fun mainPage(providerName: String, page: Int = 1): CsContentPage = withContext(Dispatchers.IO) {
+    suspend fun browseSections(providerName: String): List<CsBrowseSection> = withContext(Dispatchers.IO) {
         val provider = resolveProvider(providerName)
+        val shelves = provider.mainPage
         val started = System.currentTimeMillis()
-        val data = provider.mainPage.firstOrNull()
-        val request = MainPageRequest(
-            name = data?.name ?: "",
-            data = data?.data ?: "",
-            horizontalImages = data?.horizontalImages ?: false,
-        )
-        Logger.i(TAG) { "browse: $providerName page=$page shelf='${request.name}'" }
-        try {
-            val response = provider.getMainPage(page, request)
-                ?: return@withContext CsContentPage(emptyList())
-            // Merge every shelf, dedupe by url (D-304), cap for a sane grid.
-            val cards = response.items
-                .flatMap { shelf -> shelf.list }
-                .distinctBy { it.url }
-                .take(MAX_BROWSE_ITEMS)
-                .map { it.toCard(providerName) }
-            Logger.i(TAG) {
-                "browse: $providerName page=$page -> ${cards.size} item(s) " +
-                    "hasNext=${response.hasNext} in ${System.currentTimeMillis() - started}ms"
-            }
-            CsContentPage(cards, response.hasNext)
-        } catch (t: Throwable) {
-            Logger.e(TAG) {
-                "browse: $providerName page=$page FAILED in ${System.currentTimeMillis() - started}ms: " +
-                    "${t::class.java.simpleName}: ${t.message}"
-            }
-            throw t
+        Logger.i(TAG) {
+            "browse: $providerName — ${shelves.size} shelf(ves): [${shelves.joinToString { it.name }}]"
         }
+
+        val responses = kotlinx.coroutines.coroutineScope {
+            val firstCloudflareBlock =
+                java.util.concurrent.atomic.AtomicReference<com.lagradost.cloudstream3.network.CloudflareBlockedException?>(null)
+            val awaited = shelves.map { data ->
+                kotlinx.coroutines.async {
+                    val request = MainPageRequest(
+                        name = data.name,
+                        data = data.data,
+                        horizontalImages = data.horizontalImages,
+                    )
+                    try {
+                        provider.getMainPage(1, request)
+                    } catch (ce: kotlinx.coroutines.CancellationException) {
+                        throw ce
+                    } catch (cf: com.lagradost.cloudstream3.network.CloudflareBlockedException) {
+                        firstCloudflareBlock.compareAndSet(null, cf)
+                        Logger.w(TAG) {
+                            "browse: $providerName shelf '${data.name}' blocked by Cloudflare: ${cf.message}"
+                        }
+                        null
+                    } catch (t: Throwable) {
+                        Logger.w(TAG) {
+                            "browse: $providerName shelf '${data.name}' FAILED: " +
+                                "${t::class.java.simpleName}: ${t.message}"
+                        }
+                        null
+                    }
+                }
+            }.map { it.await() }
+            // Every shelf blocked → surface the block as the browse error (the
+            // honest-error contract: a challenge page is NEVER "no results").
+            firstCloudflareBlock.get()?.let { cf ->
+                if (awaited.all { it == null }) throw cf
+            }
+            awaited
+        }
+
+        val sections = responses.mapIndexedNotNull { index, response ->
+            val shelf = shelves[index]
+            // A shelf's response may itself carry several named lists — flatten
+            // them into the one row, deduped by url within the row (cross-row
+            // duplicates are fine: lazy keys are row-scoped, and CloudStream's
+            // own home shows the same card in multiple rows).
+            val cards = response
+                ?.items.orEmpty()
+                .flatMap { it.list }
+                .distinctBy { it.url }
+                .take(MAX_SECTION_ITEMS)
+                .map { it.toCard(providerName) }
+            Logger.i(TAG) { "browse: $providerName shelf '${shelf.name}' -> ${cards.size} item(s)" }
+            if (cards.isEmpty()) null else CsBrowseSection(title = shelf.name, items = cards)
+        }
+        Logger.i(TAG) {
+            "browse: $providerName -> ${sections.size} section(s) in ${System.currentTimeMillis() - started}ms"
+        }
+        sections
     }
 
     /** MainAPI.search(query, page) — the live-query path. */
@@ -353,7 +403,7 @@ class CloudstreamContentRepository(
     companion object {
         private const val TAG = "Anikuta:Data:Cloudstream:Exec"
 
-        /** Browse grids merge every main-page shelf — capped for a sane first render. */
-        private const val MAX_BROWSE_ITEMS = 60
+        /** Per-section cap — a row shows ~20 cards; full pagination belongs to a future session. */
+        private const val MAX_SECTION_ITEMS = 20
     }
 }

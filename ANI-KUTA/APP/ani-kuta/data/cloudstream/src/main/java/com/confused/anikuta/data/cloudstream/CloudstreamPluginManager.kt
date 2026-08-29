@@ -85,6 +85,15 @@ class CloudstreamPluginManager(
     private val _installStates = MutableStateFlow<Map<String, InstallStep>>(emptyMap())
     val installStates: StateFlow<Map<String, InstallStep>> = _installStates.asStateFlow()
 
+    /**
+     * Task 44 (device round 3): internalNames with a RETRY load in flight —
+     * the Failed-to-Load rows + the plugin-detail Retry button render their
+     * spinner from this (the round-3 report: "no animation while it was
+     * reloading").
+     */
+    private val _retrying = MutableStateFlow<Set<String>>(emptySet())
+    val retrying: StateFlow<Set<String>> = _retrying.asStateFlow()
+
     /** Update-check throttle state (Idle | Checking | updatedAt). */
     sealed interface UpdateCheckState {
         data object Idle : UpdateCheckState
@@ -388,12 +397,20 @@ class CloudstreamPluginManager(
         }
     }
 
-    /** Retry loading an errored plugin (D-296 pattern). */
+    /** Retry loading an errored plugin (D-296 pattern; Task 44: retrying state
+     * drives the row/button spinners — never a silent freeze). */
     fun retryPlugin(extension: CloudstreamExtension.Errored) {
+        if (extension.internalName in _retrying.value) return
         scope.launch {
             installMutex.withLock {
-                loader.unloadPlugin(extension.filePath) // clear any partial state
-                refreshLocked()
+                _retrying.value = _retrying.value + extension.internalName
+                try {
+                    Logger.i(TAG) { "Retrying plugin ${extension.internalName} — unloading + reloading" }
+                    loader.unloadPlugin(extension.filePath) // clear any partial state
+                    refreshLocked()
+                } finally {
+                    _retrying.value = _retrying.value - extension.internalName
+                }
             }
         }
     }

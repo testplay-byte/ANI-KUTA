@@ -14,8 +14,12 @@ object AndroidConfig {
     // user can download gets a new versionCode/versionName so device-side
     // verification is unambiguous (the round-2 report flagged the stuck 0.2.63
     // across the Task 41/42 builds).
-    const val versionCode = 64
-    const val versionName = "0.2.64"
+    //
+    // Task 44 (device round 3): 0.2.65 — activity-context plugin loading
+    // (ClassCastException fix), Cloudflare bypass interceptor, sectioned
+    // browse rows, plugin-detail button layout, retry spinners.
+    const val versionCode = 65
+    const val versionName = "0.2.65"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

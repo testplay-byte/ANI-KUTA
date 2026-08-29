@@ -9,6 +9,7 @@
 
 package com.lagradost.cloudstream3
 
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.nicehttp.Requests
 import com.lagradost.nicehttp.ResponseParser
@@ -35,11 +36,25 @@ private val jsonResponseParser = object : ResponseParser {
 }
 
 /**
+ * The shared OkHttp base for both plugin clients — the Cloudflare bypass
+ * interceptor (Task 44) rides on every plugin request. Solving only happens
+ * when a response is an actual challenge page; everything else passes through
+ * untouched. `insecureApp` derives its SSL-ignoring client from this same base
+ * so the bypass applies there too.
+ */
+private val pluginHttpClient = okhttp3.OkHttpClient.Builder()
+    .addInterceptor(CloudflareKiller())
+    .build()
+
+/**
  * The default networking helper. This helper performs SSL checks.
  * If you need to make requests to websites with invalid SSL certificates use
  * [insecureApp] instead.
  */
-var app = Requests(responseParser = jsonResponseParser).apply {
+var app = Requests(
+    baseClient = pluginHttpClient,
+    responseParser = jsonResponseParser,
+).apply {
     defaultHeaders = mapOf("user-agent" to USER_AGENT)
 }
 
@@ -49,6 +64,9 @@ var app = Requests(responseParser = jsonResponseParser).apply {
  * as logins. Only use this when required.
  */
 @UnsafeSSL
-var insecureApp = Requests(responseParser = jsonResponseParser).apply {
+var insecureApp = Requests(
+    baseClient = pluginHttpClient,
+    responseParser = jsonResponseParser,
+).apply {
     defaultHeaders = mapOf("user-agent" to USER_AGENT)
 }

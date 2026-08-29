@@ -84,6 +84,9 @@ internal fun CloudstreamExtensionsSection(
     val errored by csManager.errored.collectAsState()
     val available by csManager.available.collectAsState()
     val installStates by csManager.installStates.collectAsState()
+    // Task 44: the retry spinner state (device round 3: "no animation while it
+    // was reloading").
+    val retryingNames by csManager.retrying.collectAsState()
     val updateCheckState by csManager.updateCheckState.collectAsState()
     val csRepos by csRepoRepository.repos.collectAsState()
 
@@ -169,6 +172,7 @@ internal fun CloudstreamExtensionsSection(
                 ) { ext ->
                     CsErroredRow(
                         extension = ext,
+                        retrying = ext.internalName in retryingNames,
                         onRetry = { csManager.retryPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
                         onClick = { onOpenPluginDetail(ext.internalName) },
@@ -330,6 +334,7 @@ private fun CsInstalledRow(
 @Composable
 private fun CsErroredRow(
     extension: CloudstreamExtension.Errored,
+    retrying: Boolean = false,
     onRetry: () -> Unit,
     onUninstall: () -> Unit,
     onClick: () -> Unit,
@@ -370,12 +375,27 @@ private fun CsErroredRow(
                     )
                 }
                 // D-296: Retry (re-attempt the load) + Delete (uninstall).
-                ActionIconButton(
-                    icon = Icons.Filled.Refresh,
-                    contentDescription = "Retry loading plugin",
-                    onClick = onRetry,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                // Task 44: the retry icon becomes a spinner while the reload
+                // is in flight (device round 3: "no animation while reloading").
+                if (retrying) {
+                    Box(
+                        modifier = Modifier.size(40.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                } else {
+                    ActionIconButton(
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Retry loading plugin",
+                        onClick = onRetry,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 ActionIconButton(
                     icon = Icons.Filled.Delete,
                     contentDescription = "Uninstall plugin",

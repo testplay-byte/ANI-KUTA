@@ -7,6 +7,7 @@ import android.content.res.AssetManager
 import android.content.res.Resources
 import com.confused.anikuta.core.common.Logger
 import com.lagradost.cloudstream3.APIHolder
+import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.Plugin
@@ -45,6 +46,13 @@ sealed interface PluginLoadResult {
  * 6. Dispatch `load(context)` (Plugin subclass) or `load()` (BasePlugin) — the
  *    plugin registers its providers into OUR APIHolder registry via the compat
  *    module's registerMainAPI.
+ *
+ * Task 44 (activity-context contract): the Context passed to `Plugin.load()`
+ * is the LIVE MainActivity when available (upstream passes `this@MainActivity`;
+ * plugins like MovieBoxProvider immediately cast it to AppCompatActivity to
+ * stash it for their settings dialogs — passing the Application context was the
+ * device-reported ClassCastException). Falls back to the app context only when
+ * no activity is alive (process-start edge case).
  *
  * Counting registered providers before/after gives the provider list; unload
  * removes them again (the classloader itself stays alive — no dex unload on ART).
@@ -126,7 +134,17 @@ class CloudstreamPluginLoader(
             val extractorsBefore = extractorApis.withLock { extractorApis.toList() }
 
             if (plugin is Plugin) {
-                plugin.load(context)
+                // Task 44: the documented plugin contract — load() receives the
+                // live ACTIVITY (upstream: `this@MainActivity`), because Android
+                // plugins routinely cast it to AppCompatActivity. The app context
+                // remains the fallback when no activity is alive yet.
+                val loadContext: Context =
+                    CommonActivity.activity as? Context ?: context
+                Logger.i(TAG) {
+                    "load(${file.name}): context=" +
+                        loadContext.javaClass.simpleName
+                }
+                plugin.load(loadContext)
             } else {
                 plugin.load()
             }

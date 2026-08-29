@@ -24,6 +24,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyRowItems
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -125,10 +129,15 @@ fun SearchScreen(
 
     val scrollState = rememberScrollState()
     val gridState = rememberLazyGridState()
+    // Task 44: the sectioned CloudStream browse renders a LazyColumn of rows —
+    // its own scroll state drives the top-bar collapse + blur overlay.
+    val browseListState = rememberLazyListState()
     // Collapse when EITHER the scroll column OR the grid is scrolled past 20px.
     val collapsed = scrollState.value > 20 ||
         gridState.firstVisibleItemIndex > 0 ||
-        gridState.firstVisibleItemScrollOffset > 20
+        gridState.firstVisibleItemScrollOffset > 20 ||
+        browseListState.firstVisibleItemIndex > 0 ||
+        browseListState.firstVisibleItemScrollOffset > 20
 
     var showFilterSheet by remember { mutableStateOf(false) }
     var showSourcePicker by remember { mutableStateOf(false) }
@@ -193,6 +202,7 @@ fun SearchScreen(
             val effectiveState = when (source) {
                 SearchSource.ANILIST -> when (uiState) {
                     is SearchUiState.ExtensionSuccess,
+                    is SearchUiState.ExtensionBrowseSuccess,
                     is SearchUiState.ExtensionError,
                     is SearchUiState.ExtensionEmpty,
                     SearchUiState.ExtensionNotAvailable,
@@ -358,6 +368,30 @@ fun SearchScreen(
                         } else null,
                     )
                 }
+
+                // Task 44: SECTIONED CloudStream browse — every provider shelf
+                // ("Latest Updated", "Most Popular", …) renders as its own titled
+                // horizontal row (the device round-3 "sections in row format"
+                // request); search results stay the flat grid above.
+                is SearchUiState.ExtensionBrowseSuccess -> {
+                    val browse = effectiveState as SearchUiState.ExtensionBrowseSuccess
+                    ExtensionBrowseSections(
+                        sections = browse.sections,
+                        listState = browseListState,
+                        onResultTap = { anime ->
+                            onNavigateToExtensionAnime(
+                                anime.sourceId,
+                                anime.sourceKey,
+                                anime.url,
+                                anime.title,
+                                anime.thumbnailUrl,
+                            )
+                        },
+                        recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
+                            RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                        } else null,
+                    )
+                }
             }
 
             ScrollBlurOverlay(
@@ -367,6 +401,10 @@ fun SearchScreen(
                         is SearchUiState.ExtensionSuccess -> {
                             if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
                             else gridState.firstVisibleItemScrollOffset.toFloat()
+                        }
+                        is SearchUiState.ExtensionBrowseSuccess -> {
+                            if (browseListState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                            else browseListState.firstVisibleItemScrollOffset.toFloat()
                         }
                         else -> scrollState.value.toFloat()
                     }
@@ -673,6 +711,77 @@ private fun ExtensionResultsGrid(
         }
         items(distinctResults, key = { "${it.sourceKey ?: it.sourceId}:${it.url}" }) { anime ->
             ExtensionResultCard(anime, onResultTap)
+        }
+    }
+}
+
+// ── Sectioned CloudStream browse (Task 44: shelves as titled rows) ──────────
+
+/**
+ * The sectioned CloudStream browse view: one titled horizontal row of cards per
+ * provider shelf ("Latest Updated", "Most Popular", …) — the device round-3
+ * "popular, latest and other sections in row format" request. Cards reuse the
+ * flat-grid [ExtensionResultCard] at a fixed row width; taps route through the
+ * same extension-details navigation.
+ */
+@Composable
+private fun ExtensionBrowseSections(
+    sections: List<ExtensionBrowseSection>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onResultTap: (ExtensionAnime) -> Unit,
+    recentsHeader: RecentsHeaderData? = null,
+) {
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (recentsHeader != null) {
+            item(key = "recents-header") {
+                RecentSearchesCard(
+                    recents = recentsHeader.recents,
+                    onPick = recentsHeader.onPick,
+                    onRemove = recentsHeader.onRemove,
+                    onClear = recentsHeader.onClear,
+                )
+            }
+        }
+
+        sections.forEachIndexed { sectionIndex, section ->
+            item(key = "section-$sectionIndex-${section.title}") {
+                // D-304 defense-in-depth: dedupe within the row so LazyRow keys
+                // stay unique even if a future code path reintroduces dupes.
+                val distinct = remember(section) {
+                    section.results.distinctBy { "${it.sourceKey ?: it.sourceId}:${it.url}" }
+                }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = section.title,
+                        fontFamily = RobotoFamily,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                            ?: MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        lazyRowItems(
+                            distinct,
+                            key = { "${it.sourceKey ?: it.sourceId}:${it.url}" },
+                        ) { anime ->
+                            Box(modifier = Modifier.width(110.dp)) {
+                                ExtensionResultCard(anime, onResultTap)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

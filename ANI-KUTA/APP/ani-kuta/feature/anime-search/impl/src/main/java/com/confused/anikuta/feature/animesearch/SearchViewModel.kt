@@ -753,6 +753,11 @@ class SearchViewModel(
      * Blank-query browse of the selected CloudStream provider (MainAPI.getMainPage).
      * Mirrors [loadExtensionPopular] exactly: generation + staleness guards,
      * Throwable catch (plugins can throw anything), never-silent errors.
+     *
+     * Task 44: the browse is SECTIONED — every shelf of the provider's mainPage
+     * becomes its own titled row ("Latest Updated", "Most Popular", …), the
+     * user's device round-3 request. Only a fully-empty browse renders the
+     * ExtensionEmpty card.
      */
     private fun loadCloudstreamPopular(): Job {
         val providerName = _selectedCsProvider.value
@@ -782,16 +787,23 @@ class SearchViewModel(
         return viewModelScope.launch {
             try {
                 Logger.i(TAG) { "Browsing CloudStream provider: $providerName" }
-                val page = cloudstreamRepository.mainPage(providerName, 1)
-                val results = page.items.map { it.toExtensionAnime() }
-                Logger.i(TAG) { "Got ${results.size} browse results from $providerName" }
+                val sections = cloudstreamRepository.browseSections(providerName)
+                Logger.i(TAG) { "Got ${sections.size} browse section(s) from $providerName" }
                 if (_query.value.isNotBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
-                _uiState.value = if (results.isEmpty()) {
+                _uiState.value = if (sections.isEmpty()) {
                     SearchUiState.ExtensionEmpty(source.providerName, null)
                 } else {
                     showingDefaults = true
-                    SearchUiState.ExtensionSuccess(results)
+                    SearchUiState.ExtensionBrowseSuccess(
+                        sourceName = source.providerName,
+                        sections = sections.map { section ->
+                            ExtensionBrowseSection(
+                                title = section.title,
+                                results = section.items.map { it.toExtensionAnime() },
+                            )
+                        },
+                    )
                 }
             } catch (e: Throwable) {
                 // Catch Throwable (not Exception) — plugin bytecode can throw
@@ -799,7 +811,8 @@ class SearchViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (_query.value.isNotBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
-                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                // Cloudflare blocks get the friendly, actionable message (Task 44).
+                val errorMsg = csErrorMessage(e)
                 Logger.e(TAG, e) { "CloudStream browse failed for $providerName: $errorMsg" }
                 _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
             }
@@ -842,12 +855,23 @@ class SearchViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (_query.value.isBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
-                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                // Cloudflare blocks get the friendly, actionable message (Task 44).
+                val errorMsg = csErrorMessage(e)
                 Logger.e(TAG, e) { "CloudStream search failed for $providerName: $errorMsg" }
                 _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
             }
         }
     }
+
+    /**
+     * Task 44: the user-facing message for a failed CloudStream call —
+     * Cloudflare blocks read as a plain-language sentence (not
+     * "CloudflareBlockedException: …"), everything else keeps the
+     * exception-class + message form that has served debugging so far.
+     */
+    private fun csErrorMessage(e: Throwable): String =
+        (e as? com.lagradost.cloudstream3.network.CloudflareBlockedException)?.userMessage
+            ?: "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
 
     /** CsContentCard → the shared results-grid model (sourceKey carries the CS identity). */
     private fun CsContentCard.toExtensionAnime() = ExtensionAnime(
@@ -881,6 +905,17 @@ class SearchViewModel(
     }
 }
 
+/**
+ * Task 44: one titled browse row ("Latest Updated", …) for
+ * [SearchUiState.ExtensionBrowseSuccess] — the ViewModel-side view of
+ * CsBrowseSection, carrying the shared grid model so the rows reuse the
+ * existing result cards.
+ */
+data class ExtensionBrowseSection(
+    val title: String,
+    val results: List<ExtensionAnime>,
+)
+
 // ── UI state ──
 
 sealed interface SearchUiState {
@@ -895,6 +930,17 @@ sealed interface SearchUiState {
     data object ExtensionNotAvailable : SearchUiState
     /** Extension source browse/search success. */
     data class ExtensionSuccess(val results: List<ExtensionAnime>) : SearchUiState
+
+    /**
+     * Task 44: SECTIONED CloudStream browse success — each provider shelf
+     * ("Latest Updated", "Most Popular", …) renders as its own titled
+     * horizontal row of cards (the device round-3 "sections in row format"
+     * request). Search results stay a flat [ExtensionSuccess] grid.
+     */
+    data class ExtensionBrowseSuccess(
+        val sourceName: String,
+        val sections: List<ExtensionBrowseSection>,
+    ) : SearchUiState
     /** Extension source error — shows the actual error message (source name + reason). */
     data class ExtensionError(val message: String) : SearchUiState
     /**

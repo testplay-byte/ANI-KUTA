@@ -1,5 +1,15 @@
 <resources>
-    <style name="Theme.ANIKUTA" parent="android:Theme.Material.NoActionBar">
+    <!--
+      Task 44: parent switched from android:Theme.Material.NoActionBar to
+      Theme.AppCompat.NoActionBar because MainActivity now extends
+      AppCompatActivity (CloudStream plugins cast the load() Context to
+      androidx.appcompat.app.AppCompatActivity — the ClassCastException device
+      report). AppCompat themes resolve to the same android:Theme.Material
+      platform theme on API 21+, and every visual attribute is pinned
+      explicitly below, so rendering is unchanged. Required by AppCompatActivity
+      ("You need to use a Theme.AppCompat theme").
+    -->
+    <style name="Theme.ANIKUTA" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">#14111F</item>
         <item name="android:statusBarColor">#14111F</item>
         <item name="android:navigationBarColor">#14111F</item>

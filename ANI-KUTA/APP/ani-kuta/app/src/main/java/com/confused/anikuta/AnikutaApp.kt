@@ -61,7 +61,15 @@ import uy.kohesive.injekt.api.addSingletonFactory
 import uy.kohesive.injekt.api.fullType
 import java.util.UUID
 
-class AnikutaApp : Application(), androidx.work.Configuration.Provider {
+/**
+ * Task 44: extends CloudStreamApp (was Application) — the CloudStream compat
+ * layer's app holder. super.onCreate() publishes this instance as
+ * CloudStreamApp.context, which (a) plugins using getKey/setKey resolve and
+ * (b) the Cloudflare challenge solver uses as its fallback WebView context.
+ * CloudStreamApp adds nothing else to Application behavior.
+ */
+class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
+    androidx.work.Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()

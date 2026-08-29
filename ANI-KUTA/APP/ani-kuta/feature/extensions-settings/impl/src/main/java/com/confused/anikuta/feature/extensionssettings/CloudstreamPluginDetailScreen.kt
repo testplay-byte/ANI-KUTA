@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -88,6 +89,9 @@ fun CloudstreamPluginDetailScreen(
     val errored by csManager.errored.collectAsState()
     val available by csManager.available.collectAsState()
     val installStates by csManager.installStates.collectAsState()
+    // Task 44: the retry spinner state (device round 3: "no animation while it
+    // was reloading").
+    val retrying by csManager.retrying.collectAsState()
 
     // Resolve the plugin's CURRENT state (a trust/uninstall flips it live).
     val trustedExt = installed.find { it.internalName == internalName }
@@ -177,15 +181,31 @@ fun CloudstreamPluginDetailScreen(
                             )
                         }
 
-                        // ── Trust gate (untrusted): the prominent primary action ──
+                        // ── Trust gate (untrusted): the prominent primary action,
+                        // WITH Uninstall beside it (Task 44, device round 3: "the
+                        // uninstall button should show on the right side of the
+                        // trust plugin button") ──
                         if (untrustedExt != null) {
                             item(key = "trust-cta") {
-                                DetailAction(
-                                    text = "Trust Plugin",
-                                    icon = Icons.Filled.VerifiedUser,
-                                    filled = true,
-                                    onClick = { csManager.trustPlugin(untrustedExt) },
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    DetailAction(
+                                        text = "Trust Plugin",
+                                        icon = Icons.Filled.VerifiedUser,
+                                        filled = true,
+                                        onClick = { csManager.trustPlugin(untrustedExt) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    DetailAction(
+                                        text = "Uninstall",
+                                        icon = Icons.Filled.Delete,
+                                        color = MaterialTheme.colorScheme.error,
+                                        onClick = { showDeleteConfirm = true },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
                             }
                             item(key = "trust-note") {
                                 Text(
@@ -196,32 +216,6 @@ fun CloudstreamPluginDetailScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 4.dp),
                                 )
-                            }
-                        }
-
-                        // ── Install (available): the shared progress machine ──
-                        if (availableExt != null) {
-                            item(key = "install-cta") {
-                                val step = installStates[internalName]
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    if (step == null) {
-                                        DetailAction(
-                                            text = "Install",
-                                            icon = Icons.Filled.Download,
-                                            filled = true,
-                                            onClick = { csManager.installPlugin(availableExt) },
-                                        )
-                                    } else {
-                                        AvailableInstallControl(
-                                            installStep = step,
-                                            onInstall = { csManager.installPlugin(availableExt) },
-                                        )
-                                    }
-                                }
                             }
                         }
 
@@ -374,8 +368,12 @@ fun CloudstreamPluginDetailScreen(
                             }
                         }
 
-                        // ── Actions row (installed states) ──
-                        if (trustedExt != null || untrustedExt != null || erroredExt != null) {
+                        // ── Actions row (TRUSTED / ERRORED states) ──
+                        // Task 44: the UNTRUSTED state's Uninstall moved up beside
+                        // the Trust button (device round 3); this bottom row now
+                        // serves the trusted ([Untrust][Uninstall] — approved as-is
+                        // in round 3) and errored ([Retry][Uninstall]) states.
+                        if (trustedExt != null || erroredExt != null) {
                             item(key = "actions") {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -385,6 +383,7 @@ fun CloudstreamPluginDetailScreen(
                                         DetailAction(
                                             text = "Retry",
                                             icon = Icons.Filled.Refresh,
+                                            loading = retrying,
                                             onClick = { csManager.retryPlugin(erroredExt) },
                                             modifier = Modifier.weight(1f),
                                         )
@@ -404,6 +403,38 @@ fun CloudstreamPluginDetailScreen(
                                         onClick = { showDeleteConfirm = true },
                                         modifier = Modifier.weight(1f),
                                     )
+                                }
+                            }
+                        }
+
+                        // ── Install (available): the shared progress machine, at
+                        // the VERY BOTTOM and as wide as possible (Task 44, device
+                        // round 3: "the download button should be shown at the very
+                        // bottom … as wide as it can be") ──
+                        if (availableExt != null) {
+                            item(key = "install-cta") {
+                                val step = installStates[internalName]
+                                if (step == null) {
+                                    DetailAction(
+                                        text = "Install",
+                                        icon = Icons.Filled.Download,
+                                        filled = true,
+                                        onClick = { csManager.installPlugin(availableExt) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } else {
+                                    // In-flight/terminal install states reuse the
+                                    // shared compact progress machine, centered on
+                                    // the full-width footprint.
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        AvailableInstallControl(
+                                            installStep = step,
+                                            onInstall = { csManager.installPlugin(availableExt) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -608,7 +639,11 @@ private fun ModeChip(type: String) {
     }
 }
 
-/** A wide action button (the aniyomi detail page's ActionButton pattern). */
+/**
+ * A wide action button (the aniyomi detail page's ActionButton pattern).
+ * Task 44: `loading = true` swaps the icon for a spinner (the Retry button's
+ * in-flight state — the device round-3 "no animation while reloading" report).
+ */
 @Composable
 private fun DetailAction(
     text: String,
@@ -617,6 +652,7 @@ private fun DetailAction(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
     filled: Boolean = false,
+    loading: Boolean = false,
 ) {
     val container = if (filled) color else color.copy(alpha = 0.12f)
     val content = if (filled) MaterialTheme.colorScheme.onPrimary else color
@@ -625,19 +661,27 @@ private fun DetailAction(
         shape = RoundedCornerShape(12.dp),
         modifier = modifier
             .height(44.dp)
-            .clickable(onClick = onClick),
+            .clickable(enabled = !loading, onClick = onClick),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = content,
-                modifier = Modifier.size(18.dp),
-            )
+            if (loading) {
+                CircularProgressIndicator(
+                    color = content,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(18.dp),
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = content,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
             Spacer(Modifier.width(6.dp))
             Text(
                 text = text,

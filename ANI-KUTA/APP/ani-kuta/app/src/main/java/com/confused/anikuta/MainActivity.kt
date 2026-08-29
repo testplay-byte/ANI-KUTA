@@ -124,9 +124,25 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import com.confused.anikuta.core.preferences.AppPreferences
+import com.lagradost.cloudstream3.CommonActivity
 import org.koin.compose.koinInject
 
-class MainActivity : androidx.fragment.app.FragmentActivity() {
+/**
+ * Task 44: MainActivity extends AppCompatActivity (was FragmentActivity).
+ *
+ * WHY: CloudStream plugins receive the Activity as their load() Context (the
+ * documented upstream pattern — plugins stash `context as AppCompatActivity`
+ * for settings dialogs; MovieBoxProvider's device-reported ClassCastException
+ * was exactly this cast failing against the Application context). Upstream
+ * CloudStream's own MainActivity is an AppCompatActivity, so this also makes
+ * the host environment match the plugin contract exactly.
+ *
+ * AppCompatActivity is a FragmentActivity subclass — every fragment API the
+ * app used is unchanged. The manifest theme was switched to an AppCompat
+ * descendant in the same task (visual attributes are pinned explicitly, so
+ * rendering is identical).
+ */
+class MainActivity : androidx.appcompat.app.AppCompatActivity() {
 
     // D-222: OAuth redirect flags — observed by AppRoot to auto-navigate to Trackers
     // after a successful AniList login + show a snackbar.
@@ -139,6 +155,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     @androidx.compose.material3.ExperimentalMaterial3Api
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Task 44: publish the live Activity to the CloudStream compat layer —
+        // the plugin loader passes it to Plugin.load(context), and the WebView
+        // challenge solver reads it when a headless context is needed. Held via
+        // WeakReference inside CommonActivity (no leak beyond the activity itself).
+        CommonActivity.setActivityInstance(this)
         enableEdgeToEdge(
             statusBarStyle = androidx.activity.SystemBarStyle.auto(
                 android.graphics.Color.TRANSPARENT,
@@ -188,6 +209,15 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAniListOAuthRedirect(intent)
+    }
+
+    // Task 44: clear the compat-layer activity holder on destroy so plugins and
+    // the WebView solver never hold a dead Activity reference. Identity-guarded:
+    // a replacement instance may already have registered itself (recreation
+    // edge cases) — only clear when the holder still points at THIS instance.
+    override fun onDestroy() {
+        if (CommonActivity.activity === this) CommonActivity.setActivityInstance(null)
+        super.onDestroy()
     }
 
     /**

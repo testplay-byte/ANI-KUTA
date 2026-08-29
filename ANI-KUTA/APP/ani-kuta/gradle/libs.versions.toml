@@ -91,6 +91,10 @@ trueTypeParser = "2.1.4"
 [libraries]
 # AndroidX
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+# Task 44: AppCompat — MainActivity extends AppCompatActivity (CloudStream plugin
+# load() contract: plugins cast the Context to androidx.appcompat.app.AppCompatActivity)
+# and it satisfies the androidx.appcompat.* references present in real .cs3 plugin dexes.
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version = "1.7.1" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }  # D-223
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version = "1.0.1" }
