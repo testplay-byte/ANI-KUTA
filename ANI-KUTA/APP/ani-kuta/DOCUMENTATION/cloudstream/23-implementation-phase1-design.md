@@ -295,3 +295,43 @@ search-page integration + the CS content details screen (see §8). STILL out of 
   `:core:cloudstream-api` unit tests (12 + 20) and full `assembleDebug` all green before push.
 
 - 2026-08-29 (session 3): **DEVICE-FEEDBACK ROUND 2 + PROVIDER EXECUTION PHASE 1.** Round-2 report: UI "consistent… proper, perfect, beautiful"; fixes = version discipline (v0.2.64 — never ship two builds on one version), tabs LEFT-aligned (reversing round-1's right-edge request), repo badge on the TITLE line, parallel installs (Pending+download moved OUTSIDE the install mutex — the second download previously blocked silently; only swap/load/refresh serialize; double-tap guard), and the TRUST FLOW: `CsPluginRecord.isTrusted` gates code execution — new installs land in a new Untrusted section (listed, never classloaded — aniyomi TrustService parity); Trust loads+promotes, Untrust unloads+demotes, updates preserve trust, legacy records decode trusted (grandfathered, unit-locked). Every CS row is now clickable → NEW `CloudstreamPluginDetailScreen` (authors/description/version/status/size-disk-or-catalog/Supported-Modes-tvTypes/language/repo + live provider list + per-state actions; catalog metadata captured at install survives repo deletion). **Execution (D-334):** NEW `CloudstreamContentRepository` (sources()/mainPage/search/load; TAG `Anikuta:Data:Cloudstream:Exec` with browse:/search:/load:/resolve: prefixes + durations — one logcat filter = whole pipeline, second = one operation; failures throw precise reasons); Search-page integration per the user's explicit direction ("browse using these extensions properly on the search page") — a DIVERGENCE from docs 16 §5.3.6/18 §3.2 (which deferred search-tab unification to a 5th Cloud tab): the aniyomi flow stays byte-identical and CS rides alongside via string `sourceKey` ("cloudstream:<providerName>", doc 16 §5.2 identity discipline) on `ExtensionAnime` + the grid keys + the details-nav branch; picker sheet = Anime Extensions + CloudStream sections; `ExtensionNoBrowse` honest state for search-only providers; NSFW-gated picker (persisted G4 gate); selection healing. NEW `:feature:cloudstream-content` module — `CloudstreamContentDetailsScreen`/VM (poster hero + type/year/score/status/duration, tags, description, season-grouped episodes w/ Dub/Sub labels, single Movie entry, Loading/Error/Retry, explicit "playback arrives in the next update" note — loadLinks + the 16 real extractors remain §7's NEXT session; no dead buttons). Rule-8 ruling recorded (CI = primary verification, used freely; local only when cheap — CI-only this session). CI compile-fix chain: DubStatus `id` (not `value`), cross-module smart-cast, sealed-base elvis chain, Errored-has-no-repoUrl, navigateToDetails widened to NavKey. v0.2.64 tagged + released after green.
+
+- 2026-08-29 (session 4): **DEVICE-FEEDBACK ROUND 3 — the execution phase actually works on-device.**
+  Round-3 report: the trust flow + detail page + untrusted section were validated ("perfect… no
+  issues"), and two REAL execution bugs surfaced with clean root causes. **(A) ClassCastException on
+  trust (MovieBoxProvider)** — the plugin's `load(context)` does `context as AppCompatActivity`
+  (stash-the-activity pattern, doc 02 §6.3) and our loader passed the APPLICATION context; upstream
+  passes `this@MainActivity` (PluginManager call sites verified: `loadSinglePlugin(this@MainActivity)`
+  etc.). Fix: MainActivity now extends **AppCompatActivity** (theme parent →
+  `Theme.AppCompat.NoActionBar`, all visual attributes pinned — AppCompat themes resolve to the same
+  platform Material theme on API 21+; the app's other two activities are ComponentActivity and
+  unaffected), registers itself with `CommonActivity` (identity-guarded clear in onDestroy), and the
+  loader passes the LIVE activity to `Plugin.load()` (app-context fallback only when no activity is
+  alive). `appcompat:1.7.1` added to :app — also satisfies the `androidx.appcompat.*` references
+  present in real plugin dexes (parent-first resolution). `AnikutaApp` now extends
+  **CloudStreamApp** (its onCreate publishes `CloudStreamApp.context` — the getKey/setKey surface +
+  the CF solver's context fallback). **(B) browse/search → 0 items (AniKoto)** — the site is
+  Cloudflare-fronted (server: cloudflare); the sandbox gets cached 200s but the device gets a
+  CHALLENGE page (403/200 interstitial) which jsoup parses into 0 items with no exception — exactly
+  the log signature. Verified the site + selectors work with plain GETs (10 items, `div.ani.items >
+  div.item`). Fix: **CloudflareKiller is real** (WebViewResolver.kt): challenge detection
+  (`cf-mitigated` header + body markers on 403/429/503 + cheap 16KB 200-HTML scan), headless WebView
+  solve on the main thread (UA pinned to USER_AGENT so the clearance cookie binds, cf_clearance
+  capture via CookieManager, 20s watchdog, main-frame-error early-out), per-host cookie cache,
+  **per-host solve serialization** (the sectioned browse fires N parallel shelf requests — later
+  callers reuse the winner's cookies), 60s failed-solve cooldown (fast-fail instead of 20s hangs),
+  and `CloudflareBlockedException` (friendly `userMessage`) when un-bypassable — a challenge page is
+  NEVER silently parsed as "no results" (D-295/D-296). Wired into the plugin `app`/`insecureApp`
+  shared base client; logs under `Anikuta:Data:Cloudstream:Net` with `cf:` prefixes. **(C) Sectioned
+  browse (the round-3 feature request)** — `browseSections()` replaces `mainPage()`: EVERY provider
+  shelf fetched (page 1, parallel, per-shelf failure tolerated + logged, all-CF-blocked surfaces the
+  block); `ExtensionBrowseSuccess` renders titled horizontal rows ("Latest Updated", "Most Popular",
+  …) reusing the flat-grid card at fixed 110dp width — search results stay the flat grid.
+  **(D) Detail-page buttons per the round-3 spec:** available → Install at the VERY BOTTOM, full
+  width (the shared progress machine centered while in-flight); untrusted → [Trust Plugin][Uninstall]
+  side-by-side under the header (Uninstall moved off the bottom row); trusted → [Untrust][Uninstall]
+  bottom row UNCHANGED (explicitly approved). **(E) Retry animation:** manager `retrying` StateFlow;
+  spinner on the Failed-to-Load row's retry icon + the detail Retry button (round-3: "no animation
+  while it was reloading"). CI chain: 2 red rounds (extension fns can't be called fully-qualified —
+  `kotlinx.coroutines.async {}` must be imported; retry spinner takes a Boolean membership check, not
+  the Set) → GREEN d2748114 → v0.2.65 tagged + released.
