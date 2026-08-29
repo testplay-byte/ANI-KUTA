@@ -301,16 +301,17 @@ class CloudstreamContentRepository(
             is AnimeLoadResponse -> {
                 status = showStatus?.name
                 // Anime episodes are keyed by DubStatus — flatten into one list,
-                // labeling each track so the details screen can group them.
+                // labeling each track so the details screen can group them
+                // (Sub before Dub; None first — DubStatus.id order).
                 episodes += this.episodes.entries
-                    .sortedBy { (dub, _) -> dub.value }
-                    .flatMap { (dub, list) ->
-                        val label = when (dub) {
+                    .sortedBy { it.key.id }
+                    .flatMap { entry ->
+                        val label = when (entry.key) {
                             DubStatus.Dubbed -> "Dub"
                             DubStatus.Subbed -> "Sub"
                             else -> null
                         }
-                        episodesOf(list, label)
+                        episodesOf(entry.value, label)
                     }
             }
             else -> Unit // TorrentLoadResponse etc. — no episode list in phase 1
