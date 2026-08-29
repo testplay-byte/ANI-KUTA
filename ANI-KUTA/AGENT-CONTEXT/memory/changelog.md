@@ -1530,3 +1530,13 @@ Six user-reported areas, researched by 5 parallel agents (R-A continue-watching/
 ## Task 40 — CloudStream research & documentation program (D-330, 2026-08-29, `streaming/CLOUDSTREAM`, docs-only)
 
 - **D-330** — The complete CloudStream (CS3) research + integration program for the "Cloud Screen" (a second extension system for movies/TV/Asian dramas alongside our aniyomi one): 23 documents / 17,920 lines at `DOCUMENTATION/cloudstream/` produced by a 5-batch, 25-run sub-agent program with per-batch main-agent review and per-batch GitHub backups. Docs 01-15 = verified research (CS3 plugin format/loading, MainAPI, repositories, data models, search, metadata, video loading/extractors, playback/downloads, categories, settings, real-plugin field guide, CS3 app internals, our current architecture, our database); 16-20 = integration plans (architecture, data layer, Cloud Screen UI, playback, 6-phase roadmap); 21 = the 17 user decision gates (G1 GPL-3.0 BLOCKING) + 20 risks; 22 = verification log (538 claims swept, 96.8% exact, 26 crown-jewel facts independently reproduced); README = master index + executive summary. No app code changed; no version bump; implementation awaits the user's gate decisions.
+
+## Task 41 — CloudStream Implementation Phase 1 (2026-08-29, D-331)
+
+- **feat:** `:core:cloudstream-api` — CLEAN-ROOM binary-compat surface for CS3 plugins (`com.lagradost.cloudstream3.*` + clean-roomed `com.lagradost.nicehttp`/`com.lagradost.api`); MainAPI + all builders/models/enums + registry-wired BasePlugin + loadExtractor dispatch + functional SP DataStore; 16 built-in extractor base skeletons; 20 interop-fact unit tests. (b3e4da2)
+- **feat:** `:data:cloudstream` runtime — repo client (repo.json→plugins.json, auto-detector), sha256-verified installer w/ repo-salted paths, parent-first PathClassLoader loader, StateFlow manager; 11 protocol tests vs real ecosystem fixtures. (29272ed)
+- **feat:** unified Extensions UI — Aniyomi|CloudStream source tabs, CloudstreamExtensionsSection (NSFW gate, install progress, update pills), dual-type Repositories screen with auto-detect add flow + CS delete cascade. (bef6cfa)
+- **refactor:** InstallStep moved :data:extension → :core:provider-api (shared across both extension systems).
+- **chore:** CI build-apk.yml triggers on `streaming/**` + first unit-test step; jackson 2.13.1/gson 2.11.0/kotlinx-datetime deps; `cloudstreamShowNsfw` pref (G4).
+- **docs:** doc 23 (implementation design record: gates, clean-room protocol, census, module design); tracker impl-1 entry.
+- **status:** CI GREEN (cb00e65); provider execution (browse/search/playback) deliberately deferred to next sessions (doc 23 §7).

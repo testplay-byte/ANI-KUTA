@@ -69,7 +69,7 @@ All docs live in `ANI-KUTA/APP/ani-kuta/DOCUMENTATION/cloudstream/`. Numbered, r
 | 20 | `20-implementation-roadmap.md` | Phased implementation roadmap with milestones + per-phase verification | B4-e | ✅ |
 | 21 | `21-risks-open-questions.md` | Risks, unknowns, open questions for the user | B4/B5 | ✅ (gates answered 2026-08-29 — see doc 23 §1) |
 | 22 | `22-VERIFICATION-LOG.md` | Fact-check log: every verified fact (source file + line), corrections, confidence ratings | B5 | ✅ |
-| 23 | `23-implementation-phase1-design.md` | **Implementation phase 1 design record**: user's gate decisions, clean-room pivot (supersedes doc 16's vendoring), binary census, module design, session log | impl-1 | 🔄 in flight |
+| 23 | `23-implementation-phase1-design.md` | **Implementation phase 1 design record**: user's gate decisions, clean-room pivot (supersedes doc 16's vendoring), binary census, module design, session log | impl-1 | ✅ phase 1 complete + CI green |
 | — | `README.md` | Master index + executive summary (written last) | B5 | ✅ |
 
 **PROGRAM STATUS: research ✅ COMPLETE → 🔄 IMPLEMENTATION PHASE 1** (started 2026-08-29). Gates answered by the user (doc 23 §1): **G1 = NO GPL — clean-room rewrite** (vendoring plan dead), unified Extensions page with Aniyomi/CloudStream tabs, universal NSFW direction, stay on `streaming/CLOUDSTREAM`. Session 1 scope = extension-management system (compat module + repos + install/load/manage + UI tabs). See doc 23.

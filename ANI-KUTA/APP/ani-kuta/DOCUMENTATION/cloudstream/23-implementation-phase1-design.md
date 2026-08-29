@@ -1,7 +1,7 @@
 # 23 — Implementation Phase 1: Clean-Room Extension System (Design Record)
 
 > **Session**: Task 41 (first implementation session, 2026-08-29) · **Branch**: `streaming/CLOUDSTREAM`
-> **Status**: in progress (this doc is written BEFORE implementation and updated as it lands)
+> **Status**: ✅ phase 1 COMPLETE + CI GREEN (2026-08-29) — 10 commits `565052f…cb00e65` on `streaming/CLOUDSTREAM`
 > **Read after**: `21-risks-open-questions.md` (gates), `02-plugin-format.md`, `03-mainapi-reference.md`,
 > `04-extension-repositories.md`, `05-data-models.md`.
 > **This doc records**: (1) the user's gate decisions, (2) the resulting architecture pivot from
@@ -242,3 +242,13 @@ implementations. Each lands in its own session against its own doc.
 - 2026-08-29 (session 1): doc written; census run (§4); declarations digest extracted
   (`/tmp/cs3-declarations-digest.md`, 3,943 lines); NiceHttp/CloudstreamApi confirmed unlicensed →
   clean-roomed; emulator SDK setup launched; implementation started.
+- 2026-08-29 (session 1, close): **PHASE 1 COMPLETE — CI GREEN (cb00e65).** Committed: foundations
+  565052f → compat b3e4da2 (5,351 lines, 24 files) → runtime 29272ed (loader/installer/manager/stores
+  + 11 fixture tests) → UI bef6cfa (tabs + dual-type repos) → 4 CI-fix commits (a9eb913, 300e023,
+  bec1f33, 030ecf9 — opt-ins, package FQNs, Uuid bridge, companion access, api() visibility,
+  sanitizer trim) → cb00e65 (api deps). Unit tests: 20 interop locks + 11 protocol tests, all green
+  in CI. InstallStep moved to :core:provider-api. Emulator E2E was attempted but the sandbox disk
+  constraint (emulator userdata-create preflight demands ~7.4GB free regardless of config) made the
+  guest unusable under TCG — verification = CI green + the user's device loop (test checklist in the
+  session summary). Deferred to next sessions (§7): provider execution, real extractors, content nav,
+  data layer, playback.
