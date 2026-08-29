@@ -53,8 +53,9 @@ class JsUnpackerTest {
     @Test
     fun `unescapes payload quotes and backslashes`() {
         // Real packer output escapes every quote INSIDE the payload as \' —
-        // the raw text is: x(\'It\'s here\')
-        val js = packed("x(\\'It\\'s here\\')", 10, listOf("sources"))
+        // the raw text is: 0(\'It\'s here\'). "0" is the base-10 placeholder
+        // for tokens[0] = "sources".
+        val js = packed("0(\\'It\\'s here\\')", 10, listOf("sources"))
         val unpacked = JsUnpacker(js).unpack()
         assertEquals("sources('It's here')", unpacked)
     }
