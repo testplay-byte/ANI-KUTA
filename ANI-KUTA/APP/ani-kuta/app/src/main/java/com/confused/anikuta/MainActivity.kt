@@ -436,7 +436,10 @@ fun AppRoot() {
     // `backstack.add`. Notification deep-links (LaunchedEffect above) deliberately
     // bypass the gate — they're system-initiated, not a user tap on an entry.
     val adsCoordinator = koinInject<AdsCoordinator>()
-    val navigateToDetails: (AnimeDetailsKey) -> Unit = { key ->
+    // Session 3: widened to NavKey — the ads gate applies to BOTH details
+    // destinations (the aniyomi AnimeDetailsKey and the new CloudStream
+    // CloudstreamContentDetailsKey); the type was previously AnimeDetailsKey.
+    val navigateToDetails: (com.confused.anikuta.core.navigation.NavKey) -> Unit = { key ->
         adsCoordinator.requestNavigation { backstack.add(key) }
     }
 
