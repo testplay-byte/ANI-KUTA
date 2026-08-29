@@ -235,12 +235,19 @@ the unified UI. Mechanical move; aniyomi imports updated; no behavior change.
 
 ## 7. Out of scope (recorded, not forgotten)
 
-Provider *execution* (mainPage/search/load/loadLinks), built-in extractor implementations (real
-scraping logic for StreamWish/Dood/VidHide/…), the Cloud content tab (G3), data-layer integration
-(content tables, episode keys — doc 17), playback integration (doc 19), favorites/library (doc 18),
-plugin settings UI hosting (G10 skip), the jsDelivr proxy, deep links (`cloudstreamrepo://`),
-auto-download modes, NSFW app-wide unification (G4 full form), and `M3u8Helper`/`JsUnpacker` real
-implementations. Each lands in its own session against its own doc.
+**Session 3 delivered the browse half of provider execution** — mainPage/search/load + the
+search-page integration + the CS content details screen (see §8). STILL out of scope:
+
+- **loadLinks + video execution** — the `loadLinks` surface, built-in extractor implementations
+  (real scraping logic for StreamWish/Dood/VidHide/…), `M3u8Helper`/`JsUnpacker` real
+  implementations — THE next session (the content details screen labels this boundary explicitly).
+- **G3 proper (the Cloud content tab decision)** — session 3 integrated CS into the EXISTING search
+  page per the user's explicit direction (a divergence from docs 16 §5.3.6/18 §3.2 — recorded in
+  D-334); whether a dedicated Cloud tab/browse home ALSO materializes stays open.
+- Data-layer integration (content tables, episode keys — doc 17), playback integration (doc 19),
+  favorites/library (doc 18), plugin settings UI hosting (G10 skip), the jsDelivr proxy, deep links
+  (`cloudstreamrepo://`), auto-download modes, NSFW app-wide unification (G4 full form), and result
+  pagination beyond page 1 (the aniyomi search flow is page-1 too — parity kept).
 
 ---
 
@@ -286,3 +293,5 @@ implementations. Each lands in its own session against its own doc.
   `CsPluginRecord`/`CloudstreamExtension.Installed`; `setEnabled`/`deleteRepoPlugins` deleted.
   Verified locally (Temurin JDK 21 + constrained-memory Gradle): `:data:cloudstream` +
   `:core:cloudstream-api` unit tests (12 + 20) and full `assembleDebug` all green before push.
+
+- 2026-08-29 (session 3): **DEVICE-FEEDBACK ROUND 2 + PROVIDER EXECUTION PHASE 1.** Round-2 report: UI "consistent… proper, perfect, beautiful"; fixes = version discipline (v0.2.64 — never ship two builds on one version), tabs LEFT-aligned (reversing round-1's right-edge request), repo badge on the TITLE line, parallel installs (Pending+download moved OUTSIDE the install mutex — the second download previously blocked silently; only swap/load/refresh serialize; double-tap guard), and the TRUST FLOW: `CsPluginRecord.isTrusted` gates code execution — new installs land in a new Untrusted section (listed, never classloaded — aniyomi TrustService parity); Trust loads+promotes, Untrust unloads+demotes, updates preserve trust, legacy records decode trusted (grandfathered, unit-locked). Every CS row is now clickable → NEW `CloudstreamPluginDetailScreen` (authors/description/version/status/size-disk-or-catalog/Supported-Modes-tvTypes/language/repo + live provider list + per-state actions; catalog metadata captured at install survives repo deletion). **Execution (D-334):** NEW `CloudstreamContentRepository` (sources()/mainPage/search/load; TAG `Anikuta:Data:Cloudstream:Exec` with browse:/search:/load:/resolve: prefixes + durations — one logcat filter = whole pipeline, second = one operation; failures throw precise reasons); Search-page integration per the user's explicit direction ("browse using these extensions properly on the search page") — a DIVERGENCE from docs 16 §5.3.6/18 §3.2 (which deferred search-tab unification to a 5th Cloud tab): the aniyomi flow stays byte-identical and CS rides alongside via string `sourceKey` ("cloudstream:<providerName>", doc 16 §5.2 identity discipline) on `ExtensionAnime` + the grid keys + the details-nav branch; picker sheet = Anime Extensions + CloudStream sections; `ExtensionNoBrowse` honest state for search-only providers; NSFW-gated picker (persisted G4 gate); selection healing. NEW `:feature:cloudstream-content` module — `CloudstreamContentDetailsScreen`/VM (poster hero + type/year/score/status/duration, tags, description, season-grouped episodes w/ Dub/Sub labels, single Movie entry, Loading/Error/Retry, explicit "playback arrives in the next update" note — loadLinks + the 16 real extractors remain §7's NEXT session; no dead buttons). Rule-8 ruling recorded (CI = primary verification, used freely; local only when cheap — CI-only this session). CI compile-fix chain: DubStatus `id` (not `value`), cross-module smart-cast, sealed-base elvis chain, Errored-has-no-repoUrl, navigateToDetails widened to NavKey. v0.2.64 tagged + released after green.
