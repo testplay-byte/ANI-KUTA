@@ -103,7 +103,9 @@ fun SearchScreen(
     onNavigateToExtensionAnime: (Long, String?, String, String, String?) -> Unit = { _, _, _, _, _ -> },
     // D-209: callback to open the Cloudflare WebView solver (launched from the
     // CloudflareBlocked error state). MainActivity launches CloudflareWebViewActivity.
-    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
+    // Task 45: +userAgent — CloudStream providers must solve with the CS client's
+    // pinned UA (clearance cookies are UA-bound); null = aniyomi default.
+    onOpenCloudflareWebView: (url: String, sourceName: String, userAgent: String?) -> Unit = { _, _, _ -> },
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -125,6 +127,15 @@ fun SearchScreen(
             csSources.firstOrNull { it.providerName == selectedCsProvider }?.providerName
         SelectedSourceKind.ANIYOMI ->
             trustedSources.firstOrNull { it.id == selectedSourceId }?.name
+    }
+
+    // Task 45: CloudStream providers must solve Cloudflare with the CS client's
+    // pinned USER_AGENT — cf_clearance is UA-bound and the plugin HTTP client
+    // pins com.lagradost.cloudstream3.USER_AGENT, so the manual WebView must use
+    // the SAME one or the earned cookie won't validate on replay.
+    val cloudflareWebViewUserAgent: String? = when (selectedKind) {
+        SelectedSourceKind.CLOUDSTREAM -> com.lagradost.cloudstream3.USER_AGENT
+        SelectedSourceKind.ANIYOMI -> null
     }
 
     val scrollState = rememberScrollState()
@@ -308,7 +319,7 @@ fun SearchScreen(
                         secondaryActionLabel = "Open in WebView",
                         onSecondaryAction = {
                             viewModel.onOpenWebView()
-                            onOpenCloudflareWebView(cf.url, cf.sourceName)
+                            onOpenCloudflareWebView(cf.url, cf.sourceName, cloudflareWebViewUserAgent)
                         },
                     )
                 }
@@ -327,7 +338,7 @@ fun SearchScreen(
                         onSecondaryAction = if (ee.sourceUrl != null) {
                             {
                                 viewModel.onOpenWebView()
-                                onOpenCloudflareWebView(ee.sourceUrl, ee.sourceName)
+                                onOpenCloudflareWebView(ee.sourceUrl, ee.sourceName, cloudflareWebViewUserAgent)
                             }
                         } else null,
                     )

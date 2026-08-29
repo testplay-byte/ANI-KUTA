@@ -40,19 +40,47 @@ class NiceResponse(
 ) {
     companion object {
         const val MAX_TEXT_SIZE: Long = 5_000_000 // 5 mb
+
+        /** Task 45: the shared CloudStream network-diagnostic logcat tag. */
+        internal const val NET_LOG_TAG = "Anikuta:Data:Cloudstream:Net"
     }
 
-    /** Reads (once) and closes the body, enforcing [MAX_TEXT_SIZE] unless [large]. */
+    /**
+     * Reads (once) and closes the body, enforcing [MAX_TEXT_SIZE] unless [large].
+     *
+     * TASK 45 ROOT-CAUSE FIX: the previous implementation called
+     * `body.source().read(buffer, MAX_TEXT_SIZE)` ONCE — but okio's
+     * `Source.read(sink, byteCount)` performs a SINGLE underlying read that
+     * returns at most ONE 8KB segment (okio SEGMENT_SIZE). Every body larger
+     * than 8KB was silently truncated to its first ~8192 bytes:
+     * - HTML pages parsed by jsoup lost everything after <head> → providers
+     *   "found" 0 items with no error (AniKoto search/browse, all shelves);
+     * - JSON APIs cut mid-token → Jackson JsonEOFException (Anikage, col 8083).
+     * The fix loops until the source is exhausted (or the cap is hit).
+     */
     private fun readBody(large: Boolean): String {
         val body = okhttpResponse.body ?: return ""
         return try {
             if (large) {
                 body.string()
             } else {
-                // okio Buffer.read reads AT MOST byteCount (unlike readByteString which
-                // requires exactly) — the correct capped-read primitive.
+                val source = body.source()
                 val buffer = okio.Buffer()
-                body.source().read(buffer, MAX_TEXT_SIZE)
+                var total = 0L
+                var truncatedAtCap = false
+                while (total < MAX_TEXT_SIZE) {
+                    val read = source.read(buffer, MAX_TEXT_SIZE - total)
+                    if (read <= 0L) break // source exhausted (0 or -1)
+                    total += read
+                    if (total >= MAX_TEXT_SIZE) truncatedAtCap = true
+                }
+                if (truncatedAtCap) {
+                    android.util.Log.w(
+                        NET_LOG_TAG,
+                        "body: capped read at ${MAX_TEXT_SIZE} bytes for ${okhttpResponse.request.url} " +
+                            "(body is larger — use .textLarge/.documentLarge if the plugin needs it all)",
+                    )
+                }
                 buffer.readUtf8()
             }
         } finally {
@@ -72,6 +100,7 @@ class NiceResponse(
             if (!consumedNormal) {
                 cachedText = readBody(large = false)
                 consumedNormal = true
+                logBodyRead(cachedText ?: "", large = false)
             }
             return cachedText ?: ""
         }
@@ -86,6 +115,7 @@ class NiceResponse(
             if (!consumedLarge) {
                 cachedTextLarge = readBody(large = true)
                 consumedLarge = true
+                logBodyRead(cachedTextLarge ?: "", large = true)
             }
             return cachedTextLarge ?: ""
         }
@@ -139,4 +169,23 @@ class NiceResponse(
 
     /** Only prints the return body. */
     override fun toString(): String = "NiceResponse(code=$code, url=$url)"
+
+    /**
+     * Task 45: one INFO line per body read — the ACTUAL bytes the plugin's
+     * scraper/parser will see (status + length + first 90 chars). This is the
+     * diagnostic that was missing when providers parsed 0 items: it makes a
+     * Cloudflare interstitial, an empty error body, or a truncated payload
+     * immediately visible under the `Anikuta:Data:Cloudstream:Net` filter.
+     */
+    private fun logBodyRead(text: String, large: Boolean) {
+        val snippet = text
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .take(90)
+        android.util.Log.i(
+            NET_LOG_TAG,
+            "body: read ${text.length} chars (large=$large) code=${okhttpResponse.code} " +
+                "url=${okhttpResponse.request.url} first=\"$snippet\"",
+        )
+    }
 }

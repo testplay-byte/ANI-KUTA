@@ -32,6 +32,11 @@ dependencies {
     // AppPreferences — the CloudStream NSFW gate (G4) + manager wiring.
     implementation(project(":core:preferences"))
 
+    // Task 45: the source BRIDGE — CloudStream providers exposed as aniyomi
+    // AnimeHttpSource instances so CloudStream results open the STANDARD details
+    // screen (same page as aniyomi extensions, per the user's round-4 directive).
+    api(project(":core:source-api"))
+
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)

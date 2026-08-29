@@ -129,10 +129,19 @@ class SearchViewModel(
     /** D-305: true while [gen] is still the latest request (nothing superseded it). */
     private fun isCurrent(gen: Int): Boolean = gen == requestGeneration
 
-    /** The trusted extension sources available for browsing. */
+    /**
+     * The trusted extension sources available for browsing (the picker's
+     * "Anime Extensions" section).
+     *
+     * Task 45: bridged CloudStream sources now live in the same map (so the
+     * standard details screen resolves them) — they are EXCLUDED here: the
+     * picker lists CS providers in its own dedicated CloudStream section, and
+     * a provider appearing in both would be selectable twice.
+     */
     val trustedSources: StateFlow<List<AnimeCatalogueSource>> =
         extensionManager.sources.map { sourceMap ->
             sourceMap.values.filterIsInstance<AnimeCatalogueSource>()
+                .filterNot { com.confused.anikuta.data.cloudstream.content.CsSourceIds.isCloudstreamId(it.id) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
@@ -792,7 +801,10 @@ class SearchViewModel(
                 if (_query.value.isNotBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
                 _uiState.value = if (sections.isEmpty()) {
-                    SearchUiState.ExtensionEmpty(source.providerName, null)
+                    // Task 45: pass the provider's site URL — the empty card's
+                    // "Open in WebView" button needs it (round-4 report: the card
+                    // said "solve it in the WebView" but offered no button).
+                    SearchUiState.ExtensionEmpty(source.providerName, source.mainUrl.takeIf { it.isNotBlank() })
                 } else {
                     showingDefaults = true
                     SearchUiState.ExtensionBrowseSuccess(
@@ -811,10 +823,20 @@ class SearchViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (_query.value.isNotBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
-                // Cloudflare blocks get the friendly, actionable message (Task 44).
-                val errorMsg = csErrorMessage(e)
-                Logger.e(TAG, e) { "CloudStream browse failed for $providerName: $errorMsg" }
-                _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
+                // Task 45: Cloudflare blocks get the dedicated card WITH the
+                // "Open in WebView" action (the manual solve feeds cookies back
+                // through the system CookieManager — CloudflareKiller merges them).
+                if (e is com.lagradost.cloudstream3.network.CloudflareBlockedException) {
+                    Logger.w(TAG) { "CloudStream browse blocked by Cloudflare: ${e.message}" }
+                    _uiState.value = SearchUiState.CloudflareBlocked(
+                        url = source.mainUrl.takeIf { it.isNotBlank() } ?: "https://${e.host}",
+                        sourceName = source.providerName,
+                    )
+                } else {
+                    val errorMsg = csErrorMessage(e)
+                    Logger.e(TAG, e) { "CloudStream browse failed for $providerName: $errorMsg" }
+                    _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
+                }
             }
         }.also { defaultsJob = it }
     }
@@ -847,7 +869,9 @@ class SearchViewModel(
                 if (_query.value.isBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
                 _uiState.value = if (results.isEmpty()) {
-                    SearchUiState.ExtensionEmpty(source.providerName, null)
+                    // Task 45: pass the provider's site URL — the empty card's
+                    // "Open in WebView" button needs it.
+                    SearchUiState.ExtensionEmpty(source.providerName, source.mainUrl.takeIf { it.isNotBlank() })
                 } else {
                     SearchUiState.ExtensionSuccess(results)
                 }
@@ -855,10 +879,20 @@ class SearchViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (_query.value.isBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
-                // Cloudflare blocks get the friendly, actionable message (Task 44).
-                val errorMsg = csErrorMessage(e)
-                Logger.e(TAG, e) { "CloudStream search failed for $providerName: $errorMsg" }
-                _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
+                // Task 45: Cloudflare blocks get the dedicated card WITH the
+                // "Open in WebView" action (mirrors the aniyomi error path).
+                if (e is com.lagradost.cloudstream3.network.CloudflareBlockedException) {
+                    Logger.w(TAG) { "CloudStream search blocked by Cloudflare: ${e.message}" }
+                    _uiState.value = SearchUiState.CloudflareBlocked(
+                        url = source.mainUrl.takeIf { it.isNotBlank() } ?: "https://${e.host}",
+                        sourceName = source.providerName,
+                    )
+                } else {
+                    // Cloudflare blocks get the friendly, actionable message (Task 44).
+                    val errorMsg = csErrorMessage(e)
+                    Logger.e(TAG, e) { "CloudStream search failed for $providerName: $errorMsg" }
+                    _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
+                }
             }
         }
     }
@@ -873,9 +907,13 @@ class SearchViewModel(
         (e as? com.lagradost.cloudstream3.network.CloudflareBlockedException)?.userMessage
             ?: "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
 
-    /** CsContentCard → the shared results-grid model (sourceKey carries the CS identity). */
+    /**
+     * CsContentCard → the shared results-grid model (sourceKey carries the CS
+     * identity; Task 45: sourceId now carries the BRIDGE id so the tapped card
+     * opens the standard details screen via AnimeDetailsKey.Extension).
+     */
     private fun CsContentCard.toExtensionAnime() = ExtensionAnime(
-        sourceId = -1L,
+        sourceId = com.confused.anikuta.data.cloudstream.content.CsSourceIds.idFor(providerName),
         sourceName = providerName,
         url = url,
         title = name,

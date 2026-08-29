@@ -69,10 +69,6 @@ include(":feature:anime-search:api")
 include(":feature:anime-search:impl")
 include(":feature:extensions-settings:api")
 include(":feature:extensions-settings:impl")
-// Session 3 (CloudStream execution phase 1): the CS content screens —
-// details page reached from the Search results grid.
-include(":feature:cloudstream-content:api")
-include(":feature:cloudstream-content:impl")
 include(":feature:download")
 include(":feature:watch:api")
 include(":feature:watch:impl")

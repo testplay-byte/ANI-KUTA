@@ -51,8 +51,8 @@ class CloudflareBlockedException(
 
     /** A short, user-facing sentence for error cards (no host jargon overload). */
     val userMessage: String =
-        "$host is blocking the app with Cloudflare. Tap retry in a moment — if it " +
-            "keeps failing, the site may require a real browser for now."
+        "$host is blocking the app with Cloudflare. Tap Refresh to retry, or " +
+            "Open in WebView to solve it in a real browser, then Refresh."
 }
 
 /**
@@ -150,10 +150,18 @@ class CloudflareKiller : Interceptor {
         private val CHALLENGE_MARKERS = listOf(
             "Just a moment",
             "cf-chl",
+            "cf_chl", // underscore variant (script vars like cf_chl_opt)
             "challenge-platform",
+            "cdn-cgi/challenge-platform",
+            "challenges.cloudflare.com",
             "_cf_chl_opt",
             "Checking your browser",
             "cf-browser-verification",
+            // JS-disabled interstitials some CF modes serve with HTTP 200:
+            "Enable JavaScript and cookies to continue",
+            "Please turn JavaScript on",
+            "Attention Required! | Cloudflare",
+            "Please stand by, while we are checking your browser",
         )
 
         /**
@@ -209,13 +217,33 @@ class CloudflareKiller : Interceptor {
         return builder.build()
     }
 
+    /**
+     * Task 45: cookies the SYSTEM WebView CookieManager holds for the host.
+     * The manual solver (CloudflareWebViewActivity — "Open in WebView") writes
+     * its clearance cookies THERE; without reading them back the plugin client
+     * would never see a manual solve. Returns an empty map when WebView is
+     * unavailable (some emulator images) — never throws.
+     */
+    internal fun webViewCookies(host: String): Map<String, String> = runCatching {
+        val cm = android.webkit.CookieManager.getInstance()
+        val raw = cm.getCookie("https://$host") ?: return@runCatching emptyMap()
+        parseCookieMap(raw)
+    }.getOrDefault(emptyMap())
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val host = request.url.host
 
         // 1. Attach cached clearance cookies (with the UA they are bound to).
+        //    Task 45: also merge cookies earned by a MANUAL WebView solve (the
+        //    system CookieManager) — headless solve + manual solve share one jar.
         val saved = savedCookies[host]
-        val initial = if (saved != null) withClearance(request, saved) else request
+        val manual = webViewCookies(host)
+        val merged = (saved ?: emptyMap()) + manual
+        val initial = if (merged.isNotEmpty()) withClearance(request, merged) else request
+        if (manual.isNotEmpty() && saved == null) {
+            android.util.Log.i(TAG, "cf: attaching ${manual.size} manual-WebView cookie(s) for $host")
+        }
 
         val response = chain.proceed(initial)
         if (!isChallengeResponse(response)) return response
@@ -228,7 +256,10 @@ class CloudflareKiller : Interceptor {
             throw CloudflareBlockedException(host, "recent solve failed, retry later")
         }
 
-        android.util.Log.w(TAG, "cf: challenge detected on $host (code=${response.code}) — solving via WebView")
+        android.util.Log.w(
+            TAG,
+            "cf: challenge detected on $host (code=${response.code} path=${request.url.encodedPath}) — solving via WebView",
+        )
 
         // Serialize solves per host (parallel shelf fetches reuse the winner).
         val lock = solveLocks.computeIfAbsent(host) { Any() }

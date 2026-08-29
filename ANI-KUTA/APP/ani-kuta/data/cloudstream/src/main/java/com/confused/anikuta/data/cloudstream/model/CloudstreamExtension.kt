@@ -95,6 +95,8 @@ sealed class CloudstreamExtension {
 data class CsProviderInfo(
     /** MainAPI.name — the provider's display + identity name (the sourceKey component). */
     val name: String,
+    /** MainAPI.mainUrl — the site root (WebView solver target + bridge baseUrl). */
+    val mainUrl: String,
     /** MainAPI.lang — IETF tag. */
     val lang: String,
     /** TvType names the provider declares (supported content modes). */
@@ -113,6 +115,7 @@ data class CsProviderInfo(
 object CsProviderInfoFactory {
     fun from(provider: com.lagradost.cloudstream3.MainAPI): CsProviderInfo = CsProviderInfo(
         name = provider.name,
+        mainUrl = provider.mainUrl,
         lang = provider.lang,
         supportedTypes = provider.supportedTypes.map { it.name },
         providerTypeName = provider.providerType.name,

@@ -26,8 +26,9 @@ import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.core.watchprogress.watchProgressModule
 import com.confused.anikuta.data.extension.extensionModule
+import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.cloudstream.di.cloudstreamModule
-import com.confused.anikuta.feature.cloudstreamcontent.di.cloudstreamContentModule
+import com.confused.anikuta.data.cloudstream.content.CloudstreamSourceRegistry
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
@@ -51,6 +52,9 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.koin.core.qualifier.named
 import org.koin.core.module.dsl.viewModelOf
@@ -70,6 +74,9 @@ import java.util.UUID
  */
 class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
     androidx.work.Configuration.Provider {
+
+    /** App-lifetime scope for background wiring (Task 45: the CS source bridge). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
@@ -125,7 +132,6 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 adsModule,  // D-272: smart-link ad system
                 extensionModule,
                 cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)
-                cloudstreamContentModule,  // Session 3: CloudStream content screens
                 playerModule,
                 videoResolverModule,
                 downloadModule,
@@ -152,6 +158,25 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             initDebugIntegrations()
         } catch (e: Exception) {
             Logger.e("AnikutaApp", e) { "Failed to init debug integrations" }
+        }
+
+        // Task 45: the CloudStream→aniyomi SOURCE BRIDGE — every trusted CloudStream
+        // provider is published as an AnimeSource into ExtensionManager, so a
+        // CloudStream result opens the STANDARD details screen (same page as
+        // aniyomi extensions; the user's round-4 directive — no custom CS page).
+        // Trust/untrust/install/uninstall flow through manager.installed → the
+        // registry re-emits → the bridged sources appear/disappear live.
+        try {
+            val csRegistry = org.koin.core.context.GlobalContext.get().get<CloudstreamSourceRegistry>()
+            val extensionManager = org.koin.core.context.GlobalContext.get().get<ExtensionManager>()
+            appScope.launch {
+                csRegistry.sources.collect { bridged ->
+                    extensionManager.setExternalSources(bridged)
+                }
+            }
+            Logger.i("AnikutaApp") { "CloudStream source bridge wired into ExtensionManager" }
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to wire CloudStream source bridge" }
         }
 
         // Seed lookup tables + Default library category (idempotent — INSERT OR IGNORE).

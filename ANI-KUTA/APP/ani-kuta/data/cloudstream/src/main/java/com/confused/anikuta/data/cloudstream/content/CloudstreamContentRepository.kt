@@ -40,6 +40,8 @@ import kotlinx.coroutines.withContext
  */
 data class CsProviderSource(
     val providerName: String,
+    /** The site root — Cloudflare WebView-solver target + bridge baseUrl. */
+    val mainUrl: String,
     val lang: String,
     val supportedTypes: List<String>,
     /** getMainPage implemented → the source can be browsed without a query. */
@@ -151,6 +153,7 @@ class CloudstreamContentRepository(
                 ext.providers.map { info ->
                     CsProviderSource(
                         providerName = info.name,
+                        mainUrl = info.mainUrl,
                         lang = info.lang,
                         supportedTypes = info.supportedTypes,
                         hasMainPage = info.hasMainPage,

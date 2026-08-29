@@ -10,6 +10,7 @@
 package com.lagradost.cloudstream3
 
 import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.network.CsNetLoggingInterceptor
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.nicehttp.Requests
 import com.lagradost.nicehttp.ResponseParser
@@ -43,6 +44,7 @@ private val jsonResponseParser = object : ResponseParser {
  * so the bypass applies there too.
  */
 private val pluginHttpClient = okhttp3.OkHttpClient.Builder()
+    .addInterceptor(CsNetLoggingInterceptor()) // Task 45: http:/body: diagnostic lines
     .addInterceptor(CloudflareKiller())
     .build()
 

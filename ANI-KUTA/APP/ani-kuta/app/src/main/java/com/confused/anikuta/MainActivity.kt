@@ -92,7 +92,6 @@ import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionDetailKey
 import com.confused.anikuta.feature.extensionssettings.SourcePreferencesKey
 import com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailKey
-import com.confused.anikuta.feature.cloudstreamcontent.CloudstreamContentDetailsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionDetailScreen
 import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsKey
@@ -466,9 +465,8 @@ fun AppRoot() {
     // `backstack.add`. Notification deep-links (LaunchedEffect above) deliberately
     // bypass the gate — they're system-initiated, not a user tap on an entry.
     val adsCoordinator = koinInject<AdsCoordinator>()
-    // Session 3: widened to NavKey — the ads gate applies to BOTH details
-    // destinations (the aniyomi AnimeDetailsKey and the new CloudStream
-    // CloudstreamContentDetailsKey); the type was previously AnimeDetailsKey.
+    // Session 3: widened to NavKey — the ads gate applies to every details
+    // destination; the type was previously AnimeDetailsKey.
     val navigateToDetails: (com.confused.anikuta.core.navigation.NavKey) -> Unit = { key ->
         adsCoordinator.requestNavigation { backstack.add(key) }
     }
@@ -784,36 +782,29 @@ fun AppRoot() {
                     )
                 },
                 onNavigateToExtensionAnime = { sourceId, sourceKey, animeUrl, title, thumbnailUrl ->
-                    // Session 3 (CloudStream execution): results carrying a
-                    // "cloudstream:<provider>" sourceKey open the CloudStream
-                    // content details screen; aniyomi results keep their route.
-                    if (sourceKey != null && sourceKey.startsWith("cloudstream:")) {
-                        val providerName = sourceKey.removePrefix("cloudstream:")
-                        navigateToDetails(
-                            CloudstreamContentDetailsKey(
-                                providerName = providerName,
-                                contentUrl = animeUrl,
-                                title = title,
-                                thumbnailUrl = thumbnailUrl,
-                            )
+                    // Task 45 (round-4 directive): CloudStream results open the
+                    // EXACT SAME details screen as aniyomi results — the source
+                    // bridge (CloudstreamAnimeSourceBridge, registered in
+                    // ExtensionManager under the stable CS id) makes the standard
+                    // DetailsScreen resolve details/episodes through the provider.
+                    // The dedicated CloudStream details page is GONE.
+                    navigateToDetails(
+                        AnimeDetailsKey.Extension(
+                            sourceId,
+                            animeUrl,
+                            title,
+                            thumbnailUrl,
+                            transitionKey = searchCoverKey(thumbnailUrl),
                         )
-                    } else {
-                        navigateToDetails(
-                            AnimeDetailsKey.Extension(
-                                sourceId,
-                                animeUrl,
-                                title,
-                                thumbnailUrl,
-                                transitionKey = searchCoverKey(thumbnailUrl),
-                            )
-                        )
-                    }
+                    )
                 },
                 // D-209: Cloudflare manual solver — launched from the Search error card.
-                onOpenCloudflareWebView = { url, sourceName ->
+                // Task 45: +userAgent — CloudStream providers must solve with the
+                // CS client's pinned UA (cf_clearance is UA-bound).
+                onOpenCloudflareWebView = { url, sourceName, userAgent ->
                     appContext.startActivity(
                         com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
-                            context = appContext, url = url, sourceName = sourceName,
+                            context = appContext, url = url, sourceName = sourceName, userAgent = userAgent,
                         ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 },
@@ -962,17 +953,6 @@ fun AppRoot() {
             // shows its metadata + live providers + state actions.
             is CloudstreamPluginDetailKey -> com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailScreen(
                 internalName = currentKey.internalName,
-                onBack = pop,
-            )
-            // Session 3 (provider execution phase 1): the CloudStream CONTENT
-            // details screen — MainAPI.load(url) rendered in full; reached by
-            // tapping a CS result in the Search grid (ads-gated like every
-            // details navigation).
-            is CloudstreamContentDetailsKey -> com.confused.anikuta.feature.cloudstreamcontent.CloudstreamContentDetailsScreen(
-                providerName = currentKey.providerName,
-                contentUrl = currentKey.contentUrl,
-                title = currentKey.title,
-                thumbnailUrl = currentKey.thumbnailUrl,
                 onBack = pop,
             )
             is AppearanceKey -> AppearanceScreen(
