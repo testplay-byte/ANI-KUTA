@@ -387,9 +387,9 @@ private fun ContentHero(details: CsContentDetails, fallbackThumb: String?) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (details.contentRating != null) {
+                details.contentRating?.let { rating ->
                     Text(
-                        text = details.contentRating,
+                        text = rating,
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
