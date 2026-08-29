@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.player.PlayerHaptic
+import com.confused.anikuta.core.player.perform
 import com.confused.anikuta.core.player.PlayerLoadingState
 import com.confused.anikuta.core.player.PlayerStateHolder
 import kotlin.math.roundToInt
@@ -344,6 +345,8 @@ fun FullscreenControls(
                                 isSeeking = false
                                 stateHolder.updateControlsVisible(true)
                             },
+                            // Task 48 (playback haptics)
+                            hapticsEnabled = hapticsEnabled,
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
@@ -392,7 +395,10 @@ private fun FullscreenSeekbarCustom(
     onSeekTo: (Int) -> Unit,
     onSeekStart: () -> Unit,
     onSeekEnd: () -> Unit,
+    // Task 48 (playback haptics): gated by PlayerPreferences.hapticFeedback.
+    hapticsEnabled: Boolean = false,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var scrubPosition by remember { mutableStateOf<Float?>(null) }
     var barWidthPx by remember { mutableStateOf(0) }
     val density = LocalDensity.current

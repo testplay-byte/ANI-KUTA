@@ -194,7 +194,11 @@ fun serializeTracks(tracks: List<Pair<String, String>>): String =
  * MPV csv header string ("Key: Value,…") as an OPTIONAL third field. Tracks
  * without headers serialize EXACTLY like the legacy format, so every parser
  * (WatchKey.parseTracks, deserializeTracks) keeps working unchanged.
+ *
+ * @JvmName is required: after erasure both overloads would share the JVM
+ * signature serializeTracks(Ljava/util/List;)Ljava/lang/String;.
  */
+@JvmName("serializeTracksWithHeaders")
 fun serializeTracks(tracks: List<Triple<String, String, String?>>): String =
     tracks.joinToString("\n") { (url, lang, headers) ->
         if (headers.isNullOrBlank()) "$url\u001F$lang" else "$url\u001F$lang\u001F$headers"
