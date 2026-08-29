@@ -653,7 +653,9 @@ fun <T> MainAPI.newEpisode(
     data: T,
     initializer: Episode.() -> Unit = { },
 ): Episode {
-    val builder = Episode(data = with(com.lagradost.cloudstream3.utils.AppUtils) { data.toJson() })
+    val payload = data?.let { d -> with(com.lagradost.cloudstream3.utils.AppUtils) { d.toJson() } }
+        ?: throw ErrorLoadingException("invalid newEpisode")
+    val builder = Episode(data = payload)
     builder.initializer()
     return builder
 }

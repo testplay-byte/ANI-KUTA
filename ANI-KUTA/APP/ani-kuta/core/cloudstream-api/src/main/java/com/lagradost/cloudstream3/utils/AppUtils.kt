@@ -33,12 +33,13 @@ object AppUtils {
 
     @InternalAPI
     fun <T : Any> parseJson(value: String, kClass: KClass<T>): T = try {
-        json.decodeFromString(serializer(kClass), value)
+        json.decodeFromString(kClass.serializer(), value)
     } catch (e: Exception) {
         mapper.readValue(value, kClass.java)
     }
 
     // This is inlined code and can easily cause breakage in extensions!
+    @OptIn(InternalAPI::class)
     inline fun <reified T : Any> parseJson(value: String): T = parseJson(value, T::class)
 
     @Deprecated(
@@ -51,6 +52,7 @@ object AppUtils {
         throw UnsupportedOperationException("parseJson(reader) is not supported in this host")
     }
 
+    @OptIn(InternalAPI::class)
     inline fun <reified T : Any> tryParseJson(value: String?): T? {
         if (value == null) return null
         return try {

@@ -12,7 +12,7 @@ package com.lagradost.cloudstream3.utils
 import android.content.Context
 import android.content.SharedPreferences
 import com.lagradost.cloudstream3.json
-import kotlinx.serialization.serializer
+import kotlinx.serialization.serializer  // KClass.serializer() extension
 import kotlin.reflect.KClass
 
 /** Used to display metadata about downloads and resume watching. */
@@ -143,7 +143,7 @@ object DataStore {
     fun <T : Any> Context.getKeyInternal(path: String, kClass: KClass<T>): T? {
         val raw = getPreferences(this).getString(path, null) ?: return null
         return try {
-            json.decodeFromString(serializer(kClass), raw)
+            json.decodeFromString(kClass.serializer(), raw)
         } catch (e: Exception) {
             runCatching { mapper.readValue(raw, kClass.java) }.getOrNull()
         }

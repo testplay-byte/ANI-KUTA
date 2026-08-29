@@ -125,6 +125,8 @@ fun ExtensionsSettingsScreen(
     onOpenExtensionDetail: (String) -> Unit = {},
     extensionManager: ExtensionManager = koinInject(),
     repoRepository: ExtensionRepoRepository = koinInject(),
+    csManager: com.confused.anikuta.data.cloudstream.CloudstreamPluginManager = koinInject(),
+    csRepoRepository: com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository = koinInject(),
 ) {
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
     val untrustedExtensions by extensionManager.untrustedExtensions.collectAsState()
@@ -133,6 +135,17 @@ fun ExtensionsSettingsScreen(
     val repos by repoRepository.repos.collectAsState()
     val installStates by extensionManager.installStates.collectAsState()
     val updateCheckState by extensionManager.updateCheckState.collectAsState()
+
+    // ── Task 41: the unified source tabs (doc 23 §5.4, the user's G3-adjacent gate). ──
+    // The CloudStream tab appears once that system has content (saved repos or
+    // installed plugins); the aniyomi tab is the built-in default. When only one
+    // system has content the tab row is hidden — nothing to switch between.
+    val csInstalled by csManager.installed.collectAsState()
+    val csErrored by csManager.errored.collectAsState()
+    val csRepos by csRepoRepository.repos.collectAsState()
+    val csHasContent = csRepos.isNotEmpty() || csInstalled.isNotEmpty() || csErrored.isNotEmpty()
+    var activeTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("aniyomi") }
+    val showCloudstreamTab = activeTab == "cloudstream" && csHasContent
 
     val scope = rememberCoroutineScope()
     var showFilters by remember { mutableStateOf(false) }
@@ -151,12 +164,20 @@ fun ExtensionsSettingsScreen(
     // (throttled to once per 30 min inside the manager) + non-blocking.
     LaunchedEffect(Unit) {
         extensionManager.checkForUpdates()
+        csManager.checkForUpdates()
     }
 
     // Force a fresh check whenever the repo set changes.
     LaunchedEffect(repos.size) {
         if (repos.isNotEmpty()) {
             extensionManager.checkForUpdates(force = true)
+        }
+    }
+
+    // Same for CloudStream repos.
+    LaunchedEffect(csRepos.size) {
+        if (csRepos.isNotEmpty()) {
+            csManager.checkForUpdates(force = true)
         }
     }
 
@@ -241,6 +262,14 @@ fun ExtensionsSettingsScreen(
                 },
             )
 
+            // ── Task 41: source tabs (only when both systems have content) ──
+            if (csHasContent) {
+                SourceTabRow(
+                    activeTab = activeTab,
+                    onSelect = { activeTab = it },
+                )
+            }
+
             // ── Filters bar (hidden by default, revealed on tap) ──
             AnimatedVisibility(
                 visible = showFilters,
@@ -260,6 +289,10 @@ fun ExtensionsSettingsScreen(
                 )
             }
 
+            if (showCloudstreamTab) {
+                // ── CloudStream tab content (doc 23 §5.4) ──
+                CloudstreamExtensionsSection(csManager = csManager)
+            } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
@@ -415,7 +448,71 @@ fun ExtensionsSettingsScreen(
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
             }
+            }
         }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Task 41: source tab row — Aniyomi / CloudStream (doc 23 §5.4)
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun SourceTabRow(
+    activeTab: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SourceTabChip(
+            label = "Aniyomi",
+            selected = activeTab != "cloudstream",
+            onClick = { onSelect("aniyomi") },
+        )
+        SourceTabChip(
+            label = "CloudStream",
+            selected = activeTab == "cloudstream",
+            onClick = { onSelect("cloudstream") },
+        )
+    }
+}
+
+@Composable
+private fun SourceTabChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val backgroundColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        },
+        animationSpec = tween(200),
+        label = "tabChipColor",
+    )
+    androidx.compose.material3.Surface(
+        color = backgroundColor,
+        shape = RoundedCornerShape(20.dp),
+        onClick = onClick,
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+        )
     }
 }
 

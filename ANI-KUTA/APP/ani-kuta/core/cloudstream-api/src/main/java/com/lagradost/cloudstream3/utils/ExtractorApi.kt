@@ -139,11 +139,11 @@ val WIDEVINE_DRM_UUID: Uuid = Uuid.fromLongs(-0x121074568629b532L, -0x5c37d8232a
 @Prerelease
 val PLAYREADY_DRM_UUID: Uuid = Uuid.fromLongs(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
 
-val CLEARKEY_UUID: java.util.UUID = CLEARKEY_DRM_UUID.run { val l = toLongs(); java.util.UUID(l.mostSignificantBits, l.leastSignificantBits) }
+val CLEARKEY_UUID: java.util.UUID = java.util.UUID.fromString(CLEARKEY_DRM_UUID.toString())
 
-val WIDEVINE_UUID: java.util.UUID = WIDEVINE_DRM_UUID.run { val l = toLongs(); java.util.UUID(l.mostSignificantBits, l.leastSignificantBits) }
+val WIDEVINE_UUID: java.util.UUID = java.util.UUID.fromString(WIDEVINE_DRM_UUID.toString())
 
-val PLAYREADY_UUID: java.util.UUID = PLAYREADY_DRM_UUID.run { val l = toLongs(); java.util.UUID(l.mostSignificantBits, l.leastSignificantBits) }
+val PLAYREADY_UUID: java.util.UUID = java.util.UUID.fromString(PLAYREADY_DRM_UUID.toString())
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Builders
@@ -329,10 +329,7 @@ open class DrmExtractorLink private constructor(
     }
 
     @Deprecated(message = "Use Kotlin Uuid", level = DeprecationLevel.HIDDEN)
-    fun getUuid(): java.util.UUID {
-        val longs = uuid.toLongs()
-        return java.util.UUID(longs.mostSignificantBits, longs.leastSignificantBits)
-    }
+    fun getUuid(): java.util.UUID = java.util.UUID.fromString(uuid.toString())
 }
 
 /** Class holds extracted media info to be passed to the player. */

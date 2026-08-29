@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:source-api"))
     implementation(project(":data:extension"))
+    implementation(project(":data:cloudstream"))  // Task 41: CS extension system UI (doc 23)
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
