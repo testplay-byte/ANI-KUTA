@@ -29,11 +29,18 @@ import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.ShowStatus
+import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
+import com.lagradost.cloudstream3.USER_AGENT
+import com.lagradost.cloudstream3.utils.DrmExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +53,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.Request
 import okhttp3.Response
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /** Stable synthetic source ids for bridged CloudStream providers. */
 object CsSourceIds {
@@ -165,13 +173,188 @@ class CloudstreamAnimeSourceBridge(
 
     override suspend fun getSeasonList(anime: SAnime): List<SAnime> = emptyList()
 
-    // ── Playback (next session) ──────────────────────────────────────────────
+    // ── Playback (Task 47 — the loadLinks/extractor session) ──────────────
 
+    /**
+     * The resolver tries getHosterList FIRST (ext-lib 16 contract). The
+     * inherited AnimeHttpSource impl would fire a REAL `GET(baseUrl +
+     * episode.url)` against the provider site — the CS episode URL is an
+     * opaque data handle, not a page — so fail fast instead: the resolver
+     * catches IllegalStateException and falls straight through to
+     * [getVideoList].
+     */
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> =
+        throw IllegalStateException("CloudStream bridge does not use the hoster API")
+
+    /**
+     * The provider's own link-resolution budget (MainAPI.loadLinksTimeoutMs,
+     * CS3 clamp 5 s – 8 min, default 120 s) — multi-extractor resolution
+     * genuinely takes longer than the resolver's old fixed 30 s.
+     */
+    override val videoListTimeoutMs: Long
+        get() = liveProviderOrNull()?.loadLinksTimeoutMs?.coerceIn(5_000L, 480_000L) ?: 120_000L
+
+    /**
+     * loadLinks → the aniyomi [Video] list the whole downstream stack
+     * (VideoResolver → ResolverSheet → WatchKey → MPV) consumes unchanged.
+     *
+     * Semantics (doc 19 §3.2, ported from the documented CS3 contract):
+     * • the CS callbacks are streaming + may fire from any thread → queues;
+     * • links already emitted are KEPT when loadLinks throws midway or
+     *   returns false (streamed links are never rolled back);
+     * • dedup by URL; DRM/DASH/TORRENT/MAGNET links are filtered (MPV cannot
+     *   play them — doc 19 §2.5) and counted for the log;
+     * • SEpisode.url carries the provider's opaque Episode.data handle — the
+     *   exact `data` string loadLinks expects.
+     */
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        // Honest error until the loadLinks/extractor session lands (doc 23 §7):
-        // the resolver sheet surfaces this message with the WebView escape hatch.
-        throw IllegalStateException(
-            "CloudStream playback arrives in the next update — this episode's video links aren't wired yet.",
+        val provider = liveProvider()
+        val data = episode.url
+        if (data.isBlank() || data == "[]" || data == "about:blank") {
+            throw IllegalStateException(
+                "CloudStream '$providerName': this episode has no playable data",
+            )
+        }
+
+        val links = ConcurrentLinkedQueue<ExtractorLink>()
+        val subtitles = ConcurrentLinkedQueue<SubtitleFile>()
+        val startedAt = System.currentTimeMillis()
+        Logger.i(TAG) {
+            "links: '$providerName' loadLinks start (episode='${episode.name.take(60)}' timeout=${videoListTimeoutMs}ms)"
+        }
+
+        var success = false
+        val failure: Throwable? = try {
+            success = provider.loadLinks(
+                data = data,
+                isCasting = false,
+                subtitleCallback = { subtitles.add(it) },
+                callback = { links.add(it) },
+            )
+            null
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (cf: com.lagradost.cloudstream3.network.CloudflareBlockedException) {
+            throw cf
+        } catch (t: Throwable) {
+            t
+        }
+
+        // Total failure only when NOTHING was streamed; partial results win.
+        if (failure != null && links.isEmpty()) {
+            throw IllegalStateException(
+                "CloudStream '$providerName' failed to load links: " +
+                    "${failure::class.java.simpleName}: ${failure.message}",
+                failure,
+            )
+        }
+        if (failure != null) {
+            Logger.w(TAG, failure) {
+                "links: '$providerName' loadLinks failed midway — keeping ${links.size} partial link(s)"
+            }
+        }
+        if (!success && links.isEmpty()) {
+            throw IllegalStateException(
+                "CloudStream '$providerName' returned no links for this episode (the provider's hosts may all be down)",
+            )
+        }
+
+        // ── Mapping: ExtractorLink → Video ──
+        var hiddenCount = 0
+        val seenUrls = HashSet<String>()
+        val mirrorIndex = HashMap<String, Int>()
+        val collectedSubtitles = subtitles.toList()
+        val videos = links.mapNotNull { link ->
+            when {
+                link is DrmExtractorLink -> {
+                    hiddenCount++
+                    null
+                }
+                link.type == ExtractorLinkType.DASH ||
+                    link.type == ExtractorLinkType.TORRENT ||
+                    link.type == ExtractorLinkType.MAGNET -> {
+                    hiddenCount++
+                    null
+                }
+                link.url.isBlank() -> null
+                !seenUrls.add(link.url) -> null
+                else -> link.toVideo(collectedSubtitles, mirrorIndex)
+            }
+        }
+
+        Logger.i(TAG) {
+            val byType = links.groupBy { it.type }.entries
+                .joinToString(", ") { (type, list) -> "${type.name}=${list.size}" }
+            "links: '$providerName' finished in ${System.currentTimeMillis() - startedAt}ms — " +
+                "${videos.size} playable video(s) [$byType hidden=$hiddenCount] " +
+                "subs=${collectedSubtitles.size} audio=${links.sumOf { it.audioTracks.size }} " +
+                "sample=[${videos.take(3).joinToString { it.videoTitle.take(40) }}]"
+        }
+        if (videos.isEmpty()) {
+            throw IllegalStateException(
+                "CloudStream '$providerName': no playable links for this episode " +
+                    (if (hiddenCount > 0) "($hiddenCount unsupported DRM/DASH/torrent link(s) hidden)" else ""),
+            )
+        }
+        return videos
+    }
+
+    /** A `\d{3,4}p` token inside a label — the resolver's quality parser key. */
+    private val qualityTokenRegex = Regex("""\d{3,4}p""")
+
+    /**
+     * ExtractorLink → Video. The videoTitle is crafted so the shared
+     * VideoResolver parses it into its 3 tiers: server = the first
+     * " - " segment (the hoster), audio = sub/dub keywords in the label,
+     * quality = the `(\d{3,4})p` token (falling back to the whole title for
+     * unlabeled mirrors — hence the per-source "Mirror N" numbering).
+     */
+    private fun ExtractorLink.toVideo(
+        collectedSubtitles: List<SubtitleFile>,
+        mirrorIndex: MutableMap<String, Int>,
+    ): Video {
+        val sourceLabel = source.ifBlank { providerName }
+        // CS3 header fold rule (createVideoSource): referer merges into the
+        // headers unless a referer key already exists; UA defaults to the CS
+        // client UA when absent.
+        val allHeaders = getAllHeaders().let { base ->
+            if (base.keys.none { it.equals("User-Agent", ignoreCase = true) }) {
+                base + ("User-Agent" to USER_AGENT)
+            } else {
+                base
+            }
+        }
+
+        val label = name.trim()
+        val qualityToken = when {
+            qualityTokenRegex.containsMatchIn(label) -> null // label already carries it
+            quality in 100..2160 && quality != 400 -> "${quality}p"
+            else -> null
+        }
+        val display = when {
+            qualityToken != null && label.isNotBlank() -> "$label $qualityToken"
+            qualityToken != null -> qualityToken
+            label.isNotBlank() -> label
+            else -> {
+                // Unlabeled link — number it per source so multiple mirrors
+                // stay distinguishable in the quality picker.
+                val index = (mirrorIndex[sourceLabel] ?: 0) + 1
+                mirrorIndex[sourceLabel] = index
+                "Mirror $index"
+            }
+        }
+
+        return Video(
+            videoUrl = url,
+            videoTitle = "$sourceLabel - $display",
+            headers = okhttp3.Headers.headersOf(
+                *allHeaders.flatMap { listOf(it.key, it.value) }.toTypedArray(),
+            ),
+            // CS subs are episode-level (not per-link) — attach to every link.
+            subtitleTracks = collectedSubtitles.map { Track(it.url, it.lang) },
+            audioTracks = audioTracks.mapIndexed { index, audio ->
+                Track(audio.url, "Audio ${index + 1}")
+            },
         )
     }
 
@@ -269,7 +452,11 @@ class CloudstreamAnimeSourceBridge(
             if (!resolvedBackground.isNullOrBlank()) background_url = resolvedBackground
             // Task 46: year + score finally reach the details page (SAnime
             // enrichment channel — see SAnime.year / SAnime.score).
-            year = this@applyOnto.year
+            // Task 47 (device round 6, "rating shows but year doesn't"): many
+            // providers set `year` on SEARCH responses but omit it on load() —
+            // the details flow now seeds the stub SAnime with the search-time
+            // year, and load()'s year only WINS (never erases the seed).
+            year = this@applyOnto.year ?: anime.year
             score = resolvedScore
             initialized = true
         }

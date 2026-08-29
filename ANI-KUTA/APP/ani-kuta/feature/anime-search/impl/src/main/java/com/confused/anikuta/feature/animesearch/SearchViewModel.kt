@@ -83,6 +83,20 @@ class SearchViewModel(
          * cold start ALWAYS has the real provider list first.
          */
         private const val CS_LOAD_WAIT_MS = 20_000L
+
+        /**
+         * Task 47: once the manager reports loadedOnce, its `installed` list
+         * is final — the derived WhileSubscribed chain only needs a few
+         * dispatch hops to propagate it. A short post-load wait for a
+         * non-empty list is plenty; longer than this with an empty list means
+         * zero providers are actually loaded.
+         */
+        private const val CS_POST_LOAD_WAIT_MS = 3_000L
+
+        /** Task 47: the persisted top-tab values (KEY_SEARCH_SOURCE). */
+        private const val KEY_SEARCH_SOURCE = "search_selected_source"
+        private const val SOURCE_ANILIST = "anilist"
+        private const val SOURCE_EXTENSION = "extension"
     }
 
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
@@ -91,7 +105,17 @@ class SearchViewModel(
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
-    private val _source = MutableStateFlow(SearchSource.ANILIST)
+    // Task 47 (device round 6, "the tab resets to Anime list after restarting"):
+    // the top tab (AniList / Extension) is PERSISTED — restored here and written
+    // on every switch. Previously it lived only in memory, so a full app restart
+    // always landed back on AniList.
+    private val _source = MutableStateFlow(
+        if (preferenceStore.getString(KEY_SEARCH_SOURCE, SOURCE_ANILIST) == SOURCE_EXTENSION) {
+            SearchSource.EXTENSION
+        } else {
+            SearchSource.ANILIST
+        },
+    )
     val source: StateFlow<SearchSource> = _source.asStateFlow()
 
     private val _sort = MutableStateFlow(SearchSort.POPULARITY)
@@ -251,30 +275,37 @@ class SearchViewModel(
         // plugin was uninstalled/untrusted, fall back to the aniyomi kind (which
         // the collector above then heals with an auto-select).
         //
-        // Task 46 (device round 5, "it forgets my CloudStream source after
-        // restarting"): at cold start the plugin manager's deferred initial
-        // load (it waits for the first Activity — see
-        // CloudstreamPluginManager) has NOT completed yet, so csSources is
-        // legitimately EMPTY. The old collector healed IMMEDIATELY ("provider
-        // gone" → reset to aniyomi) and the persisted CloudStream selection
-        // was destroyed on every app restart. The heal now WAITS for the
-        // manager's loadedOnce signal first (bounded — a timeout still heals,
-        // so a stuck pipeline can never freeze the fallback forever).
+        // Task 46 gated this heal on `sourcesLoaded` — but the device (round 6)
+        // still lost the CloudStream selection on every restart. Root cause: the
+        // validation ran against the FIRST emission of `csSources`, a TWO-layer
+        // `stateIn(WhileSubscribed)` chain whose initial value is `emptyList()`;
+        // the manager finishing its load does NOT mean the derived flow has
+        // propagated yet (it needs several dispatch hops AFTER its first
+        // subscriber attaches — and this collector was that first subscriber).
+        // Result: "provider gone" against the stale empty list → the persisted
+        // kind was overwritten with "aniyomi" on virtually every cold start.
+        //
+        // Task 47 fix: validate against the RAW repository flow and only after
+        // it has emitted a NON-EMPTY list (or the wait budget expired, meaning
+        // zero plugins are actually loaded). The ongoing collector then watches
+        // for RUNTIME uninstalls — an empty emission after the gates is REAL,
+        // never a cold-start artifact.
         viewModelScope.launch {
-            val loaded = withTimeoutOrNull(CS_LOAD_WAIT_MS) {
-                cloudstreamRepository.sourcesLoaded.first { it }
+            val current = _selectedCsProvider.value
+            if (_selectedKind.value != SelectedSourceKind.CLOUDSTREAM) {
+                return@launch // aniyomi selection — nothing to validate.
             }
-            if (loaded == null) {
-                Logger.w(TAG) {
-                    "CloudStream sources not loaded after ${CS_LOAD_WAIT_MS}ms — validating selection anyway"
-                }
-            }
-            csSources.collect { sources ->
-                if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
-                    val current = _selectedCsProvider.value
-                    if (current == null || sources.none { it.providerName == current }) {
+            val resolved = current?.let { awaitCsSource(it) }
+            if (current != null && resolved != null) {
+                Logger.i(TAG) { "CloudStream selection '$current' restored (provider is loaded)" }
+                // Keep watching for runtime uninstalls while the screen is alive.
+                cloudstreamRepository.sources.collect { sources ->
+                    // Empty AFTER the non-empty gate = zero providers remain —
+                    // the selection can no longer be honored.
+                    if (sources.isEmpty() || sources.none { it.providerName == _selectedCsProvider.value }) {
+                        if (_selectedKind.value != SelectedSourceKind.CLOUDSTREAM) return@collect
                         Logger.i(TAG) {
-                            "Selected CS provider '$current' is gone — resetting extension mode to aniyomi"
+                            "Selected CS provider '${_selectedCsProvider.value}' is gone — resetting extension mode to aniyomi"
                         }
                         selectAniyomiKind(persist = true)
                         if (_source.value == SearchSource.EXTENSION && _query.value.isBlank()) {
@@ -282,8 +313,41 @@ class SearchViewModel(
                         }
                     }
                 }
+            } else {
+                Logger.i(TAG) {
+                    "Selected CS provider '$current' is gone — resetting extension mode to aniyomi"
+                }
+                selectAniyomiKind(persist = true)
+                if (_source.value == SearchSource.EXTENSION && _query.value.isBlank()) {
+                    loadExtensionPopular()
+                }
             }
         }
+    }
+
+    /**
+     * Task 47: resolves the RAW (un-NSFW-filtered) provider entry for
+     * [providerName], cold-start safe. The two-layer WhileSubscribed chain
+     * (repository.sources → csSources) legitimately starts at `emptyList()` —
+     * concluding "provider gone" from that initial value destroyed persisted
+     * selections on every restart (device round 6). This helper:
+     *   1. fast-paths when the live list already carries the provider;
+     *   2. waits (bounded) for the manager's activity-gated first load;
+     *   3. waits (bounded) for a NON-EMPTY derived list — only a list that
+     *      actually loaded can prove a provider missing.
+     * Returns null only when the provider is genuinely not loaded.
+     */
+    private suspend fun awaitCsSource(providerName: String): CsProviderSource? {
+        val raw = cloudstreamRepository.sources
+        // Fast path: warm list already carries the provider.
+        raw.value.firstOrNull { it.providerName == providerName }?.let { return it }
+        // Cold path: manager's initial load is activity-gated (≤15s)…
+        withTimeoutOrNull(CS_LOAD_WAIT_MS) { cloudstreamRepository.sourcesLoaded.first { it } }
+        // …then wait for the derived chain to carry a real (non-empty) list.
+        // loadedOnce ⇒ `installed` is final, so a short wait suffices; a
+        // timeout here means zero trusted plugins are loaded at all.
+        withTimeoutOrNull(CS_POST_LOAD_WAIT_MS) { raw.first { it.isNotEmpty() } }
+        return raw.value.firstOrNull { it.providerName == providerName }
     }
 
     // ── Filter handlers ──
@@ -320,6 +384,11 @@ class SearchViewModel(
 
     fun onSourceChange(source: SearchSource) {
         _source.value = source
+        // Task 47: persist the tab so it survives a full app restart.
+        preferenceStore.putString(
+            KEY_SEARCH_SOURCE,
+            if (source == SearchSource.EXTENSION) SOURCE_EXTENSION else SOURCE_ANILIST,
+        )
         if (source == SearchSource.EXTENSION) {
             // D-305: with a live query, SEARCH the selected source immediately.
             // Previously this always loaded popular and then DISCARDED it at the
@@ -803,25 +872,30 @@ class SearchViewModel(
             _uiState.value = SearchUiState.ExtensionNotAvailable
             return Job().apply { complete() }
         }
-        val source = csSources.value.firstOrNull { it.providerName == providerName }
-        if (source == null) {
-            // Provider gone (untrusted/uninstalled) — heal to aniyomi + NotAvailable.
-            selectAniyomiKind(persist = true)
-            beginRequest()
-            _uiState.value = SearchUiState.ExtensionNotAvailable
-            return Job().apply { complete() }
-        }
-        if (!source.hasMainPage) {
-            // This provider can't be browsed without a query — honest state,
-            // NOT an error (the user just needs to type).
-            beginRequest()
-            _uiState.value = SearchUiState.ExtensionNoBrowse(source.providerName)
-            return Job().apply { complete() }
-        }
 
         val gen = beginRequest()
         _uiState.value = SearchUiState.Loading
         return viewModelScope.launch {
+            // Task 47: cold-start-safe provider resolution — the raw source
+            // list legitimately starts empty at app start (WhileSubscribed
+            // chain + activity-gated manager load); only a LOADED list may
+            // conclude "provider gone". Previously this synchronous lookup
+            // reset the persisted kind on every cold entry.
+            val source = awaitCsSource(providerName)
+            if (source == null) {
+                if (!isCurrent(gen)) return@launch
+                selectAniyomiKind(persist = true)
+                _uiState.value = SearchUiState.ExtensionNotAvailable
+                return@launch
+            }
+            if (!source.hasMainPage) {
+                // This provider can't be browsed without a query — honest state,
+                // NOT an error (the user just needs to type).
+                if (!isCurrent(gen)) return@launch
+                _uiState.value = SearchUiState.ExtensionNoBrowse(source.providerName)
+                return@launch
+            }
+
             try {
                 Logger.i(TAG) { "Browsing CloudStream provider: $providerName" }
                 val sections = cloudstreamRepository.browseSections(providerName)
@@ -878,18 +952,20 @@ class SearchViewModel(
             _uiState.value = SearchUiState.ExtensionNotAvailable
             return
         }
-        val source = csSources.value.firstOrNull { it.providerName == providerName }
-        if (source == null) {
-            selectAniyomiKind(persist = true)
-            beginRequest()
-            _uiState.value = SearchUiState.ExtensionNotAvailable
-            return
-        }
 
         showingDefaults = false
         val gen = beginRequest()
         _uiState.value = SearchUiState.Loading
         searchJob = viewModelScope.launch {
+            // Task 47: cold-start-safe provider resolution (see loadCloudstreamPopular).
+            val source = awaitCsSource(providerName)
+            if (source == null) {
+                if (!isCurrent(gen)) return@launch
+                selectAniyomiKind(persist = true)
+                _uiState.value = SearchUiState.ExtensionNotAvailable
+                return@launch
+            }
+
             try {
                 Logger.i(TAG) { "Searching CloudStream provider $providerName for '$q'" }
                 val page = cloudstreamRepository.search(providerName, q, 1)
@@ -954,6 +1030,11 @@ class SearchViewModel(
         title = name,
         thumbnailUrl = posterUrl,
         sourceKey = "cloudstream:$providerName",
+        // Task 47 (device round 6, "rating shows but year doesn't"): many
+        // providers set `year` on SEARCH responses but omit it on load() —
+        // the search-time year now rides along as the details-page fallback
+        // seed (see AnimeDetailsKey.Extension.year).
+        year = year,
     )
 
     // ── Recents persistence ──

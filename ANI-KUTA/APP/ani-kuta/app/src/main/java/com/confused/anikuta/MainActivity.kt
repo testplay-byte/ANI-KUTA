@@ -781,19 +781,21 @@ fun AppRoot() {
                         )
                     )
                 },
-                onNavigateToExtensionAnime = { sourceId, sourceKey, animeUrl, title, thumbnailUrl ->
+                onNavigateToExtensionAnime = { sourceId, sourceKey, animeUrl, title, thumbnailUrl, year ->
                     // Task 45 (round-4 directive): CloudStream results open the
                     // EXACT SAME details screen as aniyomi results — the source
                     // bridge (CloudstreamAnimeSourceBridge, registered in
                     // ExtensionManager under the stable CS id) makes the standard
                     // DetailsScreen resolve details/episodes through the provider.
                     // The dedicated CloudStream details page is GONE.
+                    // Task 47: +year — search-time year seeds the details page.
                     navigateToDetails(
                         AnimeDetailsKey.Extension(
                             sourceId,
                             animeUrl,
                             title,
                             thumbnailUrl,
+                            year = year,
                             transitionKey = searchCoverKey(thumbnailUrl),
                         )
                     )

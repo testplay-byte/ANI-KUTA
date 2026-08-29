@@ -25,6 +25,7 @@ class ExtensionDetailsProvider(
         animeUrl: String,
         title: String,
         thumbnailUrl: String?,
+        year: Int?,
     ): UnifiedAnime? = withContext(Dispatchers.IO) {
         val source = extensionManager.getSource(sourceId) as? AnimeCatalogueSource
             ?: run {
@@ -36,6 +37,7 @@ class ExtensionDetailsProvider(
                     sourceName = null,
                     animeUrl = animeUrl,
                     entryMode = EntryMode.EXTENSION,
+                    seasonYear = year,
                 )
             }
 
@@ -43,6 +45,13 @@ class ExtensionDetailsProvider(
             this.url = animeUrl
             this.title = title
             this.thumbnail_url = thumbnailUrl
+            // Task 47 (device round 6): seed the search-time year — many
+            // CloudStream providers set `year` on SEARCH responses but omit
+            // it on load(); without a seed the details page rendered Score
+            // but no Year. The source's own parse overwrites it when present
+            // (see CloudstreamAnimeSourceBridge.applyOnto — load().year wins,
+            // the seed only fills nulls).
+            this.year = year
             this.initialized = false
         }
 
@@ -59,6 +68,13 @@ class ExtensionDetailsProvider(
         // even though the search result had it. Fall back to the stub's thumbnail.
         if (enrichedAnime.thumbnail_url.isNullOrBlank() && !sAnime.thumbnail_url.isNullOrBlank()) {
             enrichedAnime.thumbnail_url = sAnime.thumbnail_url
+        }
+
+        // Task 47: same discipline for the seeded year — a source whose details
+        // parse returns a fresh SAnime (or omits year) keeps the search-time
+        // seed instead of dropping it.
+        if (enrichedAnime.year == null && sAnime.year != null) {
+            enrichedAnime.year = sAnime.year
         }
 
         enrichedAnime.toUnifiedAnime(sourceId, source.name)

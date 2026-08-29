@@ -23,6 +23,9 @@ package com.confused.anikuta.feature.animesearch
  * @param url The content URL (source-relative identifier).
  * @param title The content's title.
  * @param thumbnailUrl Optional cover thumbnail URL.
+ * @param year Release year when the search result carried one (Task 47 —
+ *   CloudStream search responses include `year` even when the provider's
+ *   load() omits it; threaded to the details screen as a fallback seed).
  */
 data class ExtensionAnime(
     val sourceId: Long,
@@ -31,6 +34,7 @@ data class ExtensionAnime(
     val title: String,
     val thumbnailUrl: String?,
     val sourceKey: String? = null,
+    val year: Int? = null,
 )
 
 /**

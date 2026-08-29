@@ -62,6 +62,15 @@ abstract class AnimeHttpSource : AnimeCatalogueSource {
     open val versionId = 1
 
     /**
+     * Task 47 (playback session): the per-source budget for video-list
+     * resolution (hoster list + video list fetches). CloudStream providers
+     * declare their own `loadLinksTimeoutMs` (clamped 5 s – 8 min, default
+     * 120 s) — multi-extractor resolution genuinely needs longer than a fixed
+     * 30 s. Aniyomi sources keep the 30 s default.
+     */
+    open val videoListTimeoutMs: Long = 30_000L
+
+    /**
      * ID of the source. By default it uses a generated id using the first 16 characters (64 bits)
      * of the MD5 of the string `"${name.lowercase()}/$lang/$versionId"`.
      *

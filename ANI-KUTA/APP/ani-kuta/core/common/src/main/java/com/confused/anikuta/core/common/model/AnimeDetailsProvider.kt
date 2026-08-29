@@ -41,6 +41,9 @@ interface AnimeDetailsProvider {
      * @param animeUrl The anime's URL on the source.
      * @param title Initial title (from search result).
      * @param thumbnailUrl Initial thumbnail (from search result, may be null).
+     * @param year Task 47: the search-time release year, when the search
+     *   response carried one — seeded onto the stub SAnime so the Year row
+     *   renders even when the source's own details parse omits it.
      * @return UnifiedAnime with extension fields populated, or null on failure.
      */
     suspend fun fetchFromExtension(
@@ -48,6 +51,7 @@ interface AnimeDetailsProvider {
         animeUrl: String,
         title: String,
         thumbnailUrl: String?,
+        year: Int? = null,
     ): UnifiedAnime?
 
     /**

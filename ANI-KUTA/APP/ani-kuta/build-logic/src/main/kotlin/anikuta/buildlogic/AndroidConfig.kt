@@ -33,8 +33,24 @@ object AndroidConfig {
     // (aniyomi parity), details-page enrichment (year + rating via the SAnime
     // channel, season-aware episode names, poster/background/episode-thumbnail
     // URL resolution) + details:/episodes: bridge diagnostics.
-    const val versionCode = 67
-    const val versionName = "0.2.67"
+    //
+    // Task 47 (device round 6 + PLAYBACK): 0.2.68 — search-page memory repaired
+    // for real (the selection heal + loaders now await a NON-EMPTY provider
+    // list — the two-layer WhileSubscribed chain's empty initial value was
+    // resetting the persisted kind on every cold start; the top AniList/
+    // Extension tab is now persisted too), search-time year seeds the details
+    // page (year+score persist in the ext-extras JSON for cache reopens), and
+    // THE PLAYBACK SESSION: bridge getVideoList (loadLinks → Video with
+    // CS-semantics partial results, URL dedup, DRM/DASH/torrent filtering,
+    // referer/UA header folding, subs + audio tracks), the REAL extractor
+    // runtime (35 built-ins across 12 families + the shared jwplayer packed-JS
+    // engine + Dood pass_md5 + StreamTape robotlink + MixDrop wurl + StreamSB
+    // sources-API + Voe + Dailymotion/PixelDrain/Ok.ru/Streamlare APIs), the
+    // real P.A.C.K.E.R. unpacker, the real M3u8Helper (master→variant fan-out),
+    // built-in extractor registration at manager init, getHosterList
+    // fast-fallback, and per-source video-list timeouts (CS 5s–8min clamp).
+    const val versionCode = 68
+    const val versionName = "0.2.68"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

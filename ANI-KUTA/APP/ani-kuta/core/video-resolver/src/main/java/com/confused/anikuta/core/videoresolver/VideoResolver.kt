@@ -45,7 +45,6 @@ class VideoResolver {
 
     companion object {
         private const val TAG = "Anikuta:Core:VideoResolver"
-        private const val SOURCE_TIMEOUT_MS = 30_000L
     }
 
     fun resolve(
@@ -129,13 +128,17 @@ class VideoResolver {
     /**
      * Try getHosterList first (ext-lib 16+), fall back to getVideoList.
      * Returns VideoEntry list (carries hoster name alongside each video).
+     *
+     * Task 47: the timeout budget is the SOURCE's own [AnimeHttpSource.videoListTimeoutMs]
+     * (CloudStream providers declare up to 8 min — a fixed 30 s cut multi-
+     * extractor resolution short).
      */
     private suspend fun resolveVideoEntries(
         source: AnimeHttpSource,
         episode: SEpisode,
     ): List<VideoEntry> {
         val hosters = try {
-            withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+            withTimeoutOrNull(source.videoListTimeoutMs) {
                 source.getHosterList(episode)
             } ?: emptyList()
         } catch (e: IllegalStateException) {
@@ -159,7 +162,7 @@ class VideoResolver {
                 } else {
                     Logger.d(TAG) { "Hoster '${hoster.hosterName}' is lazy — calling getVideoList(hoster)" }
                     try {
-                        val resolved = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+                        val resolved = withTimeoutOrNull(source.videoListTimeoutMs) {
                             source.getVideoList(hoster)
                         } ?: emptyList()
                         for (video in resolved) {
@@ -176,7 +179,7 @@ class VideoResolver {
         // Fallback: old direct API (ext-lib < 16) — no hoster names available.
         Logger.d(TAG) { "Falling back to getVideoList(episode) for ${source.name}" }
         return try {
-            val videos = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+            val videos = withTimeoutOrNull(source.videoListTimeoutMs) {
                 source.getVideoList(episode)
             } ?: emptyList()
             videos.map { VideoEntry(it, null) }

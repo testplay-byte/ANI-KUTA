@@ -100,7 +100,10 @@ fun SearchScreen(
     onNavigateToDetails: (AniListAnime) -> Unit,
     // Session 3: +sourceKey — "cloudstream:<provider>" for CloudStream results
     // (null = aniyomi; MainActivity branches the details destination on it).
-    onNavigateToExtensionAnime: (Long, String?, String, String, String?) -> Unit = { _, _, _, _, _ -> },
+    // Task 47: +year — the search-time release year (CloudStream providers
+    // often set it on search responses but omit it on load(); the details
+    // screen seeds SAnime.year with it as a fallback).
+    onNavigateToExtensionAnime: (Long, String?, String, String, String?, Int?) -> Unit = { _, _, _, _, _, _ -> },
     // D-209: callback to open the Cloudflare WebView solver (launched from the
     // CloudflareBlocked error state). MainActivity launches CloudflareWebViewActivity.
     // Task 45: +userAgent — CloudStream providers must solve with the CS client's
@@ -372,6 +375,7 @@ fun SearchScreen(
                                 anime.url,
                                 anime.title,
                                 anime.thumbnailUrl,
+                                anime.year,
                             )
                         },
                         recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
@@ -396,6 +400,7 @@ fun SearchScreen(
                                 anime.url,
                                 anime.title,
                                 anime.thumbnailUrl,
+                                anime.year,
                             )
                         },
                         recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {

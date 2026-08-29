@@ -118,8 +118,8 @@ enum class ExtractorLinkType {
     }
 }
 
-/** Infers the link type from a URL's extension (private upstream; needed by ctors here). */
-private fun inferTypeFromUrl(url: String): ExtractorLinkType = when {
+/** Infers the link type from a URL's extension (needed by ctors + the built-in extractors). */
+internal fun inferTypeFromUrl(url: String): ExtractorLinkType = when {
     url.endsWith(".m3u8", ignoreCase = true) -> ExtractorLinkType.M3U8
     url.endsWith(".mpd", ignoreCase = true) -> ExtractorLinkType.DASH
     url.endsWith(".torrent", ignoreCase = true) -> ExtractorLinkType.TORRENT

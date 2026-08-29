@@ -181,6 +181,14 @@ class CloudstreamPluginManager(
                     .onFailure { Logger.w(TAG) { "Repo refresh failed: ${it.message}" } }
             }
         }
+        // Task 47 (playback session): register the BUILT-IN extractor set
+        // (StreamWish / VidStack / Filesim / Dood / StreamTape / … families)
+        // BEFORE any plugin loads — 53/80 census plugins dispatch embeds via
+        // loadExtractor, which only reaches registered extractors. Built-ins
+        // register first so plugin-registered MIRROR extractors (same family,
+        // custom mainUrl) win the reverse-order dispatch, exactly like the
+        // upstream app's startup behavior.
+        com.lagradost.cloudstream3.extractors.registerBuiltinExtractors()
     }
 
     // ── Loading ─────────────────────────────────────────────────────────────

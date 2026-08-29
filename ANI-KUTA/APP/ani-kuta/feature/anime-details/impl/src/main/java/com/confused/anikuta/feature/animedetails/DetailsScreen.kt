@@ -173,6 +173,7 @@ fun DetailsScreen(
                 animeUrl = detailsKey.animeUrl,
                 title = detailsKey.title,
                 thumbnailUrl = detailsKey.thumbnailUrl,
+                year = detailsKey.year,
             )
         }
     }
