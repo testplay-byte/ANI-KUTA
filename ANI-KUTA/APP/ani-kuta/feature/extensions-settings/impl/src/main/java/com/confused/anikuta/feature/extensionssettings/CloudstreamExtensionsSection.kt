@@ -1,5 +1,6 @@
 package com.confused.anikuta.feature.extensionssettings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -32,12 +34,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
@@ -50,20 +50,21 @@ import org.koin.compose.koinInject
  * The CloudStream tab of the unified Extensions screen (doc 23 §5.4, gate
  * G3-adjacent: the user's unified-extensions-page decision).
  *
- * SESSION-2 DEVICE ROUND — this tab now renders with the EXACT same structure,
+ * SESSION-2 DEVICE ROUND — this tab renders with the EXACT same structure,
  * chrome and row anatomy as the aniyomi tab above it (the user's consistency
- * report), built from the shared pieces in [ExtensionListChrome.kt]:
+ * report), built from the shared pieces in [ExtensionListChrome.kt].
  *
- * 1. Trusted Sources — installed plugins (the "Failed to load" section of the
- *    first round is gone from the resting view; plugins load on install now).
+ * 1. Trusted Sources — installed + TRUSTED plugins (providers live).
  * 2. Failed to Load — only when a plugin genuinely fails (conditional, same as
  *    the aniyomi tab; D-295/D-296: never silent).
- * 3. Available Extensions — the repo catalog, same rows, same normal Download
- *    button (the round's cloud-shaped button is gone), same progress machine.
+ * 3. Untrusted — installed but not yet trusted (session 3 trust flow); the
+ *    Trust action loads the plugin + moves the row into Trusted Sources.
+ * 4. Available Extensions — the repo catalog, same rows, same normal Download
+ *    button, same progress machine.
  *
- * Removed per the report: per-row enable/disable toggles (plugins always load),
- * the section-header NSFW pill (the shared filters bar owns NSFW now), the file
- * size and description in available rows, and the custom colors.
+ * Every row is CLICKABLE → the CloudStream plugin detail page (session 3,
+ * device round 2): description, authors, version, status, size, supported
+ * modes, language, and the live provider list.
  *
  * Search / sort / language / NSFW all flow in from the ONE filters bar shared
  * with the aniyomi tab (G4: NSFW here is the persisted gate, default OFF).
@@ -76,8 +77,10 @@ internal fun CloudstreamExtensionsSection(
     sortMode: ExtensionSortMode = ExtensionSortMode.NAME,
     langFilter: String? = null,
     showNsfw: Boolean = false,
+    onOpenPluginDetail: (internalName: String) -> Unit = {},
 ) {
     val installed by csManager.installed.collectAsState()
+    val untrusted by csManager.untrusted.collectAsState()
     val errored by csManager.errored.collectAsState()
     val available by csManager.available.collectAsState()
     val installStates by csManager.installStates.collectAsState()
@@ -94,6 +97,13 @@ internal fun CloudstreamExtensionsSection(
                 (langFilter == null || it.language == langFilter)
         }
         .let { sortCsExtensions(it, sortMode) }
+
+    val filteredUntrusted = untrusted
+        .filter {
+            matchesSearch(it.name, searchQuery) && (showNsfw || !it.isNsfw) &&
+                (langFilter == null || it.language == langFilter)
+        }
+        .let { sortCsUntrusted(it, sortMode) }
 
     val filteredErrored = errored
         .filter {
@@ -143,6 +153,7 @@ internal fun CloudstreamExtensionsSection(
                         }
                     },
                     onUninstall = { csManager.uninstallPlugin(ext) },
+                    onClick = { onOpenPluginDetail(ext.internalName) },
                 )
             }
 
@@ -160,6 +171,26 @@ internal fun CloudstreamExtensionsSection(
                         extension = ext,
                         onRetry = { csManager.retryPlugin(ext) },
                         onUninstall = { csManager.uninstallPlugin(ext) },
+                        onClick = { onOpenPluginDetail(ext.internalName) },
+                    )
+                }
+            }
+
+            // ── Untrusted (session 3 trust flow) ──
+            if (filteredUntrusted.isNotEmpty()) {
+                item(key = "cs-header-untrusted", contentType = "csSectionHeader") {
+                    SectionHeader(title = "Untrusted", count = filteredUntrusted.size, isEmpty = false)
+                }
+                items(
+                    filteredUntrusted,
+                    key = { "cs-untrusted-${it.internalName}" },
+                    contentType = { "csUntrustedRow" },
+                ) { ext ->
+                    CsUntrustedRow(
+                        extension = ext,
+                        onTrust = { csManager.trustPlugin(ext) },
+                        onUninstall = { csManager.uninstallPlugin(ext) },
+                        onClick = { onOpenPluginDetail(ext.internalName) },
                     )
                 }
             }
@@ -190,6 +221,7 @@ internal fun CloudstreamExtensionsSection(
                         extension = ext,
                         installStep = installStates[ext.plugin.internalName],
                         onInstall = { csManager.installPlugin(ext) },
+                        onClick = { onOpenPluginDetail(ext.plugin.internalName) },
                     )
                 }
             }
@@ -218,13 +250,16 @@ private fun CsInstalledRow(
     installStep: InstallStep?,
     onUpdate: (() -> Unit)?,
     onUninstall: () -> Unit,
+    onClick: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -297,13 +332,16 @@ private fun CsErroredRow(
     extension: CloudstreamExtension.Errored,
     onRetry: () -> Unit,
     onUninstall: () -> Unit,
+    onClick: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(
@@ -378,6 +416,91 @@ private fun CsErroredRow(
 }
 
 /**
+ * Untrusted row (session 3 trust flow — the aniyomi UntrustedExtensionRow
+ * pattern): the plugin is on disk but its code has never executed. Trust
+ * loads it + moves it to Trusted Sources; Delete uninstalls.
+ */
+@Composable
+private fun CsUntrustedRow(
+    extension: CloudstreamExtension.Untrusted,
+    onTrust: () -> Unit,
+    onUninstall: () -> Unit,
+    onClick: () -> Unit,
+) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CsPluginIcon(iconUrl = extension.iconUrl, name = extension.name)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = extension.name.removeSuffix("Provider"),
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = buildString {
+                        append("Untrusted · v${extension.version}")
+                        extension.language?.let { append(" · $it") }
+                        if (extension.isNsfw) append(" · NSFW")
+                    },
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            ActionIconButton(
+                icon = Icons.Filled.Verified,
+                contentDescription = "Trust plugin",
+                onClick = onTrust,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            ActionIconButton(
+                icon = Icons.Filled.Delete,
+                contentDescription = "Uninstall plugin",
+                onClick = { showDeleteConfirm = true },
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Uninstall plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = { Text("This will remove ${extension.name.removeSuffix("Provider")} from your device.", fontFamily = RobotoFamily) },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onUninstall() }) {
+                    Text("Uninstall", color = MaterialTheme.colorScheme.error, fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
+    }
+}
+
+/**
  * Available catalog row — byte-for-byte the aniyomi AvailableExtensionRow
  * anatomy: icon, name, ONE metadata line (version · language · NSFW — no file
  * size, no description per the device report), and the shared install control.
@@ -387,12 +510,15 @@ private fun CsAvailableRow(
     extension: CloudstreamExtension.Available,
     installStep: InstallStep?,
     onInstall: () -> Unit,
+    onClick: () -> Unit,
 ) {
     val plugin = extension.plugin
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -435,23 +561,9 @@ private fun CsAvailableRow(
 }
 
 /**
- * Plugin icon via iconUrl (%size% substitution, doc 04 §3.3) with the shared
- * colorful letter tile as fallback (ExtensionListChrome — same placeholder the
- * aniyomi rows use).
+ * Plugin icon via the shared chrome (session 3 — moved to ExtensionListChrome.kt
+ * so the plugin detail screen shares the same treatment).
  */
-@Composable
-private fun CsPluginIcon(iconUrl: String?, name: String) {
-    val resolved = iconUrl?.replace("%size%", "64")?.replace("%exact_size%", "64")
-    if (resolved != null) {
-        AsyncImage(
-            model = resolved,
-            contentDescription = "$name icon",
-            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
-        )
-    } else {
-        ExtensionIconPlaceholder(name.removeSuffix("Provider"))
-    }
-}
 
 // ── Sorting (CloudStream twins of the shared aniyomi comparators) ───────────
 
@@ -466,6 +578,9 @@ private fun sortCsExtensions(list: List<CloudstreamExtension.Installed>, mode: E
     sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
 
 private fun sortCsErrored(list: List<CloudstreamExtension.Errored>, mode: ExtensionSortMode): List<CloudstreamExtension.Errored> =
+    sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
+
+private fun sortCsUntrusted(list: List<CloudstreamExtension.Untrusted>, mode: ExtensionSortMode): List<CloudstreamExtension.Untrusted> =
     sortCsBase(list, mode, name = { it.name }, lang = { it.language }, nsfw = { it.isNsfw })
 
 private fun sortCsAvailable(list: List<CloudstreamExtension.Available>, mode: ExtensionSortMode): List<CloudstreamExtension.Available> =

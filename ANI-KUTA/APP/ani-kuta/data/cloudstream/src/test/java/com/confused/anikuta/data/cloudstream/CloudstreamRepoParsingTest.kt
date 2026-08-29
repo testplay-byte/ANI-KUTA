@@ -192,4 +192,50 @@ class CloudstreamRepoParsingTest {
         assertNull(decoded.iconUrl)
         assertEquals(false, decoded.isNsfw)
     }
+
+    // ── Session 3: trust-flow migration semantics ───────────────────────────
+
+    @Test
+    fun pluginRecord_legacyJson_decodesAsTrusted() {
+        // Records persisted BEFORE the isTrusted field existed decode as TRUSTED
+        // (grandfathered — the user deliberately installed them; an app update
+        // must never silently demote working plugins to the Untrusted section).
+        val legacy = """{
+            "internalName": "AllMovieLandProvider",
+            "name": "AllMovieLandProvider",
+            "url": "https://example.com/x.cs3",
+            "filePath": "/data/files/x.cs3",
+            "version": 23,
+            "repoUrl": "https://example.com/repo.json"
+        }"""
+        val decoded = Json { ignoreUnknownKeys = true }.decodeFromString<CsPluginRecord>(legacy)
+        assertEquals(true, decoded.isTrusted)
+    }
+
+    @Test
+    fun pluginRecord_session3Metadata_roundTrip() {
+        // The session-3 install-time capture (authors/description/tvTypes/
+        // fileSizeBytes/isTrusted) survives a JSON round-trip — the plugin
+        // detail page renders fully even after its repository is deleted.
+        val record = CsPluginRecord(
+            internalName = "AllMovieLandProvider",
+            name = "AllMovieLandProvider",
+            url = "https://example.com/x.cs3",
+            filePath = "/data/files/x.cs3",
+            version = 24,
+            repoUrl = "https://example.com/repo.json",
+            authors = listOf("Someone", "Else"),
+            description = "Movies and series provider.",
+            tvTypes = listOf("Movie", "TvSeries"),
+            fileSizeBytes = 123456L,
+            isTrusted = false, // fresh installs land UNTRUSTED
+        )
+        val json = Json { ignoreUnknownKeys = true }
+        val decoded = json.decodeFromString<CsPluginRecord>(json.encodeToString(record))
+        assertEquals(listOf("Someone", "Else"), decoded.authors)
+        assertEquals("Movies and series provider.", decoded.description)
+        assertEquals(listOf("Movie", "TvSeries"), decoded.tvTypes)
+        assertEquals(123456L, decoded.fileSizeBytes)
+        assertEquals(false, decoded.isTrusted)
+    }
 }

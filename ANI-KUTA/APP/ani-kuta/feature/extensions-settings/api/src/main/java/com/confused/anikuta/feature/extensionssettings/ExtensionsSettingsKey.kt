@@ -43,3 +43,13 @@ data class ExtensionDetailKey(val pkgName: String) : NavKey
  */
 @Serializable
 data class SourcePreferencesKey(val sourceId: Long) : NavKey
+
+/**
+ * Session 3 (device round 2): NavKey for the CloudStream PLUGIN Detail screen.
+ * Identified by internalName — the screen resolves the plugin across the
+ * manager's states (Trusted / Untrusted / Failed to load / Available) and
+ * renders its metadata (description, authors, version, status, size, supported
+ * modes, language, live providers) + the actions valid for that state.
+ */
+@Serializable
+data class CloudstreamPluginDetailKey(val internalName: String) : NavKey

@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -465,6 +466,26 @@ internal fun ActionIconButton(
 }
 
 // ── Extension icons ─────────────────────────────────────────────────────────
+
+/**
+ * CloudStream plugin icon via iconUrl (%size% substitution, doc 04 §3.3) with
+ * the shared colorful letter tile as fallback. Moved to the shared chrome in
+ * session 3 so the plugin DETAIL screen renders the same icon treatment as the
+ * list rows.
+ */
+@Composable
+internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
+    val resolved = iconUrl?.replace("%size%", "64")?.replace("%exact_size%", "64")
+    if (resolved != null) {
+        AsyncImage(
+            model = resolved,
+            contentDescription = "$name icon",
+            modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
+        )
+    } else {
+        ExtensionIconPlaceholder(name.removeSuffix("Provider"))
+    }
+}
 
 /** Installed-row icon: a resolved Drawable, or the colorful letter placeholder. */
 @Composable

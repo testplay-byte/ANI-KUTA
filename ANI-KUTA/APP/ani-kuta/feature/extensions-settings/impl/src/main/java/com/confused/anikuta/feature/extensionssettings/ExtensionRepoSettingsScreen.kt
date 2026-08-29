@@ -377,15 +377,29 @@ private fun RepoRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
+                // Session-3 device round: the type badge sits on the TITLE line
+                // (right-aligned against the title row's trailing edge), NOT
+                // vertically centered across the whole two-line row — the
+                // round-2 report read the centered badge as "aligned to the
+                // URL too". Identity (title) and classification (badge) now
+                // share one line; the URL below is unclaimed.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = name,
+                        fontFamily = RobotoFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    RepoTypeBadge(typeLabel = typeLabel, isCloudstream = isCloudstream)
+                }
                 Text(
                     text = url,
                     fontFamily = RobotoFamily,
@@ -394,31 +408,6 @@ private fun RepoRow(
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            Spacer(Modifier.size(8.dp))
-            // Type badge — which ecosystem this repository belongs to. Session-2
-            // device round: flush against the row's RIGHT edge (was: hugging the
-            // name on the left), visually separating identity from classification.
-            Surface(
-                color = if (isCloudstream) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
-                },
-                shape = RoundedCornerShape(6.dp),
-            ) {
-                Text(
-                    text = typeLabel,
-                    fontFamily = RobotoFamily,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (isCloudstream) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
             androidx.compose.material3.IconButton(onClick = onDelete) {
@@ -430,5 +419,33 @@ private fun RepoRow(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun RepoTypeBadge(
+    typeLabel: String,
+    isCloudstream: Boolean,
+) {
+    Surface(
+        color = if (isCloudstream) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
+        },
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Text(
+            text = typeLabel,
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (isCloudstream) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }

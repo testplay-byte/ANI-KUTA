@@ -1,0 +1,655 @@
+package com.confused.anikuta.feature.extensionssettings
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.designsystem.component.BackAction
+import com.confused.anikuta.core.designsystem.component.CollapsingHeader
+import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
+import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
+import org.koin.compose.koinInject
+import java.io.File
+import java.util.Locale
+
+/**
+ * The CloudStream PLUGIN detail page (session 3, device round 2: "when the user
+ * clicks on any of the extensions, then it will open up its extension details
+ * page and all of its relevant details").
+ *
+ * One screen resolves the plugin across every manager state and renders:
+ * - Identity — icon, name, version, NSFW.
+ * - Status — Trusted (N providers) / Untrusted / Failed to load (+ reason) /
+ *   Disabled by repo / Update available / Available (not installed).
+ * - Catalog metadata captured at INSTALL time (authors, description, language,
+ *   size, supported modes) — renders identically even after repo deletion.
+ * - The LIVE provider list for trusted plugins (name, language, content types,
+ *   provider type, browse support) — what actually serves content in Search.
+ *
+ * Actions per state: Trust (untrusted — loads the plugin), Untrust (trusted —
+ * unloads it), Retry (errored), Uninstall (any installed state), Install
+ * (available — the shared progress machine from ExtensionListChrome).
+ *
+ * The page consumes the manager's StateFlows directly (koinInject — the
+ * settings-land convention, no ViewModel); every action re-renders the page via
+ * the flow the mutation refreshes.
+ */
+@Composable
+fun CloudstreamPluginDetailScreen(
+    internalName: String,
+    onBack: () -> Unit,
+    csManager: CloudstreamPluginManager = koinInject(),
+) {
+    val installed by csManager.installed.collectAsState()
+    val untrusted by csManager.untrusted.collectAsState()
+    val errored by csManager.errored.collectAsState()
+    val available by csManager.available.collectAsState()
+    val installStates by csManager.installStates.collectAsState()
+
+    // Resolve the plugin's CURRENT state (a trust/uninstall flips it live).
+    val trustedExt = installed.find { it.internalName == internalName }
+    val untrustedExt = untrusted.find { it.internalName == internalName }
+    val erroredExt = errored.find { it.internalName == internalName }
+    val availableExt = available.find { it.plugin.internalName == internalName }
+
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val collapsed = listState.firstVisibleItemIndex > 0 ||
+        listState.firstVisibleItemScrollOffset > 20
+
+    // Common display metadata, resolved across the installed states (metadata
+    // captured at install) or the catalog entry (available).
+    val meta: PluginMeta? = trustedExt?.toMeta()
+        ?: untrustedExt?.toMeta()
+        ?: erroredExt?.toMeta()
+        ?: availableExt?.toMeta()
+
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            CollapsingHeader(
+                title = "Plugin Details",
+                collapsed = collapsed,
+                actions = { BackAction(onBack) },
+            )
+
+            if (meta == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Plugin not found",
+                            fontFamily = RobotoFamily,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "It may have been uninstalled.",
+                            fontFamily = RobotoFamily,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        TextButton(onClick = onBack, modifier = Modifier.padding(top = 12.dp)) {
+                            Text("Go back", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 110.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // ── Header: icon + name + version + status ──
+                        item(key = "header") {
+                            PluginHeader(
+                                name = meta.name,
+                                version = meta.version,
+                                iconUrl = meta.iconUrl,
+                                statusText = when {
+                                    trustedExt != null && erroredExt == null ->
+                                        if (trustedExt.providerCount > 0) {
+                                            "Trusted · ${trustedExt.providerCount} provider(s)"
+                                        } else "Trusted"
+                                    untrustedExt != null -> "Untrusted"
+                                    erroredExt != null -> "Failed to load"
+                                    else -> "Available"
+                                },
+                                statusColor = when {
+                                    trustedExt != null -> MaterialTheme.colorScheme.primary
+                                    untrustedExt != null -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    erroredExt != null -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+
+                        // ── Trust gate (untrusted): the prominent primary action ──
+                        if (untrustedExt != null) {
+                            item(key = "trust-cta") {
+                                DetailAction(
+                                    text = "Trust Plugin",
+                                    icon = Icons.Filled.VerifiedUser,
+                                    filled = true,
+                                    onClick = { csManager.trustPlugin(untrustedExt) },
+                                )
+                            }
+                            item(key = "trust-note") {
+                                Text(
+                                    text = "This plugin is installed but not trusted — its code has never " +
+                                        "run. Trusting it loads its providers so they appear in Search.",
+                                    fontFamily = RobotoFamily,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                )
+                            }
+                        }
+
+                        // ── Install (available): the shared progress machine ──
+                        if (availableExt != null) {
+                            item(key = "install-cta") {
+                                val step = installStates[internalName]
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (step == null) {
+                                        DetailAction(
+                                            text = "Install",
+                                            icon = Icons.Filled.Download,
+                                            filled = true,
+                                            onClick = { csManager.installPlugin(availableExt) },
+                                        )
+                                    } else {
+                                        AvailableInstallControl(
+                                            installStep = step,
+                                            onInstall = { csManager.installPlugin(availableExt) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Info card ──
+                        item(key = "info") {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                                    InfoRow("Internal name", internalName)
+                                    meta.authors.takeIf { it.isNotEmpty() }?.let {
+                                        Spacer(Modifier.height(8.dp)); InfoRow("Authors", it.joinToString(", "))
+                                    }
+                                    meta.language?.let {
+                                        Spacer(Modifier.height(8.dp)); InfoRow("Language", it)
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    InfoRow(
+                                        "File size",
+                                        formatBytes(
+                                            diskBytes = (trustedExt ?: untrustedExt ?: erroredExt)
+                                                ?.filePath?.let { File(it).takeIf(File::exists)?.length() },
+                                            catalogBytes = meta.fileSizeBytes,
+                                        ),
+                                    )
+                                    if (meta.isNsfw) {
+                                        Spacer(Modifier.height(8.dp)); InfoRow("NSFW", "Yes")
+                                    }
+                                    availableExt?.let {
+                                        Spacer(Modifier.height(8.dp)); InfoRow("Repository", it.repoName)
+                                    }
+                                    (trustedExt ?: untrustedExt ?: erroredExt)?.repoUrl?.let {
+                                        Spacer(Modifier.height(8.dp)); InfoRow("Repository URL", it)
+                                    }
+                                    trustedExt?.availableUpdateVersion?.let { updateVersion ->
+                                        Spacer(Modifier.height(8.dp))
+                                        InfoRow("Update", "v$updateVersion available")
+                                    }
+                                    if (trustedExt?.isDisabledByRepo == true) {
+                                        Spacer(Modifier.height(8.dp))
+                                        InfoRow("Repo status", "Disabled by repository")
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Supported modes (tvTypes chips) ──
+                        if (meta.tvTypes.isNotEmpty()) {
+                            item(key = "modes") {
+                                DetailCard(title = "Supported Modes") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        meta.tvTypes.forEach { type -> ModeChip(type) }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Description ──
+                        meta.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                            item(key = "description") {
+                                DetailCard(title = "Description") {
+                                    Text(
+                                        text = desc,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+
+                        // ── Failure reason (errored) ──
+                        erroredExt?.let { err ->
+                            item(key = "error") {
+                                DetailCard(title = "Load Failure") {
+                                    Text(
+                                        text = err.message,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
+
+                        // ── Live providers (trusted) ──
+                        trustedExt?.takeIf { it.providers.isNotEmpty() }?.let { ext ->
+                            item(key = "providers-header") {
+                                DetailCard(title = "Providers (${ext.providers.size})") {}
+                            }
+                            ext.providers.forEach { provider ->
+                                item(key = "provider-${provider.name}") {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = provider.name,
+                                                    fontFamily = RobotoFamily,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.weight(1f),
+                                                    maxLines = 1,
+                                                )
+                                                if (provider.usesWebView) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Public,
+                                                        contentDescription = "Uses WebView",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(16.dp),
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = buildString {
+                                                    append(provider.lang)
+                                                    append(" · ${provider.providerTypeName}")
+                                                    append(if (provider.hasMainPage) " · Browsable" else " · Search only")
+                                                },
+                                                fontFamily = RobotoFamily,
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp),
+                                                maxLines = 1,
+                                            )
+                                            if (provider.supportedTypes.isNotEmpty()) {
+                                                Text(
+                                                    text = provider.supportedTypes.joinToString(" · "),
+                                                    fontFamily = RobotoFamily,
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.padding(top = 2.dp),
+                                                    maxLines = 1,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── Actions row (installed states) ──
+                        if (trustedExt != null || untrustedExt != null || erroredExt != null) {
+                            item(key = "actions") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    if (erroredExt != null) {
+                                        DetailAction(
+                                            text = "Retry",
+                                            icon = Icons.Filled.Refresh,
+                                            onClick = { csManager.retryPlugin(erroredExt) },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    if (trustedExt != null) {
+                                        DetailAction(
+                                            text = "Untrust",
+                                            icon = Icons.Filled.VerifiedUser,
+                                            onClick = { csManager.untrustPlugin(trustedExt) },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    DetailAction(
+                                        text = "Uninstall",
+                                        icon = Icons.Filled.Delete,
+                                        color = MaterialTheme.colorScheme.error,
+                                        onClick = { showDeleteConfirm = true },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    ScrollBlurOverlay(
+                        scrollOffset = {
+                            if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                            else listState.firstVisibleItemScrollOffset.toFloat()
+                        },
+                        backgroundColor = MaterialTheme.colorScheme.background,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
+            }
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Uninstall plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
+            text = {
+                Text(
+                    "This will remove ${meta?.name?.removeSuffix("Provider") ?: "this plugin"} from your device.",
+                    fontFamily = RobotoFamily,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    val ext = trustedExt ?: untrustedExt ?: erroredExt ?: return@TextButton
+                    csManager.uninstallPlugin(ext)
+                    onBack()
+                }) {
+                    Text(
+                        "Uninstall",
+                        color = MaterialTheme.colorScheme.error,
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", fontFamily = RobotoFamily)
+                }
+            },
+        )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Pieces
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The display metadata the detail page renders for any plugin state. */
+private data class PluginMeta(
+    val name: String,
+    val version: Int,
+    val language: String?,
+    val iconUrl: String?,
+    val isNsfw: Boolean,
+    val authors: List<String>,
+    val description: String?,
+    val tvTypes: List<String>,
+    val fileSizeBytes: Long?,
+)
+
+private fun CloudstreamExtension.Installed.toMeta() = PluginMeta(
+    name, version, language, iconUrl, isNsfw, authors, description, tvTypes, fileSizeBytes,
+)
+
+private fun CloudstreamExtension.Untrusted.toMeta() = PluginMeta(
+    name, version, language, iconUrl, isNsfw, authors, description, tvTypes, fileSizeBytes,
+)
+
+private fun CloudstreamExtension.Errored.toMeta() = PluginMeta(
+    name, version, language, iconUrl, isNsfw, authors, description, tvTypes, fileSizeBytes,
+)
+
+private fun CloudstreamExtension.Available.toMeta() = PluginMeta(
+    plugin.name,
+    plugin.version,
+    plugin.language,
+    plugin.iconUrl,
+    isNsfw,
+    plugin.authors,
+    plugin.description,
+    plugin.tvTypes ?: emptyList(),
+    plugin.fileSize,
+)
+
+@Composable
+private fun PluginHeader(
+    name: String,
+    version: Int,
+    iconUrl: String?,
+    statusText: String,
+    statusColor: Color,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CsPluginIcon(iconUrl = iconUrl, name = name, size = 56.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name.removeSuffix("Provider"),
+                    fontFamily = RobotoFamily,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                )
+                Text(
+                    text = "v$version",
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                Text(
+                    text = statusText,
+                    fontFamily = RobotoFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = statusColor,
+                    modifier = Modifier.padding(top = 4.dp),
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailCard(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                text = title,
+                fontFamily = RobotoFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (title.isNotEmpty()) Spacer(Modifier.height(10.dp))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(110.dp),
+        )
+        Text(
+            text = value,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ModeChip(type: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Text(
+            text = type,
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+    }
+}
+
+/** A wide action button (the aniyomi detail page's ActionButton pattern). */
+@Composable
+private fun DetailAction(
+    text: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary,
+    filled: Boolean = false,
+) {
+    val container = if (filled) color else color.copy(alpha = 0.12f)
+    val content = if (filled) MaterialTheme.colorScheme.onPrimary else color
+    Surface(
+        color = container,
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+            .height(44.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = content,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = text,
+                fontFamily = RobotoFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = content,
+            )
+        }
+    }
+}
+
+/** Prefers the on-disk size (ground truth); falls back to the catalog size. */
+private fun formatBytes(diskBytes: Long?, catalogBytes: Long?): String {
+    val bytes = diskBytes ?: catalogBytes ?: return "Unknown"
+    if (bytes <= 0) return "Unknown"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1 -> String.format(Locale.US, "%.1f MB", mb)
+        else -> String.format(Locale.US, "%.0f KB", kb)
+    }
+}

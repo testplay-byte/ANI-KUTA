@@ -14,9 +14,21 @@ import kotlinx.serialization.json.Json
  * The persisted record of an installed CloudStream plugin (our PluginData analog,
  * doc 04 §4.1). File existence is the install check; this record carries the
  * identity + version + repo linkage for update checks, plus the catalog display
- * metadata (language / iconUrl / isNsfw) captured at install time so installed
- * rows render aniyomi-parity EVEN AFTER their repository is deleted (session 2:
- * repo deletion no longer cascades to plugins).
+ * metadata (language / iconUrl / isNsfw / authors / description / tvTypes /
+ * fileSizeBytes) captured at install time so installed rows AND the plugin
+ * detail page render aniyomi-parity EVEN AFTER their repository is deleted
+ * (session 2: repo deletion no longer cascades to plugins).
+ *
+ * Session 3 — the TRUST FLOW (device round 2): [isTrusted] gates code EXECUTION.
+ * Untrusted plugins stay on disk but their classes are never loaded (no
+ * provider registration — the aniyomi TrustService parity). New installs land
+ * untrusted; the user must explicitly trust them from the Untrusted section.
+ * The field DEFAULTS TO TRUE so records persisted by earlier sessions (which
+ * predate the field — `ignoreUnknownKeys` decodes them with defaults) decode as
+ * trusted: plugins the user already deliberately installed keep working instead
+ * of silently demoting to Untrusted on app update. [installPlugin] is the ONLY
+ * caller that passes `isTrusted = false` (and it PRESERVES the previous value on
+ * updates so an update never demotes a trusted plugin).
  */
 @Serializable
 data class CsPluginRecord(
@@ -30,6 +42,14 @@ data class CsPluginRecord(
     val language: String? = null,
     val iconUrl: String? = null,
     val isNsfw: Boolean = false,
+    val authors: List<String> = emptyList(),
+    val description: String? = null,
+    /** TvType names from the catalog entry ("Movie", "TvSeries", …) — the plugin's supported content modes. */
+    val tvTypes: List<String> = emptyList(),
+    /** The catalog-declared .cs3 size in bytes (may differ slightly from the file on disk). */
+    val fileSizeBytes: Long? = null,
+    /** Gates code execution — see the class KDoc (session 3 trust flow). */
+    val isTrusted: Boolean = true,
 )
 
 /**

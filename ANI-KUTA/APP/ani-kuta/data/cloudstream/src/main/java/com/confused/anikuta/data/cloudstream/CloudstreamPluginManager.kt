@@ -8,6 +8,8 @@ import com.confused.anikuta.data.cloudstream.installer.CloudstreamPluginInstalle
 import com.confused.anikuta.data.cloudstream.loader.CloudstreamPluginLoader
 import com.confused.anikuta.data.cloudstream.loader.PluginLoadResult
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
+import com.confused.anikuta.data.cloudstream.model.CsProviderInfo
+import com.confused.anikuta.data.cloudstream.model.CsProviderInfoFactory
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamPluginStore
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoApi
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
@@ -31,17 +33,30 @@ import java.io.File
 /**
  * The hub of the CloudStream extension system (doc 23 §5.3) — the direct analog of
  * the aniyomi ExtensionManager, following its conventions: StateFlows consumed by
- * the settings UI via koinInject (no ViewModels), Mutex-serialized installs,
+ * the settings UI via koinInject (no ViewModels), Mutex-serialized state mutations,
  * throttled update checks (D-301 pattern), per-plugin error surfacing (D-295/D-296).
  *
  * Lifecycle: Koin singleton — lazily constructed on first injection; init{}
- * loads all installed plugins from disk.
+ * loads all installed TRUSTED plugins from disk.
  *
- * Session-2 device round: every list mutation now funnels through
- * [refreshLocked] under the ONE [installMutex] (concurrent loadAll/rebuild calls
- * previously interleaved and produced glitchy section state), and the loader is
- * idempotent so a loaded plugin STAYS loaded across refreshes (the
- * "Plugin already loaded" → Failed-to-load loop is gone — see the loader KDoc).
+ * Session-2: every list mutation funnels through [refreshLocked] under the ONE
+ * [installMutex] (concurrent loadAll/rebuild calls previously interleaved and
+ * produced glitchy section state), and the loader is idempotent so a loaded
+ * plugin STAYS loaded across refreshes.
+ *
+ * Session-3 (device round 2):
+ * - **Trust flow** — [CsPluginRecord.isTrusted] gates code execution: untrusted
+ *   records are listed ([untrusted]) but NEVER loaded (no classloading, no
+ *   provider registration). [trustPlugin] loads + promotes; [untrustPlugin]
+ *   unloads + demotes. New installs land untrusted; updates preserve trust.
+ * - **Parallel installs** — the Pending state + the DOWNLOAD now run OUTSIDE
+ *   [installMutex] (a second install used to block silently on the mutex with
+ *   no UI feedback — the device round's "no loading animation on the second
+ *   download" report). Only the instance swap + load + list refresh serialize;
+ *   the installer's per-plugin temp files make concurrent downloads safe.
+ * - **Metadata capture** — authors/description/tvTypes/fileSizeBytes are
+ *   persisted at install so the plugin DETAIL page renders fully even after
+ *   its repository is deleted.
  */
 class CloudstreamPluginManager(
     private val context: Context,
@@ -56,6 +71,10 @@ class CloudstreamPluginManager(
 
     private val _installed = MutableStateFlow<List<CloudstreamExtension.Installed>>(emptyList())
     val installed: StateFlow<List<CloudstreamExtension.Installed>> = _installed.asStateFlow()
+
+    /** Installed but NOT trusted — listed, never loaded (session-3 trust flow). */
+    private val _untrusted = MutableStateFlow<List<CloudstreamExtension.Untrusted>>(emptyList())
+    val untrusted: StateFlow<List<CloudstreamExtension.Untrusted>> = _untrusted.asStateFlow()
 
     private val _errored = MutableStateFlow<List<CloudstreamExtension.Errored>>(emptyList())
     val errored: StateFlow<List<CloudstreamExtension.Errored>> = _errored.asStateFlow()
@@ -80,7 +99,10 @@ class CloudstreamPluginManager(
     @Volatile
     private var onlinePlugins: List<Pair<SitePlugin, Pair<String, String>>> = emptyList() // plugin → (repoUrl, repoName)
 
-    /** Serializes EVERY store/loader mutation + list rebuild (one coherent state). */
+    /**
+     * Serializes store/loader mutations + list rebuilds (one coherent state).
+     * Downloads do NOT take this lock (session 3) — see [installPlugin].
+     */
     private val installMutex = Mutex()
 
     @Volatile
@@ -99,13 +121,18 @@ class CloudstreamPluginManager(
     // ── Loading ─────────────────────────────────────────────────────────────
 
     /**
-     * Loads every installed plugin from disk. Already-active plugins are
+     * Loads every installed TRUSTED plugin from disk. Already-active plugins are
      * re-reported from the live registry (the loader is idempotent — no unload,
      * no "already loaded" failures); genuinely fresh files get a real load.
+     *
+     * UNTRUSTED records (session 3) are listed but NEVER loaded — trusting a
+     * plugin is what executes its code, exactly like the aniyomi flow where an
+     * untrusted APK's sources are never instantiated.
      */
     fun loadAll() {
         val records = pluginStore.loadAll()
         val installedList = mutableListOf<CloudstreamExtension.Installed>()
+        val untrustedList = mutableListOf<CloudstreamExtension.Untrusted>()
         val erroredList = mutableListOf<CloudstreamExtension.Errored>()
 
         for (record in records) {
@@ -113,6 +140,10 @@ class CloudstreamPluginManager(
             if (!file.exists()) {
                 // File vanished (user cleared data / partial state) — drop the record.
                 scope.launch { pluginStore.delete(record.internalName) }
+                continue
+            }
+            if (!record.isTrusted) {
+                untrustedList += record.toUntrusted()
                 continue
             }
             when (val result = loader.loadPlugin(file)) {
@@ -123,7 +154,7 @@ class CloudstreamPluginManager(
                         scope.launch { pluginStore.update(record.internalName) { it.copy(version = version) } }
                     }
                     installedList += record.copy(version = version)
-                        .toInstalled(providerCount = result.providers.size)
+                        .toInstalled(providers = result.providers.map { CsProviderInfoFactory.from(it) })
                 }
                 is PluginLoadResult.Failure -> {
                     erroredList += record.toErrored(result.reason)
@@ -131,7 +162,52 @@ class CloudstreamPluginManager(
             }
         }
         _installed.value = installedList
+        _untrusted.value = untrustedList
         _errored.value = erroredList
+    }
+
+    // ── Trust flow (session 3) ──────────────────────────────────────────────
+
+    /**
+     * Promotes an untrusted plugin: marks the record trusted, LOADS it (its
+     * providers register into the live registry), then refreshes — the row
+     * moves from Untrusted to Trusted Sources and its sources appear in the
+     * search picker.
+     */
+    fun trustPlugin(extension: CloudstreamExtension.Untrusted) {
+        scope.launch {
+            installMutex.withLock {
+                Logger.i(TAG) { "Trusting plugin ${extension.internalName} — loading its classes" }
+                pluginStore.update(extension.internalName) { it.copy(isTrusted = true) }
+                when (val result = loader.loadPlugin(File(extension.filePath))) {
+                    is PluginLoadResult.Success ->
+                        Logger.i(TAG) {
+                            "Trusted ${extension.internalName}: ${result.providers.size} provider(s) live"
+                        }
+                    is PluginLoadResult.Failure ->
+                        // The load failed — the refresh will surface an Errored row
+                        // (D-295: never silent). The record stays trusted so Retry works.
+                        Logger.w(TAG) { "Trusted ${extension.internalName} but load failed: ${result.reason}" }
+                }
+                refreshLocked()
+            }
+        }
+    }
+
+    /**
+     * Demotes a trusted plugin: unloads its providers from the registry and
+     * marks the record untrusted — no code from this plugin executes until the
+     * user trusts it again. The file stays on disk.
+     */
+    fun untrustPlugin(extension: CloudstreamExtension.Installed) {
+        scope.launch {
+            installMutex.withLock {
+                Logger.i(TAG) { "Untrusting plugin ${extension.internalName} — unloading its providers" }
+                loader.unloadPlugin(extension.filePath)
+                pluginStore.update(extension.internalName) { it.copy(isTrusted = false) }
+                refreshLocked()
+            }
+        }
     }
 
     // ── Available catalog ───────────────────────────────────────────────────
@@ -198,32 +274,54 @@ class CloudstreamPluginManager(
     // ── Install / uninstall ─────────────────────────────────────────────────
 
     /**
-     * Downloads + verifies + installs + loads one available plugin. Emits progress
+     * Downloads + verifies + installs + records one available plugin. Emits progress
      * via [installStates] (shared InstallStep model, doc 23 §5.5).
      *
-     * Session-2 sequencing (device round): the installer explicitly emits
-     * Downloading(100) + a beat before Installing, and after the load completes
-     * the terminal Installed state is held for [COMPLETION_BEAT_MS] BEFORE the
-     * lists refresh — so the row's ring visibly fills to 100% and the "Done"
-     * check plays out before the plugin moves into Trusted Sources.
+     * PARALLEL BY DESIGN (session-3 device round): the Pending state and the
+     * whole download run OUTSIDE [installMutex] — tapping Download on a second
+     * plugin while the first is still downloading now shows that row's own
+     * progress ring immediately (it previously blocked silently on the mutex
+     * with zero UI feedback). Only the serialized section (unload stale →
+     * persist record → load fresh) and the post-install refresh take the lock.
+     * The installer streams each plugin to its OWN cacheDir temp file, so
+     * concurrent downloads never collide.
+     *
+     * New installs land UNTRUSTED (session-3 trust flow — the row moves to the
+     * Untrusted section; the user trusts it to load its providers). Updates
+     * PRESERVE the existing trust state so an update never demotes a trusted
+     * plugin.
      */
     fun installPlugin(extension: CloudstreamExtension.Available) {
         val plugin = extension.plugin
         val internalName = plugin.internalName
+
+        // Double-tap guard: a second tap on a row whose install is already
+        // active is ignored (the running coroutine owns the progress state).
+        if (isInstallActive(_installStates.value[internalName])) {
+            Logger.i(TAG) { "Install already active for $internalName — ignoring duplicate request" }
+            return
+        }
+
         scope.launch {
-            installMutex.withLock {
+            // OUTSIDE the lock — visible immediately, even while another
+            // plugin's install holds the mutex for its swap section.
+            _installStates.value = _installStates.value + (internalName to InstallStep.Pending)
+            try {
                 val target = CloudstreamPluginInstaller.pluginPath(context.filesDir, internalName, extension.repoUrl)
-                _installStates.value = _installStates.value + (internalName to InstallStep.Pending)
-                try {
-                    installer.download(plugin.url, plugin.fileHash, target).collect { step ->
-                        _installStates.value = _installStates.value + (internalName to step)
-                    }
-                    // Download verified + moved into place — NOW swap the in-memory
-                    // instance: update/reinstall replaces the file at the SAME
-                    // deterministic path, so drop the stale classloader before the
-                    // fresh dex loads. (A failed download above leaves the old
-                    // plugin loaded and its file untouched.)
+                installer.download(plugin.url, plugin.fileHash, target).collect { step ->
+                    _installStates.value = _installStates.value + (internalName to step)
+                }
+
+                // ── Serialized section: swap the in-memory instance + persist + load. ──
+                installMutex.withLock {
+                    // Update/reinstall replaces the file at the SAME deterministic
+                    // path — drop the stale classloader before the fresh dex loads.
+                    // (A failed download above leaves the old plugin loaded + untouched.)
                     loader.unloadPlugin(target.absolutePath)
+
+                    // Preserve the existing trust state (updates never demote);
+                    // genuinely new installs land untrusted.
+                    val previous = pluginStore.loadAll().firstOrNull { it.internalName == internalName }
                     val record = CsPluginRecord(
                         internalName = internalName,
                         name = plugin.name,
@@ -235,28 +333,37 @@ class CloudstreamPluginManager(
                         language = plugin.language,
                         iconUrl = plugin.iconUrl,
                         isNsfw = extension.isNsfw,
+                        authors = plugin.authors,
+                        description = plugin.description,
+                        tvTypes = plugin.tvTypes ?: emptyList(),
+                        fileSizeBytes = plugin.fileSize,
+                        isTrusted = previous?.isTrusted ?: false,
                     )
                     pluginStore.upsert(record)
                     when (val result = loader.loadPlugin(target)) {
-                        is PluginLoadResult.Success -> Unit
+                        is PluginLoadResult.Success ->
+                            Logger.i(TAG) {
+                                "Installed $internalName (trusted=${record.isTrusted}): " +
+                                    "${result.providers.size} provider(s)"
+                            }
                         is PluginLoadResult.Failure ->
-                            // Installed but failed to load — honest Errored row (D-295).
                             Logger.w(TAG) { "Plugin $internalName installed but load failed: ${result.reason}" }
                     }
-                    // Terminal state first, THEN the list move (after the beat) —
-                    // the available row animates to a full ring + "Done" first.
-                    _installStates.value = _installStates.value + (internalName to InstallStep.Installed)
-                    delay(COMPLETION_BEAT_MS)
-                    refreshLocked()
-                } catch (t: Throwable) {
-                    Logger.e(TAG) { "Install failed for $internalName: ${t.message}" }
-                    _installStates.value = _installStates.value + (internalName to InstallStep.Error)
-                } finally {
-                    scope.launch {
-                        kotlinx.coroutines.delay(INSTALL_STATE_CLEAR_MS)
-                        _installStates.value =
-                            _installStates.value - internalName // clear terminal state after a beat
-                    }
+                }
+
+                // Terminal state first, THEN the list move (after the beat) —
+                // the available row animates to a full ring + "Done" first.
+                _installStates.value = _installStates.value + (internalName to InstallStep.Installed)
+                delay(COMPLETION_BEAT_MS)
+                installMutex.withLock { refreshLocked() }
+            } catch (t: Throwable) {
+                Logger.e(TAG) { "Install failed for $internalName: ${t.message}" }
+                _installStates.value = _installStates.value + (internalName to InstallStep.Error)
+            } finally {
+                scope.launch {
+                    kotlinx.coroutines.delay(INSTALL_STATE_CLEAR_MS)
+                    _installStates.value =
+                        _installStates.value - internalName // clear terminal state after a beat
                 }
             }
         }
@@ -265,6 +372,7 @@ class CloudstreamPluginManager(
     fun uninstallPlugin(extension: CloudstreamExtension) {
         val (internalName, filePath) = when (extension) {
             is CloudstreamExtension.Installed -> extension.internalName to extension.filePath
+            is CloudstreamExtension.Untrusted -> extension.internalName to extension.filePath
             is CloudstreamExtension.Errored -> extension.internalName to extension.filePath
             is CloudstreamExtension.Available -> return
         }
@@ -294,7 +402,10 @@ class CloudstreamPluginManager(
         scope.cancel()
     }
 
-    private fun CsPluginRecord.toInstalled(providerCount: Int): CloudstreamExtension.Installed =
+    private fun isInstallActive(step: InstallStep?): Boolean =
+        step is InstallStep.Pending || step is InstallStep.Downloading || step is InstallStep.Installing
+
+    private fun CsPluginRecord.toInstalled(providers: List<CsProviderInfo>): CloudstreamExtension.Installed =
         CloudstreamExtension.Installed(
             internalName = internalName,
             name = name,
@@ -304,7 +415,28 @@ class CloudstreamPluginManager(
             language = language,
             iconUrl = iconUrl,
             isNsfw = isNsfw,
-            providerCount = providerCount,
+            providerCount = providers.size,
+            authors = authors,
+            description = description,
+            tvTypes = tvTypes,
+            fileSizeBytes = fileSizeBytes,
+            providers = providers,
+        )
+
+    private fun CsPluginRecord.toUntrusted(): CloudstreamExtension.Untrusted =
+        CloudstreamExtension.Untrusted(
+            internalName = internalName,
+            name = name,
+            version = version,
+            filePath = filePath,
+            repoUrl = repoUrl,
+            language = language,
+            iconUrl = iconUrl,
+            isNsfw = isNsfw,
+            authors = authors,
+            description = description,
+            tvTypes = tvTypes,
+            fileSizeBytes = fileSizeBytes,
         )
 
     private fun CsPluginRecord.toErrored(message: String): CloudstreamExtension.Errored =
@@ -316,6 +448,10 @@ class CloudstreamPluginManager(
             language = language,
             iconUrl = iconUrl,
             isNsfw = isNsfw,
+            authors = authors,
+            description = description,
+            tvTypes = tvTypes,
+            fileSizeBytes = fileSizeBytes,
             message = message,
         )
 

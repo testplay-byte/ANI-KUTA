@@ -109,6 +109,7 @@ fun ExtensionsSettingsScreen(
     onBack: () -> Unit,
     onOpenRepoSettings: () -> Unit,
     onOpenExtensionDetail: (String) -> Unit = {},
+    onOpenCloudstreamPluginDetail: (String) -> Unit = {},
     extensionManager: ExtensionManager = koinInject(),
     repoRepository: ExtensionRepoRepository = koinInject(),
     csManager: com.confused.anikuta.data.cloudstream.CloudstreamPluginManager = koinInject(),
@@ -129,11 +130,16 @@ fun ExtensionsSettingsScreen(
     // Session 2: installed plugins count as content EVEN with zero repos —
     // deleting a repository no longer cascades to its plugins, so the tab (and
     // its Trusted Sources section) survives as long as one plugin is installed.
+    // Session 3: UNTRUSTED plugins count too — a fresh install lands in the
+    // Untrusted section (trust flow), so the tab must survive before the first
+    // trust even with the repo already deleted.
     val csInstalled by csManager.installed.collectAsState()
+    val csUntrusted by csManager.untrusted.collectAsState()
     val csErrored by csManager.errored.collectAsState()
     val csAvailable by csManager.available.collectAsState()
     val csRepos by csRepoRepository.repos.collectAsState()
-    val csHasContent = csRepos.isNotEmpty() || csInstalled.isNotEmpty() || csErrored.isNotEmpty()
+    val csHasContent = csRepos.isNotEmpty() || csInstalled.isNotEmpty() ||
+        csUntrusted.isNotEmpty() || csErrored.isNotEmpty()
     var activeTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("aniyomi") }
     val showCloudstreamTab = activeTab == "cloudstream" && csHasContent
 
@@ -316,6 +322,7 @@ fun ExtensionsSettingsScreen(
                     sortMode = sortMode,
                     langFilter = langFilter,
                     showNsfw = csShowNsfw,
+                    onOpenPluginDetail = onOpenCloudstreamPluginDetail,
                 )
             } else {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -480,8 +487,8 @@ fun ExtensionsSettingsScreen(
 
 // ════════════════════════════════════════════════════════════════════════════
 // Task 41: source tab row — Aniyomi / CloudStream (doc 23 §5.4)
-// Session-2 device round: chips sit flush against the RIGHT edge of the row
-// (was: left-aligned right under the title — user report).
+// Session-3 device round: chips are LEFT-aligned under the title (the round-2
+// report reversed the round-1 right-edge request — left is the resting default).
 // ════════════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -493,7 +500,7 @@ private fun SourceTabRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
     ) {
         SourceTabChip(
             label = "Aniyomi",
