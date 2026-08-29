@@ -15,6 +15,7 @@ import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoApi
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
 import com.confused.anikuta.data.cloudstream.repo.CsPluginRecord
 import com.lagradost.cloudstream3.PROVIDER_STATUS_DOWN
+import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.plugins.PLUGIN_VERSION_ALWAYS_UPDATE
 import com.lagradost.cloudstream3.plugins.SitePlugin
 import kotlinx.coroutines.CoroutineScope
@@ -25,9 +26,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 /**
@@ -38,6 +41,14 @@ import java.io.File
  *
  * Lifecycle: Koin singleton — lazily constructed on first injection; init{}
  * loads all installed TRUSTED plugins from disk.
+ *
+ * Task 46 (device round 5): the FIRST load is DEFERRED until an Activity is
+ * alive (with a timeout fallback) — see [AWAIT_ACTIVITY_TIMEOUT_MS]. The
+ * construction path runs inside Application.onCreate, where NO activity
+ * exists yet and plugins that cast their load(context) to AppCompatActivity
+ * (the MovieBoxProvider pattern, ~census share of real plugins) failed on
+ * every cold start. This manager is constructed long before any UI is
+ * reachable, so the deferral is invisible to the user.
  *
  * Session-2: every list mutation funnels through [refreshLocked] under the ONE
  * [installMutex] (concurrent loadAll/rebuild calls previously interleaved and
@@ -114,11 +125,56 @@ class CloudstreamPluginManager(
      */
     private val installMutex = Mutex()
 
+    /**
+     * Task 46 (device round 5): false until the first [loadAll] has completed.
+     * Consumers that must distinguish "no plugins installed" from "plugins
+     * not loaded YET" (the search page's persisted-selection healing, the
+     * "MovieBox forgets my source after restart" report) wait on this signal
+     * instead of guessing from an empty [installed] list.
+     */
+    private val _loadedOnce = MutableStateFlow(false)
+
+    /** See [_loadedOnce] — true once the manager's lists reflect disk state. */
+    val loadedOnce: StateFlow<Boolean> = _loadedOnce.asStateFlow()
+
     @Volatile
     private var lastUpdateCheck = 0L
 
     init {
-        loadAll()
+        // Task 46 (device round 5, the MovieBox cold-start bug): the manager is
+        // constructed inside Application.onCreate — BEFORE MainActivity exists.
+        // Loading right there handed every Plugin-style .cs3 the APPLICATION
+        // context, and plugins that immediately cast it to AppCompatActivity
+        // (MovieBoxProvider & friends) landed in "Failed to load" on EVERY app
+        // restart even though trusting/retrying them interactively worked
+        // (the activity was alive by then). The fix: SUSPEND the first load
+        // until CommonActivity reports a live Activity (MainActivity publishes
+        // itself in onCreate, ~instantly after Application.onCreate) with a
+        // timeout fallback for process-start edge cases where no activity ever
+        // comes (background starts — then plugins load with the app context and
+        // activity-hungry ones fail honestly with the Retry button available).
+        scope.launch {
+            val activity = withTimeoutOrNull(AWAIT_ACTIVITY_TIMEOUT_MS) {
+                CommonActivity.activityFlow.first { it != null }
+            }
+            if (activity != null) {
+                Logger.i(TAG) {
+                    "Initial plugin load: activity ready (${activity.javaClass.simpleName}) — loading plugins"
+                }
+            } else {
+                Logger.w(TAG) {
+                    "Initial plugin load: NO activity after ${AWAIT_ACTIVITY_TIMEOUT_MS}ms " +
+                        "— loading with app context (activity-dependent plugins may fail; Retry re-loads them)"
+                }
+            }
+            // NOTE: deliberately NOT under installMutex — the repos collector
+            // below holds that mutex across its NETWORK fetches, and waiting
+            // behind them would delay plugin availability for seconds. This
+            // loadAll is fully synchronous (zero suspension points) on the
+            // Main-dispatcher scope, so it executes atomically wrt every other
+            // main-thread coroutine — the mutex would add delay, not safety.
+            loadAll()
+        }
         scope.launch {
             repoRepository.repos.collect {
                 runCatching { installMutex.withLock { refreshAvailableInternal() } }
@@ -173,6 +229,13 @@ class CloudstreamPluginManager(
         _installed.value = installedList
         _untrusted.value = untrustedList
         _errored.value = erroredList
+        // Task 46: the lists now reflect disk state — release the waiters that
+        // gate on "plugins actually loaded" (search selection healing).
+        _loadedOnce.value = true
+        Logger.i(TAG) {
+            "loadAll: ${installedList.size} installed, ${untrustedList.size} untrusted, " +
+                "${erroredList.size} errored"
+        }
     }
 
     // ── Trust flow (session 3) ──────────────────────────────────────────────
@@ -475,6 +538,14 @@ class CloudstreamPluginManager(
     companion object {
         private const val TAG = "Anikuta:Data:Cloudstream:Manager"
         private const val UPDATE_CHECK_THROTTLE_MS = 30 * 60 * 1000L // D-301 pattern
+
+        /**
+         * Task 46: how long the deferred initial load waits for the first
+         * Activity before falling back to the app context (background process
+         * starts). MainActivity publishes itself within ~a second of
+         * Application.onCreate, so 15s is a generous safety margin.
+         */
+        private const val AWAIT_ACTIVITY_TIMEOUT_MS = 15_000L
 
         /** How long the success state plays on the row before the list reshuffles. */
         private const val COMPLETION_BEAT_MS = 700L

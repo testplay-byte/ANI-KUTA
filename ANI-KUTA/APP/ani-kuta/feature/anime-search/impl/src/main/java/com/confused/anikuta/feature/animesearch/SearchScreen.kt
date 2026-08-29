@@ -448,7 +448,14 @@ fun SearchScreen(
         ExtensionSourcePickerSheet(
             sources = trustedSources,
             sourceIcons = viewModel.sourceIcons.collectAsState().value,
-            selectedSourceId = selectedSourceId,
+            // Task 46 (device round 5, the double-checkmark bug): BOTH params
+            // are now kind-gated symmetrically. The aniyomi id used to be passed
+            // unconditionally, so after picking a CloudStream source the sheet
+            // showed checkmarks on the (stale) aniyomi row AND the CS row at
+            // once. Only the ecosystem the kind flag points at can render a
+            // checkmark now; the other side's remembered selection stays
+            // persisted for switching back, it just isn't "selected".
+            selectedSourceId = if (selectedKind == SelectedSourceKind.ANIYOMI) selectedSourceId else null,
             onSelect = { id ->
                 viewModel.onSelectExtensionSource(id)
                 showSourcePicker = false

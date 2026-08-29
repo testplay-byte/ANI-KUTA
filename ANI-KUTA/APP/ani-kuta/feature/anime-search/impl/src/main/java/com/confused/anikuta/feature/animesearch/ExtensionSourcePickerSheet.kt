@@ -50,10 +50,12 @@ import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
  * - Unselected sources: subtle surfaceVariant background.
  *
  * SESSION 3 (CloudStream execution phase 1): the sheet lists BOTH ecosystems —
- * aniyomi trusted sources under an "Anime Extensions" header, then CloudStream
- * providers under a "CloudStream" header (the parent plugin's icon + the
- * provider name). The aniyomi section is byte-identical when no CloudStream
- * plugins are installed (headers only appear with the second ecosystem).
+ * aniyomi trusted sources under an "Aniyomi" header (Task 46, device round 5:
+ * the user asked for the ecosystem's own name instead of the generic
+ * "Anime Extensions"), then CloudStream providers under a "CloudStream"
+ * header (the parent plugin's icon + the provider name). The aniyomi section
+ * is byte-identical when no CloudStream plugins are installed (headers only
+ * appear with the second ecosystem).
  *
  * CORE_RULES §22: smooth animations.
  */
@@ -108,9 +110,10 @@ fun ExtensionSourcePickerSheet(
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    // ── Anime Extensions (aniyomi) ──
+                    // ── Aniyomi (anime extensions) ── Task 46: heading says
+                    // "Aniyomi" — the ecosystem's name, per the round-5 report.
                     if (csSources.isNotEmpty() && sources.isNotEmpty()) {
-                        item(key = "header-aniyomi") { PickerSectionHeader("Anime Extensions") }
+                        item(key = "header-aniyomi") { PickerSectionHeader("Aniyomi") }
                     }
                     items(sources, key = { it.id }) { source ->
                         SourceRow(

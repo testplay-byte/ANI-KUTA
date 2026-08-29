@@ -80,6 +80,13 @@ fun SAnime.toUnifiedAnime(sourceId: Long, sourceName: String): UnifiedAnime {
     }
     val genreList = genre?.split(", ")?.filter { it.isNotBlank() } ?: emptyList()
 
+    // Task 46 (device round 5): the optional SAnime enrichment channel — the
+    // CloudStream bridge is the (currently only) source that populates
+    // year/score, so CS details pages now render the Year + Score rows.
+    // averageScore is the 0..100 scale the details screen displays ("★ N%",
+    // "Score N / 100"); SAnime.score is the 0..10 scale.
+    val averageScore = score?.let { kotlin.math.round(it * 10).toInt() }?.takeIf { it in 0..100 }
+
     return UnifiedAnime(
         title = title,
         coverUrl = thumbnail_url,
@@ -92,5 +99,7 @@ fun SAnime.toUnifiedAnime(sourceId: Long, sourceName: String): UnifiedAnime {
         sourceName = sourceName,
         animeUrl = url,
         entryMode = EntryMode.EXTENSION,
+        seasonYear = year,
+        averageScore = averageScore,
     )
 }

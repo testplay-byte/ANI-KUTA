@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.RemoveModerator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -263,8 +263,6 @@ private fun CsInstalledRow(
     onClick: () -> Unit,
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    // Task 45: untrust confirmation — same dialog anatomy as the delete one.
-    var showUntrustConfirm by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -312,14 +310,16 @@ private fun CsInstalledRow(
                 onUpdate = onUpdate,
             )
             // Task 45 (round-4 report): UNTRUST directly from the Trusted
-            // Sources list — shield-off icon → confirmation dialog. Untrusting
-            // unloads the plugin's code (providers vanish from the search
-            // picker + the source bridge) but KEEPS the file — Trust brings
-            // it back without a re-download.
+            // Sources list. Task 46 (round-5 report): NO confirmation dialog —
+            // aniyomi's untrust is a one-tap action, and the CS list now
+            // matches it (the round-5 feedback explicitly asked for parity).
+            // Untrusting unloads the plugin's code (providers vanish from the
+            // search picker + the source bridge) but KEEPS the file — Trust
+            // brings it back without a re-download.
             ActionIconButton(
                 icon = Icons.Filled.RemoveModerator,
                 contentDescription = "Untrust plugin (keep file)",
-                onClick = { showUntrustConfirm = true },
+                onClick = onUntrust,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             ActionIconButton(
@@ -343,39 +343,6 @@ private fun CsInstalledRow(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("Cancel", fontFamily = RobotoFamily)
-                }
-            },
-        )
-    }
-
-    // Task 45 (round-4 report): the untrust confirmation — same dialog anatomy
-    // as the delete one. Untrust unloads the plugin's code (it moves to the
-    // Untrusted section) but keeps the file on disk.
-    if (showUntrustConfirm) {
-        AlertDialog(
-            onDismissRequest = { showUntrustConfirm = false },
-            title = { Text("Untrust plugin?", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold) },
-            text = {
-                Text(
-                    "${extension.name.removeSuffix("Provider")} will stop working and move to " +
-                        "the Untrusted section. The file stays on your device — trusting it " +
-                        "again later needs no re-download.",
-                    fontFamily = RobotoFamily,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { showUntrustConfirm = false; onUntrust() }) {
-                    Text(
-                        "Untrust",
-                        color = MaterialTheme.colorScheme.error,
-                        fontFamily = RobotoFamily,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUntrustConfirm = false }) {
                     Text("Cancel", fontFamily = RobotoFamily)
                 }
             },
@@ -538,8 +505,11 @@ private fun CsUntrustedRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            // Task 46 (round-5 report): the trust action uses the SHIELD
+            // icon (VerifiedUser) — the old checkmark-badge glyph (Verified)
+            // read as "already verified" instead of "trust this plugin".
             ActionIconButton(
-                icon = Icons.Filled.Verified,
+                icon = Icons.Filled.VerifiedUser,
                 contentDescription = "Trust plugin",
                 onClick = onTrust,
                 tint = MaterialTheme.colorScheme.primary,

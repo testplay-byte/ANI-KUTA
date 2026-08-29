@@ -199,26 +199,80 @@ class CloudstreamAnimeSourceBridge(
 
     // ── Mapping (CloudStream models → aniyomi models) ────────────────────────
 
+    /**
+     * Task 46 (device round 5, broken details thumbnails): MANY CloudStream
+     * providers return RELATIVE image paths ("/poster/xyz.jpg") or
+     * protocol-relative ones ("//cdn.example/x.jpg") — Coil silently fails on
+     * those, which is why details pages showed placeholders even though the
+     * extension "provided" the thumbnail. Everything image-shaped is now
+     * absolutized against the provider's mainUrl before it reaches the UI.
+     * Returns null for blank input so callers keep their fallbacks intact.
+     */
+    private fun resolveImageUrl(rawUrl: String?): String? {
+        if (rawUrl.isNullOrBlank()) return null
+        val trimmed = rawUrl.trim()
+        return when {
+            trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("//") -> "https:$trimmed"
+            trimmed.startsWith("/") -> {
+                val base = liveProviderOrNull()?.mainUrl?.trimEnd('/')
+                    ?: return trimmed // no base to resolve against — pass through
+                "$base$trimmed"
+            }
+            else -> trimmed // relative without leading slash or a data/blob URI — pass through
+        }
+    }
+
     private fun SearchResponse.toSAnime(): SAnime = SAnime.create().apply {
         url = this@toSAnime.url
         title = this@toSAnime.name
-        thumbnail_url = posterUrl
+        thumbnail_url = resolveImageUrl(posterUrl)
         initialized = false
     }
 
-    private fun LoadResponse.applyOnto(anime: SAnime): SAnime = anime.apply {
-        title = name.ifBlank { anime.title }
-        url = this@applyOnto.url
-        description = plot
-        genre = tags?.joinToString(", ")
-        status = when (showStatusOf()) {
-            ShowStatus.Completed -> SAnime.COMPLETED
-            ShowStatus.Ongoing -> SAnime.ONGOING
-            null -> SAnime.UNKNOWN
+    private fun LoadResponse.applyOnto(anime: SAnime): SAnime {
+        val resolvedPoster = resolveImageUrl(posterUrl)
+        val resolvedBackground = resolveImageUrl(backgroundPosterUrl)
+        val resolvedScore = score?.toDouble(10)
+
+        // Task 46: the full diagnostic line the round-5 report asked for — one
+        // filterable log line per details fetch showing EVERY field the
+        // provider supplied and what the bridge did with it.
+        Logger.i(TAG) {
+            "details: '$providerName' " +
+                "type=${this::class.simpleName} year=$year score=$resolvedScore " +
+                "status=${showStatusOf()?.name ?: "-"} tags=${tags?.size ?: 0} " +
+                "plot=${plot?.length ?: 0}ch " +
+                "poster=" + when {
+                    posterUrl.isNullOrBlank() -> "none"
+                    resolvedPoster != posterUrl -> "resolved('$posterUrl' -> '$resolvedPoster')"
+                    else -> "absolute"
+                } +
+                " background=" + if (backgroundPosterUrl.isNullOrBlank()) "none" else "present"
         }
-        if (!posterUrl.isNullOrBlank()) thumbnail_url = posterUrl
-        background_url = backgroundPosterUrl
-        initialized = true
+
+        return anime.apply {
+            title = name.ifBlank { anime.title }
+            url = this@applyOnto.url
+            description = plot
+            genre = tags?.joinToString(", ")
+            status = when (showStatusOf()) {
+                ShowStatus.Completed -> SAnime.COMPLETED
+                ShowStatus.Ongoing -> SAnime.ONGOING
+                null -> SAnime.UNKNOWN
+            }
+            // Only overwrite the (often working) search-grid thumbnail with a
+            // resolvable absolute URL — a poster we could NOT absolutize would
+            // replace a good image with a broken one.
+            if (!resolvedPoster.isNullOrBlank()) thumbnail_url = resolvedPoster
+            if (!resolvedBackground.isNullOrBlank()) background_url = resolvedBackground
+            // Task 46: year + score finally reach the details page (SAnime
+            // enrichment channel — see SAnime.year / SAnime.score).
+            year = this@applyOnto.year
+            score = resolvedScore
+            initialized = true
+        }
     }
 
     private fun LoadResponse.showStatusOf(): ShowStatus? = when (this) {
@@ -244,21 +298,62 @@ class CloudstreamAnimeSourceBridge(
             is LiveStreamLoadResponse -> listOf(Episode(data = dataUrl, name = "Live Stream") to null)
             else -> emptyList()
         }
-        return raw.mapIndexed { index, (ep, dubLabel) ->
+
+        // Task 46 (device round 5, "all episodes land in one season"): the CS
+        // Episode.season field was previously DROPPED, so a 2-season series
+        // rendered as one flat list. The aniyomi season UI is NAME-TAG driven
+        // (SeasonDetector patterns → season selector + per-season numbers), so
+        // the season is now encoded INTO the episode name as a leading
+        // "Season N - Episode M" tag — the exact pattern the detector +
+        // EpisodeTitleParser + the details screen's season grouping understand.
+        // Per-season fallback numbering keeps the tag complete when the
+        // provider omits Episode.episode.
+        val perSeasonCounters = HashMap<Int, Int>()
+        val mapped = raw.mapIndexed { index, (ep, dubLabel) ->
+            val season = ep.season?.takeIf { it > 0 }
+            val episodeInSeason = ep.episode ?: season?.let { s ->
+                perSeasonCounters[s] = (perSeasonCounters[s] ?: 0) + 1
+                perSeasonCounters[s]
+            } ?: (index + 1)
+
             SEpisode.create().apply {
                 // The episode's stable identity for the whole app (downloads,
                 // history, future loadLinks): the provider's opaque data handle.
                 url = ep.data
                 name = buildString {
-                    append(ep.name ?: "Episode ${ep.episode ?: index + 1}")
+                    if (season != null) {
+                        append("Season $season - Episode $episodeInSeason")
+                        if (!ep.name.isNullOrBlank()) append(" - ${ep.name}")
+                    } else {
+                        append(ep.name ?: "Episode ${ep.episode ?: index + 1}")
+                    }
                     dubLabel?.let { append(" ($it)") }
                 }
-                episode_number = ep.episode?.toFloat() ?: (index + 1).toFloat()
+                episode_number = ep.episode?.toFloat()
+                    ?: (index + 1).toFloat()
                 scanlator = dubLabel
                 summary = ep.description
                 date_upload = ep.date ?: 0L
+                // Task 46: CS episode posters (Episode.posterUrl) previously
+                // vanished — the episode rows fell back to the cover for every
+                // row. Resolved + forwarded so episode-level thumbnails work.
+                preview_url = resolveImageUrl(ep.posterUrl)
             }
         }.distinctBy { it.url }
+
+        // Task 46: the season-structure diagnostic — what the provider's
+        // season data actually looked like, and what the bridge encoded.
+        val seasonHistogram = raw.groupingBy { (ep, _) -> ep.season }.eachCount()
+        Logger.i(TAG) {
+            val seasonsDesc = seasonHistogram.entries
+                .sortedWith(compareByDescending { it.key ?: Int.MIN_VALUE })
+                .joinToString(", ") { (s, c) -> "S${s ?: "?"}=$c" }
+            "episodes: '$providerName' -> ${mapped.size} episode(s) " +
+                "[provider seasons: $seasonsDesc] " +
+                "sample=[${mapped.take(3).joinToString { it.name.take(40) }}]"
+        }
+
+        return mapped
     }
 
     companion object {

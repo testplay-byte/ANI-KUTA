@@ -32,6 +32,25 @@ interface SAnime : Serializable {
 
     var initialized: Boolean
 
+    // ── Task 46 (device round 5): optional enrichment fields ──
+    // Aniyomi's classic SAnime contract has no year/rating channel, so the
+    // CloudStream source bridge had to DROP LoadResponse.year/score and the
+    // details page rendered "no year, no rating" for CS entries. These two
+    // nullable fields are the honest channel: null (the default) for every
+    // classic aniyomi source, populated by sources that actually have the data.
+    // Default accessor bodies keep the interface BINARY-COMPATIBLE — external
+    // implementers inherit no-op defaults instead of failing to link.
+
+    /** Release year, when the source provides one (null = unknown). */
+    var year: Int?
+        get() = null
+        set(@Suppress("UNUSED_PARAMETER") value) {}
+
+    /** Rating on a 0..10 scale, when the source provides one (null = unrated). */
+    var score: Double?
+        get() = null
+        set(@Suppress("UNUSED_PARAMETER") value) {}
+
     fun getGenres(): List<String>? {
         if (genre.isNullOrBlank()) return null
         return genre?.split(", ")?.map { it.trim() }?.filterNot { it.isBlank() }?.distinct()
@@ -51,6 +70,8 @@ interface SAnime : Serializable {
         it.fetch_type = fetch_type
         it.season_number = season_number
         it.initialized = initialized
+        it.year = year
+        it.score = score
     }
 
     companion object {

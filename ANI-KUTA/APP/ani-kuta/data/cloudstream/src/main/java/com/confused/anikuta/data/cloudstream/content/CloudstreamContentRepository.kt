@@ -168,6 +168,18 @@ class CloudstreamContentRepository(
         }
         .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Task 46 (device round 5): true once the plugin manager has completed its
+     * FIRST load pass (deferred until the first Activity is alive — see
+     * [CloudstreamPluginManager.loadedOnce]). Consumers that heal persisted
+     * selection state (the search page's "selected CloudStream provider gone →
+     * reset to aniyomi" logic) MUST wait on this signal: at cold start
+     * [sources] is legitimately EMPTY for the first moments, which the old
+     * healing logic misread as "provider uninstalled" — the device-reported
+     * "it forgets my CloudStream source after restarting the app" bug.
+     */
+    val sourcesLoaded: StateFlow<Boolean> = manager.loadedOnce
+
     // ── Execution ───────────────────────────────────────────────────────────
 
     /**
@@ -242,7 +254,7 @@ class CloudstreamContentRepository(
                 .flatMap { it.list }
                 .distinctBy { it.url }
                 .take(MAX_SECTION_ITEMS)
-                .map { it.toCard(providerName) }
+                .map { it.toCard(providerName, provider.mainUrl) }
             Logger.i(TAG) { "browse: $providerName shelf '${shelf.name}' -> ${cards.size} item(s)" }
             if (cards.isEmpty()) null else CsBrowseSection(title = shelf.name, items = cards)
         }
@@ -262,7 +274,7 @@ class CloudstreamContentRepository(
                 ?: return@withContext CsContentPage(emptyList())
             val cards = result.items
                 .distinctBy { it.url } // D-304 duplicate-key crash guard
-                .map { it.toCard(providerName) }
+                .map { it.toCard(providerName, provider.mainUrl) }
             Logger.i(TAG) {
                 "search: $providerName query='$query' -> ${cards.size} item(s) " +
                     "hasNext=${result.hasNext} in ${System.currentTimeMillis() - started}ms"
@@ -323,7 +335,24 @@ class CloudstreamContentRepository(
         return provider
     }
 
-    private fun SearchResponse.toCard(providerName: String): CsContentCard {
+    /**
+     * Task 46: relativizes RELATIVE poster paths against the provider's
+     * mainUrl (many providers return "/poster/x.jpg" — Coil silently fails on
+     * those; same fix as the bridge's resolveImageUrl).
+     */
+    private fun absolutize(rawUrl: String?, mainUrl: String): String? {
+        if (rawUrl.isNullOrBlank()) return null
+        val trimmed = rawUrl.trim()
+        return when {
+            trimmed.startsWith("http://", ignoreCase = true) ||
+                trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("//") -> "https:$trimmed"
+            trimmed.startsWith("/") -> mainUrl.trimEnd('/') + trimmed
+            else -> trimmed
+        }
+    }
+
+    private fun SearchResponse.toCard(providerName: String, providerMainUrl: String): CsContentCard {
         val year = when (this) {
             is MovieSearchResponse -> year
             is TvSeriesSearchResponse -> year
@@ -335,7 +364,7 @@ class CloudstreamContentRepository(
             providerName = providerName,
             name = name,
             url = url,
-            posterUrl = posterUrl,
+            posterUrl = absolutize(posterUrl, providerMainUrl),
             type = type?.name,
             year = year,
         )

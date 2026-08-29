@@ -27,11 +27,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * ViewModel for the Search screen.
@@ -73,6 +75,14 @@ class SearchViewModel(
         /** Persisted kind flag values (KEY_SELECTED_SOURCE_KIND). */
         private const val KIND_ANIYOMI = "aniyomi"
         private const val KIND_CLOUDSTREAM = "cloudstream"
+
+        /**
+         * Task 46: how long the CS-selection heal waits for the plugin
+         * manager's first load (activity-gated) before validating anyway.
+         * Generous vs. the manager's own 15s activity timeout so a normal
+         * cold start ALWAYS has the real provider list first.
+         */
+        private const val CS_LOAD_WAIT_MS = 20_000L
     }
 
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
@@ -240,7 +250,25 @@ class SearchViewModel(
         // Session 3: validate the persisted CloudStream selection — if its
         // plugin was uninstalled/untrusted, fall back to the aniyomi kind (which
         // the collector above then heals with an auto-select).
+        //
+        // Task 46 (device round 5, "it forgets my CloudStream source after
+        // restarting"): at cold start the plugin manager's deferred initial
+        // load (it waits for the first Activity — see
+        // CloudstreamPluginManager) has NOT completed yet, so csSources is
+        // legitimately EMPTY. The old collector healed IMMEDIATELY ("provider
+        // gone" → reset to aniyomi) and the persisted CloudStream selection
+        // was destroyed on every app restart. The heal now WAITS for the
+        // manager's loadedOnce signal first (bounded — a timeout still heals,
+        // so a stuck pipeline can never freeze the fallback forever).
         viewModelScope.launch {
+            val loaded = withTimeoutOrNull(CS_LOAD_WAIT_MS) {
+                cloudstreamRepository.sourcesLoaded.first { it }
+            }
+            if (loaded == null) {
+                Logger.w(TAG) {
+                    "CloudStream sources not loaded after ${CS_LOAD_WAIT_MS}ms — validating selection anyway"
+                }
+            }
             csSources.collect { sources ->
                 if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
                     val current = _selectedCsProvider.value

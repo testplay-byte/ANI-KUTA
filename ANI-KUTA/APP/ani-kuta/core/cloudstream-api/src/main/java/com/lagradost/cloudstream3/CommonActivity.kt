@@ -18,6 +18,9 @@ import android.view.KeyEvent
 import android.widget.Toast
 import com.lagradost.cloudstream3.utils.Event
 import com.lagradost.cloudstream3.utils.UiText
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 enum class FocusDirection {
     Start,
@@ -28,12 +31,28 @@ enum class FocusDirection {
 
 object CommonActivity {
 
+    // Task 46 (device round 5, ANI-KUTA addition — NOT part of the mirrored
+    // upstream surface): the activity reference ALSO exposed as a StateFlow so
+    // the plugin manager can SUSPEND the first .cs3 load until an Activity is
+    // alive. Root cause this fixes: manager init{} ran loadAll() synchronously
+    // inside Application.onCreate — before MainActivity exists — so plugins
+    // that cast their load(context) to AppCompatActivity (the MovieBoxProvider
+    // pattern) threw ClassCastException on EVERY cold start ("trusted it, quit,
+    // reopened → Failed to load"). Plugins stay untouched; the host now simply
+    // waits for the activity the same way upstream CloudStream effectively does
+    // (its plugins load while MainActivity is alive).
+    private val _activityFlow = MutableStateFlow<Activity?>(null)
+
+    /** See [_activityFlow] — emits the current activity (null while none is live). */
+    val activityFlow: StateFlow<Activity?> = _activityFlow.asStateFlow()
+
     private var _activity: java.lang.ref.WeakReference<Activity>? = null
 
     var activity: Activity?
-        get() = _activity?.get()
+        get() = _activityFlow.value
         private set(value) {
             _activity = java.lang.ref.WeakReference(value)
+            _activityFlow.value = value
         }
 
     @androidx.annotation.MainThread

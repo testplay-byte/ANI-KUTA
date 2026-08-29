@@ -25,8 +25,16 @@ object AndroidConfig {
     // CS details page removed), untrust action in the Trusted Sources list,
     // Cloudflare manual-solve cookie sharing + WebView button on CS errors,
     // full http:/body: network diagnostic logging.
-    const val versionCode = 66
-    const val versionName = "0.2.66"
+    //
+    // Task 46 (device round 5): 0.2.67 — deferred initial plugin load (waits
+    // for the first Activity: the MovieBox failed-to-load-after-restart fix),
+    // single-checkmark source picker + "Aniyomi" heading + CloudStream
+    // selection remembered across restarts, shield trust icon + one-tap untrust
+    // (aniyomi parity), details-page enrichment (year + rating via the SAnime
+    // channel, season-aware episode names, poster/background/episode-thumbnail
+    // URL resolution) + details:/episodes: bridge diagnostics.
+    const val versionCode = 67
+    const val versionName = "0.2.67"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
