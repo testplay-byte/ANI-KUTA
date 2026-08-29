@@ -7,13 +7,14 @@
 
 ## ⚡ Who You Are
 You are the AI agent for **ANI-KUTA** (Android app rebuild + companion web dashboard).
-GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active line: `main` — `test-feature/video-cache-new-download` was MERGED into `main` on 2026-08-29 (v0.2.63, user-gated gate opened; first merge since 26e47722). New branch `streaming/CLOUDSTREAM` was created FROM the new main for upcoming user-directed work (purpose TBD by the user — do NOT start work on it until instructed).
+GitHub: `testplay-byte/ANI-KUTA`. Repo root contains a single wrapper folder `ANI-KUTA/` (per CORE_RULES §4). Active line: `main` (v0.2.63, the trunk). Active WORK branch: **`streaming/CLOUDSTREAM`** — created from main for the CloudStream integration program. Task 40 (research/docs) is COMPLETE on it; **implementation is BLOCKED on the user's G1–G17 gate decisions** (see `APP/ani-kuta/DOCUMENTATION/cloudstream/21-risks-open-questions.md` — G1 GPL-3.0 first).
 
 ## 📂 If The Environment Was Just Cloned
-1. Clone to `/home/z/ANI-KUTA-WORK/ANI-KUTA` (the repo is public — read access works without a token; PUSH needs the GitHub token in the remote URL — **ask the user for repo URL + token AT THE START of the session**, they may have been lost in a sandbox wipe). Checkout `main` (or `streaming/CLOUDSTREAM` if the user directs the new work there).
+1. Clone to `/home/z/ANI-KUTA-WORK/ANI-KUTA` (the repo is public — read access works without a token; PUSH needs the GitHub token in the remote URL — **ask the user for repo URL + token AT THE START of the session**, they may have been lost in a sandbox wipe). Checkout `streaming/CLOUDSTREAM` (the active work branch) or `main` as directed.
 2. Read `AGENT-CONTEXT/memory/progress.md` → know what's done, what's next, blockers + **Deferred Concerns** (read the top sections first).
-3. Read `AGENT-CONTEXT/memory/decisions.md` → latest = D-329 (v0.2.63 merged to main).
+3. Read `AGENT-CONTEXT/memory/decisions.md` → latest = D-330 (Task 40 CloudStream research program complete; implementation gated on G1-G17).
 4. Read `AGENT-CONTEXT/memory/lessons-learned.md` → grep for tags matching your task.
+5. **For any CloudStream work**: start at `APP/ani-kuta/DOCUMENTATION/cloudstream/README.md` (master index) — reading order: 00 → 21 (gates) → 20 (roadmap) → 16-19 (plans) → research docs 01-15 as needed. The research workspace clones live OUTSIDE the repo at `/home/z/ANI-KUTA-WORK/research/` (re-clonable if wiped; sources listed in doc 00 §2).
 
 ## 🔑 Key Rules (full detail in `CORE_RULES.md` — 30 sections)
 - **No assumptions.** Unsure → ask the user. Never guess.
@@ -75,10 +76,11 @@ ANI-KUTA/                        ← repo root (git)
 ```
 
 ## ❓ Currently Blocked On / Open Items
-- **Nothing blocked** — v0.2.63 shipped 2026-08-29 and `test-feature/video-cache-new-download` was MERGED into `main` (user-gated gate opened; --no-ff merge; tag v0.2.63 + release built FROM the merge commit; APK verified ~59.4MB arm64-v8a). `streaming/CLOUDSTREAM` branch created from the new main — AWAITING the user's instructions for its purpose (explicitly no work started on it).
+- **CloudStream implementation BLOCKED on the user's G1–G17 gates** — Task 40 (research + plans) is COMPLETE: 23 docs / 17,920 lines at `APP/ani-kuta/DOCUMENTATION/cloudstream/` on `streaming/CLOUDSTREAM` (verified: 538 claims swept, 96.8% exact). **G1 = GPL-3.0 decision (BLOCKING): CS3's library is GPL-3.0, ANI-KUTA has no license — recommend relicensing ANI-KUTA GPL-3.0; the user must decide.** Gate session ≈ 30-45 min (doc 21 §2, every row has a recommendation) → then Phase 0 spike (doc 20 §2).
 - **Ongoing device-feedback loop:** the user tests every release on a real OnePlus device and reports back; each session = fix/polish batch + version bump + release. v0.2.63 (D-327 calmer 600ms cover flight + D-328 Library⇄Search ghost-morph fix) awaiting device feedback; v0.2.62 verified working + satisfactory on device.
-- **Branch hygiene note:** the merge commit on main also carried the 2 user web-UI "Add files via upload" commits (moviebox v16.1139 APK + an empty commit) — no conflicts (disjoint paths). The old feature branch still exists remotely (kept for history).
-- See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list (older items like library-badge testing, download-system device testing, Nav3, doc-debt are all resolved/historical — see decisions.md).
+- **Branch hygiene note:** `main` = v0.2.63 trunk (merge carried the 2 user web-UI uploads — preserved); `streaming/CLOUDSTREAM` = active work branch (5 docs-only commits ahead of main, tip 4f528eb); the old `test-feature/video-cache-new-download` branch still exists remotely (history). CI does NOT trigger for `streaming/**` pushes (workflow branch pattern: main/feature/functionality/test-feature) — docs-only pushes are build-free by design; revisit the pattern when implementation code lands on this branch.
+- **Known doc-debt flagged by research (not urgent):** the dashboard's `lib/schema.ts` is stale vs the real SQLDelight schema (26 listed vs 24 real — pre-D-198 drift; doc 15 §6) and root `DATABASE.json` is a manual pre-D-198 device export. Both are Phase-5 roadmap items (doc 20 §7).
+- See `memory/progress.md` → "Deferred Concerns" + "What's Next" for the full list.
 
 ---
 *This file is the quick-start. For everything else, see `navigation.md`.*
