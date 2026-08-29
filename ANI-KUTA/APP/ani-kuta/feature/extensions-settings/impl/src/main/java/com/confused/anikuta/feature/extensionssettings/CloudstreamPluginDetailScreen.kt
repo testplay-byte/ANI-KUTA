@@ -95,6 +95,14 @@ fun CloudstreamPluginDetailScreen(
     val erroredExt = errored.find { it.internalName == internalName }
     val availableExt = available.find { it.plugin.internalName == internalName }
 
+    // Field-level extracts across the mutually-exclusive installed states
+    // (the sealed base doesn't expose filePath/repoUrl, so a mixed elvis chain
+    // would resolve to the base type and fail).
+    val diskFilePath: String? =
+        trustedExt?.filePath ?: untrustedExt?.filePath ?: erroredExt?.filePath
+    val recordRepoUrl: String? =
+        trustedExt?.repoUrl ?: untrustedExt?.repoUrl ?: erroredExt?.repoUrl
+
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
@@ -236,8 +244,8 @@ fun CloudstreamPluginDetailScreen(
                                     InfoRow(
                                         "File size",
                                         formatBytes(
-                                            diskBytes = (trustedExt ?: untrustedExt ?: erroredExt)
-                                                ?.filePath?.let { File(it).takeIf(File::exists)?.length() },
+                                            diskBytes = diskFilePath
+                                                ?.let { File(it).takeIf(File::exists)?.length() },
                                             catalogBytes = meta.fileSizeBytes,
                                         ),
                                     )
@@ -247,7 +255,7 @@ fun CloudstreamPluginDetailScreen(
                                     availableExt?.let {
                                         Spacer(Modifier.height(8.dp)); InfoRow("Repository", it.repoName)
                                     }
-                                    (trustedExt ?: untrustedExt ?: erroredExt)?.repoUrl?.let {
+                                    recordRepoUrl?.let {
                                         Spacer(Modifier.height(8.dp)); InfoRow("Repository URL", it)
                                     }
                                     trustedExt?.availableUpdateVersion?.let { updateVersion ->
