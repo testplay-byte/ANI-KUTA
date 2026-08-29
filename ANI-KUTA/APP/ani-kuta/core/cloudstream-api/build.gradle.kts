@@ -48,8 +48,15 @@ dependencies {
     // Jackson fallback) documented in doc 05 §10.1.
     implementation(libs.kotlinx.serialization.json)
 
+    // kotlinx-datetime — LocalDate in the plugin-visible Episode.addDate overload.
+    implementation(libs.kotlinx.datetime)
+
     // Coroutines — the whole CS3 contract is suspend-based (doc 03).
     api(libs.kotlinx.coroutines.core)
+
+    // AndroidX core — provides androidx.annotation (@AnyThread etc. used by the mvvm
+    // surface) for the skeleton app-side classes.
+    implementation(libs.androidx.core.ktx)
 
     // Unit tests (doc 23 §6): pure-JVM interop-fact locks.
     testImplementation(libs.junit)

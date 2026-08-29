@@ -12,6 +12,7 @@ gradle = "8.11.1"
 jacksonModuleKotlin = { strictly = "2.13.1" }
 gson = "2.11.0"
 junit = "4.13.2"
+kotlinxDatetime = "0.6.1"
 
 # AndroidX
 coreKtx = "1.15.0"
@@ -165,6 +166,10 @@ gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 
 # Testing (project's first unit tests — doc 23 §6)
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+# kotlinx-datetime — LocalDate appears in the plugin-visible Episode.addDate overload
+# (Apache-2.0, small; mirrors the upstream library's dependency).
+kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
 
 # Player (MPV + FFmpeg)
 mpv-lib = { group = "com.github.aniyomiorg", name = "aniyomi-mpv-lib", version.ref = "mpvLib" }
