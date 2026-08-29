@@ -125,7 +125,7 @@ class CloudstreamPluginInstaller(
         /** Strips path separators + filesystem-hostile characters (our own sanitizer). */
         fun sanitizeFilename(name: String): String {
             return name.replace(Regex("""[\\/:*?"<>|\s]+"""), "_")
-                .trim('.', ' ')
+                .trim('.', ' ', '_')
                 .ifEmpty { "repo" }
         }
     }
