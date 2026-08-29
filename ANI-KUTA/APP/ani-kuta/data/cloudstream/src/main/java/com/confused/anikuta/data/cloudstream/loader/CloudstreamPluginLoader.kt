@@ -1,3 +1,5 @@
+@file:OptIn(com.lagradost.cloudstream3.InternalAPI::class)
+
 package com.confused.anikuta.data.cloudstream.loader
 
 import android.content.Context

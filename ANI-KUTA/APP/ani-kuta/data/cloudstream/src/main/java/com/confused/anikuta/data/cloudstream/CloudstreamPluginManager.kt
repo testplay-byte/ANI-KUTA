@@ -12,8 +12,8 @@ import com.confused.anikuta.data.cloudstream.repo.CloudstreamPluginStore
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoApi
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
 import com.confused.anikuta.data.cloudstream.repo.CsPluginRecord
+import com.lagradost.cloudstream3.PROVIDER_STATUS_DOWN
 import com.lagradost.cloudstream3.plugins.PLUGIN_VERSION_ALWAYS_UPDATE
-import com.lagradost.cloudstream3.plugins.PROVIDER_STATUS_DOWN
 import com.lagradost.cloudstream3.plugins.SitePlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -189,7 +189,7 @@ class CloudstreamPluginManager(
         val internalName = plugin.internalName
         scope.launch {
             installMutex.withLock {
-                val target = installer.pluginPath(context, internalName, extension.repoUrl)
+                val target = CloudstreamPluginInstaller.pluginPath(context, internalName, extension.repoUrl)
                 _installStates.value = _installStates.value + (internalName to InstallStep.Pending)
                 try {
                     installer.download(plugin.url, plugin.fileHash, target).collect { step ->
@@ -284,9 +284,8 @@ class CloudstreamPluginManager(
                     loader.unloadPlugin(record.filePath)
                     File(record.filePath).delete()
                 }
-                File(
-                    CloudstreamPluginInstaller.pluginPath(context, "x", repoUrl).parentFile,
-                ).takeIf { it.exists() }?.deleteRecursively()
+                CloudstreamPluginInstaller.pluginPath(context, "x", repoUrl).parentFile
+                    ?.takeIf { it.exists() }?.deleteRecursively()
                 loadAll()
                 rebuildLists()
             }

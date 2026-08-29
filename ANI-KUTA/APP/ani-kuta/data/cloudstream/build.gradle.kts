@@ -26,6 +26,8 @@ dependencies {
     implementation(project(":core:common"))
     // Provider API — shared InstallStep lives here from this session (doc 23 §5.5).
     implementation(project(":core:provider-api"))
+    // AppPreferences — the CloudStream NSFW gate (G4) + manager wiring.
+    implementation(project(":core:preferences"))
 
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
