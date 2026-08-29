@@ -20,7 +20,9 @@ import com.lagradost.cloudstream3.isMovieType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -189,11 +191,11 @@ class CloudstreamContentRepository(
             "browse: $providerName — ${shelves.size} shelf(ves): [${shelves.joinToString { it.name }}]"
         }
 
-        val responses = kotlinx.coroutines.coroutineScope {
+        val responses = coroutineScope {
             val firstCloudflareBlock =
                 java.util.concurrent.atomic.AtomicReference<com.lagradost.cloudstream3.network.CloudflareBlockedException?>(null)
             val awaited = shelves.map { data ->
-                kotlinx.coroutines.async {
+                async {
                     val request = MainPageRequest(
                         name = data.name,
                         data = data.data,
