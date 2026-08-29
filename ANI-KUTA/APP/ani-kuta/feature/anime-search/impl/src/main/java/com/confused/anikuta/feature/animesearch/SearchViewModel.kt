@@ -7,7 +7,11 @@ import com.confused.anikuta.core.anilist.api.BrowseCacheCodec
 import com.confused.anikuta.core.anilist.model.AniListAnime
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.datacache.DataCacheRepository
+import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
+import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepository
+import com.confused.anikuta.data.cloudstream.content.CsContentCard
+import com.confused.anikuta.data.cloudstream.content.CsProviderSource
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -48,6 +52,8 @@ class SearchViewModel(
     private val dataCacheRepository: DataCacheRepository,
     private val preferenceStore: PreferenceStore,
     private val extensionManager: ExtensionManager,
+    private val cloudstreamRepository: CloudstreamContentRepository,
+    private val appPreferences: AppPreferences,
     private val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker,
 ) : ViewModel() {
 
@@ -55,8 +61,18 @@ class SearchViewModel(
         private const val TAG = "Anikuta:Feature:Search"
         private const val KEY_RECENT_SEARCHES = "search_recent_anilist"
         private const val KEY_SELECTED_SOURCE_ID = "search_selected_extension_source_id"
+
+        /** Session 3 (CloudStream execution): which ecosystem the EXTENSION mode browses. */
+        private const val KEY_SELECTED_SOURCE_KIND = "search_selected_source_kind"
+
+        /** The selected CloudStream provider name (MainAPI.name) when kind = cloudstream. */
+        private const val KEY_SELECTED_CS_PROVIDER = "search_selected_cs_provider"
         private const val DEBOUNCE_MS = 350L
         private const val MAX_RECENTS = 10
+
+        /** Persisted kind flag values (KEY_SELECTED_SOURCE_KIND). */
+        private const val KIND_ANIYOMI = "aniyomi"
+        private const val KIND_CLOUDSTREAM = "cloudstream"
     }
 
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
@@ -143,6 +159,40 @@ class SearchViewModel(
     )
     val selectedSourceId: StateFlow<Long?> = _selectedSourceId.asStateFlow()
 
+    // ── Session 3 (CloudStream execution phase 1): the EXTENSION mode can browse
+    // EITHER ecosystem. The selected-source identity is (kind, id) — aniyomi's
+    // Long id or a CloudStream provider NAME — persisted as one kind flag + the
+    // two existing/legacy values (doc 16 §5.2 string-key discipline; the legacy
+    // aniyomi pref is untouched so pre-session installs decode exactly as before).
+    private val _selectedKind = MutableStateFlow(
+        if (preferenceStore.getString(KEY_SELECTED_SOURCE_KIND, KIND_ANIYOMI) == KIND_CLOUDSTREAM) {
+            SelectedSourceKind.CLOUDSTREAM
+        } else {
+            SelectedSourceKind.ANIYOMI
+        },
+    )
+    val selectedKind: StateFlow<SelectedSourceKind> = _selectedKind.asStateFlow()
+
+    private val _selectedCsProvider = MutableStateFlow<String?>(
+        preferenceStore.getString(KEY_SELECTED_CS_PROVIDER, "").takeIf { it.isNotBlank() },
+    )
+    val selectedCsProvider: StateFlow<String?> = _selectedCsProvider.asStateFlow()
+
+    /**
+     * The CloudStream sources available in the picker — every provider of every
+     * TRUSTED plugin, filtered by the persisted NSFW gate (G4) when it is OFF.
+     *
+     * The gate is read inside the map: the flow re-collects on every
+     * re-subscription (screen re-entry — the only way the gate can change is
+     * via the Extensions settings screen), so the filter is always fresh where
+     * it matters; no preference-change plumbing needed.
+     */
+    val csSources: StateFlow<List<CsProviderSource>> = cloudstreamRepository.sources
+        .map { sources ->
+            if (appPreferences.cloudstreamShowNsfw) sources else sources.filterNot { it.isNsfw }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init {
         loadRecents()
         observeQuery()
@@ -157,7 +207,12 @@ class SearchViewModel(
                 if (sources.isNotEmpty()) {
                     val current = _selectedSourceId.value
                     val currentExists = current != null && sources.any { it.id == current }
-                    if (current == null || !currentExists) {
+                    // Session 3: never steal the selection while a CloudStream
+                    // provider is the active source — the aniyomi auto-select only
+                    // fills an EMPTY/invalid ANIYOMI selection.
+                    if (_selectedKind.value == SelectedSourceKind.ANIYOMI &&
+                        (current == null || !currentExists)
+                    ) {
                         val top = sources.first()
                         _selectedSourceId.value = top.id
                         preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, top.id)
@@ -166,6 +221,25 @@ class SearchViewModel(
                         // (D-305: the collector fires on any trust/reload of the
                         // sources map; racing an in-flight search would cancel
                         // and replace the user's results mid-typing).
+                        if (_source.value == SearchSource.EXTENSION && _query.value.isBlank()) {
+                            loadExtensionPopular()
+                        }
+                    }
+                }
+            }
+        }
+        // Session 3: validate the persisted CloudStream selection — if its
+        // plugin was uninstalled/untrusted, fall back to the aniyomi kind (which
+        // the collector above then heals with an auto-select).
+        viewModelScope.launch {
+            csSources.collect { sources ->
+                if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
+                    val current = _selectedCsProvider.value
+                    if (current == null || sources.none { it.providerName == current }) {
+                        Logger.i(TAG) {
+                            "Selected CS provider '$current' is gone — resetting extension mode to aniyomi"
+                        }
+                        selectAniyomiKind(persist = true)
                         if (_source.value == SearchSource.EXTENSION && _query.value.isBlank()) {
                             loadExtensionPopular()
                         }
@@ -216,6 +290,8 @@ class SearchViewModel(
             // stale AniList/old-source response could still land afterwards.
             if (_query.value.isNotBlank()) {
                 search(_query.value)
+            } else if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
+                loadCloudstreamPopular()
             } else {
                 loadExtensionPopular()
             }
@@ -244,6 +320,19 @@ class SearchViewModel(
     fun retryExtensionSearch() {
         val src = source.value
         if (src != SearchSource.EXTENSION) return
+        if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
+            if (_selectedCsProvider.value == null) {
+                beginRequest() // D-305 review fix: supersede in-flight requests.
+                _uiState.value = SearchUiState.ExtensionNotAvailable
+                return
+            }
+            if (_query.value.isNotBlank()) {
+                search(_query.value)
+            } else {
+                loadCloudstreamPopular()
+            }
+            return
+        }
         if (_selectedSourceId.value == null) {
             beginRequest() // D-305 review fix: supersede in-flight requests.
             _uiState.value = SearchUiState.ExtensionNotAvailable
@@ -316,11 +405,37 @@ class SearchViewModel(
     fun onSelectExtensionSource(sourceId: Long) {
         _selectedSourceId.value = sourceId
         preferenceStore.putLong(KEY_SELECTED_SOURCE_ID, sourceId)
+        selectAniyomiKind(persist = true)
         if (_query.value.isNotBlank()) {
             search(_query.value)
         } else {
             loadExtensionPopular()
         }
+    }
+
+    /**
+     * Session 3: select a CloudStream provider as the EXTENSION-mode source.
+     * Persists (kind + provider name) and immediately loads content — browse
+     * (mainPage) with a blank query, search otherwise; a provider without
+     * mainPage lands on the NoBrowse state prompting the user to type.
+     */
+    fun onSelectCloudstreamSource(providerName: String) {
+        _selectedCsProvider.value = providerName
+        preferenceStore.putString(KEY_SELECTED_CS_PROVIDER, providerName)
+        _selectedKind.value = SelectedSourceKind.CLOUDSTREAM
+        preferenceStore.putString(KEY_SELECTED_SOURCE_KIND, KIND_CLOUDSTREAM)
+        Logger.i(TAG) { "Extension source switched to CloudStream provider '$providerName'" }
+        if (_query.value.isNotBlank()) {
+            search(_query.value)
+        } else {
+            loadCloudstreamPopular()
+        }
+    }
+
+    /** Resets the extension-mode kind to aniyomi (selection healing paths). */
+    private fun selectAniyomiKind(persist: Boolean) {
+        _selectedKind.value = SelectedSourceKind.ANIYOMI
+        if (persist) preferenceStore.putString(KEY_SELECTED_SOURCE_KIND, KIND_ANIYOMI)
     }
 
     @OptIn(FlowPreview::class)
@@ -346,7 +461,11 @@ class SearchViewModel(
 
     private fun search(q: String) {
         if (_source.value == SearchSource.EXTENSION) {
-            searchExtension(q)
+            if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
+                searchCloudstream(q)
+            } else {
+                searchExtension(q)
+            }
             return
         }
 
@@ -405,6 +524,8 @@ class SearchViewModel(
         if (showingDefaults) return
         defaultsJob = if (_source.value == SearchSource.ANILIST) {
             loadTrending()
+        } else if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
+            loadCloudstreamPopular()
         } else {
             loadExtensionPopular()
         }
@@ -626,6 +747,118 @@ class SearchViewModel(
         }
     }
 
+    // ── CloudStream loaders (session 3, execution phase 1) ──────────────────
+
+    /**
+     * Blank-query browse of the selected CloudStream provider (MainAPI.getMainPage).
+     * Mirrors [loadExtensionPopular] exactly: generation + staleness guards,
+     * Throwable catch (plugins can throw anything), never-silent errors.
+     */
+    private fun loadCloudstreamPopular(): Job {
+        val providerName = _selectedCsProvider.value
+        if (providerName == null) {
+            beginRequest() // D-305 review fix: supersede in-flight requests.
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return Job().apply { complete() }
+        }
+        val source = csSources.value.firstOrNull { it.providerName == providerName }
+        if (source == null) {
+            // Provider gone (untrusted/uninstalled) — heal to aniyomi + NotAvailable.
+            selectAniyomiKind(persist = true)
+            beginRequest()
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return Job().apply { complete() }
+        }
+        if (!source.hasMainPage) {
+            // This provider can't be browsed without a query — honest state,
+            // NOT an error (the user just needs to type).
+            beginRequest()
+            _uiState.value = SearchUiState.ExtensionNoBrowse(source.providerName)
+            return Job().apply { complete() }
+        }
+
+        val gen = beginRequest()
+        _uiState.value = SearchUiState.Loading
+        return viewModelScope.launch {
+            try {
+                Logger.i(TAG) { "Browsing CloudStream provider: $providerName" }
+                val page = cloudstreamRepository.mainPage(providerName, 1)
+                val results = page.items.map { it.toExtensionAnime() }
+                Logger.i(TAG) { "Got ${results.size} browse results from $providerName" }
+                if (_query.value.isNotBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
+                _uiState.value = if (results.isEmpty()) {
+                    SearchUiState.ExtensionEmpty(source.providerName, null)
+                } else {
+                    showingDefaults = true
+                    SearchUiState.ExtensionSuccess(results)
+                }
+            } catch (e: Throwable) {
+                // Catch Throwable (not Exception) — plugin bytecode can throw
+                // NoClassDefFoundError etc. Cancellation must propagate (D-305).
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (_query.value.isNotBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
+                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                Logger.e(TAG, e) { "CloudStream browse failed for $providerName: $errorMsg" }
+                _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
+            }
+        }.also { defaultsJob = it }
+    }
+
+    /** Live-query search of the selected CloudStream provider (MainAPI.search). */
+    private fun searchCloudstream(q: String) {
+        val providerName = _selectedCsProvider.value
+        if (providerName == null) {
+            beginRequest()
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return
+        }
+        val source = csSources.value.firstOrNull { it.providerName == providerName }
+        if (source == null) {
+            selectAniyomiKind(persist = true)
+            beginRequest()
+            _uiState.value = SearchUiState.ExtensionNotAvailable
+            return
+        }
+
+        showingDefaults = false
+        val gen = beginRequest()
+        _uiState.value = SearchUiState.Loading
+        searchJob = viewModelScope.launch {
+            try {
+                Logger.i(TAG) { "Searching CloudStream provider $providerName for '$q'" }
+                val page = cloudstreamRepository.search(providerName, q, 1)
+                val results = page.items.map { it.toExtensionAnime() }
+                Logger.i(TAG) { "Got ${results.size} results from $providerName" }
+                if (_query.value.isBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
+                _uiState.value = if (results.isEmpty()) {
+                    SearchUiState.ExtensionEmpty(source.providerName, null)
+                } else {
+                    SearchUiState.ExtensionSuccess(results)
+                }
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (_query.value.isBlank()) return@launch
+                if (!isCurrent(gen)) return@launch
+                val errorMsg = "${e::class.java.simpleName}: ${e.message ?: "Unknown error"}"
+                Logger.e(TAG, e) { "CloudStream search failed for $providerName: $errorMsg" }
+                _uiState.value = SearchUiState.ExtensionError("$providerName: $errorMsg")
+            }
+        }
+    }
+
+    /** CsContentCard → the shared results-grid model (sourceKey carries the CS identity). */
+    private fun CsContentCard.toExtensionAnime() = ExtensionAnime(
+        sourceId = -1L,
+        sourceName = providerName,
+        url = url,
+        title = name,
+        thumbnailUrl = posterUrl,
+        sourceKey = "cloudstream:$providerName",
+    )
+
     // ── Recents persistence ──
 
     private fun loadRecents() {
@@ -683,6 +916,23 @@ sealed interface SearchUiState {
      * Null if the source doesn't expose a baseUrl (rare — most do).
      */
     data class ExtensionEmpty(val sourceName: String, val sourceUrl: String? = null) : SearchUiState
+
+    /**
+     * Session 3 (CloudStream): the selected provider has no main page — it can
+     * only be SEARCHED, not browsed with a blank query. Not an error: the UI
+     * prompts the user to type a query instead of showing a retry button.
+     */
+    data class ExtensionNoBrowse(val sourceName: String) : SearchUiState
+}
+
+/**
+ * Session 3: which ecosystem the EXTENSION mode currently browses. The selected
+ * source's identity is (kind, Long-id | provider-name) — see SearchViewModel's
+ * selection persistence.
+ */
+enum class SelectedSourceKind {
+    ANIYOMI,
+    CLOUDSTREAM,
 }
 
 enum class SearchSource(val displayName: String) {

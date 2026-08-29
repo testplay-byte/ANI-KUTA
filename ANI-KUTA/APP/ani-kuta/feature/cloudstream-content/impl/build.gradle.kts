@@ -1,27 +1,17 @@
 plugins {
     id("anikuta.library.compose")
-    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
-    namespace = "com.confused.anikuta.feature.animesearch"
+    namespace = "com.confused.anikuta.feature.cloudstreamcontent.impl"
 }
 
 dependencies {
-    implementation(project(":feature:anime-search:api"))
-    implementation(project(":feature:anime-details:api"))
+    implementation(project(":feature:cloudstream-content:api"))
     implementation(project(":core:designsystem"))
-    implementation(project(":core:anilist"))
     implementation(project(":core:common"))
-    implementation(project(":core:data-cache"))  // D-278: offline trending fallback (browse_cache)
     implementation(project(":core:navigation-api"))
-    implementation(project(":core:preferences"))
-    implementation(project(":core:source-api"))
-    implementation(project(":core:activity-tracker"))  // D-192: activity tracking
-    implementation(project(":data:extension"))
-    // Session 3 (CloudStream execution phase 1): provider browse/search through
-    // CloudstreamContentRepository + the persisted NSFW gate on AppPreferences.
-    implementation(project(":data:cloudstream"))
+    implementation(project(":data:cloudstream"))  // CloudstreamContentRepository + models
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
@@ -29,8 +19,8 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.material.icons.extended)  // D-322: explicit pin (icons deprecated after 1.7.8)
     implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)

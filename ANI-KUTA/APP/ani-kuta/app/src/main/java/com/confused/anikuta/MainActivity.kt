@@ -91,6 +91,8 @@ import com.confused.anikuta.feature.download.DownloadSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionDetailKey
 import com.confused.anikuta.feature.extensionssettings.SourcePreferencesKey
+import com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailKey
+import com.confused.anikuta.feature.cloudstreamcontent.CloudstreamContentDetailsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionDetailScreen
 import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsKey
@@ -748,16 +750,31 @@ fun AppRoot() {
                         )
                     )
                 },
-                onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
-                    navigateToDetails(
-                        AnimeDetailsKey.Extension(
-                            sourceId,
-                            animeUrl,
-                            title,
-                            thumbnailUrl,
-                            transitionKey = searchCoverKey(thumbnailUrl),
+                onNavigateToExtensionAnime = { sourceId, sourceKey, animeUrl, title, thumbnailUrl ->
+                    // Session 3 (CloudStream execution): results carrying a
+                    // "cloudstream:<provider>" sourceKey open the CloudStream
+                    // content details screen; aniyomi results keep their route.
+                    if (sourceKey != null && sourceKey.startsWith("cloudstream:")) {
+                        val providerName = sourceKey.removePrefix("cloudstream:")
+                        navigateToDetails(
+                            CloudstreamContentDetailsKey(
+                                providerName = providerName,
+                                contentUrl = animeUrl,
+                                title = title,
+                                thumbnailUrl = thumbnailUrl,
+                            )
                         )
-                    )
+                    } else {
+                        navigateToDetails(
+                            AnimeDetailsKey.Extension(
+                                sourceId,
+                                animeUrl,
+                                title,
+                                thumbnailUrl,
+                                transitionKey = searchCoverKey(thumbnailUrl),
+                            )
+                        )
+                    }
                 },
                 // D-209: Cloudflare manual solver — launched from the Search error card.
                 onOpenCloudflareWebView = { url, sourceName ->
@@ -878,6 +895,8 @@ fun AppRoot() {
                 onBack = pop,
                 onOpenRepoSettings = { backstack.add(ExtensionRepoSettingsKey) },
                 onOpenExtensionDetail = { backstack.add(ExtensionDetailKey(it)) },
+                // Session 3: the CloudStream plugin detail page (device round 2).
+                onOpenCloudstreamPluginDetail = { backstack.add(CloudstreamPluginDetailKey(it)) },
             )
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
                 onBack = pop,
@@ -903,6 +922,24 @@ fun AppRoot() {
             )
             is SourcePreferencesKey -> com.confused.anikuta.feature.extensionssettings.SourcePreferencesScreen(
                 sourceId = currentKey.sourceId,
+                onBack = pop,
+            )
+            // Session 3 (device round 2): the CloudStream plugin detail page —
+            // resolves the plugin across Trusted/Untrusted/Failed/Available and
+            // shows its metadata + live providers + state actions.
+            is CloudstreamPluginDetailKey -> com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailScreen(
+                internalName = currentKey.internalName,
+                onBack = pop,
+            )
+            // Session 3 (provider execution phase 1): the CloudStream CONTENT
+            // details screen — MainAPI.load(url) rendered in full; reached by
+            // tapping a CS result in the Search grid (ads-gated like every
+            // details navigation).
+            is CloudstreamContentDetailsKey -> com.confused.anikuta.feature.cloudstreamcontent.CloudstreamContentDetailsScreen(
+                providerName = currentKey.providerName,
+                contentUrl = currentKey.contentUrl,
+                title = currentKey.title,
+                thumbnailUrl = currentKey.thumbnailUrl,
                 onBack = pop,
             )
             is AppearanceKey -> AppearanceScreen(

@@ -2,6 +2,7 @@ package com.confused.anikuta.data.cloudstream.di
 
 import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
+import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepository
 import com.confused.anikuta.data.cloudstream.installer.CloudstreamPluginInstaller
 import com.confused.anikuta.data.cloudstream.loader.CloudstreamPluginLoader
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamPluginStore
@@ -31,4 +32,9 @@ val cloudstreamModule = module {
     single { CloudstreamPluginInstaller(get(), get(named("cloudstreamRepo"))) }
     single { CloudstreamPluginLoader(get()) }
     single { CloudstreamPluginManager(get(), get(), get(), get(), get(), get(), get()) }
+
+    // Session 3 — the provider-EXECUTION layer (browse/search/load over the
+    // trusted plugins' live MainAPI providers; consumed by the search page's
+    // CloudStream branches + the CS content details screen).
+    single { CloudstreamContentRepository(get()) }
 }

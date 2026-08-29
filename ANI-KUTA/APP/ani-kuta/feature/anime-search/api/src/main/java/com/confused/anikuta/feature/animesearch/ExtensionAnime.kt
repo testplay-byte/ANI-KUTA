@@ -1,7 +1,7 @@
 package com.confused.anikuta.feature.animesearch
 
 /**
- * A lightweight model representing an anime from an extension source, for the
+ * A lightweight model representing content from an extension source, for the
  * Search screen's extension-browse mode.
  *
  * This model lives in the `:api` module (no `:core:source-api` dependency) so
@@ -9,10 +9,19 @@ package com.confused.anikuta.feature.animesearch
  * `eu.kanade.tachiyomi.animesource.model.SAnime` happens in the `:impl` module
  * (which has the source-api dependency) via [toExtensionAnime].
  *
- * @param sourceId The source's ID.
+ * Session 3 (CloudStream execution phase 1): [sourceKey] carries the
+ * ecosystem-qualified identity `"cloudstream:<providerName>"` for CloudStream
+ * results (doc 16 §5.2 string-key discipline). Null = an aniyomi result, whose
+ * identity remains [sourceId] — the aniyomi flow is byte-identical to before.
+ * The results grid keys rows on `sourceKey ?: sourceId` and the details
+ * navigation branches on it.
+ *
+ * @param sourceId The source's ID (aniyomi; -1 for CloudStream results).
+ * @param sourceKey Ecosystem-qualified key — `"cloudstream:<providerName>"` for
+ *   CloudStream results, null for aniyomi results.
  * @param sourceName The source's display name.
- * @param url The SAnime's URL (source-relative identifier).
- * @param title The anime's title.
+ * @param url The content URL (source-relative identifier).
+ * @param title The content's title.
  * @param thumbnailUrl Optional cover thumbnail URL.
  */
 data class ExtensionAnime(
@@ -21,6 +30,7 @@ data class ExtensionAnime(
     val url: String,
     val title: String,
     val thumbnailUrl: String?,
+    val sourceKey: String? = null,
 )
 
 /**

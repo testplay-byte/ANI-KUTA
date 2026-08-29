@@ -71,6 +71,9 @@ dependencies {
     implementation(project(":feature:anime-search:impl"))
     implementation(project(":feature:extensions-settings:api"))
     implementation(project(":feature:extensions-settings:impl"))
+    // Session 3 (CloudStream execution phase 1): CS content details screen.
+    implementation(project(":feature:cloudstream-content:api"))
+    implementation(project(":feature:cloudstream-content:impl"))
     implementation(project(":feature:download"))
     implementation(project(":feature:watch:api"))
     implementation(project(":feature:watch:impl"))

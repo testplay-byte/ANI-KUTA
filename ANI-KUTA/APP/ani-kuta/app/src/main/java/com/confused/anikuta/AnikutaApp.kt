@@ -27,6 +27,7 @@ import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.core.watchprogress.watchProgressModule
 import com.confused.anikuta.data.extension.extensionModule
 import com.confused.anikuta.data.cloudstream.di.cloudstreamModule
+import com.confused.anikuta.feature.cloudstreamcontent.di.cloudstreamContentModule
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
@@ -116,6 +117,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 adsModule,  // D-272: smart-link ad system
                 extensionModule,
                 cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)
+                cloudstreamContentModule,  // Session 3: CloudStream content screens
                 playerModule,
                 videoResolverModule,
                 downloadModule,
