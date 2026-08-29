@@ -756,6 +756,8 @@ fun WatchScreen(
     // out of the blue."
     LaunchedEffect(errorMessage, errorGeneration) {
         if (errorMessage == null || stateHolder.isSwitching.value || !mpvInitialized) return@LaunchedEffect
+        // Delegated properties can't be smart-cast — capture a local.
+        val errorMsg = errorMessage
         // Local files cannot 403 — nothing to recover automatically.
         if (currentVideoUrl.startsWith("content://") || currentVideoUrl.startsWith("fd://")) return@LaunchedEffect
 
@@ -763,7 +765,7 @@ fun WatchScreen(
         // pointless same-URL retry and go straight to re-resolving.
         val httpCtx = (stateHolder.httpError ?: "").lowercase()
         val looksExpired = httpCtx.contains("403") || httpCtx.contains("401") ||
-            httpCtx.contains("410") || errorMessage.lowercase().contains("403")
+            httpCtx.contains("410") || errorMsg.lowercase().contains("403")
 
         when (ladderStep) {
             0 -> {
@@ -809,13 +811,13 @@ fun WatchScreen(
             1 -> {
                 Logger.i(TAG) { "Ladder step 2: re-resolving the pinned link (fresh extraction)..." }
                 ladderStep = 2
-                val ok = recoverLink(pinned = true)
+                val ok = recoverLink(true)
                 if (!ok) {
                     // Pinned re-resolve found nothing usable — try the next mirror
                     // straight away before giving up.
                     Logger.i(TAG) { "Ladder step 2 found no link — trying next mirror immediately" }
                     ladderStep = 3
-                    val mirrorOk = recoverLink(pinned = false)
+                    val mirrorOk = recoverLink(false)
                     if (!mirrorOk) {
                         stateHolder.setSwitchingError(
                             "This link expired and re-resolving it failed. " +
@@ -827,7 +829,7 @@ fun WatchScreen(
             2 -> {
                 Logger.i(TAG) { "Ladder step 3: switching to the next mirror link..." }
                 ladderStep = 3
-                val ok = recoverLink(pinned = false)
+                val ok = recoverLink(false)
                 if (!ok) {
                     stateHolder.setSwitchingError(
                         "This server stopped responding and no alternative link could be resolved. " +
@@ -1463,6 +1465,8 @@ fun WatchScreen(
             isSwitchingEpisode = isSwitchingEpisode,
             switchingEpisodeTitle = currentEpisodeTitle,
             currentSpeed = stateHolder.playbackSpeed.collectAsState().value,
+            // Task 48 (playback haptics)
+            hapticsEnabled = playerPreferences.hapticFeedback,
         )
     } else {
         MinimizedMode(
@@ -1488,6 +1492,8 @@ fun WatchScreen(
             currentEpisodeUrl = currentEpisodeUrl,
             currentEpisodeNumber = currentEpisodeNumber,
             currentEpisodeTitle = currentEpisodeTitle,
+            // Task 48 (playback haptics)
+            hapticsEnabled = playerPreferences.hapticFeedback,
         )
     }
 
@@ -1593,6 +1599,8 @@ private fun MinimizedMode(
     currentEpisodeUrl: String = "",
     currentEpisodeNumber: Float = 0f,
     currentEpisodeTitle: String = "",
+    // Task 48 (playback haptics): from PlayerPreferences.hapticFeedback.
+    hapticsEnabled: Boolean = false,
 ) {
     val listState = rememberLazyListState()
 
@@ -1723,7 +1731,7 @@ private fun MinimizedMode(
                     onRetry = onRetry,
                     onDismissError = onDismissError,
                     // Task 48 (playback haptics)
-                    hapticsEnabled = playerPreferences.hapticFeedback,
+                    hapticsEnabled = hapticsEnabled,
                 )
 
                 // Episode switching overlay — shown over the player while a new
@@ -1995,6 +2003,8 @@ private fun FullscreenMode(
     isSwitchingEpisode: Boolean = false,
     switchingEpisodeTitle: String = "",
     currentSpeed: Float = 1.0f,
+    // Task 48 (playback haptics): from PlayerPreferences.hapticFeedback.
+    hapticsEnabled: Boolean = false,
 ) {
     Box(
         modifier = Modifier
@@ -2028,7 +2038,7 @@ private fun FullscreenMode(
             qualityInfo = watchKey.quality,
             currentSpeed = currentSpeed,
             // Task 48 (playback haptics)
-            hapticsEnabled = playerPreferences.hapticFeedback,
+            hapticsEnabled = hapticsEnabled,
         )
 
         // Episode switching overlay — shown over the fullscreen player while a
