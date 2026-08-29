@@ -57,11 +57,11 @@ All docs live in `ANI-KUTA/APP/ani-kuta/DOCUMENTATION/cloudstream/`. Numbered, r
 | 08 | `08-video-loading-extractors.md` | `loadLinks`, ExtractorLink, VideoExtractor, `resolveLink`, built-in extractor inventory, custom extractors, subtitle loading | B2-c | ✅ |
 | 09 | `09-video-playing.md` | How the app turns links into playback: ResultResolution, player infra, previews/thumbnails, download integration | B2-d | ✅ |
 | 10 | `10-categories-and-provider-types.md` | TvType taxonomy (movie/TV/asian drama/anime/documentary/…), tvTypes in plugins.json, genre filters, language categorization, provider config | B2-e | ✅ |
-| 11 | `11-plugin-settings.md` | Plugin settings DSL (ExamplePlugin), setting types, ProviderSettings, how the app renders plugin settings, providers config UI | B3-a | ⬜ |
-| 12 | `12-real-plugin-examples.md` | Deep-dives on real providers: movie (Uakino/AllCalidad), series (Serialno), Asian drama (DoramyWorld/DoramasFlix), anime (Coaninet/AnimeJl), video-sites (Dailymotion/Twitch) — patterns & anti-patterns | B3-b | ⬜ |
-| 13 | `13-cloudstream-app-internals.md` | How the app loads plugins (PluginManager/Plugin classes), repo management, update checker, DataStore keys, favorites/subscriptions/watched model, bookmaking | B3-c | ⬜ |
-| 14 | `14-ani-kuta-current-state.md` | Our current aniyomi-based extension architecture: manager/loader/installer/trust/repos/provider-api — the integration surface | B3-d | ⬜ |
-| 15 | `15-ani-kuta-database.md` | Our Room DB schema + DATABASE.json dashboard tooling; what content identity/history/library model we have; gaps for CS3 content | B3-e | ⬜ |
+| 11 | `11-plugin-settings.md` | Plugin settings DSL (ExamplePlugin), setting types, ProviderSettings, how the app renders plugin settings, providers config UI | B3-a | ✅ |
+| 12 | `12-real-plugin-examples.md` | Deep-dives on real providers: movie (Uakino/AllCalidad), series (Serialno), Asian drama (DoramyWorld/DoramasFlix), anime (Coaninet/AnimeJl), video-sites (Dailymotion/Twitch) — patterns & anti-patterns | B3-b | ✅ |
+| 13 | `13-cloudstream-app-internals.md` | How the app loads plugins (PluginManager/Plugin classes), repo management, update checker, DataStore keys, favorites/subscriptions/watched model, bookmaking | B3-c | ✅ |
+| 14 | `14-ani-kuta-current-state.md` | Our current aniyomi-based extension architecture: manager/loader/installer/trust/repos/provider-api — the integration surface | B3-d | ✅ |
+| 15 | `15-ani-kuta-database.md` | Our SQLDelight DB schema + DATABASE.json dashboard tooling; what content identity/history/library model we have; gaps for CS3 content | B3-e | ✅ |
 | 16 | `16-integration-architecture.md` | The integration design: module layout, provider-api extension, dual loaders, coexistence rules | B4-a | ⬜ |
 | 17 | `17-integration-data-layer.md` | Data-layer plan: schema changes, content identity across 2 systems, metadata caching, images | B4-b | ⬜ |
 | 18 | `18-integration-ui.md` | "Cloud Screen" UI/UX plan: browse/search/details/watch flows for CS3 content; settings; extension management UI | B4-c | ⬜ |
@@ -103,6 +103,7 @@ Agent worklog protocol: every agent appends its entry to `/home/z/my-project/wor
 | 2026-08-29 | B0 | Workspace cloned (11 sources, see §2). Skeleton + tracker created. Initial push (cccbcfd). |
 | 2026-08-29 | B1 | 5 agents → docs 01-05 written (4,305 lines total). Main-agent review: 6 spot-checks against source all green (PathClassLoader parent-first @ PluginManager.kt:611; apiVersion dead @ RepositoryManager.kt:57-59; no login/resolveLink in current MainAPI; TvType = 18 values; @CloudstreamPlugin fieldless; manifest.json entry-class discovery). Cross-doc consistency confirmed. NOTE: 3 agents initially rate-limited (429) when 5 ran concurrently — subsequent batches launch in waves of ≤2. |
 | 2026-08-29 | B2 | 5 agents → docs 06-10 (+4,534 lines; set total 8,841). Main-agent review: MPV correction VERIFIED (our player = aniyomi-mpv-lib 1.18.n — not ExoPlayer as assumed); loadExtractor resolution algorithm VERIFIED exact (unshorten → lowercase schema-strip → reverse-order mainUrl prefix → Levenshtein >80 mirror pass); phisher tvTypes census run — doc 04 CORRECTED (Cartoon IS a valid enum value; real anomaly = Megakino's un-split "Movie,Anime,Cartoon" string). 1 rate-limit retry needed (B2-d). |
+| 2026-08-29 | B3 | 5 agents → docs 11-15 (+4,853 lines; set total 13,694). Major corrections established: CS3 has NO settings DSL (only `Plugin.openSettings` lambda @ Plugin.kt:39 — VERIFIED); our DB is **SQLDelight 2.0.2, NOT Room** (VERIFIED in libs.versions.toml — tracker's own description fixed); `external_reference` table NEVER implemented (0 grep hits in core/ — doc 14's §6.6 hint corrected by B3-e); our `VideoExtensionProvider` seam is clean but has ZERO load-bearing call sites (single Koin binding, features inject ExtensionManager directly). Main-agent spot-checks: 3/3 green. 0 rate-limit retries (waves of 2). |
 
 ## 7. Verification Log Summary
 
@@ -112,6 +113,6 @@ Agent worklog protocol: every agent appends its entry to `/home/z/my-project/wor
 |---|---|---|---|
 | B1 | 6 spot-checks by main agent (classloader, apiVersion, MainAPI members, TvType, annotation, manifest flow) | 0 needed — agent claims all verified | HIGH |
 | B2 | 4 spot-checks (MPV player claim, loadExtractor algorithm, phisher tvTypes census, doc-04 Cartoon claim) | 1 correction in doc 04 (Cartoon is valid enum; anomaly is Megakino's single-string tvType) | HIGH |
-| B3 | — | — | — |
+| B3 | 3 spot-checks (SQLDelight vs Room, external_reference absence, openSettings @ Plugin.kt:39) | 2 corrections: tracker's "Room DB" description fixed → SQLDelight; doc 14 §6.6 external_reference claim corrected by B3-e (plan-only, never built) | HIGH |
 | B4 | — | — | — |
 | B5 | — | — | — |
