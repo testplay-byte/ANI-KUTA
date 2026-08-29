@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.CompletableDeferred
 import java.io.File
+import com.confused.anikuta.core.providerapi.InstallStep
 
 /**
  * Wraps Android's [PackageInstaller] API to install one downloaded APK.

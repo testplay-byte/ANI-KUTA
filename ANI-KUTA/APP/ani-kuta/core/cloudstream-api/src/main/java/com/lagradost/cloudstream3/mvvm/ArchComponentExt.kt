@@ -6,6 +6,7 @@
 // imports). The observe/observeNullable LiveData extensions are APP-side upstream
 // and are not part of the extension surface — omitted.
 @file:Suppress("ktlint")
+@file:OptIn(com.lagradost.cloudstream3.InternalAPI::class)
 
 package com.lagradost.cloudstream3.mvvm
 

@@ -10,12 +10,13 @@
 // extractors land in [extractorApis] and dispatch works; built-in scraper
 // implementations arrive in the playback session (doc 23 §7).
 @file:Suppress("DEPRECATION_ERROR", "ktlint")
-@file:OptIn(kotlin.uuid.ExperimentalUuidApi::class)
+@file:OptIn(kotlin.uuid.ExperimentalUuidApi::class, Prerelease::class)
 
 package com.lagradost.cloudstream3.utils
 
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.lagradost.cloudstream3.AudioFile
+import com.lagradost.cloudstream3.IDownloadableMinimum
 import com.lagradost.cloudstream3.Prerelease
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.app
@@ -138,11 +139,11 @@ val WIDEVINE_DRM_UUID: Uuid = Uuid.fromLongs(-0x121074568629b532L, -0x5c37d8232a
 @Prerelease
 val PLAYREADY_DRM_UUID: Uuid = Uuid.fromLongs(-0x65fb0f8667bfbd7aL, -0x546d19a41f77a06bL)
 
-val CLEARKEY_UUID: java.util.UUID = CLEARKEY_DRM_UUID.toJavaUuid()
+val CLEARKEY_UUID: java.util.UUID = CLEARKEY_DRM_UUID.run { val l = toLongs(); java.util.UUID(l.mostSignificantBits, l.leastSignificantBits) }
 
-val WIDEVINE_UUID: java.util.UUID = WIDEVINE_DRM_UUID.toJavaUuid()
+val WIDEVINE_UUID: java.util.UUID = WIDEVINE_DRM_UUID.run { val l = toLongs(); java.util.UUID(l.mostSignificantBits, l.leastSignificantBits) }
 
-val PLAYREADY_UUID: java.util.UUID = PLAYREADY_DRM_UUID.toJavaUuid()
+val PLAYREADY_UUID: java.util.UUID = PLAYREADY_DRM_UUID.run { val l = toLongs(); java.util.UUID(l.mostSignificantBits, l.leastSignificantBits) }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Builders

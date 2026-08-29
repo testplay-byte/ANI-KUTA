@@ -19,14 +19,13 @@ import kotlin.reflect.KClass
 @OptIn(kotlinx.serialization.InternalSerializationApi::class, kotlinx.serialization.ExperimentalSerializationApi::class)
 object AppUtils {
 
-    /** Any object as a JSON string (kotlinx when @Serializable, Jackson fallback otherwise). */
-    fun Any.toJson(): String = try {
-        @Suppress("UNCHECKED_CAST")
-        val kSerializer = serializer(this::class) as KSerializer<Any>
-        json.encodeToString(kSerializer, this)
-    } catch (e: Exception) {
-        mapper.writeValueAsString(this)
-    }
+    /**
+     * Any object as a JSON string. Jackson+kotlinModule path (handles Kotlin data
+     * classes incl. @Serializable ones; avoids the kotlin-reflect dependency the
+     * kotlinx KClass-reflection route would need — parseJson keeps kotlinx-first
+     * because its KClass param infers cleanly).
+     */
+    fun Any.toJson(): String = mapper.writeValueAsString(this)
 
     /** Sometimes we want to encode as JSON even if it is already a String. */
     @InternalAPI

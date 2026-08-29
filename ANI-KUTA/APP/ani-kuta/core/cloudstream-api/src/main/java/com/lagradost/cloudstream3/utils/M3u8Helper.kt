@@ -6,7 +6,7 @@
 // loadLinks — the playback session replaces these bodies with real implementations.
 package com.lagradost.cloudstream3.utils
 
-import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLink
 
 /** Backwards api surface. */
 class M3u8Helper {

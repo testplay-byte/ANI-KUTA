@@ -55,7 +55,7 @@ object DataStore {
                 is Float -> editor.putFloat(path, value)
                 is Boolean -> editor.putBoolean(path, value)
                 is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(path, value as Set<String>)
-                else -> editor.putString(path, with(AppUtils) { value.toJson() })
+                else -> value?.let { v -> editor.putString(path, with(AppUtils) { v.toJson() }) }
             }
         }
 
@@ -94,7 +94,7 @@ object DataStore {
     }
 
     fun <T> Context.setKey(path: String, value: T) {
-        val encoded = with(AppUtils) { value.toJson() }
+        val encoded = value?.let { v -> with(AppUtils) { v.toJson() } } ?: return
         getPreferences(this).edit().putString(path, encoded).apply()
     }
 

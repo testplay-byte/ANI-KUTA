@@ -91,6 +91,14 @@ class AppPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_COVER_TRANSITION_ENABLED, true)
         set(value) = store.putBoolean(KEY_COVER_TRANSITION_ENABLED, value)
 
+    // ── Task 41 / gate G4: CloudStream NSFW gate ──
+    // Universal-toggle DIRECTION: today this gates CloudStream catalog entries
+    // (tvTypes contains "NSFW"); when the app-wide NSFW master switch exists this
+    // links into it instead of standing alone (doc 23 §1 G4 row).
+    var cloudstreamShowNsfw: Boolean
+        get() = store.getBoolean(KEY_CLOUDSTREAM_SHOW_NSFW, false)
+        set(value) = store.putBoolean(KEY_CLOUDSTREAM_SHOW_NSFW, value)
+
     companion object {
         private const val KEY_CONTENT_MODE = "content_mode"
         private const val KEY_TRACKING_RETENTION = "tracking_retention_days"
@@ -104,5 +112,7 @@ class AppPreferences(private val store: PreferenceStore) {
         private const val KEY_DETAILS_BANNER_ANIMATION = "details_banner_animation"
         // D-320: experimental shared-element cover transition.
         private const val KEY_COVER_TRANSITION_ENABLED = "cover_transition_enabled"
+        // Task 41 / G4: CloudStream NSFW gate (default OFF).
+        private const val KEY_CLOUDSTREAM_SHOW_NSFW = "cloudstream_show_nsfw"
     }
 }

@@ -8,7 +8,7 @@
 package com.lagradost.cloudstream3.ui.result
 
 import com.lagradost.cloudstream3.Episode
-import com.lagradost.cloudstream3.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.SubtitleFile
 
 /** Link-loading result bundle passed to video click actions. */

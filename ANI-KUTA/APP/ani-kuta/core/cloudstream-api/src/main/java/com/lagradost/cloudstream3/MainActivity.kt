@@ -19,6 +19,7 @@ import kotlin.reflect.KClass
  * (reflection serializer lookup), Jackson Kotlin fallback (mirrors the documented
  * dual-stack contract, doc 05 §10.1).
  */
+@OptIn(InternalAPI::class)
 private val jsonResponseParser = object : ResponseParser {
     override fun <T : Any> parse(text: String, kClass: KClass<T>): T =
         with(AppUtils) { parseJson(text, kClass) }

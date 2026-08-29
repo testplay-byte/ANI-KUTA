@@ -44,12 +44,12 @@ open class CloudStreamApp : android.app.Application() {
             else -> null
         }
 
-        private var _context: android.lang.ref.WeakReference<Context>? = null
+        private var _context: java.lang.ref.WeakReference<Context>? = null
 
         var context: Context?
             get() = _context?.get()
             private set(value) {
-                _context = android.lang.ref.WeakReference(value)
+                _context = java.lang.ref.WeakReference(value)
             }
 
         fun <T> setKey(path: String, value: T) {

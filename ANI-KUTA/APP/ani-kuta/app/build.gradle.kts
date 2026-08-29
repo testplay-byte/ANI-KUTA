@@ -58,6 +58,7 @@ dependencies {
 
     // Data modules
     implementation(project(":data:extension"))
+    implementation(project(":data:cloudstream"))  // Task 41: CloudStream extension system (doc 23)
 
     // Feature modules (impl — the app wires them)
     implementation(project(":feature:anime-browse:api"))

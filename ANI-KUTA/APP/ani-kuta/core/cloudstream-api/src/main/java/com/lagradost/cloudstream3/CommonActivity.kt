@@ -13,6 +13,7 @@ import android.app.Activity
 import android.content.res.Resources
 import android.os.Handler
 import android.os.Looper
+import android.util.DisplayMetrics
 import android.view.KeyEvent
 import android.widget.Toast
 import com.lagradost.cloudstream3.utils.Event
@@ -27,12 +28,12 @@ enum class FocusDirection {
 
 object CommonActivity {
 
-    private var _activity: android.lang.ref.WeakReference<Activity>? = null
+    private var _activity: java.lang.ref.WeakReference<Activity>? = null
 
     var activity: Activity?
         get() = _activity?.get()
         private set(value) {
-            _activity = android.lang.ref.WeakReference(value)
+            _activity = java.lang.ref.WeakReference(value)
         }
 
     @androidx.annotation.MainThread

@@ -5,7 +5,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.data.extension.api.AnimeExtensionApi
 import com.confused.anikuta.data.extension.installer.ExtensionInstallReceiver
 import com.confused.anikuta.data.extension.installer.ExtensionInstaller
-import com.confused.anikuta.data.extension.installer.InstallStep
+import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.extension.loader.ExtensionLoader
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.model.LoadResult

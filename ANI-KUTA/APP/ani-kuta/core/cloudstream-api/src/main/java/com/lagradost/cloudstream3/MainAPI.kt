@@ -12,7 +12,7 @@ package com.lagradost.cloudstream3
 
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.databind.DeserializationFeature
-import com.fasterxml.jackson.module.kotlin.JsonMapper
+import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.kotlinModule
 import com.lagradost.cloudstream3.syncproviders.SyncIdName
 import com.lagradost.cloudstream3.utils.AtomicMutableList
@@ -20,7 +20,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.atomicListOf
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import java.net.URI
@@ -585,10 +584,11 @@ suspend fun <T> MainAPI.newMovieLoadResponse(
     data: T?,
     initializer: suspend MovieLoadResponse.() -> Unit = { },
 ): MovieLoadResponse {
+    // String short-circuits; anything else serializes via the dual JSON stack.
     val dataUrl = when (data) {
         null -> ""
         is String -> data
-        else -> json.encodeToString(data)
+        else -> with(com.lagradost.cloudstream3.utils.AppUtils) { data.toJson() }
     }
     return newMovieLoadResponse(name, url, type, dataUrl, initializer)
 }
@@ -653,7 +653,7 @@ fun <T> MainAPI.newEpisode(
     data: T,
     initializer: Episode.() -> Unit = { },
 ): Episode {
-    val builder = Episode(data = json.encodeToString(data))
+    val builder = Episode(data = with(com.lagradost.cloudstream3.utils.AppUtils) { data.toJson() })
     builder.initializer()
     return builder
 }

@@ -45,19 +45,22 @@ object Coroutines {
     fun runOnMainThread(work: () -> Unit) {
         runOnMainThreadNative(work)
     }
-
-    /**
-     * Safe to add and remove how you want. If you want to iterate over the list
-     * then you need to do: list.withLock { code here }.
-     */
-    fun <T> atomicListOf(vararg items: T): AtomicMutableList<T> =
-        AtomicMutableList(items.toMutableList())
-
-    @Deprecated(
-        message = "Use atomicListOf() instead.",
-        replaceWith = ReplaceWith("atomicListOf(*items)"),
-        level = DeprecationLevel.WARNING,
-    )
-    fun <T> threadSafeListOf(vararg items: T): MutableList<T> =
-        java.util.Collections.synchronizedList(items.toMutableList())
 }
+
+/**
+ * Safe to add and remove how you want. If you want to iterate over the list
+ * then you need to do: list.withLock { code here }.
+ *
+ * TOP-LEVEL (not inside the object) so APIHolder & co. can call it unqualified —
+ * plugins never call it directly (census), placement is ours.
+ */
+fun <T> atomicListOf(vararg items: T): AtomicMutableList<T> =
+    AtomicMutableList(items.toMutableList())
+
+@Deprecated(
+    message = "Use atomicListOf() instead.",
+    replaceWith = ReplaceWith("atomicListOf(*items)"),
+    level = DeprecationLevel.WARNING,
+)
+fun <T> threadSafeListOf(vararg items: T): MutableList<T> =
+    java.util.Collections.synchronizedList(items.toMutableList())
