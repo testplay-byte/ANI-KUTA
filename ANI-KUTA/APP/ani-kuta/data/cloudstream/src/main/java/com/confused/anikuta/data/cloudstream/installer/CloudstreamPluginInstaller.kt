@@ -114,10 +114,10 @@ class CloudstreamPluginInstaller(
          * `filesDir/CloudstreamExtensions/<sanitize(repoUrl)>.<hash>/<sanitize(internalName)>.<hash>.cs3`
          * File existence doubles as the "is installed" check, exactly like CS3.
          */
-        fun pluginPath(context: Context, internalName: String, repoUrl: String): File {
+        fun pluginPath(filesDir: File, internalName: String, repoUrl: String): File {
             val repoSalt = "${sanitizeFilename(repoUrl)}.${repoUrl.hashCode()}"
             val fileName = "${sanitizeFilename(internalName)}.${internalName.hashCode()}.cs3"
-            return File(File(File(context.filesDir, PLUGINS_DIR), repoSalt), fileName)
+            return File(File(File(filesDir, PLUGINS_DIR), repoSalt), fileName)
         }
 
         private const val PLUGINS_DIR = "CloudstreamExtensions"

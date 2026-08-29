@@ -3,6 +3,8 @@
 // official recloudstream/extensions repo.json, phisher repo.json + plugins.json
 // (trimmed to 3 entries), the AllMovieLandProvider manifest.json, and an aniyomi
 // index.json sample for the detector negative test.
+@file:OptIn(com.lagradost.cloudstream3.InternalAPI::class)
+
 package com.confused.anikuta.data.cloudstream
 
 import com.confused.anikuta.data.cloudstream.installer.CloudstreamPluginInstaller

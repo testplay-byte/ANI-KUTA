@@ -189,7 +189,7 @@ class CloudstreamPluginManager(
         val internalName = plugin.internalName
         scope.launch {
             installMutex.withLock {
-                val target = CloudstreamPluginInstaller.pluginPath(context, internalName, extension.repoUrl)
+                val target = CloudstreamPluginInstaller.pluginPath(context.filesDir, internalName, extension.repoUrl)
                 _installStates.value = _installStates.value + (internalName to InstallStep.Pending)
                 try {
                     installer.download(plugin.url, plugin.fileHash, target).collect { step ->
@@ -284,7 +284,7 @@ class CloudstreamPluginManager(
                     loader.unloadPlugin(record.filePath)
                     File(record.filePath).delete()
                 }
-                CloudstreamPluginInstaller.pluginPath(context, "x", repoUrl).parentFile
+                CloudstreamPluginInstaller.pluginPath(context.filesDir, "x", repoUrl).parentFile
                     ?.takeIf { it.exists() }?.deleteRecursively()
                 loadAll()
                 rebuildLists()
