@@ -56,6 +56,7 @@ data class CsProviderSource(
 )
 
 /** A search/browse result card rendered in the shared results grid. */
+@kotlinx.serialization.Serializable
 data class CsContentCard(
     val providerName: String,
     val name: String,
@@ -75,6 +76,10 @@ data class CsBrowseSection(
     val title: String,
     val items: List<CsContentCard>,
 )
+
+// NOTE (Task 48): [CsBrowseSection] + [CsContentCard] are @Serializable so
+// [CloudstreamBrowseCache] can persist the browse feed — keep every new field
+// optional or give it a default to stay snapshot-compatible.
 
 /** One page of results (page 1 only in phase 1 — the aniyomi flow is page-1 too). */
 data class CsContentPage(
@@ -139,6 +144,7 @@ data class CsContentDetails(
  */
 class CloudstreamContentRepository(
     private val manager: CloudstreamPluginManager,
+    private val browseCache: CloudstreamBrowseCache? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -179,6 +185,25 @@ class CloudstreamContentRepository(
      * "it forgets my CloudStream source after restarting the app" bug.
      */
     val sourcesLoaded: StateFlow<Boolean> = manager.loadedOnce
+
+    /**
+     * Task 48 (device round 7): the cached-browse surface for the search
+     * page's instant-open flow. Returns the newest snapshot WITHOUT touching
+     * the network (memory first, one disk read per cold start). Callers render
+     * it immediately, then use [browseIsFresh] to decide whether a background
+     * refresh is due (stale-while-revalidate — see [CloudstreamBrowseCache]).
+     */
+    suspend fun cachedBrowseSections(providerName: String): List<CsBrowseSection>? =
+        browseCache?.peek(providerName)?.sections
+
+    /** True when the cached snapshot for [providerName] is younger than the TTL. */
+    fun browseIsFresh(providerName: String): Boolean =
+        browseCache?.isFresh(providerName) ?: false
+
+    /** Drops one provider's cached browse (provider gone / untrusted). */
+    fun invalidateBrowseCache(providerName: String) {
+        browseCache?.invalidate(providerName)
+    }
 
     // ── Execution ───────────────────────────────────────────────────────────
 
@@ -260,6 +285,11 @@ class CloudstreamContentRepository(
         }
         Logger.i(TAG) {
             "browse: $providerName -> ${sections.size} section(s) in ${System.currentTimeMillis() - started}ms"
+        }
+        // Task 48: every successful (non-empty) browse feeds the instant-open
+        // cache — empty results never overwrite a good cached feed.
+        if (sections.isNotEmpty()) {
+            browseCache?.put(providerName, sections)
         }
         sections
     }

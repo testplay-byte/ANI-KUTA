@@ -13,6 +13,12 @@ import kotlinx.serialization.Serializable
  * re-resolve does a DIRECT lookup by pinned (server, audio, quality) — it does
  * NOT re-run the [AutoDownloadEngine] (REVIEW-5 M17).
  *
+ * Task 48 (device round 7 — CS downloads): [linkRotates] marks short-TTL,
+ * host-rotating extractor links (CloudStream providers). Such links 403 when
+ * they expire between resolve and download — the fetchers re-resolve them with
+ * the SAME machinery as localhost proxy URLs. Default false keeps every stored
+ * context decoding unchanged.
+ *
  * @param sourceId The extension source ID (for re-calling getHosterList).
  * @param episodeUrl The episode URL on the source.
  * @param serverName The pinned server name (the one that was originally selected).
@@ -20,6 +26,7 @@ import kotlinx.serialization.Serializable
  * @param quality The pinned quality label.
  * @param mainId The content mainId (for DB lookups — M64).
  * @param episodeKey The episode key (for DB lookups — M64).
+ * @param linkRotates True for short-TTL links that may 403 mid-download (CS).
  */
 @Serializable
 data class ResolveContext(
@@ -30,4 +37,5 @@ data class ResolveContext(
     val quality: String,
     val mainId: String,
     val episodeKey: String,
+    val linkRotates: Boolean = false,
 )

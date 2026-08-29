@@ -189,6 +189,17 @@ object MpvHeaderParser {
 fun serializeTracks(tracks: List<Pair<String, String>>): String =
     tracks.joinToString("\n") { "${it.first}\u001F${it.second}" }
 
+/**
+ * Task 48 (per-track subtitle headers): header-aware overload — appends the
+ * MPV csv header string ("Key: Value,…") as an OPTIONAL third field. Tracks
+ * without headers serialize EXACTLY like the legacy format, so every parser
+ * (WatchKey.parseTracks, deserializeTracks) keeps working unchanged.
+ */
+fun serializeTracks(tracks: List<Triple<String, String, String?>>): String =
+    tracks.joinToString("\n") { (url, lang, headers) ->
+        if (headers.isNullOrBlank()) "$url\u001F$lang" else "$url\u001F$lang\u001F$headers"
+    }
+
 /** Parses the [serializeTracks] format back into pairs. */
 fun deserializeTracks(serialized: String): List<Pair<String, String>> {
     if (serialized.isBlank()) return emptyList()

@@ -78,6 +78,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.AnikutaMPVView
+import com.confused.anikuta.core.player.PendingExternalTrack
 import com.confused.anikuta.core.player.PlayerInitializer
 import com.confused.anikuta.core.player.PlayerLoadingState
 import com.confused.anikuta.core.player.PlayerMode
@@ -223,6 +224,10 @@ fun WatchScreen(
     val buffering by stateHolder.buffering.collectAsState()
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
     val errorMessage by stateHolder.errorMessage.collectAsState()
+    // Task 48: error-event generation — every SURFACED error increments this,
+    // so the recovery ladder re-runs even when two consecutive failures carry
+    // an IDENTICAL message string (the same 403 from the same URL twice).
+    val errorGeneration by stateHolder.errorGeneration.collectAsState()
     val isSwitching by stateHolder.isSwitching.collectAsState()
     val isSwitchingEpisode by stateHolder.isSwitchingEpisode.collectAsState()
     val bufferAheadTime by stateHolder.bufferAheadTime.collectAsState()
@@ -421,6 +426,13 @@ fun WatchScreen(
     // because of the cache. Reset on successful load (READY) + on video switches.
     var bypassCacheNextRetry by remember { mutableStateOf(false) }
 
+    // Task 48: the link-recovery ladder's state (see the ladder effect below for
+    // the full step machine). Declared here — before the READY effect — because
+    // the READY effect resets the step on every successful load and applies the
+    // post-recovery seek.
+    var ladderStep by remember { mutableStateOf(0) }
+    var pendingLadderSeek by remember { mutableStateOf<Int?>(null) }
+
     // D-192: Activity tracker — track WATCH_START on FILE_LOADED.
     val activityTracker: com.confused.anikuta.core.activitytracker.ActivityTracker = koinInject()
 
@@ -428,6 +440,10 @@ fun WatchScreen(
         if (loadingState == PlayerLoadingState.READY && mpvInitialized) {
             // D-247: successful load — cache playback is healthy again; re-arm it.
             bypassCacheNextRetry = false
+            // Task 48: a successful load re-arms the recovery ladder from step 0 —
+            // the NEXT failure (e.g. a later mid-playback expiry) starts with a
+            // fresh same-URL retry / re-resolve cycle.
+            ladderStep = 0
             val epKey = buildEpisodeKey(watchKey.mainId, stateHolder.currentEpisodeNumber.value)
             // D-192: Track WATCH_START (the video actually loaded + is ready to play).
             activityTracker.track(
@@ -443,10 +459,17 @@ fun WatchScreen(
                     .onFailure { Logger.w(TAG) { "resetAutoMarkSuppressed failed: ${it.message}" } }
                     .onSuccess { Logger.d(TAG) { "resetAutoMarkSuppressed: key=$epKey (re-armed)" } }
             }
-            // WP-B3: seek to the saved resume position (only on the initial load).
-            // If watchKey.startPosition is > 0 (passed from DetailsScreen), use it.
-            // Otherwise look up from the watch progress store directly.
-            if (!hasResumed) {
+            // Task 48: LADDER RESUME — when the ladder swapped the link after a
+            // mid-playback failure, restore the exact failure position (takes
+            // priority over the initial-load resume below).
+            val ladderSeek = pendingLadderSeek
+            if (ladderSeek != null && ladderSeek > 0) {
+                pendingLadderSeek = null
+                hasResumed = true // the ladder already resumed — skip the initial resume
+                delay(300L) // ensure MPV has fully processed FILE_LOADED before seeking
+                MPVLib.command(arrayOf("seek", ladderSeek.toString(), "absolute"))
+                Logger.i(TAG) { "Ladder: resumed at ${ladderSeek}s after link recovery" }
+            } else if (!hasResumed) {
                 hasResumed = true
                 val resumePos = if (watchKey.startPosition > 0) {
                     watchKey.startPosition
@@ -561,44 +584,261 @@ fun WatchScreen(
         }
     }
 
-    // ── Auto-retry on error (non-switching errors only) ──
-    // When an error occurs (NOT during switching — switching errors are real
-    // failures), auto-retry the same URL once after 1.5s. This handles
-    // transient failures (network hiccup, brief TLS renegotiation) silently.
+    // ── Task 48: the LINK-RECOVERY LADDER (doc 19 §7.2 + §8.2) ─────────────
     //
-    // CRITICAL: Do NOT clear the error during auto-retry. The banner stays
-    // visible so the user knows something is wrong. If the retry succeeds,
-    // FILE_LOADED clears the error (banner disappears). If the retry fails,
-    // the error stays (or gets updated with the new efEvent message).
-    // The user explicitly said: "it should always show and it should not
-    // automatically disappear out of the blue."
-    LaunchedEffect(errorMessage) {
-        if (errorMessage != null && !stateHolder.isSwitching.value && !stateHolder.autoRetryAttempted) {
-            Logger.i(TAG) { "Auto-retry: error occurred, retrying same URL in 1.5s..." }
-            stateHolder.markAutoRetryAttempted()
-            delay(1_500L)
-            // Re-send loadfile WITHOUT clearing the error. The banner stays visible.
-            // If this succeeds, FILE_LOADED clears the error. If it fails, efEvent
-            // updates the error (or it stays as-is).
+    // CloudStream providers hand out short-TTL, host-rotating CDN URLs: a link
+    // that resolved fine minutes ago starts returning 403 mid-playback. The
+    // ladder auto-recovers playback, preserving the watch position:
+    //
+    //   step 0 → error #1: same-URL retry after 1.5s (transient blips; D-247
+    //            cache-bypass on the first retry) — UNLESS the error already
+    //            looks like an expired-link HTTP status (401/403/410), in
+    //            which case retrying the dead URL is pointless → jump to step 1.
+    //   step 1 → error #2: RE-RESOLVE the pinned link — a fresh loadLinks run,
+    //            tier-matched to the SAME server/audio/quality, loadfile swap,
+    //            seek back to the exact failure position.
+    //   step 2 → error #3: NEXT MIRROR — a different link from the fresh list
+    //            (position preserved again).
+    //   step 3 → error #4: terminal — the existing error banner stays visible
+    //            with the real reason (D-295 discipline); Retry/manual quality
+    //            sheet remain the user's escape hatches.
+    //
+    // The ladder is bounded (3 automatic recoveries max) and resets on every
+    // successful READY load. Local files (content://fd://) never enter it.
+    // (State vars ladderStep + pendingLadderSeek are declared above, next to
+    // bypassCacheNextRetry — the READY effect resets them.)
+
+    /**
+     * One recovery hop: re-resolves the CURRENT episode's links through the
+     * standard [VideoResolver] and swaps playback to the chosen video. When
+     * [pinned] is true the SAME server/audio/quality is preferred (the classic
+     * "re-extract the expired link" case); otherwise the NEXT available
+     * mirror is chosen (dead-host fallback). Returns true when a swap was
+     * issued (the ladder waits for the outcome via the next error/READY).
+     */
+    val recoverLink: suspend (pinned: Boolean) -> Boolean = { pinned ->
+        val sourceId = watchKey.sourceId
+        val source = extensionManager.getSource(sourceId)
+            as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+        val epUrl = stateHolder.currentEpisodeUrl.value
+        if (source == null || epUrl.isBlank()) {
+            Logger.w(TAG) { "Ladder: cannot re-resolve (sourceId=$sourceId, episode url blank=${epUrl.isBlank()})" }
+            false
+        } else {
+            // Capture the failure position BEFORE any state churn — MPV resets
+            // it when the replacement file starts.
+            val resumePos = stateHolder.position.value
+            val episode = eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                url = epUrl
+                episode_number = stateHolder.currentEpisodeNumber.value
+                name = stateHolder.currentEpisodeTitle.value
+            }
+            var swapped = false
             try {
-                val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
-                    else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                MPVLib.setOptionString("http-header-fields", headers)
-                // D-247 cache-failure fallback: if this playback went through the
-                // cache, the FIRST retry bypasses it entirely (direct network) — the
-                // episode must never fail because of the cache (e.g. corrupt cached
-                // bytes). The flag resets on the next successful READY load.
-                if (!bypassCacheNextRetry && currentCacheId != null) {
-                    Logger.w(TAG) { "Auto-retry: cache playback failed — retrying DIRECT (bypass cache)" }
-                    bypassCacheNextRetry = true
-                    MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
-                } else {
-                    MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
+                videoResolver.resolve(source, episode).collect { state ->
+                    when (state) {
+                        is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
+                            val servers = videoResolver.buildServers(state.rawEntries, source.name)
+                            if (servers.isEmpty()) {
+                                Logger.w(TAG) { "Ladder: re-resolve returned 0 servers" }
+                            } else {
+                                val registryKey = ResolvedVideosRegistry.put(servers)
+                                stateHolder.updateResolvedVideosKey(registryKey)
+
+                                // candidates in stable (server, audio) order.
+                                val candidates = servers.flatMap { s ->
+                                    s.audioVersions.flatMap { av ->
+                                        av.videos.map { Triple(s.name, av.label, it) }
+                                    }
+                                }
+                                val chosen = if (pinned) {
+                                    // Tier-match the CURRENT video: videoTitle is
+                                    // "server|audio|quality|urlHash" (buildVideoTitle).
+                                    val parts = currentVideoTitle.split("|")
+                                    val tierMatch = if (parts.size >= 3) {
+                                        val srv = parts[0]
+                                        val audio = parts[1]
+                                        val quality = parts[2]
+                                        candidates.firstOrNull {
+                                            it.first == srv && it.second == audio && it.third.quality == quality
+                                        } ?: candidates.firstOrNull { it.first == srv }
+                                    } else {
+                                        null
+                                    }
+                                    tierMatch ?: candidates.firstOrNull()
+                                } else {
+                                    // Next mirror: the candidate AFTER the current URL
+                                    // (cyclic); when the current URL is gone from the
+                                    // fresh list, the first candidate is the fallback.
+                                    if (candidates.size <= 1) {
+                                        null
+                                    } else {
+                                        val idx = candidates.indexOfFirst { it.third.url == currentVideoUrl }
+                                        candidates[(idx + 1).mod(candidates.size)]
+                                    }
+                                }
+
+                                if (chosen == null) {
+                                    Logger.w(TAG) { "Ladder: no candidate link available" }
+                                } else {
+                                    val (srv, audio, video) = chosen
+                                    // CRITICAL: this block mutates the live video state and issues
+                                    // loadfile — it MUST run to completion even if the ladder
+                                    // LaunchedEffect gets re-keyed/cancelled mid-flight (the
+                                    // setSwitching inside clears errorMessage → recomposition →
+                                    // effect restart). NonCancellable guarantees the swap isn't
+                                    // torn half-done (UI state swapped but MPV never reloaded).
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                        pendingLadderSeek = resumePos.takeIf { it > 0 }
+                                        // Mirror onQualitySelected's swap sequence exactly.
+                                        currentVideoUrl = video.url
+                                        currentVideoTitle = video.videoTitle
+                                        currentVideoHeaders = video.videoHeaders ?: ""
+                                        observer?.let { obs ->
+                                            obs.pendingSubtitleTracks = video.subtitleTracks.map {
+                                                PendingExternalTrack(it.url, it.lang, it.headers)
+                                            }
+                                            obs.pendingAudioTracks = video.audioTracks.map {
+                                                PendingExternalTrack(it.url, it.lang, it.headers)
+                                            }
+                                            obs.trackHeaders = video.videoHeaders ?: ""
+                                        }
+                                        stateHolder.setSwitching(true)
+                                        currentCacheId = buildCacheId(
+                                            mainId = watchKey.mainId,
+                                            animeTitle = watchKey.animeTitle,
+                                            episodeNumber = stateHolder.currentEpisodeNumber.value,
+                                            episodeTitle = stateHolder.currentEpisodeTitle.value,
+                                            sourceId = watchKey.sourceId,
+                                            videoTitle = video.videoTitle,
+                                        )
+                                        currentSubTracksSerialized = serializeTracks(
+                                            video.subtitleTracks.map { Triple(it.url, it.lang, it.headers) },
+                                        )
+                                        currentAudioTracksSerialized = serializeTracks(
+                                            video.audioTracks.map { Triple(it.url, it.lang, it.headers) },
+                                        )
+                                        bypassCacheNextRetry = false
+                                        val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                                            else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                                        MPVLib.setOptionString("http-header-fields", headers)
+                                        MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
+                                        Logger.i(TAG) {
+                                            "Ladder: swapped to '$srv/$audio/${video.quality}' " +
+                                                "(pinned=$pinned) — resuming at ${resumePos}s on load"
+                                        }
+                                        swapped = true
+                                    }
+                                }
+                            }
+                        }
+                        is com.confused.anikuta.core.videoresolver.ResolverState.Error -> {
+                            Logger.w(TAG) { "Ladder: re-resolve failed: ${state.message}" }
+                        }
+                        else -> {}
+                    }
                 }
-                Logger.i(TAG) { "Auto-retry: loadfile re-sent (banner stays visible)" }
-            } catch (e: Exception) {
-                Logger.e(TAG, e) { "Auto-retry failed" }
-                stateHolder.setSwitchingError("Retry failed: ${e.message}")
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                Logger.w(TAG, t) { "Ladder: re-resolve threw ${t::class.java.simpleName}: ${t.message}" }
+            }
+            swapped
+        }
+    }
+
+    // ── Auto-retry + recovery ladder (non-switching errors only) ──
+    // When an error occurs (NOT during switching — switching errors are real
+    // failures handled by the deferred-error surfacing in PlayerStateHolder),
+    // climb the ladder. Step 1 keeps the historic behavior: retry the same
+    // URL once after 1.5s. The banner stays visible throughout — if a retry
+    // or swap succeeds, FILE_LOADED clears the error; the user explicitly
+    // said: "it should always show and it should not automatically disappear
+    // out of the blue."
+    LaunchedEffect(errorMessage, errorGeneration) {
+        if (errorMessage == null || stateHolder.isSwitching.value || !mpvInitialized) return@LaunchedEffect
+        // Local files cannot 403 — nothing to recover automatically.
+        if (currentVideoUrl.startsWith("content://") || currentVideoUrl.startsWith("fd://")) return@LaunchedEffect
+
+        // An error whose HTTP context already says the link is dead → skip the
+        // pointless same-URL retry and go straight to re-resolving.
+        val httpCtx = (stateHolder.httpError ?: "").lowercase()
+        val looksExpired = httpCtx.contains("403") || httpCtx.contains("401") ||
+            httpCtx.contains("410") || errorMessage.lowercase().contains("403")
+
+        when (ladderStep) {
+            0 -> {
+                if (looksExpired) {
+                    // Fall through to the re-resolve step immediately.
+                    ladderStep = 1
+                } else {
+                    Logger.i(TAG) { "Ladder step 1: auto-retry same URL in 1.5s..." }
+                    stateHolder.markAutoRetryAttempted()
+                    ladderStep = 1
+                    delay(1_500L)
+                    // Re-send loadfile WITHOUT clearing the error. The banner stays
+                    // visible. If this succeeds, FILE_LOADED clears the error. If it
+                    // fails, efEvent fires again → the ladder advances.
+                    try {
+                        val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
+                            else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                        MPVLib.setOptionString("http-header-fields", headers)
+                        // D-247 cache-failure fallback: if this playback went through
+                        // the cache, the FIRST retry bypasses it entirely (direct
+                        // network) — the episode must never fail because of the cache
+                        // (e.g. corrupt cached bytes). The flag resets on the next
+                        // successful READY load.
+                        if (!bypassCacheNextRetry && currentCacheId != null) {
+                            Logger.w(TAG) { "Auto-retry: cache playback failed — retrying DIRECT (bypass cache)" }
+                            bypassCacheNextRetry = true
+                            MPVLib.command(arrayOf("loadfile", currentVideoUrl, "replace"))
+                        } else {
+                            MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
+                        }
+                        Logger.i(TAG) { "Auto-retry: loadfile re-sent (banner stays visible)" }
+                    } catch (e: Exception) {
+                        Logger.e(TAG, e) { "Auto-retry failed" }
+                        stateHolder.setSwitchingError("Retry failed: ${e.message}")
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            else -> {}
+        }
+
+        when (ladderStep) {
+            1 -> {
+                Logger.i(TAG) { "Ladder step 2: re-resolving the pinned link (fresh extraction)..." }
+                ladderStep = 2
+                val ok = recoverLink(pinned = true)
+                if (!ok) {
+                    // Pinned re-resolve found nothing usable — try the next mirror
+                    // straight away before giving up.
+                    Logger.i(TAG) { "Ladder step 2 found no link — trying next mirror immediately" }
+                    ladderStep = 3
+                    val mirrorOk = recoverLink(pinned = false)
+                    if (!mirrorOk) {
+                        stateHolder.setSwitchingError(
+                            "This link expired and re-resolving it failed. " +
+                                "Pick another server from the quality sheet.",
+                        )
+                    }
+                }
+            }
+            2 -> {
+                Logger.i(TAG) { "Ladder step 3: switching to the next mirror link..." }
+                ladderStep = 3
+                val ok = recoverLink(pinned = false)
+                if (!ok) {
+                    stateHolder.setSwitchingError(
+                        "This server stopped responding and no alternative link could be resolved. " +
+                            "Pick another server from the quality sheet.",
+                    )
+                }
+            }
+            else -> {
+                Logger.w(TAG) {
+                    "Ladder exhausted (step $ladderStep) — showing the error; manual retry/quality switch remains"
+                }
             }
         }
     }
@@ -617,17 +857,29 @@ fun WatchScreen(
                 // passed directly from DetailsScreen — no registry lookup needed).
                 // FALLBACK: initialPickedVideo from ResolvedVideosRegistry (for
                 // cases where the serialized tracks are empty but the registry has them).
+                // Task 48: tracks may carry per-track headers (parsed third field).
                 val keySubs = watchKey.parseSubtitleTracks()
                 val keyAudios = watchKey.parseAudioTracks()
                 if (keySubs.isNotEmpty() || keyAudios.isNotEmpty()) {
-                    obs.pendingSubtitleTracks = keySubs
-                    obs.pendingAudioTracks = keyAudios
+                    obs.pendingSubtitleTracks = keySubs.map {
+                        PendingExternalTrack(it.url, it.lang, it.headers)
+                    }
+                    obs.pendingAudioTracks = keyAudios.map {
+                        PendingExternalTrack(it.url, it.lang, it.headers)
+                    }
                     obs.trackHeaders = currentVideoHeaders
-                    Logger.i(TAG) { "Pending external tracks (from WatchKey): ${keySubs.size} subs, ${keyAudios.size} audio" }
+                    Logger.i(TAG) {
+                        "Pending external tracks (from WatchKey): ${keySubs.size} subs " +
+                            "(per-track headers: ${keySubs.count { it.headers != null }}), ${keyAudios.size} audio"
+                    }
                 } else {
                     initialPickedVideo?.let { pv ->
-                        obs.pendingSubtitleTracks = pv.subtitleTracks.map { Pair(it.url, it.lang) }
-                        obs.pendingAudioTracks = pv.audioTracks.map { Pair(it.url, it.lang) }
+                        obs.pendingSubtitleTracks = pv.subtitleTracks.map {
+                            PendingExternalTrack(it.url, it.lang, it.headers)
+                        }
+                        obs.pendingAudioTracks = pv.audioTracks.map {
+                            PendingExternalTrack(it.url, it.lang, it.headers)
+                        }
                         obs.trackHeaders = pv.videoHeaders ?: ""
                         Logger.i(TAG) { "Pending external tracks (from registry): ${pv.subtitleTracks.size} subs, ${pv.audioTracks.size} audio" }
                     }
@@ -874,8 +1126,12 @@ fun WatchScreen(
         // the next FILE_LOADED. This fixes the bug where external subtitles
         // were lost on quality switch.
         observer?.let { obs ->
-            obs.pendingSubtitleTracks = video.subtitleTracks.map { Pair(it.url, it.lang) }
-            obs.pendingAudioTracks = video.audioTracks.map { Pair(it.url, it.lang) }
+            obs.pendingSubtitleTracks = video.subtitleTracks.map {
+                PendingExternalTrack(it.url, it.lang, it.headers)
+            }
+            obs.pendingAudioTracks = video.audioTracks.map {
+                PendingExternalTrack(it.url, it.lang, it.headers)
+            }
             obs.trackHeaders = video.videoHeaders ?: ""
         }
         // Set switching flag so efEvent from old file doesn't show a spurious error.
@@ -890,8 +1146,8 @@ fun WatchScreen(
             videoTitle = video.videoTitle,
         )
         // Video caching: carry the new video's external tracks (for tap-to-play replay).
-        currentSubTracksSerialized = serializeTracks(video.subtitleTracks.map { it.url to it.lang })
-        currentAudioTracksSerialized = serializeTracks(video.audioTracks.map { it.url to it.lang })
+        currentSubTracksSerialized = serializeTracks(video.subtitleTracks.map { Triple(it.url, it.lang, it.headers) })
+        currentAudioTracksSerialized = serializeTracks(video.audioTracks.map { Triple(it.url, it.lang, it.headers) })
         // D-247: fresh video → re-arm cache playback for retries.
         bypassCacheNextRetry = false
         try {
@@ -1002,8 +1258,7 @@ fun WatchScreen(
                         if (subUris.isNotEmpty()) {
                             observer?.let { obs ->
                                 obs.pendingSubtitleTracks = subUris.mapIndexed { i, u ->
-                                    val lang = com.confused.anikuta.core.common.Logger.w(TAG) { "subtitle URI: ${u.take(60)}" }
-                                    Pair(u, "Subtitle ${i + 1}")
+                                    PendingExternalTrack(u, "Subtitle ${i + 1}")
                                 }
                                 obs.trackHeaders = ""
                             }
@@ -1115,8 +1370,12 @@ fun WatchScreen(
                                     // Set pending external tracks + headers on the observer.
                                     pickedResolverVideo?.let { pv ->
                                         observer?.let { obs ->
-                                            obs.pendingSubtitleTracks = pv.subtitleTracks.map { Pair(it.url, it.lang) }
-                                            obs.pendingAudioTracks = pv.audioTracks.map { Pair(it.url, it.lang) }
+                                            obs.pendingSubtitleTracks = pv.subtitleTracks.map {
+                                                PendingExternalTrack(it.url, it.lang, it.headers)
+                                            }
+                                            obs.pendingAudioTracks = pv.audioTracks.map {
+                                                PendingExternalTrack(it.url, it.lang, it.headers)
+                                            }
                                             obs.trackHeaders = pv.videoHeaders ?: video.headers
                                         }
                                     }
@@ -1132,10 +1391,10 @@ fun WatchScreen(
                                     )
                                     // Video caching: carry the new episode's external tracks (for tap-to-play replay).
                                     currentSubTracksSerialized = pickedResolverVideo?.let { pv ->
-                                        serializeTracks(pv.subtitleTracks.map { it.url to it.lang })
+                                        serializeTracks(pv.subtitleTracks.map { Triple(it.url, it.lang, it.headers) })
                                     } ?: ""
                                     currentAudioTracksSerialized = pickedResolverVideo?.let { pv ->
-                                        serializeTracks(pv.audioTracks.map { it.url to it.lang })
+                                        serializeTracks(pv.audioTracks.map { Triple(it.url, it.lang, it.headers) })
                                     } ?: ""
                                     // D-247: fresh episode → re-arm cache playback for retries.
                                     bypassCacheNextRetry = false
@@ -1463,6 +1722,8 @@ private fun MinimizedMode(
                     onSubtitleClick = onSubtitleClick,
                     onRetry = onRetry,
                     onDismissError = onDismissError,
+                    // Task 48 (playback haptics)
+                    hapticsEnabled = playerPreferences.hapticFeedback,
                 )
 
                 // Episode switching overlay — shown over the player while a new
@@ -1766,6 +2027,8 @@ private fun FullscreenMode(
             episodeInfo = if (watchKey.episodeTitle.isNotBlank()) "EP ${formatEpisodeNumber(watchKey.episodeNumber)}" else "",
             qualityInfo = watchKey.quality,
             currentSpeed = currentSpeed,
+            // Task 48 (playback haptics)
+            hapticsEnabled = playerPreferences.hapticFeedback,
         )
 
         // Episode switching overlay — shown over the fullscreen player while a

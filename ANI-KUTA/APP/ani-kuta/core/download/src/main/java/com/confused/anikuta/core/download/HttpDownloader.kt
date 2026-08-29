@@ -352,14 +352,11 @@ class HttpDownloader(
     ) {
         if (headers.isNullOrBlank()) return
         // Format: "Key1: Value1,Key2: Value2" (comma-separated, colon between name+value).
-        for (pair in headers.split(',')) {
-            val colonIdx = pair.indexOf(':')
-            if (colonIdx <= 0) continue
-            val name = pair.substring(0, colonIdx).trim()
-            val value = pair.substring(colonIdx + 1).trim()
-            if (name.isNotEmpty() && value.isNotEmpty()) {
-                requestBuilder.addHeader(name, value)
-            }
+        // Task 48: use the comma-SMART DownloadHeaderParser — the naive split(',')
+        // broke any header VALUE containing a comma (every User-Agent string,
+        // some Cookies), sending truncated/garbage values to subtitle hosts.
+        for ((name, value) in DownloadHeaderParser.parse(headers)) {
+            requestBuilder.addHeader(name, value)
         }
     }
 

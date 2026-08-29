@@ -199,12 +199,10 @@ class DownloadOrchestrator(
         val downloadUrl = video.directUrl ?: video.url
 
         // D-FIX-SUB: subtitles from the same source usually need the SAME headers as
-        // the video (Referer / User-Agent) to avoid 403. The resolver-side
-        // ResolverSubtitleTrack doesn't carry per-track headers yet, so we fall back
-        // to the video's headers for every subtitle/audio track. This matches the
-        // streaming-side SubtitleEngine behavior (which also uses the video's headers
-        // when per-track headers aren't available). Per-track headers can be added
-        // later if a source needs different headers per subtitle.
+        // the video (Referer / User-Agent) to avoid 403. Task 48 (per-track subtitle
+        // headers): tracks that carry their OWN required headers now win over the
+        // video-level fallback — sources whose subs live on a different host (needing
+        // a distinct Referer) no longer silently 403 during downloads.
         val fallbackHeaders = video.videoHeaders
 
         val subtitleTracks = video.subtitleTracks.map { track ->
@@ -212,7 +210,7 @@ class DownloadOrchestrator(
                 url = track.url,
                 lang = track.lang,
                 kind = TrackKind.SUBTITLE,
-                headers = fallbackHeaders,
+                headers = track.headers?.takeIf { it.isNotBlank() } ?: fallbackHeaders,
             )
         }
         val audioTracks = video.audioTracks.map { track ->
@@ -220,11 +218,18 @@ class DownloadOrchestrator(
                 url = track.url,
                 lang = track.lang,
                 kind = TrackKind.AUDIO,
-                headers = fallbackHeaders,
+                headers = track.headers?.takeIf { it.isNotBlank() } ?: fallbackHeaders,
             )
         }
+        // Task 48 (CS downloads): the re-resolve context is minted for localhost
+        // proxy URLs (proxy churn) AND for CloudStream sources (bit-62 synthetic
+        // ids) — their extractor links are short-TTL/host-rotating and 403 when
+        // they expire between resolve and download. linkRotates tells the fetchers
+        // a 403 on this link is re-resolvable (not a permanent failure).
+        val isCsSource = com.confused.anikuta.data.cloudstream.content.CsSourceIds
+            .isCloudstreamId(sourceId)
         val resolveContext = if (downloadUrl.startsWith("http://localhost") ||
-            downloadUrl.startsWith("http://127.0.0.1")
+            downloadUrl.startsWith("http://127.0.0.1") || isCsSource
         ) {
             ResolveContext(
                 sourceId = sourceId,
@@ -234,6 +239,7 @@ class DownloadOrchestrator(
                 quality = video.quality,
                 mainId = content.mainId,
                 episodeKey = episodeInfo.episodeKey,
+                linkRotates = isCsSource,
             ).let { kotlinx.serialization.json.Json.encodeToString(ResolveContext.serializer(), it) }
         } else {
             null

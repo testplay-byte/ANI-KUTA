@@ -59,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.confused.anikuta.core.player.PlayerHaptic
 import com.confused.anikuta.core.player.PlayerLoadingState
 import com.confused.anikuta.core.player.PlayerStateHolder
 import kotlin.math.roundToInt
@@ -102,7 +103,10 @@ fun FullscreenControls(
     episodeInfo: String = "",
     qualityInfo: String = "",
     currentSpeed: Float = 1.0f,
+    // Task 48 (playback haptics): gated by PlayerPreferences.hapticFeedback.
+    hapticsEnabled: Boolean = false,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
     val controlsLocked by stateHolder.controlsLocked.collectAsState()
     val isPlaying by stateHolder.isPlaying.collectAsState()
@@ -159,6 +163,10 @@ fun FullscreenControls(
                             detectTapGestures(
                                 onTap = { stateHolder.updateControlsVisible(!controlsVisible) },
                                 onDoubleTap = { offset ->
+                                    // Task 48: haptic tick when the double-tap seek fires.
+                                    if (hapticsEnabled) {
+                                        PlayerHaptic.SEEK_TICK.perform(context)
+                                    }
                                     if (offset.x < size.width / 2) onSeekRelative(-10)
                                     else onSeekRelative(10)
                                 },
@@ -257,7 +265,13 @@ fun FullscreenControls(
                         horizontalArrangement = Arrangement.spacedBy(28.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FSSkipButton(label = "-10s", onClick = { onSeekRelative(-10) })
+                        FSSkipButton(
+                            label = "-10s",
+                            onClick = {
+                                if (hapticsEnabled) PlayerHaptic.SEEK_TICK.perform(context)
+                                onSeekRelative(-10)
+                            },
+                        )
                         Box(contentAlignment = Alignment.Center) {
                             // Once buffered 1%, hide spinner even if isSwitching is true.
                             val showSpinner = buffering ||
@@ -275,7 +289,12 @@ fun FullscreenControls(
                                     color = themedDarkGlassColor(),
                                     modifier = Modifier
                                         .size(60.dp)
-                                        .clickable { onTogglePlay() },
+                                        .clickable {
+                                            if (hapticsEnabled) {
+                                                PlayerHaptic.PLAY_PAUSE_TOGGLE.perform(context)
+                                            }
+                                            onTogglePlay()
+                                        },
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
@@ -288,7 +307,13 @@ fun FullscreenControls(
                                 }
                             }
                         }
-                        FSSkipButton(label = "+10s", onClick = { onSeekRelative(10) })
+                        FSSkipButton(
+                            label = "+10s",
+                            onClick = {
+                                if (hapticsEnabled) PlayerHaptic.SEEK_TICK.perform(context)
+                                onSeekRelative(10)
+                            },
+                        )
                     }
                 }
             }
@@ -406,6 +431,8 @@ private fun FullscreenSeekbarCustom(
                     },
                     onDragEnd = {
                         scrubPosition?.let { onSeekTo(it.toInt()) }
+                        // Task 48: the scrub committed — confirm haptic.
+                        if (hapticsEnabled) PlayerHaptic.SEEK_RELEASE.perform(context)
                         scrubPosition = null
                         onSeekEnd()
                     },

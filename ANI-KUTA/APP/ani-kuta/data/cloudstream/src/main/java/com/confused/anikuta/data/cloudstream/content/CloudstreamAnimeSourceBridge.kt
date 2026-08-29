@@ -209,7 +209,12 @@ class CloudstreamAnimeSourceBridge(
      */
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val provider = liveProvider()
-        val data = episode.url
+        // Task 48 (defensive heal): episodes cached by v0.2.68 carry the
+        // JSON-quoted data handle (the newEpisode toJson bug — see MainAPI.kt).
+        // Strip a surrounding quote pair so a stale cached row still resolves;
+        // real handles never start AND end with a quote (JSON payloads start
+        // with '{' or '['), so this can never corrupt fresh data.
+        val data = episode.url.removeSurrounding("\"")
         if (data.isBlank() || data == "[]" || data == "about:blank") {
             throw IllegalStateException(
                 "CloudStream '$providerName': this episode has no playable data",
@@ -351,7 +356,10 @@ class CloudstreamAnimeSourceBridge(
                 *allHeaders.flatMap { listOf(it.key, it.value) }.toTypedArray(),
             ),
             // CS subs are episode-level (not per-link) — attach to every link.
-            subtitleTracks = collectedSubtitles.map { Track(it.url, it.lang) },
+            // Task 48 (per-track subtitle headers): SubtitleFile.headers (some
+            // hosts 403 subtitle fetches without the right Referer/UA) are
+            // forwarded on the Track — previously dropped at this fold.
+            subtitleTracks = collectedSubtitles.map { Track(it.url, it.lang, it.headers) },
             audioTracks = audioTracks.mapIndexed { index, audio ->
                 Track(audio.url, "Audio ${index + 1}")
             },

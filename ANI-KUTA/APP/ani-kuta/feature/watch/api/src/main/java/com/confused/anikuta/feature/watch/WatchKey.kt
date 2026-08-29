@@ -105,28 +105,28 @@ data class WatchKey(
     }
 
     /**
-     * Parse the serialized subtitle tracks into a list of (url, lang) pairs.
-     * Format: "url\u001Flang" per line.
+     * Parse the serialized subtitle tracks.
+     * Format: "url\u001Flang" per line (legacy) or "url\u001Flang\u001Fheaders"
+     * (Task 48 per-track headers — headers is the MPV csv "Key: Value,…" form,
+     * omitted entirely for header-less tracks so old payloads stay valid).
      */
-    fun parseSubtitleTracks(): List<Pair<String, String>> {
-        if (subtitleTracksSerialized.isBlank()) return emptyList()
-        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-        return subtitleTracksSerialized.split("\n").mapNotNull { line ->
-            val parts = line.split(delim, limit = 2)
-            if (parts.size == 2) Pair(parts[0], parts[1]) else null
-        }
-    }
+    fun parseSubtitleTracks(): List<WatchTrack> = parseTracks(subtitleTracksSerialized)
 
     /**
-     * Parse the serialized audio tracks into a list of (url, lang) pairs.
-     * Format: "url\u001Flang" per line.
+     * Parse the serialized audio tracks. Same format as [parseSubtitleTracks].
      */
-    fun parseAudioTracks(): List<Pair<String, String>> {
-        if (audioTracksSerialized.isBlank()) return emptyList()
+    fun parseAudioTracks(): List<WatchTrack> = parseTracks(audioTracksSerialized)
+
+    private fun parseTracks(serialized: String): List<WatchTrack> {
+        if (serialized.isBlank()) return emptyList()
         val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
-        return audioTracksSerialized.split("\n").mapNotNull { line ->
-            val parts = line.split(delim, limit = 2)
-            if (parts.size == 2) Pair(parts[0], parts[1]) else null
+        return serialized.split("\n").mapNotNull { line ->
+            val parts = line.split(delim, limit = 3)
+            when {
+                parts.size >= 3 -> WatchTrack(parts[0], parts[1], parts[2].ifBlank { null })
+                parts.size == 2 -> WatchTrack(parts[0], parts[1])
+                else -> null
+            }
         }
     }
 
@@ -159,6 +159,20 @@ data class SimpleEpisode(
     val url: String,
     val episodeNumber: Float,
     val name: String,
+)
+
+/**
+ * One external subtitle/audio track parsed from [WatchKey.subtitleTracksSerialized] /
+ * [WatchKey.audioTracksSerialized].
+ *
+ * Task 48 (per-track subtitle headers): [headers] is the MPV csv form
+ * ("Key: Value,…") when the serialized line carried a third field — null means
+ * "use the parent video's headers" (the legacy behavior).
+ */
+data class WatchTrack(
+    val url: String,
+    val lang: String,
+    val headers: String? = null,
 )
 
 /** Episode metadata for the watch page (passed from DetailsScreen via WatchKey). */

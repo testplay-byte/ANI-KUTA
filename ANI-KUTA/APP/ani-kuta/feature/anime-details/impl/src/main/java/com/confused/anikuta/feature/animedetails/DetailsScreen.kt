@@ -1176,8 +1176,18 @@ fun DetailsScreen(
                     // Serialize subtitle + audio tracks from the picked video.
                     // CRITICAL: Carrying these directly ensures subtitles are always
                     // available in WatchScreen (no ResolvedVideosRegistry lookup).
-                    val subTracksStr = video.subtitleTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
-                    val audioTracksStr = video.audioTracks.joinToString("\n") { "${it.url}${delim}${it.lang}" }
+                    // Task 48 (per-track subtitle headers): a track that carries its
+                    // own required headers (MPV csv form) gets an optional third
+                    // field — header-less tracks serialize in the legacy 2-field
+                    // format so every parser keeps working.
+                    val subTracksStr = video.subtitleTracks.joinToString("\n") {
+                        if (it.headers.isNullOrBlank()) "${it.url}${delim}${it.lang}"
+                        else "${it.url}${delim}${it.lang}${delim}${it.headers}"
+                    }
+                    val audioTracksStr = video.audioTracks.joinToString("\n") {
+                        if (it.headers.isNullOrBlank()) "${it.url}${delim}${it.lang}"
+                        else "${it.url}${delim}${it.lang}${delim}${it.headers}"
+                    }
                     Logger.i("Anikuta:Feature:Details") {
                         "Subtitle tracks: ${video.subtitleTracks.size}, Audio tracks: ${video.audioTracks.size}"
                     }
@@ -1710,9 +1720,15 @@ private fun DetailBanner(
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                // Meta row: score · status · episode count
+                // Meta row: score · year · status · episode count
+                // Task 48 (device round 7): the year was missing next to the
+                // title (it only appeared in the bottom InfoSection). The
+                // user's report: "at the very top, just right of the title,
+                // it does not [show]". seasonYear is populated for both
+                // AniList entries and (since Task 46/47) CloudStream entries.
                 val metaParts = buildList {
                     anime.averageScore?.let { add("\u2605 $it%") }
+                    anime.seasonYear?.let { add(it.toString()) }
                     anime.status?.let { add(it.replace("_", " ").lowercase().replaceFirstChar { c -> c.uppercase() }) }
                     anime.episodes?.let { add("$it eps") }
                 }

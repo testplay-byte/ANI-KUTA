@@ -137,12 +137,15 @@ class SingleConnectionFetcher(
             // re-resolve BEFORE re-throwing. The extension's proxy URL contains a
             // token that may be IP-bound / session-bound / expired. Re-resolving
             // gets a fresh token from the extension → retry.
+            // Task 48 (CS downloads): short-TTL CloudStream links (linkRotates)
+            // self-heal through the same path when they 403.
             val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
-            if (isLocalhost && resolveContextJson != null && reResolver != null
+            val linkRotates = resolveContextLinkRotates(resolveContextJson)
+            if ((isLocalhost || linkRotates) && resolveContextJson != null && reResolver != null
                 && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
             ) {
                 DownloadLogger.w {
-                    "HttpException ${e.code} on localhost URL — attempting re-resolve " +
+                    "HttpException ${e.code} on ${if (isLocalhost) "localhost" else "rotating"} URL — attempting re-resolve " +
                         "(attempt ${reResolveAttempts + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${e.message}"
                 }
                 val fresh = reResolver.reResolve(resolveContextJson)
@@ -169,12 +172,15 @@ class SingleConnectionFetcher(
             // ── Proxy-churn fix (REVIEW-5 M15) ──
             // D-149-fix: also guard on http://127.0.0.1 (some extensions use this
             // instead of localhost — see lessons-learned D-092).
+            // Task 48 (CS downloads): short-TTL CloudStream links (linkRotates)
+            // self-heal through the same path.
             val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
-            if (isLocalhost && resolveContextJson != null && reResolver != null
+            val linkRotates = resolveContextLinkRotates(resolveContextJson)
+            if ((isLocalhost || linkRotates) && resolveContextJson != null && reResolver != null
                 && reResolveAttempts < MAX_RE_RESOLVE_ATTEMPTS
             ) {
                 DownloadLogger.w {
-                    "IOException on localhost URL — attempting re-resolve " +
+                    "IOException on ${if (isLocalhost) "localhost" else "rotating"} URL — attempting re-resolve " +
                         "(attempt ${reResolveAttempts + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${e.message}"
                 }
                 val fresh = reResolver.reResolve(resolveContextJson)
@@ -195,11 +201,11 @@ class SingleConnectionFetcher(
                     )
                 }
             }
-            if (isLocalhost && reResolveAttempts >= MAX_RE_RESOLVE_ATTEMPTS) {
+            if ((isLocalhost || linkRotates) && reResolveAttempts >= MAX_RE_RESOLVE_ATTEMPTS) {
                 throw DownloadException(
-                    "Proxy URL died after $MAX_RE_RESOLVE_ATTEMPTS re-resolve attempt(s) — " +
-                        "the extension's proxy server is being churned by another playback. " +
-                        "Original cause: ${e.message ?: e.javaClass.simpleName}",
+                    "Source URL died after $MAX_RE_RESOLVE_ATTEMPTS re-resolve attempt(s) — " +
+                        "the link expired (rotating host) or the extension's proxy server is being " +
+                        "churned by another playback. Original cause: ${e.message ?: e.javaClass.simpleName}",
                     e,
                 )
             }

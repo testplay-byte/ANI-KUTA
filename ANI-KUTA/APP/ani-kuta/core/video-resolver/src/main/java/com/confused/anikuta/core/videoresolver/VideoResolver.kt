@@ -84,8 +84,12 @@ class VideoResolver {
                     quality = extractQuality(video.videoTitle),
                     directUrl = video.videoUrl,
                     headers = formatHeaders(video.headers),
-                    subtitleTracks = video.subtitleTracks.map { ResolverSubtitleTrack(it.url, it.lang) },
-                    audioTracks = video.audioTracks.map { ResolverSubtitleTrack(it.url, it.lang) },
+                    subtitleTracks = video.subtitleTracks.map {
+                        ResolverSubtitleTrack(it.url, it.lang, trackHeadersCsv(it.headers))
+                    },
+                    audioTracks = video.audioTracks.map {
+                        ResolverSubtitleTrack(it.url, it.lang, trackHeadersCsv(it.headers))
+                    },
                 )
             }
 
@@ -220,6 +224,17 @@ class VideoResolver {
     }
 
     /**
+     * Task 48 (per-track subtitle headers): a [eu.kanade.tachiyomi.animesource.model.Track]'s
+     * header map → the MPV csv format ("Key: Value,Key2: Value2") the rest of
+     * the pipeline speaks; null/empty maps stay null (→ parent video headers).
+     */
+    private fun trackHeadersCsv(headers: Map<String, String>?): String? {
+        if (headers.isNullOrEmpty()) return null
+        return headers.entries.joinToString(",") { "${it.key}: ${it.value}" }.
+            ifEmpty { null }
+    }
+
+    /**
      * Group video entries into a 3-tier server/audio/quality hierarchy.
      *
      * Server name priority:
@@ -255,10 +270,10 @@ class VideoResolver {
                             videoTitle = title,
                             videoHeaders = formatHeaders(video.headers),
                             subtitleTracks = video.subtitleTracks.map {
-                                ResolverSubtitleTrack(it.url, it.lang)
+                                ResolverSubtitleTrack(it.url, it.lang, trackHeadersCsv(it.headers))
                             },
                             audioTracks = video.audioTracks.map {
-                                ResolverSubtitleTrack(it.url, it.lang)
+                                ResolverSubtitleTrack(it.url, it.lang, trackHeadersCsv(it.headers))
                             },
                         )
                     },

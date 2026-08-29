@@ -638,11 +638,21 @@ fun httpsify(url: String): String =
 /** Parses a POST form action out of an HTML page (runtime helper — not wired yet). */
 suspend fun getPostForm(requestUrl: String, html: String): String? = null
 
-/** Extractor-relative URL joiner (mirrors the MainAPI.fixUrl contract). */
+/**
+ * Extractor-relative URL joiner. Task 48: aligned with upstream
+ * (ExtractorApi.kt:1397-1415) — `http*` prefixes pass through, protocol-
+ * relative gets `https:`, leading `/` joins, everything else is
+ * `$mainUrl/$url`. (The old `contains("://")` leniency deviated from the
+ * contract plugins are compiled against.)
+ */
 fun ExtractorApi.fixUrl(url: String): String {
-    if (url.isBlank()) return url
-    if (url.contains("://") || url.startsWith("//") || url.startsWith("{\"") || url.startsWith("[")) return url
-    return mainUrl.trimEnd('/') + "/" + url.trimStart('/')
+    if (url.startsWith("http") || url.startsWith("{\"")) return url
+    if (url.isEmpty()) return ""
+    return when {
+        url.startsWith("//") -> "https:$url"
+        url.startsWith('/') -> mainUrl + url
+        else -> "$mainUrl/$url"
+    }
 }
 
 /** Removes https:// and www. */

@@ -72,8 +72,14 @@ data class ResolverVideo(
 /**
  * A subtitle or audio track from the Video object.
  * Used for external track loading via MPV's sub-add/audio-add commands.
+ *
+ * @param headers Task 48 (per-track subtitle headers): MPV csv format
+ *    ("Key: Value,Key2: Value2") the track's URL requires — some hosts 403
+ *    subtitle fetches without the right Referer/UA. Null → the parent
+ *    video's headers are used (the previous behavior).
  */
 data class ResolverSubtitleTrack(
     val url: String,
     val lang: String = "",
+    val headers: String? = null,
 )

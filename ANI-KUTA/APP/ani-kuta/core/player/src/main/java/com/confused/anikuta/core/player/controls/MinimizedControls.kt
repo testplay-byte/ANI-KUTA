@@ -28,6 +28,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import com.confused.anikuta.core.player.PlayerHaptic
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -75,7 +77,10 @@ fun MinimizedControls(
     onRetry: () -> Unit = {},
     onDismissError: () -> Unit = {},
     modifier: Modifier = Modifier,
+    // Task 48 (playback haptics): gated by PlayerPreferences.hapticFeedback.
+    hapticsEnabled: Boolean = false,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val controlsVisible by stateHolder.controlsVisible.collectAsState()
     val isPlaying by stateHolder.isPlaying.collectAsState()
     val position by stateHolder.position.collectAsState()
@@ -105,6 +110,7 @@ fun MinimizedControls(
                         }
                         when (zone) {
                             DoubleTapZone.LEFT -> {
+                                if (hapticsEnabled) PlayerHaptic.SEEK_TICK.perform(context)
                                 onSeekRelative(-10)
                                 scope.launch {
                                     doubleTapAnim = DoubleTapFeedback.Rewind
@@ -115,6 +121,7 @@ fun MinimizedControls(
                                 }
                             }
                             DoubleTapZone.RIGHT -> {
+                                if (hapticsEnabled) PlayerHaptic.SEEK_TICK.perform(context)
                                 onSeekRelative(10)
                                 scope.launch {
                                     doubleTapAnim = DoubleTapFeedback.Forward
@@ -125,6 +132,9 @@ fun MinimizedControls(
                                 }
                             }
                             DoubleTapZone.CENTER -> {
+                                if (hapticsEnabled) {
+                                    PlayerHaptic.PLAY_PAUSE_TOGGLE.perform(context)
+                                }
                                 onTogglePlay()
                                 scope.launch {
                                     doubleTapAnim = if (isPlaying) DoubleTapFeedback.Pause else DoubleTapFeedback.Play
@@ -304,7 +314,12 @@ fun MinimizedControls(
                         .align(Alignment.Center)
                         .size(72.dp)
                         .pointerInput(Unit) {
-                            detectTapGestures { onTogglePlay() }
+                            detectTapGestures {
+                                if (hapticsEnabled) {
+                                    PlayerHaptic.PLAY_PAUSE_TOGGLE.perform(context)
+                                }
+                                onTogglePlay()
+                            }
                         },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -338,6 +353,8 @@ fun MinimizedControls(
                         bufferAheadTime = bufferAheadTime,
                         onSeekTo = onSeekTo,
                         modifier = Modifier.weight(1f),
+                        // Task 48 (playback haptics)
+                        hapticsEnabled = hapticsEnabled,
                     )
                     Box(modifier = Modifier.width(8.dp))
                     TransparentIconButton(

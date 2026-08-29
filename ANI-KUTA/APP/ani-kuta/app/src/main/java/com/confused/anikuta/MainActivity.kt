@@ -1321,6 +1321,12 @@ private fun handleDownloadSpecificVideo(
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleDownloadSpecificVideo — no mainId"
                 }
+                // Task 48 (CS downloads): this was a SILENT return — a download
+                // tapped before the details page finished registering the content
+                // (the mainId race) did nothing at all. Tell the user instead.
+                showDownloadToast(
+                    "Download not ready yet — the content is still loading. Try again in a moment.",
+                )
                 return@launch
             }
 
@@ -1328,6 +1334,9 @@ private fun handleDownloadSpecificVideo(
                 com.confused.anikuta.core.common.Logger.w("MainActivity") {
                     "handleDownloadSpecificVideo — no content for mainId=$mainId"
                 }
+                showDownloadToast(
+                    "Download not ready yet — the content is still loading. Try again in a moment.",
+                )
                 return@launch
             }
             // D-198: getAniListDetail + getExtensionDetail → getContentDetails.

@@ -3,6 +3,8 @@ package com.confused.anikuta.core.player
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +46,14 @@ class PlayerStateHolder {
 
     companion object {
         private const val TAG = "Anikuta:Core:Player:State"
+
+        /**
+         * Task 48: how long a deferred (during-switch) error waits for the
+         * switch to complete before surfacing. Must stay well under the 30s
+         * switching-timeout watchdog; 8s covers slow first-byte hosts while
+         * surfacing a dead swapped link 3-4x sooner than the old 30s wait.
+         */
+        private const val DEFERRED_ERROR_GRACE_MS = 8_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob())
@@ -83,6 +93,28 @@ class PlayerStateHolder {
     @Volatile
     var autoRetryAttempted: Boolean = false
         private set
+
+    // ── Task 48: error GENERATION counter ──
+    // Increments on every SURFACED error event (updateError with a real
+    // message, or setSwitchingError). The watch screen's recovery ladder
+    // keys its effect on (errorMessage, errorGeneration) so that a SECOND
+    // failure with the IDENTICAL message string (e.g. the same 403 twice in
+    // a row from the same URL) still re-triggers the ladder — a plain
+    // LaunchedEffect(errorMessage) would not re-run for an unchanged string.
+    private val _errorGeneration = MutableStateFlow(0)
+    val errorGeneration: StateFlow<Int> = _errorGeneration.asStateFlow()
+
+    // ── Task 48: deferred switch-error surfacing ──
+    // While isSwitching, updateError() SUPPRESSES errors (the old file's
+    // teardown can fire a spurious efEvent). But if the error actually comes
+    // from the NEW file failing to load, the user used to wait for the 30s
+    // switching-timeout watchdog. The error is now DEFERRED: if the switch
+    // completes (switching cleared) within DEFERRED_ERROR_GRACE_MS it was
+    // spurious and is dropped; otherwise it is surfaced as a switching
+    // error (which also drives the recovery ladder's next step).
+    @Volatile
+    private var deferredSwitchError: String? = null
+    private var deferredErrorJob: kotlinx.coroutines.Job? = null
 
     // ── Playback state ──
     private val _isPlaying = MutableStateFlow(false)
@@ -174,7 +206,10 @@ class PlayerStateHolder {
     fun updateError(message: String?) {
         if (message != null) {
             if (_isSwitching.value) {
-                Logger.d(TAG) { "Error suppressed (switching): $message" }
+                // Task 48: defer instead of dropping — see deferredSwitchError.
+                Logger.d(TAG) { "Error deferred (switching): $message" }
+                deferredSwitchError = message
+                scheduleDeferredErrorSurfacing()
                 return
             }
             // Append HTTP error context if available.
@@ -186,6 +221,7 @@ class PlayerStateHolder {
             Logger.w(TAG) { "Error → $fullMessage" }
             _errorMessage.value = fullMessage
             _loadingState.value = PlayerLoadingState.ERROR
+            _errorGeneration.value++
         } else {
             Logger.d(TAG) { "Error cleared" }
             _errorMessage.value = null
@@ -193,6 +229,34 @@ class PlayerStateHolder {
                 _loadingState.value = PlayerLoadingState.READY
             }
         }
+    }
+
+    /**
+     * Task 48: starts (or restarts) the deferred-error grace timer. If the
+     * switching flag is still up when it expires, the deferred error is real
+     * (the new file failed) and is surfaced via [setSwitchingError].
+     */
+    private fun scheduleDeferredErrorSurfacing() {
+        deferredErrorJob?.cancel()
+        deferredErrorJob = scope.launch {
+            delay(DEFERRED_ERROR_GRACE_MS)
+            val deferred = deferredSwitchError
+            if (deferred != null && _isSwitching.value) {
+                Logger.w(TAG) { "Deferred switch error surfaced after ${DEFERRED_ERROR_GRACE_MS}ms: $deferred" }
+                setSwitchingError(deferred)
+            }
+        }
+    }
+
+    /**
+     * Task 48: clears a deferred error — called when a switch SUCCEEDS (the
+     * switching flag drops / loading reaches READY), meaning the pending
+     * error was the old file's spurious teardown event.
+     */
+    private fun clearDeferredError() {
+        deferredSwitchError = null
+        deferredErrorJob?.cancel()
+        deferredErrorJob = null
     }
 
     /**
@@ -215,7 +279,13 @@ class PlayerStateHolder {
             autoRetryAttempted = false
             // Reset bufferedEnough — the new video hasn't buffered yet.
             bufferedEnough = false
+            // Task 48: a fresh switch drops any stale deferred error — but the
+            // switch ITSELF may register a new one via updateError().
+            clearDeferredError()
         } else {
+            // Task 48: the switch completed successfully — any deferred error
+            // was the old file's teardown noise.
+            clearDeferredError()
             // Also clear episode-switch flag when clearing switching.
             _isSwitchingEpisode.value = false
         }
@@ -264,6 +334,7 @@ class PlayerStateHolder {
         Logger.w(TAG) { "Switching error: $message" }
         _isSwitching.value = false
         _isSwitchingEpisode.value = false
+        clearDeferredError()
         val fullMessage = if (httpError != null) {
             "$message\nHTTP: $httpError"
         } else {
@@ -271,6 +342,8 @@ class PlayerStateHolder {
         }
         _errorMessage.value = fullMessage
         _loadingState.value = PlayerLoadingState.ERROR
+        // Task 48: switching errors drive the recovery ladder too.
+        _errorGeneration.value++
     }
 
     /**
@@ -386,6 +459,7 @@ class PlayerStateHolder {
         _bufferAheadTime.value = 0
         _errorMessage.value = null
         httpError = null
+        clearDeferredError()
         _isSwitching.value = false
         _loadingState.value = PlayerLoadingState.READY
         _subtitleTracks.value = emptyList()

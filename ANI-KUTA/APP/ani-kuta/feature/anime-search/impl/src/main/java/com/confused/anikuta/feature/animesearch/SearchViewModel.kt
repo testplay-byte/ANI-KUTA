@@ -864,6 +864,16 @@ class SearchViewModel(
      * becomes its own titled row ("Latest Updated", "Most Popular", …), the
      * user's device round-3 request. Only a fully-empty browse renders the
      * ExtensionEmpty card.
+     *
+     * Task 48 (device round 7 — instant-open cache): the browse feed is served
+     * stale-while-revalidate from the repository's memory+disk cache:
+     * 1. a cached snapshot (ANY age) renders IMMEDIATELY — before the plugin
+     *    manager finishes loading, before any network IO. The user's report:
+     *    "keep the whole page cached so that it is instantaneous";
+     * 2. a FRESH snapshot (< 10 min) skips the network entirely;
+     * 3. a stale one refreshes in the background — on failure the cached feed
+     *    STAYS visible (a network hiccup must never blank a page we can
+     *    already show; errors only surface when there is no cache at all).
      */
     private fun loadCloudstreamPopular(): Job {
         val providerName = _selectedCsProvider.value
@@ -874,8 +884,35 @@ class SearchViewModel(
         }
 
         val gen = beginRequest()
-        _uiState.value = SearchUiState.Loading
         return viewModelScope.launch {
+            // ── Step 1: cache-first instant render (Task 48) ──
+            val cached = cloudstreamRepository.cachedBrowseSections(providerName)
+            if (cached != null && cached.isNotEmpty()) {
+                if (!isCurrent(gen)) return@launch
+                showingDefaults = true
+                _uiState.value = SearchUiState.ExtensionBrowseSuccess(
+                    sourceName = providerName,
+                    sections = cached.map { section ->
+                        ExtensionBrowseSection(
+                            title = section.title,
+                            results = section.items.map { it.toExtensionAnime() },
+                        )
+                    },
+                )
+                Logger.i(TAG) {
+                    "Browse cache HIT for '$providerName' — rendered ${cached.size} section(s) instantly"
+                }
+            } else {
+                if (!isCurrent(gen)) return@launch
+                _uiState.value = SearchUiState.Loading
+            }
+
+            // ── Step 2: fresh snapshot → no network at all ──
+            if (cached != null && cloudstreamRepository.browseIsFresh(providerName)) {
+                Logger.d(TAG) { "Browse cache fresh for '$providerName' — skipping network refresh" }
+                return@launch
+            }
+
             // Task 47: cold-start-safe provider resolution — the raw source
             // list legitimately starts empty at app start (WhileSubscribed
             // chain + activity-gated manager load); only a LOADED list may
@@ -885,6 +922,8 @@ class SearchViewModel(
             if (source == null) {
                 if (!isCurrent(gen)) return@launch
                 selectAniyomiKind(persist = true)
+                // Task 48: the provider is gone — drop its cached browse too.
+                cloudstreamRepository.invalidateBrowseCache(providerName)
                 _uiState.value = SearchUiState.ExtensionNotAvailable
                 return@launch
             }
@@ -903,6 +942,15 @@ class SearchViewModel(
                 if (_query.value.isNotBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
                 _uiState.value = if (sections.isEmpty()) {
+                    // Task 48: an empty refresh NEVER blanks a cached feed we
+                    // are already showing — only the no-cache path renders the
+                    // empty card.
+                    if (cached != null && cached.isNotEmpty()) {
+                        Logger.w(TAG) {
+                            "Browse refresh returned empty for '$providerName' — keeping cached feed"
+                        }
+                        return@launch
+                    }
                     // Task 45: pass the provider's site URL — the empty card's
                     // "Open in WebView" button needs it (round-4 report: the card
                     // said "solve it in the WebView" but offered no button).
@@ -926,6 +974,15 @@ class SearchViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (_query.value.isNotBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
+                // Task 48: a failed refresh NEVER blanks a cached feed we are
+                // already showing — log it and keep the user watching content.
+                if (cached != null && cached.isNotEmpty()) {
+                    Logger.w(TAG, e) {
+                        "Browse refresh failed for '$providerName' " +
+                            "(${e::class.java.simpleName}: ${e.message}) — keeping cached feed"
+                    }
+                    return@launch
+                }
                 // Task 45: Cloudflare blocks get the dedicated card WITH the
                 // "Open in WebView" action (the manual solve feeds cookies back
                 // through the system CookieManager — CloudflareKiller merges them).

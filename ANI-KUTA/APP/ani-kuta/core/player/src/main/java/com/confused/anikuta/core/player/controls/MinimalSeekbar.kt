@@ -55,7 +55,10 @@ fun MinimalSeekbar(
     bufferAheadTime: Int = 0,
     onSeekTo: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    // Task 48 (playback haptics): gated by PlayerPreferences.hapticFeedback.
+    hapticsEnabled: Boolean = false,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var scrubPosition by remember { mutableStateOf<Float?>(null) }
     var trackWidthPx by remember { mutableStateOf(0f) }
     val displayPosition = scrubPosition ?: position.toFloat().coerceAtLeast(0f)
@@ -88,6 +91,10 @@ fun MinimalSeekbar(
                     },
                     onDragEnd = {
                         scrubPosition?.let { onSeekTo(it.roundToInt()) }
+                        // Task 48: the scrub committed — confirm haptic.
+                        if (hapticsEnabled) {
+                            com.confused.anikuta.core.player.PlayerHaptic.SEEK_RELEASE.perform(context)
+                        }
                         scrubPosition = null
                     },
                     onDragCancel = {

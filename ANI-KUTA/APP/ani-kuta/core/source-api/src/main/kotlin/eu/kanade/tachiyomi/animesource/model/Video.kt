@@ -6,8 +6,21 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 
+/**
+ * An external subtitle/audio track.
+ *
+ * Task 48 (per-track subtitle headers): [headers] carries the HTTP headers the
+ * track's URL REQUIRES (some hosts 403 subtitle fetches without the right
+ * Referer/UA). Null/empty = fetch with the parent video's headers as before.
+ * The optional field keeps old serialized `Track` JSON (and aniyomi
+ * extensions constructing `Track(url, lang)`) compiling + decoding unchanged.
+ */
 @Serializable
-data class Track(val url: String, val lang: String)
+data class Track(
+    val url: String,
+    val lang: String,
+    val headers: Map<String, String>? = null,
+)
 
 @Serializable
 enum class ChapterType {

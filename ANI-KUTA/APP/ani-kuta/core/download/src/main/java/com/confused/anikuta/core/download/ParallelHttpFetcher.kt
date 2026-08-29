@@ -186,6 +186,10 @@ class ParallelHttpFetcher(
      * fresh URL + restart clean (truncate temp + delete sidecar — the fresh proxy
      * may serve different bytes or not honor ranges). Max 1 attempt. Returns null
      * when not eligible or the re-resolve itself failed (caller rethrows original).
+     *
+     * Task 48 (CS downloads): eligibility ALSO covers short-TTL CloudStream
+     * extractor links (resolveContext.linkRotates) — they 403 when the link
+     * expires mid-download and self-heal the same way.
      */
     private suspend fun tryReResolve(
         url: String,
@@ -197,13 +201,14 @@ class ParallelHttpFetcher(
         registry: CallRegistry,
     ): HttpDownloader.ReResolvedVideo? {
         val isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1")
-        if (!isLocalhost || resolveContextJson == null || reResolver == null ||
+        val linkRotates = resolveContextLinkRotates(resolveContextJson)
+        if ((!isLocalhost && !linkRotates) || resolveContextJson == null || reResolver == null ||
             reResolves >= MAX_RE_RESOLVE_ATTEMPTS
         ) {
             return null
         }
         DownloadLogger.w {
-            "ParallelHttpFetcher — ${error.javaClass.simpleName} on localhost URL; attempting " +
+            "ParallelHttpFetcher — ${error.javaClass.simpleName} on ${if (isLocalhost) "localhost" else "rotating"} URL; attempting " +
                 "re-resolve (attempt ${reResolves + 1}/$MAX_RE_RESOLVE_ATTEMPTS): ${error.message}"
         }
         // Release sibling workers blocked in reads (≤60s read timeout otherwise).

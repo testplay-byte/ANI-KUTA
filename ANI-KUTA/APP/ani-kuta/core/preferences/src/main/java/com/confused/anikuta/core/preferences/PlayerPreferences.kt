@@ -199,6 +199,15 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getBoolean(KEY_GESTURES, true)
         set(value) = store.putBoolean(KEY_GESTURES, value)
 
+    /**
+     * Task 48 (playback haptics): whether the player gives haptic feedback on
+     * its core interactions (double-tap seek, ±10s buttons, play/pause, scrub
+     * release). Default ON.
+     */
+    var hapticFeedback: Boolean
+        get() = store.getBoolean(KEY_HAPTICS, true)
+        set(value) = store.putBoolean(KEY_HAPTICS, value)
+
     /** Whether to use hardware decoding (legacy field, superseded by tryHwDecoding) */
     var hardwareDecoding: Boolean
         get() = store.getBoolean(KEY_HW_DECODE, true)
@@ -229,5 +238,6 @@ class PlayerPreferences(private val store: PreferenceStore) {
         private const val KEY_SUB_DELAY = "pref_subtitles_delay"
         private const val KEY_GESTURES = "player_gestures"
         private const val KEY_HW_DECODE = "player_hw_decode"
+        private const val KEY_HAPTICS = "player_haptic_feedback"
     }
 }

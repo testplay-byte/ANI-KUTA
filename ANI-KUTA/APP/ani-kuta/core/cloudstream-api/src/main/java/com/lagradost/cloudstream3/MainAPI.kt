@@ -653,6 +653,21 @@ fun <T> MainAPI.newEpisode(
     data: T,
     initializer: Episode.() -> Unit = { },
 ): Episode {
+    // Task 48 (device round 7 — THE playback root cause): real CloudStream
+    // special-cases String data here ("just in case java is wack" — upstream
+    // MainAPI.kt:2637-2652). Plugins compiled with the data argument statically
+    // typed as Object (verified in AniKoto/MovieBox smali: the call site is
+    // `newEpisode(MainAPI;Ljava/lang/Object;Function1)`) dispatch into THIS
+    // overload even when the runtime value is a String. Our previous blanket
+    // `toJson()` JSON-encoded such Strings — wrapping them in literal quotes
+    // (`"anikoto|https://…|token|sub"`) — so the provider's loadLinks received
+    // a quoted handle it could not parse (AniKoto: instant "no links";
+    // MovieBox: subjectId=%22… → data:null → play-info 400). Routing Strings
+    // through the url overload (which applies fixUrl, exactly like upstream)
+    // restores the upstream contract.
+    if (data is String) {
+        return newEpisode(url = data, initializer = initializer)
+    }
     val payload = data?.let { d -> with(com.lagradost.cloudstream3.utils.AppUtils) { d.toJson() } }
         ?: throw ErrorLoadingException("invalid newEpisode")
     val builder = Episode(data = payload)
@@ -733,19 +748,32 @@ fun MainAPI.fixUrlNull(url: String?): String? {
 }
 
 /**
- * Joins a possibly-relative URL onto [MainAPI.mainUrl]. Absolute URLs, protocol-relative
- * URLs, and JSON payloads are passed through unchanged.
+ * Joins a possibly-relative URL onto [MainAPI.mainUrl].
+ *
+ * Task 48: aligned with upstream semantics (upstream MainAPI.kt:742-761) —
+ * only `http*` prefixes pass through untouched; protocol-relative `//x`
+ * becomes `https://x`; a leading `/` joins onto mainUrl; EVERYTHING else is
+ * prefixed `$mainUrl/$url`. That last rule is load-bearing for playback:
+ * providers' loadLinks EXPECT fixUrl'd opaque handles (AniKoto checks
+ * `startsWith("$mainUrl/anikoto|")`; MovieBox parses the mainUrl-prefixed
+ * form via `substringAfterLast('/')`). The previous `contains("://")`
+ * leniency passed handles like `anikoto|https://…` through un-prefixed.
+ * The `magnet:`/`data:` pass-throughs are our safety superset over upstream
+ * (upstream would mainUrl-prefix them; nothing depends on that behavior).
  */
 fun MainAPI.fixUrl(url: String): String {
-    if (url.isBlank()) return url
-    // Absolute (any scheme), protocol-relative, or embedded JSON payloads stay untouched.
-    if (url.contains("://") || url.startsWith("//") || url.startsWith("{\"") || url.startsWith("[") ||
+    if (url.startsWith("http") ||
+        url.startsWith("{\"") || url.startsWith("[") ||
         url.startsWith("magnet:") || url.startsWith("data:")
     ) {
         return url
     }
-    if (url.startsWith("#") || url.startsWith("?")) return mainUrl.trimEnd('/') + url
-    return mainUrl.trimEnd('/') + "/" + url.trimStart('/')
+    if (url.isEmpty()) return ""
+    return when {
+        url.startsWith("//") -> "https:$url"
+        url.startsWith('/') -> mainUrl + url
+        else -> "$mainUrl/$url"
+    }
 }
 
 /** Sort the urls based on quality (descending). */

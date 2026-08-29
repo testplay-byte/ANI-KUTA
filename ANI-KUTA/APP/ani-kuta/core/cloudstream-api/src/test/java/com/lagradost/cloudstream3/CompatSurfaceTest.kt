@@ -99,7 +99,9 @@ class CompatSurfaceTest {
         val provider = TestProvider()
         assertEquals("https://other.com/x", provider.fixUrl("https://other.com/x"))
         assertEquals("http://other.com/x", provider.fixUrl("http://other.com/x"))
-        assertEquals("//cdn.example.com/x", provider.fixUrl("//cdn.example.com/x"))
+        // Task 48: protocol-relative is https-ified (upstream MainAPI.kt:753-755),
+        // NOT passed through untouched.
+        assertEquals("https://cdn.example.com/x", provider.fixUrl("//cdn.example.com/x"))
         assertEquals("magnet:?xt=urn:btih:abc", provider.fixUrl("magnet:?xt=urn:btih:abc"))
     }
 
@@ -108,6 +110,43 @@ class CompatSurfaceTest {
         val provider = TestProvider()
         assertEquals("""{"id": 1}""", provider.fixUrl("""{"id": 1}"""))
         assertEquals("""[1,2]""", provider.fixUrl("""[1,2]"""))
+    }
+
+    // Task 48 (device round 7): opaque episode-data handles get the mainUrl
+    // prefix — upstream fixUrl semantics that providers' loadLinks PARSE
+    // (AniKoto: startsWith("$mainUrl/anikoto|"); MovieBox: substringAfterLast('/')).
+    @Test
+    fun fixUrl_prefixesOpaqueHandles() {
+        val provider = TestProvider()
+        assertEquals(
+            "https://example.com/anikoto|https://anikototv.to/watch/x|token|sub",
+            provider.fixUrl("anikoto|https://anikototv.to/watch/x|token|sub"),
+        )
+        assertEquals(
+            "https://example.com/4977819452529168144|2|16",
+            provider.fixUrl("4977819452529168144|2|16"),
+        )
+    }
+
+    // Task 48 (device round 7): THE playback root cause — the generic
+    // newEpisode must route String data through the url overload (upstream
+    // "just in case java is wack" branch), NOT JSON-encode it. The
+    // JSON-quoted handle made every provider's loadLinks fail to parse its
+    // own data (AniKoto instant "no links"; MovieBox subjectId=%22… → 400).
+    @Test
+    fun newEpisode_genericStringData_isNotJsonQuoted() {
+        val provider = TestProvider()
+        val data: Any = "anikoto|https://anikototv.to/watch/x|token|sub"
+        val episode = with(provider) { newEpisode(data) }
+        assertEquals("https://example.com/anikoto|https://anikototv.to/watch/x|token|sub", episode.data)
+    }
+
+    @Test
+    fun newEpisode_genericObjectData_isJsonEncoded() {
+        val provider = TestProvider()
+        data class Payload(val id: String)
+        val episode = with(provider) { newEpisode(Payload("xyz") as Any) }
+        assertEquals("""{"id":"xyz"}""", episode.data)
     }
 
     // ── base64 ──────────────────────────────────────────────────────────────

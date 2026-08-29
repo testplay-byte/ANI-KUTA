@@ -49,8 +49,31 @@ object AndroidConfig {
     // real P.A.C.K.E.R. unpacker, the real M3u8Helper (master→variant fan-out),
     // built-in extractor registration at manager init, getHosterList
     // fast-fallback, and per-source video-list timeouts (CS 5s–8min clamp).
-    const val versionCode = 68
-    const val versionName = "0.2.68"
+    // Task 48 (device round 7 — PLAYBACK FIXED + resilience): 0.2.69 — THE
+    // loadLinks root cause: the shim's generic newEpisode JSON-quoted every
+    // String episode-data handle (upstream special-cases String — "just in
+    // case java is wack"; AniKoto's loadLinks got "anikoto|…" with literal
+    // quotes → instant "no links"; MovieBox subjectId=%22… → data:null →
+    // play-info 400), fixUrl aligned to upstream semantics (http*-prefix
+    // pass-through; opaque handles get the mainUrl prefix providers PARSE),
+    // bridge getVideoList strips quotes from v0.2.68-cached episodes
+    // (defensive heal); search-page INSTANT browse cache (memory + disk
+    // snapshot, stale-while-revalidate — a cached feed renders before the
+    // plugin manager even finishes loading; refresh failures never blank a
+    // shown page); year now in the details header meta row next to the title;
+    // the playback 403 RECOVERY LADDER (same-URL retry → pinned-link
+    // re-resolve → next mirror — position preserved; deferred switch-error
+    // surfacing at 8s instead of the 30s timeout); per-track subtitle headers
+    // end-to-end (CS SubtitleFile.headers → Track → Resolver → WatchKey wire
+    // format → SubtitleEngine per-request headers); CS DOWNLOADS (bit-62
+    // sources mint a rotating-link ResolveContext — expired extractor links
+    // self-heal mid-download via the existing ReResolver machinery; download
+    // mainId race now toasts instead of silently no-op'ing; subtitle track
+    // header parsing uses the comma-smart parser); playback HAPTICS (seek
+    // ticks, play/pause clicks, scrub-release confirms — gated by the new
+    // player_haptic_feedback preference, default ON).
+    const val versionCode = 69
+    const val versionName = "0.2.69"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
