@@ -6,6 +6,7 @@
 // GPL code we do not copy). Plugin settings storage via these keys WORKS in this
 // host — the "highly customizable later" direction from gate G4.
 @file:Suppress("ktlint", "DEPRECATION_ERROR")
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
 
 package com.lagradost.cloudstream3.utils
 
