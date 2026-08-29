@@ -630,3 +630,10 @@ after living with the Cloud tab.
 *End of doc 20 — the roadmap. Inputs: docs 00–19 (research + plans 16–19 normative).
 Next consumer: the B5 implementation sessions, which should start at §1's gate table and §2's
 spike checklist.*
+
+---
+## ✔ B5-b Verification Note (2026-08-29)
+Checked: 10 fresh-forensics claims + 6 cross-doc consistency checks → all verified, 0 corrected, 0 flagged-stale. Consistency: ok.
+Corrections: none.
+Fresh forensics re-verified: `research/phisher-builds/` = exactly **80 `.cs3`** + repo.json + plugins.json; AllMovieLandProvider.cs3 = 57,618 bytes, manifest `{"pluginClassName":"com.phisher98.AllMovieLandProviderPlugin","name":"AllMovieLandProvider","version":23,"requiresResources":false}`, sha256 `938e5d6b1a41f3f625384a9cd559811b63528da0c3cc26c8adca2efbf0cc65c9` **matching plugins.json `fileHash` byte-for-byte**, status 1, tvTypes [Movie, TvSeries, Cartoon], language "hi"; Animeav1 + Latanime plugins.json entries status 1; binary census on the three spike candidates = 0/3 CommonActivity/gson/DataStore refs (library-only); CakesTwix-ext + storm-ext clones contain no `.cs3`; CakesTwix remote = `https://github.com/CakesTwix/cloudstream-extensions-uk.git`.
+Cross-doc consistency confirmed: (1) episode-key scheme — doc 17 §3.3 (`mainId|%05d` global / `mainId|S02E00005` seasoned, `S02E05` filenames) = doc 19 §3.4/§6.4 ("canonical season-qualified key", `"${title} - S02E05.mp4"`) = doc 20 WP2.4/WP4.4; (2) SourceVideo extension — doc 16 §4.2 field list = doc 19 §1.1 (+ its own `qualityHeight` addition, explicitly marked) = doc 20 WP1.2; (3) registry refactor steps — doc 16 §5.3 steps 1-3 → doc 20 Phase 1, steps 4-5 → Phase 2, step 6 deferred (doc 20 §0 states the mapping); (4) UI phases — doc 18 §10 ↔ doc 20 Phases 1/2/3/5, same mapping stated in both; (5) v1 non-goals — doc 19 §9 ⊂ doc 20 §11 (accumulation, no contradictions); (6) GPL — doc 16 §9/§10-R1 = doc 20 G1 (GPL-3.0, no library LICENSE, ANI-KUTA unlicensed, relicense recommendation). The G1-G14 gates all trace to doc 16 §11 / doc 17 §11 / doc 18 §11 / doc 19 §11 items as claimed; effort figures are marked [plan] throughout.

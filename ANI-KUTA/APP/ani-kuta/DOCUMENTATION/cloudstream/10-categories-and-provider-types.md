@@ -78,7 +78,7 @@ Model (app side, parsed by `RepositoryManager`):
 
 - `tvTypes` holds **TvType enum names as raw strings** (`"Movie"`, `"TvSeries"`, `"Live"`,
   `"NSFW"`, …). Unknown values are tolerated — they simply never match a filter chip (see §2.5).
-  Fresh census of phisher's 80 entries: 13 distinct values, of which **two are non-enum** — the
+  Fresh census of phisher's 80 entries: **12** distinct values (corrected by B5-a: original said 13), of which **two are non-enum** — the
   sentinel `"All"` (AllWish, Ultima) and a malformed comma-joined single string
   `"Movie,Anime,Cartoon"` (Megakino, i.e. someone hand-joined an array); both are filter-inert.
   (Doc 04:233 called `"Cartoon"` non-enum — that's an error in doc 04: `Cartoon` IS a TvType,
@@ -101,7 +101,8 @@ Model (app side, parsed by `RepositoryManager`):
 
 **Practical conventions** (phisher-builds, 80 plugins — computed census, [verified]):
 - Languages seen: `en`×32, `hi`×27, `de`×4, `id`×4, `mx`×2, `zh`×2, `bn`×2, `ta`×2, `fr`×1,
-  `te`×1, `pt-br`×1, `ko`×1. Note **`mx` is a country code, not a language tag** and `pt-br` is
+  `te`×1, `pt-br`×1, `ko`×1, `fil`×1 (the `fil` entry was omitted by the original census — added by
+  B5-a; the counts sum to 80). Note **`mx` is a country code, not a language tag** and `pt-br` is
   full BCP-47 — tags are dirty in the wild (see §4).
 - Most common `tvTypes` arrays: `["Movie","TvSeries"]`×20, `["AnimeMovie","Anime","Cartoon"]`×11,
   `["AnimeMovie","Anime","OVA"]`×6, `["Live"]`×4, `["AsianDrama","TvSeries","Movie"]`×3,
@@ -432,8 +433,10 @@ has a regex checker (`SubH:234-250`).
 
 **Reality is dirtier**: `"mx"` (a country code) is used by **all 27 Spanish-language storm-ext
 providers** (e.g. `DoramasFlixProvider.kt:26`, `AnimeflvnetProvider.kt:27`,
-`MonoschinosProvider.kt:12` — grep `lang = "mx"` = 27 files, zero use `"es"`) and
-appears twice in phisher's index; `pt-br` is full BCP-47; CakesTwix uses clean `"uk"`. Because the
+`MonoschinosProvider.kt:12` — grep `lang = "mx"` = 27 files) and
+appears twice in phisher's index. **B5-a correction: the original claim "zero use `"es"`" is
+wrong — 7 storm-ext providers use a clean `lang = "es"`** (JKAnime, Seriesflix, HDFull,
+PeliculasFlix, TioAnime, MundoDonghua, DocumaniaTV). `pt-br` is full BCP-47; CakesTwix uses clean `"uk"`. Because the
 lookup returns null, the UI degrades to the raw string: `getNameNextToFlagEmoji(lang) ?: lang`
 (`SP:116`, `PA:169`). [verified]
 
@@ -675,9 +678,11 @@ construction. [verified]
 - Whether any real plugin relies on the `"All"` tvTypes manifest sentinel meaning something
   (it matches nothing in any filter; possibly a legacy or aspirational value). [inferred]
 - Doc 03:240 cites a `supportedTypes = setOf(TvType.Live)` example at
-  `extensions/TwitchProvider/.../TwitchProvider.kt:30` — that path is not in this research
-  snapshot (no `extensions/` module in the tree); the citation is inherited from doc 03 and not
-  re-verified here. [docs]
+  `extensions/TwitchProvider/.../TwitchProvider.kt:30` — **B5-a correction: that clone DOES exist
+  in the research snapshot** (as the sibling clone `research/extensions/`, not a module inside
+  `research/cloudstream/`); the citation was re-verified and is correct (`supportedTypes =
+  setOf(TvType.Live)` at TwitchProvider.kt:30). The original claim "no `extensions/` module in
+  the tree" only held for the `cloudstream/` repo itself. [verified]
 - The `search_type_list` pref (`getApiTypeSettings`, `ACU:412-428`) being dead code is verified by
   grep (zero callers) — but it may be live in some fork; "dead" is only claimed for this snapshot.
 - Behavior of `AutoDownloadMode.NsfwOnly` *combined with* `enableAdult=false` is read as
@@ -686,3 +691,13 @@ construction. [verified]
 - Home chip visibility: chips are limited to types that *installed providers* declare
   (`HF:544`) — with zero providers with `hasMainPage`, the dialog shows only None/Random; this
   edge case was reasoned from code, not run. [inferred]
+
+---
+## ✔ B5-a Verification Note (2026-08-29)
+Checked: 34 claims sampled → 30 verified, 4 corrected, 0 flagged-stale.
+Corrections:
+1. §1.1: distinct `tvTypes` values in phisher's 80 entries = **12**, not 13 (python census: All, Anime, AnimeMovie, AsianDrama, Cartoon, Live, Movie, "Movie,Anime,Cartoon", Music, OVA, Torrent, TvSeries).
+2. §1.1: language census omitted `fil`×1 (counts now sum to 80: en×32, hi×27, de×4, id×4, mx×2, zh×2, bn×2, ta×2, fr×1, te×1, pt-br×1, ko×1, fil×1).
+3. §4: "zero use `"es"`" is **wrong** — 7 storm-ext providers use `lang = "es"` (JKAnime, Seriesflix, HDFull, PeliculasFlix, TioAnime, MundoDonghua, DocumaniaTV) alongside the 27 that use `"mx"`.
+4. §9: "no `extensions/` module in the tree" is **wrong** — `research/extensions/` exists as a sibling clone; doc 03's TwitchProvider.kt:30 citation re-verified correct.
+Confirmed (incl. all high-value targets): **the 3-layer model** (repo manifest tvTypes/language strings never parsed into the runtime provider; provider-level `supportedTypes`/`providerType`/`lang`/`vpnStatus`/`supportedSyncNames` drive filtering; per-response `type` drives layout/player behavior; no cross-validation between layers — verified across RepositoryManager, ACU filter, RVM2/CS3IP consumers); **DataStore/SharedPreferences key names** all exact (`provider_lang_key`, `prefer_media_type_key`→literal `prefer_media_type_key_2` @ donottranslate-strings.xml:61, `display_sub_key`, `enable_nsfw_on_providers_key`, `auto_download_plugins_key2`, `auto_update_plugins`, `filter_sub_lang_key`; DataStore: `home_pref_homepage`, `search_pref_tags`, `search_pref_providers`, `user_pinned_providers`, `home_api_used` @ DSH:60/98/121/131); **ordinal comparison** (`filterProviderByPreferredMedia` compares `it.ordinal` against Int-parsed prefs with the classloader-fuckery workaround at ACU:448-459 — re-read verbatim); **NSFW dual-switch** (MainActivity:1192-1196 pushes `enable_nsfw_on_providers_key`→`settingsForProvider.enableAdult`, sole consumer = auto-download filter PM:393-398; visibility everywhere else via NSFW-ordinal-excluded preferred-media default; player never saves NSFW watch progress GP:1728-1731); chip grouping map `getPairList` at HF:280-305 exact (10 chips); tvTypes census arrays (`["Movie","TvSeries"]`×20, anime trio ×11, `["AnimeMovie","Anime","OVA"]`×6, `["Live"]`×4, `["AsianDrama","TvSeries","Movie"]`×3 via LayarKaca/MPlayer/OHLI24, `["All"]`×2 = AllWish+Ultima, Megakino malformed); storm `lang="mx"` = 27 files; `search_type_list`/`getApiTypeSettings` dead (zero callers); `isAudioType()` zero app callers; AutoDownloadMode enum + PM:340-418 gate order; settings_providers.xml key bindings; `filter_sub_lang_key` `mutableSetOf("en")` fallback inconsistency at GP:2264-2273.

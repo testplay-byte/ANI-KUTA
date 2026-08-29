@@ -725,7 +725,7 @@ extractors always shadow built-ins with the same `mainUrl`** (doc 03 §5 says th
 same: "plugin extractors shadow built-ins"). Unloading removes them by
 `sourcePlugin` (`PM:713-715`).
 
-Real-world example — storm-ext's AnimeJlProvider registers 60+ extractors in its
+Real-world example — storm-ext's AnimeJlProvider registers **57** extractors (count corrected by B5-a: original said "60+"; `grep -c registerExtractorAPI` = 57) in its
 plugin class `load()` (elided):
 
 ```kotlin
@@ -961,3 +961,10 @@ Our current pipeline (`AK/`):
 - `LOADTYPE_INAPP_DOWNLOAD` excludes DASH "no support at the moment"
   (`EA:414-424` KDoc) — download-side enforcement was not traced beyond
   `DM:1482-1484` (which also rejects TORRENT/MAGNET/DASH).
+
+---
+## ✔ B5-a Verification Note (2026-08-29)
+Checked: 32 claims sampled → 31 verified, 1 corrected, 0 flagged-stale.
+Corrections:
+1. §6.1: AnimeJlProviderPlugin registers **57** extractors, not "60+" (grep count of `registerExtractorAPI` calls). Fixed inline.
+Confirmed (incl. all high-value targets): **registry = 321 instances / 97 direct `ExtractorApi()` classes** (both counts independently reproduced: 321 `Name(),` entries in `EA:985-1343`, 97 `: ExtractorApi(` declarations across the extractors dir — note doc 05 previously said "~250", corrected there); **URL resolution = reverse-order registry walk, schema-stripped prefix match on `mainUrl`, then fuzzy second pass `Levenshtein.partialRatio > 80`** (EA:931-983 re-read; `schemaStripRegex` at EA:847; exactly-one-extractor-runs semantics); **`extractorData` read at exactly 2 runtime sites** (GeneratorPlayer.kt:263-264 and DownloadManager.kt:1492-1493, both → `extractorVerifierJob`; TestingUtils is test-only); **`instantLinkLoading` dead** (zero readers, single declaration at MA:549 — reproduced); `requireReferer(name)` also zero callers (EA:1353); timeout clamp 5 s–480 s/default 120 s in APIRepository.loadLinks (AR:204-219); `RepoLinkGenerator` cache internals (Cache{linkCache, subtitleCache, lastCachedTimestamp, saturated}, companion HashMap keyed (apiName, id), 20-min TTL, URL-only dedup, subtitle name suffixing, canSkipLoading) — all re-read at RLG:15-159; `LOADTYPE_INAPP/{CHROMECAST,DOWNLOAD}` sets exact (IGenerator.kt:6-25); `getExtractorApiFromName` name-match + `extractorApis[0]` fallback; `getVideoInterceptor` sole consumer at CS3IPlayer.kt:1940-1947; `GenericM3U8` commented out in the registry; MixDrop `getPostForm` + `delay(5000)`; helper inventory (JwPlayerHelper/AsianEmbedHelper/CryptoJSHelper/WcoHelper); `WebViewResolver` expect-class shape + storm StreamWish usage at :199-210 (verbatim); Cinecalidad/BambooUA/UAFlix/AnimeJl loadLinks examples all re-read and accurate; mirror-domain subclass pattern (`class Sblona : StreamSB()`).

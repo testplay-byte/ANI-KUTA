@@ -74,7 +74,7 @@ Extension-relevant modules (roles + dependency direction), all under `ANI-KUTA/A
 | `:core:smart-matcher` | Title matching for auto-link. **Depends on `:data:extension`** (reverse auto-link searches extension sources) | `core/smart-matcher/…/ReverseAutoLinkService.kt:37` |
 | `:core:preferences` | `AppPreferences.enabledExtensions` (per-package enable set), `PreferenceStore` (trust storage, source links, search prefs) | `core/preferences/…/AppPreferences.kt:42-53` |
 | `:feature:anime-search:impl` | Search screen; ANILIST + EXTENSION modes; source picker | `SearchViewModel.kt`, `ExtensionSourcePickerSheet.kt` |
-| `:feature:anime-details:impl` | Details screen; metadata merge, episode list, resolver sheet, auto-link, downloads, tracking | `DetailsViewModel.kt` (3,712 lines), `DetailsScreen.kt` (3,634), `ResolverSheet.kt` |
+| `:feature:anime-details:impl` | Details screen; metadata merge, episode list, resolver sheet, auto-link, downloads, tracking | `DetailsViewModel.kt` (3,712 lines), `DetailsScreen.kt` (3,633 — B5-b recount), `ResolverSheet.kt` |
 | `:feature:extensions-settings:impl` | Extensions list screen (trust/available/installed/errored), repo settings, extension detail, source preferences | `ExtensionsSettingsScreen.kt` (1,297), `ExtensionDetailScreen.kt` (487), `SourcePreferencesScreen.kt` (772) |
 | `:feature:anime-browse:impl` | Browse screen — **AniList-only**; consumes no extensions at all `[verified]` (`BrowseViewModel.kt:40-43` injects only `AniListApi` + `DataCacheRepository`) |
 | `:feature:watch:impl` | Player screen; consumes the resolver output via `ResolvedVideosRegistry` + a 14-arg nav key — does not touch `:data:extension` | `WatchScreen.kt:478-480` |
@@ -845,6 +845,12 @@ our own DSL) `[inferred from doc 11 §8]`.
   `DOCUMENTATION/cloudstream/` while this doc was being written (parallel batch agents) — it was
   not read in time to cross-reference here; no claims in this doc depend on it.
 - **DB column-level detail** deliberately deferred to doc 15 (B3-e); §6.6 is a pointer only.
-- The full 3,634-line `DetailsScreen.kt` and 3,712-line `DetailsViewModel.kt` were sampled at the
+- The full 3,633-line `DetailsScreen.kt` and 3,712-line `DetailsViewModel.kt` were sampled at the
   entry points (load/link/search/episodes/resolve/navigation), not read exhaustively; download
   orchestration, tracking, seasons UI were out of scope.
+
+---
+## ✔ B5-b Verification Note (2026-08-29)
+Checked: 16 claims sampled → 15 verified, 1 corrected, 0 flagged-stale. Consistency: ok.
+Corrections: `DetailsScreen.kt` line count 3,634 → **3,633** (wc -l; both occurrences fixed). Every other count was exact (DetailsViewModel 3,712; ExtensionsSettingsScreen 1,297; ExtensionDetailScreen 487; SourcePreferencesScreen 772; AniyomiExtensionProvider ~190 = 192).
+High-value targets re-verified: (1) **VideoExtensionProvider zero call sites** — repo-wide grep for `com.confused.anikuta.core.providerapi` matches only `core/provider-api/*` itself, `AniyomiExtensionProvider.kt` (imports :4-9) and `ExtensionModule.kt` (registration :32-35); no ViewModel/screen consumes it; (2) single Koin binding at ExtensionModule.kt:32-35 (+ ExtensionDetailsProvider bare + `named("extension")` :38-43); (3) lib-version split brain exact — ExtensionRepoApi LIB_MIN=12.0/LIB_MAX=16.0 (:30-31, hard filter :90/:112) vs ExtensionLoader LIB_VERSION_MIN=12.0/LIB_VERSION_MAX=17.0 (:75-76, soft :175-180); (4) `getLatestUpdates`/`getSeasonList`/`getFilterList` have **zero callers outside `:core:source-api`** (grep). Also verified: parent-first `PathClassLoader` at ExtensionLoader.kt:196-201; manifest keys :56-69; provider-api model field lists (Source/SourceContent/SourceContentDetails/SourceEpisode/SourceVideo) all exact; BrowseViewModel.kt:40-43 AniList-only; WatchScreen.kt:478-480 ResolvedVideosRegistry; TrustService per-package model :9-18; AppPreferences.enabledExtensions :42-53; ExtensionRepoRepository prefs `anikuta_extension_repos`/`repos_json`.

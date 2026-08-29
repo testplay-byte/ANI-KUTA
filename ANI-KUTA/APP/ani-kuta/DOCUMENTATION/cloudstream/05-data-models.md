@@ -901,8 +901,8 @@ abstract class ExtractorApi {
   `extractor.mainUrl` (schema/www-stripped prefix), iterating `extractorApis` in **reverse registration
   order** ("so the new registered ExtractorApi takes priority" — plugin extractors shadow built-ins),
   then a second fuzzy pass with `Levenshtein.partialRatio > 80` for mirror domains (`EA:914-983`).
-- The built-in registry `extractorApis` instantiates ~250 extractor objects at library init
-  (`EA:985-1343`) [verified].
+- The built-in registry `extractorApis` instantiates **321** extractor objects at library init
+  (`EA:985-1343`) [verified — count corrected by B5-a: original said "~250"; a line-count of the registry block yields exactly 321 `Name(),` entries, matching doc 08].
 - Real example (typical new-style override):
 
 ```kotlin
@@ -1299,3 +1299,10 @@ internal enums (`JsInterpreter.kt:212 TT`, `Levenshtein.kt:82 EditType`) that ar
 
 All citations reference master @ efc1915 (clone 2026-08-29). `MainAPI.kt` moves frequently upstream;
 re-grep by symbol name if lines drift.
+
+---
+## ✔ B5-a Verification Note (2026-08-29)
+Checked: 45 claims sampled → 44 verified, 1 corrected, 0 flagged-stale.
+Corrections:
+1. §7.6: extractor registry instance count — original said "~250 extractor objects"; actual count is **321** `Name(),` entries in the `extractorApis` registry (`EA:985-1343`), consistent with doc 08. Fixed inline.
+Confirmed (incl. all high-value targets): the entire model family tree (all ~30 line citations re-grepped — every one exact: SearchResponse:1406, Movie/TvSeries/Anime/Live/Torrent SearchResponses 1655/1727/1555/1691/1621, LoadResponse:1814, five LoadResponses 2463/2675/2320/2414/2268, Episode:2552, SeasonData:2227, NextAiring:2215, TrailerData:1779, Actor/ActorData/ActorRole 1534/1545/1524, SubtitleFile:1205, AudioFile:1247, HomePageResponse:1270, enums 900/905/919/1120/1303/1524/2664/2838/887/893/1144, SyncIdName in library SyncAPI.kt:3-11 with exactly 7 values); **TvType 18 values** exact; **ExtractorLink 9 fields** exact (`EA:687-841`); **ResultEpisode → RepoLinkGenerator → VideoLink** bridge chain (ResultEpisode 21 fields at ResultFragment.kt:39-65, `typealias VideoLink = Pair<ExtractorLink?, ExtractorUri?>` at PlayerGeneratorViewModel.kt:34, RepoLinkGenerator Cache 20-min TTL); `Score` fixed-point internals (MAX=10^9, private ctor, from5/10/100, toStringNull); `Episode.runTime` seconds vs `LoadResponse.duration` minutes; TvType grouping helpers (isMovieType/isAudioType/isLiveStream/isAnimeOp/isEpisodeBased membership lists all match); WatchType/SyncWatchType/VideoWatchState/SubtitleOrigin; dual JSON stack (`json` kotlinx config + Jackson `mapper` at MA:100-107); AppUtils toJson/parseJson + inlined-code ABI warning at AU:58-59; DataStore SharedPreferences setKey/getKey round-trip; DataStoreHelper persistence models; `getLoadResponseIdFromUrl` hash; AniSearch:2792; PlayListItem/ExtractorLinkPlayList/DrmExtractorLink/IDownloadableMinimum; confirmed absences (ResultResolution, VideoExtractor, top-level Video, getFilterList/FilterList — zero grep hits, independently reproduced); AudioFile KDoc doc-rot observation (lang/label documented but absent) independently confirmed; enum census 17 hits incl. private TT:212/EditType:82.

@@ -67,9 +67,11 @@ All docs live in `ANI-KUTA/APP/ani-kuta/DOCUMENTATION/cloudstream/`. Numbered, r
 | 18 | `18-integration-ui.md` | "Cloud Screen" UI/UX plan: browse/search/details/watch flows for CS3 content; settings; extension management UI | B4-c | ✅ |
 | 19 | `19-integration-playback.md` | Playback + downloads plan: resolved video lists → our player, quality/label mapping, subtitles, caching implications | B4-d | ✅ |
 | 20 | `20-implementation-roadmap.md` | Phased implementation roadmap with milestones + per-phase verification | B4-e | ✅ |
-| 21 | `21-risks-open-questions.md` | Risks, unknowns, open questions for the user | B4/B5 | ⬜ |
-| 22 | `22-VERIFICATION-LOG.md` | Fact-check log: every verified fact (source file + line), corrections, confidence ratings | B5 | ⬜ |
-| — | `README.md` | Master index + executive summary (written last) | B5 | ⬜ |
+| 21 | `21-risks-open-questions.md` | Risks, unknowns, open questions for the user | B4/B5 | ✅ |
+| 22 | `22-VERIFICATION-LOG.md` | Fact-check log: every verified fact (source file + line), corrections, confidence ratings | B5 | ✅ |
+| — | `README.md` | Master index + executive summary (written last) | B5 | ✅ |
+
+**PROGRAM STATUS: ✅ COMPLETE** (2026-08-29) — 23 docs / 17,920 lines. Research + plans fully written, swept, and consolidated. Awaiting the user's G1–G17 gate decisions (doc 21) → then Phase 0 spike (doc 20 §2). No implementation started.
 
 Status legend: ⬜ pending · 🔄 in flight · ✅ done+verified · ⚠ needs-fix
 
@@ -105,6 +107,7 @@ Agent worklog protocol: every agent appends its entry to `/home/z/my-project/wor
 | 2026-08-29 | B2 | 5 agents → docs 06-10 (+4,534 lines; set total 8,841). Main-agent review: MPV correction VERIFIED (our player = aniyomi-mpv-lib 1.18.n — not ExoPlayer as assumed); loadExtractor resolution algorithm VERIFIED exact (unshorten → lowercase schema-strip → reverse-order mainUrl prefix → Levenshtein >80 mirror pass); phisher tvTypes census run — doc 04 CORRECTED (Cartoon IS a valid enum value; real anomaly = Megakino's un-split "Movie,Anime,Cartoon" string). 1 rate-limit retry needed (B2-d). |
 | 2026-08-29 | B3 | 5 agents → docs 11-15 (+4,853 lines; set total 13,694). Major corrections established: CS3 has NO settings DSL (only `Plugin.openSettings` lambda @ Plugin.kt:39 — VERIFIED); our DB is **SQLDelight 2.0.2, NOT Room** (VERIFIED in libs.versions.toml — tracker's own description fixed); `external_reference` table NEVER implemented (0 grep hits in core/ — doc 14's §6.6 hint corrected by B3-e); our `VideoExtensionProvider` seam is clean but has ZERO load-bearing call sites (single Koin binding, features inject ExtensionManager directly). Main-agent spot-checks: 3/3 green. 0 rate-limit retries (waves of 2). |
 | 2026-08-29 | B4 | 5 agents → docs 16-20 (+3,858 lines; set total 17,552). THE PLANS: dependency = VENDOR the CS3 library source as `:external:cloudstream3` @ efc1915 (Kotlin 2.4 metadata trap kills the artifact route); extend SourceVideo in place; ExtensionProviderRegistry + blast-radius-ordered migration; separate dynamic 5th "Cloud" tab; two-format episode keys (S02E00005 seasoned); MPV http-header-fields VERIFIED (WatchScreen.kt:586/694); our HLS downloader already supports AES-128 + segment concat. **BLOCKING FINDING: CS3 library is GPL-3.0, ANI-KUTA has NO license — user must decide (G1 gate)**. 14 pre-flight gates G1-G14 consolidated in doc 20. ~35-50 sessions / 6-10 weeks program estimate. Main-agent spot-checks: 3/3 green (GPL, MPV, jsoup dep). 2 rate-limit retries (B4-a, B4-c). |
+| 2026-08-29 | B5 | 5 agents: B5-a swept docs 01-10 (355 claims → 344 verified, 10 corrections, 0 unresolvable); B5-b swept docs 11-20 (183 claims → 177 verified, 5 corrections, 6/6 cross-doc consistency checks PASS — the 6 plan docs are contradiction-free and safely buildable-on); B5-c wrote doc 21 (17 gates G1-G17, 20 risks R1-R20, 31 themed open questions, 17 unverified-knowledge items u1-u17); B5-d wrote doc 22 (master tally: 538 claims swept → 96.8% verified, 18 post-publication corrections — none architectural, 26 crown-jewel facts / 82 independent verification events, re-verification protocol for Phase 0); B5-e rewrote README.md (173 lines: exec summary + decision pointer + reading guide + key-facts card). **PROGRAM COMPLETE** — 23 docs / 17,920 lines, 25 sub-agent runs total. |
 
 ## 7. Verification Log Summary
 
@@ -116,4 +119,4 @@ Agent worklog protocol: every agent appends its entry to `/home/z/my-project/wor
 | B2 | 4 spot-checks (MPV player claim, loadExtractor algorithm, phisher tvTypes census, doc-04 Cartoon claim) | 1 correction in doc 04 (Cartoon is valid enum; anomaly is Megakino's single-string tvType) | HIGH |
 | B3 | 3 spot-checks (SQLDelight vs Room, external_reference absence, openSettings @ Plugin.kt:39) | 2 corrections: tracker's "Room DB" description fixed → SQLDelight; doc 14 §6.6 external_reference claim corrected by B3-e (plan-only, never built) | HIGH |
 | B4 | 3 spot-checks (GPL-3.0 license + no ANI-KUTA LICENSE, MPV http-header-fields @ WatchScreen.kt:586/694, library jsoup dep) | 0 needed — agent claims verified | HIGH |
-| B5 | — | — | — |
+| B5 | Full independent sweeps: B5-a 355 claims (docs 01-10) + B5-b 183 claims (docs 11-20) + 6/6 cross-doc consistency | 15 corrections (all cosmetic: line numbers, counts, census gaps, 1 phantom API `registerSettingsAPI`, 1 false-absence) — zero architectural corrections; consolidated in doc 22 | HIGH (96.8% exact) |

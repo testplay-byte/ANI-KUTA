@@ -641,3 +641,9 @@ plugins, the settings story needs the following (each mapped to what CS3 does ab
   Upstream repos we don't mirror may differ. `[gap]`
 - **`PluginViewData`/`PluginWrapper` internals** of the extensions list (status flags, isDownloaded
   derivation) are doc 02/04 territory and were only consulted via `PA:73-144`. `[docs]`
+
+---
+## ✔ B5-b Verification Note (2026-08-29)
+Checked: 20 claims sampled → 20 verified, 0 corrected, 0 flagged-stale. Consistency: ok.
+Corrections: none.
+Samples re-verified against source: `Plugin.kt:39` openSettings + full file 10-40; `BasePlugin.kt:14-78` incl. registerMainAPI :20-25 / registerExtractorAPI :31-35 / Manifest :64-77; `DataStore.kt:26,90-101,103-109,111-113,122-130,158-171,173-181,221-232` (PREFERENCES_NAME, mapper deprecation, JSON round-trip, folder keys); CloudStreamApp companion :111-164; `PluginManager.kt` :448/:485/:611/:644/:645-659/:669-673/:689/:698 (line cites exact ±1); MainActivity :197/:1368/:1387; the three gear call sites PDF:98-116 / PA:119-144 / HF:450-463; the 57-Android-Plugin census (storm ×35, CakesTwix ×21, Mega ×1) + 7 BasePlugin (extensions ×5, Luna712 ×2) + `openSettings` in exactly 1 of 57 — all grep-reproduced; SyncPlugin imports :8-15, openSettings :495-500, SyncSettings/SyncStorage CLOUDSYNC keys; TestPlugins ExamplePlugin/BlankFragment; `isCrossPlatform = true` at TwitchProvider/build.gradle.kts:22; csdocs/devs zero `openSettings|preference` hits; no `preferences` DSL in library (grep empty). BasePreferenceFragmentCompat at BF:268-279 confirmed.

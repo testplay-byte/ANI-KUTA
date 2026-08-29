@@ -62,9 +62,10 @@ from source.
 
 - **All 58 examined providers set `hasMainPage = true`** — the main page is not optional in
   practice [verified, §1].
-- **Zero of the 58 providers ship user settings** — `openSettings`/`registerSettingsAPI` appear
+- **Zero of the 58 providers ship user settings** — `openSettings` appears
   only in the *template* (`ExamplePlugin.kt:18-23`) and in CakesTwix's `SyncPlugin` (an
-  account/backup plugin, not a content provider) [verified, grep across all four repos].
+  account/backup plugin, not a content provider) [verified, grep across all four repos;
+  there is **no** `registerSettingsAPI` at this commit — corrected by B5-b, see doc 11 §2.1].
 - **None of the six deep-dive providers implements the paginated `search(query, page)` overload**
   — all use the legacy `search(query)` [verified]; only `Dailymotion` (official repo) paginates
   (`DM:65-71`).
@@ -122,6 +123,7 @@ by grep density and marked `[inferred]`.
 | SoloLatino | multi | mx | Movie, TvSeries, Anime, Cartoon | 4 | – | – | HTML |
 | Streamed Sports | live sports | en | Live | 17 | ✓ | 1 | JSON |
 | TioAnime | anime | es | AnimeMovie, OVA, Anime | 0 | ✓ | – | HTML |
+| DocumaniaTV *(row added by B5-b — omitted from the original census table but counted in the 35)* | documentary | es | Documentary, Movie | 3 | ✓ | – | HTML (`DocumaniaTVProvider.kt:7-24`, mainPageOf ""/`top`/`series` — verified in source) |
 
 **†** = deep-dive in this doc. Column data [verified] for † rows; others [inferred] from
 class-declaration greps (`override var lang`, `supportedTypes`, `mainPageOf` row counting via
@@ -153,8 +155,8 @@ script). 27/35 declare `lang = "mx"` — a country code where the language is Sp
 | Uakino **†** | movie | Movie, TvSeries, Anime | 6 | ✓ | – | HTML (DLE) [verified] |
 | Unimay | anime | Anime, AnimeMovie | 2 | ✓ | – | JSON (`api.unimay.media`) |
 
-*(SyncPlugin = account/backup plugin with `openSettings` + registerSettingsAPI — the repo's only
-settings surface; not a content provider.)*
+*(SyncPlugin = account/backup plugin with `openSettings` — the repo's only settings surface;
+not a content provider. No `registerSettingsAPI` exists at this commit — B5-b correction, doc 11 §2.1.)*
 
 ### 1.3 extensions (recloudstream rebuild) + template
 
@@ -167,6 +169,17 @@ settings surface; not a content provider.)*
 \* overrides `getMainPage` but not `mainPage` → runs on the default single empty row (`DM:50`,
 `MA:630`). \** `hasMainPage = true` with **no** `mainPage`/`getMainPage` at all
 (`EX:15-19`) — as shipped, would throw `NotImplementedError` if browsed (anti-pattern, §8).
+
+> **B5-b census-count note (2026-08-29)**: the "58" total = 35 storm-ext (incl. DocumaniaTV,
+> whose row was missing from §1.1's table — added above) + 20 CakesTwix-ext content providers
+> (the 21st `MainAPI` class, SyncPlugin's `CloudSyncProvider.kt`, is a settings stub with
+> `hasMainPage = false`, correctly excluded) + Twitch + Dailymotion + ExampleProvider. The
+> `extensions/` repo actually ships **three more providers this census did not enumerate**
+> (`YoutubeProvider`, `InvidiousProvider`, `InternetArchiveProvider` — 5 provider classes
+> total in that repo), so the repo-wide provider-class count across the four source
+> repos is **61**, all 61 with `hasMainPage = true` (re-verified by grep). The §0/§9 claims
+> ("all … set hasMainPage", "zero ship settings", "32/58 hasQuickSearch" counting YouTube as
+> the one non-censused declarer) remain accurate under either count.
 
 ### 1.4 Census-level observations
 
@@ -785,8 +798,8 @@ class DoramasFlixProvider : MainAPI() {
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.AsianDrama)
 ```
-`DFX:18-33` [verified]. All GraphQL operations share ONE response wrapper with 12 nullable
-collections, because every query reuses the same parsed type:
+`DFX:18-33` [verified]. All GraphQL operations share ONE response wrapper with 11 nullable
+fields (**11, counted by B5-b — original text said 12**), because every query reuses the same parsed type:
 
 ```kotlin
 data class DataDoramas (
@@ -795,10 +808,11 @@ data class DataDoramas (
     @JsonProperty("searchMovie"  ) var searchMovie  : ArrayList<ListDoramas>?  = arrayListOf(),
     @JsonProperty("listSeasons" ) var listSeasons : ArrayList<ListDoramas>? = arrayListOf(),
     @JsonProperty("detailDorama" ) var detailDorama : DetailDoramaandDoramaMeta? = …,
-    … // 12 fields total, incl. paginationEpisode, carrouselMovies, paginationDorama, paginationMovie
+    … // 11 fields total, incl. paginationEpisode, carrouselMovies, paginationDorama, paginationMovie (B5-b count)
 )
 ```
-`DFX:38-50` (trimmed) [verified] — and `DetailDoramaandDoramaMeta` is a 25-field union of dorama
+`DFX:38-48` (trimmed) [verified — **11** fields, counted by B5-b; original text said 12] — and
+`DetailDoramaandDoramaMeta` is a 25-field union of dorama
 *and* movie *and* episode fields (`DFX:65-94`). Pragmatic, unreadable, and typical of
 hand-rolled GraphQL clients [verified].
 
@@ -1524,3 +1538,13 @@ providers won't be uniform:
 
 *End of doc 12. Census: 58 provider classes (35 storm-ext + 20 CakesTwix-ext + Twitch +
 Dailymotion + ExampleProvider), 6 deep-dives, ~2,980 source lines read in full.*
+
+---
+## ✔ B5-b Verification Note (2026-08-29)
+Checked: 25 claims sampled → 20 verified, 4 corrected, 1 flagged. Consistency: ok (docs 16-20 cite this census's N/58 figures consistently).
+Corrections:
+1. §0 + §1.2: "`openSettings`/`registerSettingsAPI`" — **`registerSettingsAPI` does not exist** anywhere in app/library/plugin repos (grep = 0 hits; doc 11 §2.1 is correct: `openSettings` is the only hook). Both mentions corrected inline.
+2. §1.1: header says "storm-ext (35 providers)" but the table listed only 34 rows — **DocumaniaTVProvider** was missing; factual row added from source (`DocumaniaTVProvider.kt`, documentary/es/Documentary+Movie/3 rows/QS ✓).
+3. §5.1: `DataDoramas` has **11** fields, not 12 (counted in source; listDoramas, searchDorama, searchMovie, listSeasons, detailDorama, detailMovie, paginationEpisode, detailEpisode, carrouselMovies, paginationDorama, paginationMovie). Three textual spots corrected.
+4. Flagged (annotated in §1.3, not rewritten): the "58" census excludes `extensions/`'s YoutubeProvider, InvidiousProvider, InternetArchiveProvider — repo-wide provider-class count is **61**; substance of all §0/§9 claims holds either way (all 61 set `hasMainPage = true`; zero of 61 ship settings).
+Verified among others: all file line counts (UAK 430/70/59+71, DW 204, AC 307/73, DFX 356, AJL 220/76/591-extractors, TW 179, DM 114, JSONModel 43-line dead code); lang split 27 mx/7 es/1 en; extractor families 29+15+6+6+1 = 57 with 54 pure domain overrides + 3 logic-bearing (all recount-verified); 9 plugins register extractors; spot line-cites UAK:23/26-34/36/60/64-70/97/127-134/160-177/184-187/223-226/315-326, DW:27-58/200-204, AC:18-40/94-104, DFX:20/27-28/130-135/149-153/166/196-197/226/340-355 (13 replaceFirst)/3-4, AJL:30-35/47/57/59, TW:27-34/45/47/80-82/98-104/118, TW-P:7-12, DM:44/65-71; MainAPI cites :630/632-637/656-658/742-748/905-909/1492/1576-1584/1880-1882/2400-2407/2442-2458/2491-2519/2541-2542; anime {Anime,AnimeMovie,OVA} cluster = 9 providers; 32/58 hasQuickSearch consistent with the census frame.

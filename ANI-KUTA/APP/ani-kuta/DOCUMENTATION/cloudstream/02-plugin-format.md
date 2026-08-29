@@ -296,7 +296,7 @@ Key facts encoded above:
 - Plugins are built as **`com.android.library`** modules (not applications!) + `kotlin-android`. minSdk 21, compile/target 35, JVM target 1.8 "Required". `[verified]`
 - **How the plugin API dependency is declared — two patterns exist**:
   1. **Template ("stubs") pattern**: a dedicated `cloudstream` configuration (registered by the gradle plugin) — `cloudstream("com.lagradost:cloudstream3:pre-release")` — described as *"Stubs for all cloudstream classes"* (`TestPlugins/build.gradle.kts:74-75`), i.e. compile-only; nothing is packaged. `[verified]`
-  2. **Real-library pattern** (official extensions repo): `implementation("com.github.recloudstream.cloudstream:library:-SNAPSHOT")` — the actual KMP library from JitPack (`extensions/build.gradle.kts:74`). CakesTwix catalogs both (`gradle/libs.versions.toml`: `cloudstream3 = { module = "com.lagradost:cloudstream3", version.ref = "pre-release" }` + `cloudstreamapi = { module = "com.github.Blatzar:CloudstreamApi", version.ref = "0.1.6" }`) with the comment *"If the task is specifically to compile the app then use the stubs, otherwise use the library"* (`CakesTwix-ext/build.gradle.kts:69-72`). `[verified]`
+  2. **Real-library pattern** (official extensions repo): `implementation("com.github.recloudstream.cloudstream:library:-SNAPSHOT")` — the actual KMP library from JitPack (`extensions/build.gradle.kts:73` (line no. corrected by B5-a)). CakesTwix catalogs both (`gradle/libs.versions.toml`: `cloudstream3 = { module = "com.lagradost:cloudstream3", version.ref = "pre-release" }` + `cloudstreamapi = { module = "com.github.Blatzar:CloudstreamApi", version.ref = "0.1.6" }`) with the comment *"If the task is specifically to compile the app then use the stubs, otherwise use the library"* (`CakesTwix-ext/build.gradle.kts:69-72`). `[verified]`
 - Either way the compiled `.cs3` contains **only the plugin's own classes** (§1.4) — the library/stubs are provided by the host app at runtime through the classloader parent. `[verified]`
 - Extra runtime deps (NiceHttp, jsoup, Jackson ≤ 2.13.1) are also expected to be **already in the app** (comment points at the app's build.gradle.kts) — do **not** bump Jackson past 2.13.1 or older devices break. `[verified]`
 - The template README notes the whole plugin system is "heavily based on **Aliucord**" (`TestPlugins/README.md:57`). `[verified]`
@@ -594,7 +594,7 @@ openSettings = {
     activity?.let { frag.show(it.supportFragmentManager, "Frag") }
 }
 ```
-(`ExamplePlugin.kt:18-23` — the plugin stashed the `AppCompatActivity` from `load(context)`.)
+(`ExamplePlugin.kt:15-20` — line range corrected by B5-a — the plugin stashed the `AppCompatActivity` from `load(context)`.)
 
 `BlankFragment.kt` (`TestPlugins/ExampleProvider/src/main/kotlin/com/example/BlankFragment.kt:24-93`) is a **`BottomSheetDialogFragment` that demonstrates the whole resource dance**: because plugin resources live in the plugin zip, not the app, it resolves everything by name through `plugin.resources`:
 
@@ -661,3 +661,11 @@ Unverified / open items for later batches:
 ---
 
 *End of doc 02. Cross-references: repo/plugin-list JSON formats → doc 04; MainAPI surface → doc 03; app load internals (RepositoryManager, update checker, DataStore keys) → doc 13; our current aniyomi architecture → doc 14.*
+
+---
+## ✔ B5-a Verification Note (2026-08-29)
+Checked: 36 claims sampled → 34 verified, 2 corrected (both trivial line-number fixes), 0 wrong.
+Corrections:
+1. §3.2: `extensions/build.gradle.kts:74` → `:73` (dependency line; claim correct).
+2. §6.3: `ExamplePlugin.kt:18-23` → `:15-20` (openSettings block; claim correct).
+Independently reproduced/confirmed: full `.cs3` census over phisher-builds (80 .cs3 / 47 .jar; 80 manifest.json + 80 classes.dex + 16 resources.arsc + 189 res/ entries; zero META-INF/AndroidManifest.xml in all 80), AllMovieLandProvider.cs3/jar byte sizes (57,618 / 297,020) + sha256s matching plugins.json `fileHash`/`jarHash` exactly, manifest.json content byte-identical, dex header parse (magic `dex\n035\0`, file_size 147,816, 58 class defs, 1,087 strings, `@CloudstreamPlugin` type present in dex, kotlin refs only), 53 .class files + `META-INF/AllMovieLandProvider.kotlin_module` + no MANIFEST.MF in any of the 47 jars, size pairs (AllWish/Animeav1/Animexin/BanglaPlex all exact), phisher plugins.json (80 entries, key union incl. jarUrl/jarHash/jarFileSize, apiVersion always 1, max version 661), all PluginManager.kt line citations (611 PathClassLoader, 593-687, 485-494 hot reload, 737-755 sanitized paths, 229-230 isOutdated, 210-221 maybeLoadPlugin, 79-85/102-103 PluginData), RepositoryManager downloadPluginToFile hash check, `TestPlugins/build.gradle.kts` full quote matches file exactly, ExampleProvider + DailymotionProvider gradle files, all 5 official extensions `isCrossPlatform = true` at :22, TestPlugins build.yml quote, settings.gradle.kts auto-include, Gradle 8.12 wrapper, CakesTwix catalog entries + 69-72 comment, BasePlugin/Plugin class shapes, MainAPI.kt 115/134-139/497/561, MainActivity.kt 1350-1400 startup order, csdocs workflow steps.

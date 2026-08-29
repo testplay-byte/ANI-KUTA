@@ -734,3 +734,9 @@ cost (§5.1).
 *End of doc 17. Next consumers: doc 16 (architecture — consumes §2/§4/§6 key conventions),
 doc 18 (Cloud Screen UI — consumes §5/§7), doc 19 (playback/downloads — consumes §3.5/§4/§8),
 doc 20 (roadmap — §9 is the schema work package).*
+
+---
+## ✔ B5-b Verification Note (2026-08-29)
+Checked: 14 claims sampled → 14 verified, 0 corrected, 0 flagged-stale. Consistency: ok.
+Corrections: none.
+Samples re-verified against the `.sq`/Kotlin sources: content.sq:110-122 ext-axis columns; content.sq:57-58 INTEGER extension_id/source_id vs :112 TEXT extension_id; dataCache.sq:30 episode_url / :38 nullable season_number (D-190) / :44 UNIQUE (main_id, episode_number); watch.sq:110-121 `getHighestWatchedEpisodeNumber` SQL (the CAST-to-INTEGER parse behavior §3.3 relies on is real); downloadQueue.sq:29 source_id / :56-57 resolve_context ("JSON: ResolveContext (7 fields)"); playbackCache.sq:27-28 source_id INTEGER NOT NULL + server_key; ResolveContext.kt:24-33 = exactly the 7 fields quoted; the D-313 record at decisions.md:2412-2418 (INSERT OR REPLACE collapse of the `(main_id, episode_number)` PK — the §1.2/§3.1 lesson quote is accurate); D-317 at :2442 ("per-season display numbers, guaranteed unique within a bucket" verbatim); EpisodeListNormalizer.kt:23-26 collapse doc + :61-67 URL dedupe first-wins; HttpDownloader.kt:13/99-106/231-244 (HLS routing, playlist re-detection, "parallel mode + AES") and :380-386 (m3u8→ts); DownloadStorageProvider.kt:18-19 filename scheme + :172-176 `%05d`; DownloadScanner.kt:189/:542; ContentModels.kt:137-154 ignoreUnknownKeys + ExtensionExtras(scanlatorGroup/chapterCount/volumeCount). The proposed `content_source_link`/`cs3_subscription_state`/key-scheme blocks are correctly marked [design] — none exist in code.
