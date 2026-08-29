@@ -20,12 +20,15 @@ android {
 
 dependencies {
     // The clean-room compat surface (MainAPI, BasePlugin, data models, nicehttp).
-    implementation(project(":core:cloudstream-api"))
+    // api(): CloudstreamExtension.Available exposes SitePlugin + manager flows expose
+    // InstallStep — consumers (the settings UI) need these types on their classpath.
+    api(project(":core:cloudstream-api"))
 
     // Shared app infra (Logger conventions: CORE_RULES §20).
     implementation(project(":core:common"))
     // Provider API — shared InstallStep lives here from this session (doc 23 §5.5).
-    implementation(project(":core:provider-api"))
+    // api(): InstallStep is part of this module's public StateFlow surface.
+    api(project(":core:provider-api"))
     // AppPreferences — the CloudStream NSFW gate (G4) + manager wiring.
     implementation(project(":core:preferences"))
 
