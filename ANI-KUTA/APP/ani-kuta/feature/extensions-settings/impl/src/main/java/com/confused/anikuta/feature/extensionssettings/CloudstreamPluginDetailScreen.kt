@@ -97,11 +97,11 @@ fun CloudstreamPluginDetailScreen(
 
     // Field-level extracts across the mutually-exclusive installed states
     // (the sealed base doesn't expose filePath/repoUrl, so a mixed elvis chain
-    // would resolve to the base type and fail).
+    // would resolve to the base type and fail). NOTE: Errored carries no
+    // repoUrl — a plugin that failed to load simply omits the row.
     val diskFilePath: String? =
         trustedExt?.filePath ?: untrustedExt?.filePath ?: erroredExt?.filePath
-    val recordRepoUrl: String? =
-        trustedExt?.repoUrl ?: untrustedExt?.repoUrl ?: erroredExt?.repoUrl
+    val recordRepoUrl: String? = trustedExt?.repoUrl ?: untrustedExt?.repoUrl
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
