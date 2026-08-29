@@ -383,7 +383,7 @@ fun CloudstreamPluginDetailScreen(
                                         DetailAction(
                                             text = "Retry",
                                             icon = Icons.Filled.Refresh,
-                                            loading = retrying,
+                                            loading = internalName in retrying,
                                             onClick = { csManager.retryPlugin(erroredExt) },
                                             modifier = Modifier.weight(1f),
                                         )
