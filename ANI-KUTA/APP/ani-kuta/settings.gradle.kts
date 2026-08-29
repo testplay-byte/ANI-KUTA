@@ -52,9 +52,11 @@ include(":core:app-update")
 include(":core:ads")  // Ad system — smart-link interstitial (D-272)
 include(":core:playback-cache")  // Video caching (test-feature/video-cache-new-download)
 include(":core:debug-api")
+include(":core:cloudstream-api")  // Clean-room CS3 plugin binary-compat surface (doc 23)
 
 // ── :data ──
 include(":data:extension")
+include(":data:cloudstream")  // CloudStream extension system runtime (doc 23)
 
 // ── :feature (api/impl split per Nav3 Pattern B) ──
 include(":feature:anime-browse:api")

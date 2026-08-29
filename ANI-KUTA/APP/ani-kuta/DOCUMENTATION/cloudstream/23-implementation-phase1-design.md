@@ -1,0 +1,244 @@
+# 23 — Implementation Phase 1: Clean-Room Extension System (Design Record)
+
+> **Session**: Task 41 (first implementation session, 2026-08-29) · **Branch**: `streaming/CLOUDSTREAM`
+> **Status**: in progress (this doc is written BEFORE implementation and updated as it lands)
+> **Read after**: `21-risks-open-questions.md` (gates), `02-plugin-format.md`, `03-mainapi-reference.md`,
+> `04-extension-repositories.md`, `05-data-models.md`.
+> **This doc records**: (1) the user's gate decisions, (2) the resulting architecture pivot from
+> doc 16, (3) the clean-room protocol, (4) the module design for the extension-management session,
+> (5) what is deliberately OUT of scope.
+
+---
+
+## 1. Gate decisions (user session 2026-08-29)
+
+The user answered the gate session directly. Verbatim-recorded consequences:
+
+| Gate | Decision | Consequence |
+|---|---|---|
+| **G1** (GPL-3.0) | **No GPL license. No relicensing.** ANI-KUTA stays unlicensed/proprietary. The CS3 library's *code* is not copied at all — the compatibility surface is **rewritten from scratch** (clean-room). The user explicitly owns this decision: *"we are not going to copy the code snippets or use that. What we are going to do is rewrite the whole logic, the codes and such, from scratch."* | Doc 16's vendoring plan (`:external:cloudstream3`) is **dead**. R1 (GPL obligations) is resolved by not shipping any GPL code. The doc-16 caution that re-implementation is "months + binary-compat risk" is acknowledged and accepted by the user; the risk is retired incrementally by loading real plugins early (§4.4). |
+| **G2** (Vendoring) | **No vendoring.** Recreate only what we need, optimized for our app, well-tested, maintainable. | The compat surface is sized by the **binary census** (§4), not by the whole library. |
+| **G3-adjacent** (extension *management* UI — not the content-nav G3) | **Unified Extensions page with source tabs.** An `Aniyomi` / `CloudStream` tab row at the top of the extensions settings screen; a tab appears when that system has installed extensions or saved repositories; repo-add flow is shared (paste URL → auto-detect type); browse/download/manage from the same place. | Doc 18's separate-repo-store plan is superseded for management UI. Content navigation (the original G3: 5th nav tab) remains open for the content phase. |
+| **G4** (NSFW) | **Universal NSFW toggle**, linked together with the app-wide setting, highly customizable later. | Session 1 ships a persisted CS NSFW gate (default OFF) used to filter NSFW catalog entries; the app-wide unification lands when the app-wide toggle exists (deferred, recorded). |
+| **G5** (Default repos) | (User did not override; recommendation stands.) | **Zero default repos** — repos are user-pasted only, matching D-043 and CS3's own empty prebuilts. |
+| **G6** (Dev wipe) | User delegated: *"You can decide."* Agent decision: **accept CORE_RULES §30** (debug = schema freedom). | Note: this session does **not** touch SQLDelight at all (§5.2), so no wipe is needed yet; the doc-17 destructive re-key is deferred to the content phase where it belongs. |
+| **G14** (Branch) | **Stay on `streaming/CLOUDSTREAM`.** No throwaway branch; Phase 0+ work lands on this branch. | CI workflow branch pattern extended to `streaming/**` (this session, §6). |
+
+Secondary gates G7–G13, G15–G17 remain open with their recommendations; deadlines unchanged
+(content/playback phases). G7 (jsoup) resolves trivially under clean-room: we keep our pinned 1.19.1
+(plugins compiled against 1.18.3 run fine against it; the 1.22.1 pressure existed only to satisfy the
+vendored library's own code). G8 (gson shim) is folded into the compat module's dependency set.
+
+---
+
+## 2. The architecture pivot (supersedes doc 16 §1)
+
+```
+doc 16 plan (DEAD):                    This session's plan (LIVE):
+vendor :external:cloudstream3          :core:cloudstream-api   ← clean-room compat surface
+(GPL source in-tree, compile           (our own Kotlin, com.lagradost.* package names,
+ with our toolchain)                    binary-compatible declarations only)
+        ↓                                      ↓
+ANI-KUTA calls CS3 library API         plugins load against OUR classes via
+directly                                parent-first PathClassLoader
+```
+
+What does NOT change from doc 16: the plugin-loading philosophy (parent-first `PathClassLoader`,
+manifest.json entry-class discovery, repo-salted install paths, per-plugin error surfacing
+D-295/D-296, zero default repos, repo-add = consent + sha256-at-download).
+
+Why the pivot is safe *for us*: the census (§4) shows the actually-referenced API surface is a small,
+stable subset of the library. The parts of CS3 we skip (97 built-in extractor implementations, the
+app's UI, sync providers, Rhino JS machinery, NewPipeExtractor) are only needed when providers
+*execute* — and providers are not executed in this session (management only). Where a plugin
+references a class we have not provided, the failure surfaces as an honest per-plugin `Errored` row.
+
+---
+
+## 3. Clean-room protocol (binding for all contributors)
+
+1. **Declarations** (class/interface/enum names, package names, member signatures, enum value names,
+   well-known string constants like `USER_AGENT`) are **interop facts** — they are mirrored exactly,
+   because plugin bytecode references them.
+2. **Implementations are always written from scratch.** Never translated from GPL source. Where a
+   function's behavior is documented (in docs 02–05), our implementation satisfies the same
+   *contract* with our own code.
+3. The research clone at `/home/z/ANI-KUTA-WORK/research/cloudstream/` is consulted for
+   *signatures only* (the declarations digest, `/tmp/cs3-declarations-digest.md`, is the working
+   extraction). Function bodies there are never read for translation.
+4. Unlicensed helper libraries (NiceHttp, CloudstreamApi — **no LICENSE file on GitHub**, verified
+   2026-08-29) get the same treatment: clean-room equivalents in the compat module, backed by our
+   own OkHttp 5 client. `com.lagradost.nicehttp.Requests` / `NiceResponse` / `ResponseParser` and
+   `com.lagradost.api.Log` are re-created.
+5. Third-party deps that ARE properly licensed are added as real dependencies:
+   Jackson (`jackson-module-kotlin` **2.13.1**, Apache-2.0 — the version the plugin ecosystem pins,
+   "do not bump above 2.13.1" per the official template) and Gson (Apache-2.0, for the 13/80 plugins
+   that import it). kotlinx-serialization/jsoup/okhttp already ship in the app.
+6. Every compat-module file carries this header:
+   > `// CLEAN-ROOM: declarations mirror the CloudStream 3 plugin API surface for binary
+   > compatibility (interop facts only). All implementations are original ANI-KUTA code.
+   > No CloudStream source code was copied. See DOCUMENTATION/cloudstream/23-*.md §3.`
+
+---
+
+## 4. The binary census (what the compat surface must contain)
+
+Method: string-scan of `classes.dex` in all **80 real `.cs3` plugins** from
+`research/phisher-builds/` for `Lcom/lagradost/...;` references (2026-08-29, this session).
+Plugin count = how many plugins reference the class (class must exist for those plugins to LOAD):
+
+- **80/80**: `MainAPI`, `MainAPIKt` (the `new*` builders + helpers), `MainActivityKt` (the `app`
+  global), `TvType`, `LoadResponse`, `HomePageResponse`, `MainPageRequest`, `plugins.CloudstreamPlugin`,
+  `nicehttp.Requests/NiceResponse/ResponseParser`
+- **70–79**: `SubtitleFile`, `utils.ExtractorApiKt` (`newExtractorLink`/`loadExtractor`),
+  `utils.ExtractorLink`, `SearchResponse`, `MainPageData`, `Episode`, `utils.ExtractorLinkType`
+- **50–69**: `ParCollectionsKt` (61! — the `amap` family), `MovieLoadResponse`, `MovieSearchResponse`,
+  `plugins.BasePlugin` (60), `TvSeriesLoadResponse`, `utils.AppUtils` (57), `HomePageList`,
+  `mvvm.ArchComponentExtKt` (53 — `safeApiCall`/`logError`/`Resource`), `utils.Qualities`,
+  `api.Log` (48 — separate unlicensed lib, clean-roomed), `utils.ExtractorApi` (48)
+- **15–49**: `Score`, `SearchResponseList`, `Actor`, `SearchQuality`, `ActorRole`,
+  `ErrorLoadingException` (22), `ActorData`, `AnimeSearchResponse`, `plugins.Plugin` (20),
+  `utils.M3u8Helper` (20), `AnimeLoadResponse`, `DubStatus`, `extractors.StreamWishExtractor` (17!),
+  `CommonActivity` (16), `extractors.VidStack` (16), `ShowStatus`, `APIHolder` (14),
+  `extractors.Filesim` (12), `extractors.VidHidePro`/`VidhideExtractor` (11), `utils.JsUnpacker` (11),
+  `SettingsJson` (10), `TvSeriesSearchResponse`
+- **4–9**: built-in extractor classes (`StreamSB` 7, `PixelDrain` 6, `StreamTape` 6, `DoodLaExtractor` 5,
+  `MixDrop` 5, `Voe` 5, `FileMoon` 4, `Vidmoly` 4), `CloudStreamApp` (7), `utils.DataStore` (7),
+  `utils.SubtitleHelper` (7), `metaproviders.TmdbProvider` (4), `syncproviders.SyncIdName` (4),
+  `utils.StringUtils` (4), `network.WebViewResolver` (5), `LiveSearchResponse`/`LiveStreamLoadResponse` (4)
+- **≤3** (skeletons or honest-fail): `mvvm.Resource` (3), `plugins.PluginData` (3),
+  `plugins.PluginManager` (3), `utils.DrmExtractorLink` (3), `utils.Event` (3), `network.CloudflareKiller` (3),
+  `metaproviders.TraktProvider` (2), syncprovider internals (1–2), `ui.*` app classes (1 —
+  honest-fail), `MainActivity` (3 — app class, honest-fail), 1-off extractor mirrors (1 each).
+
+**Session-1 tiering** (what loads vs what executes):
+- **Full compat surface** (types + builders + enums + helpers): everything ≥4 plugins.
+- **Skeletons** (correct declarations; method bodies throw a clear "not implemented in this build"
+  error and are only invoked during provider *execution* — later sessions): the 16 built-in
+  extractor classes, `M3u8Helper`, `JsUnpacker`, `WebViewResolver`, `CloudflareKiller`,
+  `TmdbProvider`/`TraktProvider` open surfaces, `SubtitleHelper` runtime parts.
+- **Honest-fail** (not provided; referencing plugins get an `Errored` row naming the missing class):
+  `MainActivity`, `ui.home.HomeViewModel`, `ui.settings.extensions.RepositoryData`,
+  `plugins.RepositoryManager`/`SitePlugin`/`PluginWrapper`, syncprovider internals beyond
+  `SyncIdName`, 1-off extractors (`ByseVepoin`, `Krakenfiles`, …). Total affected: ≤10/80 plugins,
+  each still *installable* — they fail at load with a visible reason (D-295/D-296 pattern).
+
+---
+
+## 5. Module design (this session)
+
+### 5.1 New Gradle modules
+
+```
+:core:cloudstream-api   ← the clean-room surface (package com.lagradost.cloudstream3[.plugins|.utils|
+                            .mvvm|.network|.metaproviders|.syncproviders] + com.lagradost.nicehttp +
+                            com.lagradost.api). No dependency on ANY anikuta module. Pure
+                            binary-compat layer, mirrored CS3 file layout where practical.
+:data:cloudstream       ← our runtime: repo client, plugin loader, manager, installer, persistence.
+                            Depends on :core:cloudstream-api (+ Koin). Follows :data:extension
+                            conventions exactly.
+```
+
+UI lands in the existing `:feature:extensions-settings:impl` (tab row + CloudStream sections) —
+the user's unified-extensions-page decision. `:app` wires the new Koin module.
+
+### 5.2 Persistence (follows the aniyomi precedent — NO SQLDelight this session)
+
+`data:extension` deliberately persists repos in SharedPreferences to stay DB-free; the CloudStream
+system mirrors that:
+
+| Store | Prefs file | Key | Content |
+|---|---|---|---|
+| CS repositories | `anikuta_cloudstream_repos` | `repos_json` | JSON `List<CloudstreamRepo>` (url, name, iconUrl?, description?) |
+| CS installed plugins | `anikuta_cloudstream_plugins` | `plugins_json` | JSON `List<CsPluginData>` (internalName, url, filePath, version, repoUrl, fileHash) |
+| NSFW gate | via `AppPreferences` | `cloudstream_show_nsfw` | Boolean, default **false** (G4: universal-toggle direction; unification deferred) |
+
+W2 (repo.json filename collision between ecosystems) is killed by the separate prefs file. The
+`system`/`content_details` SQLDelight axes (doc 15/17) are untouched — they light up in the content
+phase. **No schema change, no dev wipe this session.**
+
+### 5.3 The runtime pieces (`:data:cloudstream`)
+
+- **`CloudstreamRepoApi`** — fetch `repo.json` (name/description/iconUrl?/manifestVersion/pluginLists),
+  fetch each plugins.json in parallel, flatten, `distinctBy { url }`; `verifyRepo(url)` for the add
+  dialog (parse + count). 5-minute in-memory cache (mirrors CS3's HTTP cache contract).
+- **`CloudstreamRepoRepository`** — SharedPreferences CRUD + `StateFlow<List<CloudstreamRepo>>`.
+- **`CloudstreamPluginInstaller`** — download `.cs3` to `cacheDir` temp (streamed, throttled
+  progress), sha256-verify vs `fileHash` (`"sha256-<hex>"` format; null hash → unverified download,
+  logged), atomic move to
+  `filesDir/CloudstreamExtensions/<sanitize(repoUrl)>.<repoUrl.hashCode()>/<sanitize(internalName)>.<internalName.hashCode()>.cs3`
+  (repo-salted — the CS3 answer to same-name plugins across repos), then load.
+- **`CloudstreamPluginLoader`** — `file.setReadOnly()` (Android 14+ dex requirement) →
+  `PathClassLoader(filePath, context.classLoader)` (parent-first, D-294 invariant) → read
+  `manifest.json` **as a classloader resource** → `loadClass(pluginClassName).newInstance()` →
+  cast to `BasePlugin` → `filename = path` → `requiresResources` → `AssetManager.addAssetPath`
+  reflection (identical to CS3's documented mechanism) → dispatch `load(context)`/`load()` →
+  providers/extractors land in the compat module's `APIHolder`-equivalent registry → per-plugin
+  try/catch → `Errored` rows with the real exception (never silent).
+- **`CloudstreamPluginManager`** — the hub (StateFlows: installed/available/errored/providers,
+  install states, update-check state; enable/disable per plugin persisted; Mutex-serialized
+  installs; 30-min-throttled update check `version > saved || == -1`; kill-switch handling
+  `status == 0` → unload + disabled-by-repo state; uninstall = delete file + unload + drop record;
+  repo delete = uninstall all its plugins + confirm dialog).
+- **Enable/disable model**: CS3 has no per-plugin enabled state of its own (the kill-switch is
+  repo-side) — we add an `enabled` flag on our records (default true). Disabled plugins are not
+  loaded at startup (skipped, not deleted). This gives users the same control they have over
+  aniyomi extensions and is the G4 "highly customizable later" direction.
+
+### 5.4 UI (`:feature:extensions-settings:impl`)
+
+- **Extensions screen** — tab row (`Aniyomi` | `CloudStream`) directly under the header. Visibility:
+  both tabs when both systems have content (installed extensions OR saved repos); single system →
+  its content without tabs; none → current empty state. Aniyomi tab content = existing screen code
+  untouched (zero regression risk). CloudStream tab = new `CloudstreamExtensionsSection` with the
+  same sectioned pattern: Installed (name, version, provider count, repo, enable toggle, uninstall),
+  Update-available pills (version comparison), Failed-to-load (retry/uninstall + reason), Available
+  from repos (icon via `iconUrl` with `%size%` substitution, name, description, language, NSFW
+  badge gated by the toggle, file size, install button with progress).
+- **Repositories screen** — add dialog now auto-detects: fetch pasted URL → parses as CS
+  `repo.json` (name + manifestVersion + pluginLists non-null)? → CS repo; else aniyomi
+  `index.min.json`/`index.json` (existing flow); else explicit error naming both expected formats.
+  Rows show a type badge (Aniyomi/CloudStream). Deleting a CS repo warns that its plugins are
+  removed (mirrors CS3's `delete_repository_plugins` warning).
+- **Strings**: hardcoded English (house convention). **Icons**: Coil `AsyncImage` (iconUrl).
+
+### 5.5 Shared `InstallStep`
+
+`:data:extension`'s `InstallStep` (Idle/Pending/Downloading/Installing/Installed/Error) moves to
+`:core:provider-api` (`core.providerapi.InstallStep`) so both systems share one progress model in
+the unified UI. Mechanical move; aniyomi imports updated; no behavior change.
+
+---
+
+## 6. CI + verification
+
+- `build-apk.yml` branch pattern gains `streaming/**` (SESSION.md's documented "revisit when
+  implementation code lands"). A unit-test step runs the new modules' JVM tests
+  (`:data:cloudstream:testDebugUnitTest`, `:core:cloudstream-api:testDebugUnitTest`) on every push —
+  the project's first unit tests, covering repo.json/plugins.json parsing (fixtures from the REAL
+  phisher/official repos), version-comparison logic, sha256 format, path sanitization/salting, and
+  manifest.json parsing.
+- **Emulator E2E** (the real spike): fresh AOSP-30 x86_64 AVD (per `knowledge/emulator-testing.md`),
+  install the CI x86_64 artifact, add the phisher repo URL, install `AllMovieLandProvider.cs3`,
+  verify it loads (provider registered, visible in the list with a provider count), toggle
+  enable/disable, uninstall. This retires the "binary-compat risk" for the management scope before
+  any content work.
+
+---
+
+## 7. Out of scope (recorded, not forgotten)
+
+Provider *execution* (mainPage/search/load/loadLinks), built-in extractor implementations (real
+scraping logic for StreamWish/Dood/VidHide/…), the Cloud content tab (G3), data-layer integration
+(content tables, episode keys — doc 17), playback integration (doc 19), favorites/library (doc 18),
+plugin settings UI hosting (G10 skip), the jsDelivr proxy, deep links (`cloudstreamrepo://`),
+auto-download modes, NSFW app-wide unification (G4 full form), and `M3u8Helper`/`JsUnpacker` real
+implementations. Each lands in its own session against its own doc.
+
+---
+
+## 8. Session log
+
+- 2026-08-29 (session 1): doc written; census run (§4); declarations digest extracted
+  (`/tmp/cs3-declarations-digest.md`, 3,943 lines); NiceHttp/CloudstreamApi confirmed unlicensed →
+  clean-roomed; emulator SDK setup launched; implementation started.

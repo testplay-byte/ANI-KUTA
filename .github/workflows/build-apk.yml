@@ -21,7 +21,10 @@ on:
     # NOTE: 'test-feature/**' is a BRANCH-ONLY edit for the
     # test-feature/video-cache-new-download work branch — remove this pattern
     # before merging to main (same precedent as the TEST_BETA_FEATURE edit).
-    branches: [ main, 'feature/**', 'functionality/**', 'test-feature/**' ]
+    # 'streaming/**' added 2026-08-29 (doc 23): the streaming/CLOUDSTREAM branch
+    # now carries implementation code (CloudStream extension system, Task 41+);
+    # CI must build it. Same branch-pattern precedent as feature/functionality.
+    branches: [ main, 'feature/**', 'functionality/**', 'test-feature/**', 'streaming/**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -60,6 +63,13 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      # 2026-08-29 (doc 23 §6): JVM unit tests for the new modules. These are the
+      # project's first unit tests (CloudStream compat + repo/plugin logic —
+      # pure JVM, fixtures from real repository JSON). Runs BEFORE assembleDebug
+      # so logic failures fail fast.
+      - name: Run unit tests (cloudstream modules)
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
