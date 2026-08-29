@@ -47,11 +47,11 @@ All docs live in `ANI-KUTA/APP/ani-kuta/DOCUMENTATION/cloudstream/`. Numbered, r
 | # | Doc | Scope | Owner batch | Status |
 |---|---|---|---|---|
 | 00 | `00-RESEARCH-TRACKER.md` | this file — workflow + progress + verification log | main | ✅ living |
-| 01 | `01-ecosystem-overview.md` | What CloudStream is; project/repo map; versions; how app+library+plugins fit together; legality/DMCA posture | B1-a | ⬜ |
-| 02 | `02-plugin-format.md` | `.cs3`/`.jar` format forensics; plugin project layout (gradle, manifest, template); build & CI; signing; apiVersion | B1-b | ⬜ |
-| 03 | `03-mainapi-reference.md` | Complete `MainAPI` reference — every property/method a plugin can override, with signatures + semantics | B1-c | ⬜ |
-| 04 | `04-extension-repositories.md` | repo.json + plugins.json formats; repo indexing; add-browse-update flow; community repo ecosystem; verification rules | B1-d | ⬜ |
-| 05 | `05-data-models.md` | Full data-model catalog: SearchResponse family, LoadResponse family, Episode, Video/ExtractorLink, subtitles,TvType, Quality — with field-by-field notes | B1-e | ⬜ |
+| 01 | `01-ecosystem-overview.md` | What CloudStream is; project/repo map; versions; how app+library+plugins fit together; legality/DMCA posture | B1-a | ✅ |
+| 02 | `02-plugin-format.md` | `.cs3`/`.jar` format forensics; plugin project layout (gradle, manifest, template); build & CI; signing; apiVersion | B1-b | ✅ |
+| 03 | `03-mainapi-reference.md` | Complete `MainAPI` reference — every property/method a plugin can override, with signatures + semantics | B1-c | ✅ |
+| 04 | `04-extension-repositories.md` | repo.json + plugins.json formats; repo indexing; add-browse-update flow; community repo ecosystem; verification rules | B1-d | ✅ |
+| 05 | `05-data-models.md` | Full data-model catalog: SearchResponse family, LoadResponse family, Episode, Video/ExtractorLink, subtitles,TvType, Quality — with field-by-field notes | B1-e | ✅ |
 | 06 | `06-search-and-mainpage.md` | `mainPage`/`mainPageOf`, filters, `search`, `quickSearch`; how the app drives them | B2-a | ⬜ |
 | 07 | `07-details-and-metadata.md` | `load()` details+metadata: posters, headers, actors, recommendations, nextAiring, TV/seasons structure, metaproviders (TMDb/Trakt/MDL) | B2-b | ⬜ |
 | 08 | `08-video-loading-extractors.md` | `loadLinks`, ExtractorLink, VideoExtractor, `resolveLink`, built-in extractor inventory, custom extractors, subtitle loading | B2-c | ⬜ |
@@ -100,7 +100,9 @@ Agent worklog protocol: every agent appends its entry to `/home/z/my-project/wor
 
 | When | Batch | What happened |
 |---|---|---|
-| 2026-08-29 | B0 | Workspace cloned (11 sources, see §2). Skeleton + tracker created. Initial push. |
+| 2026-08-29 | B0 | Workspace cloned (11 sources, see §2). Skeleton + tracker created. Initial push (cccbcfd). |
+| 2026-08-29 | B1 | 5 agents → docs 01-05 written (4,305 lines total). Main-agent review: 6 spot-checks against source all green (PathClassLoader parent-first @ PluginManager.kt:611; apiVersion dead @ RepositoryManager.kt:57-59; no login/resolveLink in current MainAPI; TvType = 18 values; @CloudstreamPlugin fieldless; manifest.json entry-class discovery). Cross-doc consistency confirmed. NOTE: 3 agents initially rate-limited (429) when 5 ran concurrently — subsequent batches launch in waves of ≤2. |
+| | B2 | *(in flight)* |
 
 ## 7. Verification Log Summary
 
@@ -108,7 +110,7 @@ Agent worklog protocol: every agent appends its entry to `/home/z/my-project/wor
 
 | Batch | Claims checked | Corrections made | Confidence |
 |---|---|---|---|
-| B1 | — | — | — |
+| B1 | 6 spot-checks by main agent (classloader, apiVersion, MainAPI members, TvType, annotation, manifest flow) | 0 needed — agent claims all verified | HIGH |
 | B2 | — | — | — |
 | B3 | — | — | — |
 | B4 | — | — | — |
