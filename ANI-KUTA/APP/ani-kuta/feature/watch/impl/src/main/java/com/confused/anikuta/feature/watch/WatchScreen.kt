@@ -755,9 +755,10 @@ fun WatchScreen(
     // said: "it should always show and it should not automatically disappear
     // out of the blue."
     LaunchedEffect(errorMessage, errorGeneration) {
-        if (errorMessage == null || stateHolder.isSwitching.value || !mpvInitialized) return@LaunchedEffect
-        // Delegated properties can't be smart-cast — capture a local.
-        val errorMsg = errorMessage
+        if (stateHolder.isSwitching.value || !mpvInitialized) return@LaunchedEffect
+        // Delegated properties can't be smart-cast — capture a NON-NULL local
+        // (a null error means nothing to recover from).
+        val errorMsg = errorMessage ?: return@LaunchedEffect
         // Local files cannot 403 — nothing to recover automatically.
         if (currentVideoUrl.startsWith("content://") || currentVideoUrl.startsWith("fd://")) return@LaunchedEffect
 
