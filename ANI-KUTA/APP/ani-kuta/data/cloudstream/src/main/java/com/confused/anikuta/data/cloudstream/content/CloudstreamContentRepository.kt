@@ -72,6 +72,7 @@ data class CsContentCard(
  * device round 3: "show a popular, latest and other sections in row format").
  * [title] is the provider's own shelf name ("Latest Updated", "Most Popular", …).
  */
+@kotlinx.serialization.Serializable
 data class CsBrowseSection(
     val title: String,
     val items: List<CsContentCard>,

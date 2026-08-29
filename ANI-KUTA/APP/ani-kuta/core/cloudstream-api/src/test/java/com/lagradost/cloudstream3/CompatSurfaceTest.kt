@@ -18,6 +18,9 @@ private class TestProvider : MainAPI() {
     override var mainUrl = "https://example.com"
 }
 
+/** Top-level (not local) so Jackson reflects on it reliably in unit tests. */
+private data class CompatTestPayload(val id: String)
+
 class CompatSurfaceTest {
 
     // ── Enums: names + order are interop facts ──────────────────────────────
@@ -144,8 +147,7 @@ class CompatSurfaceTest {
     @Test
     fun newEpisode_genericObjectData_isJsonEncoded() {
         val provider = TestProvider()
-        data class Payload(val id: String)
-        val episode = with(provider) { newEpisode(Payload("xyz") as Any) }
+        val episode = with(provider) { newEpisode(CompatTestPayload("xyz") as Any) }
         assertEquals("""{"id":"xyz"}""", episode.data)
     }
 
