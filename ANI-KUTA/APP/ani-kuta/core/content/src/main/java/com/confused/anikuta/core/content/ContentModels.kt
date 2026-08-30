@@ -151,6 +151,13 @@ data class ExtensionExtras(
     val scanlatorGroup: String? = null,
     val chapterCount: Int? = null,
     val volumeCount: Int? = null,
+    /** Task 47: the source-provided release year (persisted so cache-first
+     * details reopens keep the Year row; additive JSON — old rows decode
+     * without it, new rows decode on old readers via ignoreUnknownKeys). */
+    val year: Int? = null,
+    /** Task 47: the source-provided rating on the 0..100 scale the details
+     * screen displays (SAnime.score is 0..10 — converted before persisting). */
+    val score: Int? = null,
 ) {
     fun toJson(): String = extrasJson.encodeToString(ExtensionExtras.serializer(), this)
 

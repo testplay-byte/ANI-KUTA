@@ -1,22 +1,20 @@
-package com.confused.anikuta.data.extension.installer
+package com.confused.anikuta.core.providerapi
 
 /**
- * The lifecycle states of an extension install.
+ * The lifecycle states of an extension install — SHARED across extension systems
+ * (aniyomi + CloudStream) so the unified Extensions settings UI renders one
+ * progress model (doc 23 §5.5).
  *
- * Ported from the old project; D-309 turned the enum into a sealed interface so
- * [Downloading] can carry a progress payload for the UI (the device-reported
- * "no download animation" issue — the user got zero feedback while the APK
- * downloaded, then a sudden install prompt).
- *
- * Emitted as a [kotlinx.coroutines.flow.Flow] by
- * [ExtensionInstaller.downloadAndInstall].
+ * Moved here from :data:extension (Task 41) when the CloudStream system needed the
+ * same states — a pure package move, no behavior change.
  *
  * - [Idle] — pre-start or cancelled back to neutral.
  * - [Pending] — queued (waiting for the install mutex).
- * - [Downloading] — OkHttp is pulling the APK. [Downloading.progress] is the
+ * - [Downloading] — the file is being pulled. [Downloading.progress] is the
  *   percent (0..100) when the server sent a Content-Length, or `-1` when the
  *   size is unknown (render as indeterminate).
- * - [Installing] — PackageInstaller session is open.
+ * - [Installing] — the system installer session is open, or (CloudStream) the
+ *   downloaded plugin file is being verified + loaded.
  * - [Installed] / [Error] — terminal.
  */
 sealed interface InstallStep {

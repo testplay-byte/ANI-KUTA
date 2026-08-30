@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import com.confused.anikuta.core.providerapi.InstallStep
 
 /**
  * Downloads an extension APK via OkHttp and dispatches it to

@@ -29,4 +29,10 @@ class SAnimeImpl : SAnime {
     override var fetch_type: FetchType = FetchType.Episodes
 
     override var season_number: Double = -1.0
+
+    // Task 46: optional enrichment channel — null unless a source provides it
+    // (see the SAnime interface docs).
+    override var year: Int? = null
+
+    override var score: Double? = null
 }

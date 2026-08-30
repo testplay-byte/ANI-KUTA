@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:navigation-api"))
     implementation(project(":core:preferences"))
     implementation(project(":core:source-api"))
+    implementation(project(":core:provider-api"))  // CloudStream V2: InstallStep moved here (ecosystem-shared install lifecycle states)
     implementation(project(":data:extension"))
 
     implementation(libs.androidx.ui)
