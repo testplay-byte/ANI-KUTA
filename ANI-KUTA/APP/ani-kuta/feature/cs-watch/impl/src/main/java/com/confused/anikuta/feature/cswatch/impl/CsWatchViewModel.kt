@@ -161,7 +161,16 @@ class CsWatchViewModel(
                 viewModelScope.launch {
                     val link = _uiState.value.currentLink
                     if (link != null) {
-                        requestPlay(link, lookupResumePositionMs(), isResume = true, keepPosition = false)
+                        // R13-REVIEW F2: the DB lookup suspends — capture the
+                        // decision context and re-validate after; a resolution
+                        // that started meanwhile wins and drops this request.
+                        val gen = _uiState.value.resolveGeneration
+                        val resumeMs = lookupResumePositionMs()
+                        if (_uiState.value.resolveGeneration == gen && currentKey == key) {
+                            requestPlay(link, resumeMs, isResume = true, keepPosition = false)
+                        } else {
+                            Logger.w(TAG) { "re-entry play dropped: resolution changed during resume lookup" }
+                        }
                     } else {
                         startResolution(key)
                     }
@@ -176,11 +185,21 @@ class CsWatchViewModel(
 
     /** Adopts the resolve sheet's handoff — no re-resolve, instant playback. */
     private fun adoptSeed(seed: PreResolvedSeed) {
+        // R13-REVIEW F1: a resolution still running from a PREVIOUS episode
+        // (e.g. the user backed out mid-RESOLVING and tapped another episode)
+        // must die here — its snapshots would resurrect the stale episode over
+        // this seed.
+        resolveJob?.cancel()
+        resolveJob = null
+        pendingSubSelectId = null
+
         val key = seed.key
         currentKey = key
+        val generation = _uiState.value.resolveGeneration + 1
         Logger.i(TAG) {
             "open: SEEDED '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
-                "mainId=${key.mainId.take(8)}… links=${seed.links.size} subs=${seed.subtitles.size} — skipping resolve"
+                "mainId=${key.mainId.take(8)}… links=${seed.links.size} subs=${seed.subtitles.size} " +
+                "gen=$generation — skipping resolve"
         }
         _uiState.value = CsWatchUiState(
             animeTitle = key.animeTitle,
@@ -194,12 +213,56 @@ class CsWatchViewModel(
             unsupportedDrmCount = seed.unsupportedDrmCount,
             currentLink = seed.selectedLink,
             resolveCompleted = true,
-            resolveGeneration = 1,
-            engineResetTick = 1,
+            resolveGeneration = generation,
+            engineResetTick = _uiState.value.engineResetTick + 1,
         )
         viewModelScope.launch {
             val resumeMs = if (key.startPosition > 0) key.startPosition else lookupResumePositionMs()
-            requestPlay(seed.selectedLink, resumeMs, isResume = resumeMs > 0, keepPosition = false)
+            // R13-REVIEW F2: re-validate after the (suspending) resume lookup.
+            if (_uiState.value.resolveGeneration == generation && currentKey == key) {
+                requestPlay(seed.selectedLink, resumeMs, isResume = resumeMs > 0, keepPosition = false)
+            } else {
+                Logger.w(TAG) { "seeded play dropped: resolution changed during resume lookup" }
+            }
+        }
+
+        // R13-REVIEW F4: the sheet's collection died at pick time (mid-flight
+        // for early picks), so the handed-off list may be PARTIAL. A quiet
+        // top-up walk keeps the Sources sheet + the error-fallback chain fully
+        // saturated — append-only, same-generation-guarded, never touches
+        // playback. (The resolver caches on completion, so re-taps stay fast.)
+        resolveJob = viewModelScope.launch {
+            resolver.resolve(key.providerName, key.episodeData).collect { event ->
+                val state = _uiState.value
+                if (state.resolveGeneration != generation) return@collect
+                when (event) {
+                    is CsResolveEvent.LinksSnapshot -> {
+                        val known = state.links.mapTo(mutableSetOf()) { it.url }
+                        val fresh = event.links.filterNot { it.url in known }
+                        if (fresh.isNotEmpty()) {
+                            val merged = state.links + fresh
+                            _uiState.value = state.copy(
+                                links = merged,
+                                hiddenTorrentCount = event.hiddenTorrentCount,
+                                unsupportedDrmCount = event.unsupportedDrmCount,
+                            )
+                            refreshCurrentLink(merged)
+                            Logger.i(TAG) { "seed top-up: links ${state.links.size} → ${merged.size}" }
+                        }
+                    }
+                    is CsResolveEvent.SubtitlesSnapshot -> {
+                        val known = state.subtitles.mapTo(mutableSetOf()) { it.id }
+                        val fresh = event.subtitles.filterNot { it.id in known }
+                        if (fresh.isNotEmpty()) {
+                            _uiState.value = state.copy(subtitles = state.subtitles + fresh)
+                            Logger.i(TAG) { "seed top-up: subs ${state.subtitles.size} → ${state.subtitles.size + fresh.size}" }
+                        }
+                    }
+                    is CsResolveEvent.Completed,
+                    is CsResolveEvent.Failed,
+                    -> Unit // saturated (or the sheet already surfaced the failure)
+                }
+            }
         }
     }
 

@@ -210,6 +210,11 @@ fun CsResolveSheet(
                     detail = failure ?: "",
                     actionLabel = "Retry",
                     onAction = {
+                        // R13-REVIEW F5: clear the failed attempt's remnants.
+                        links = emptyList()
+                        subtitles = emptyList()
+                        hiddenCount = 0
+                        drmCount = 0
                         failure = null
                         completed = false
                         autoPicked = false
@@ -247,6 +252,11 @@ fun CsResolveSheet(
                     },
                     actionLabel = "Retry",
                     onAction = {
+                        // R13-REVIEW F5: clear the failed attempt's remnants.
+                        links = emptyList()
+                        subtitles = emptyList()
+                        hiddenCount = 0
+                        drmCount = 0
                         failure = null
                         completed = false
                         autoPicked = false

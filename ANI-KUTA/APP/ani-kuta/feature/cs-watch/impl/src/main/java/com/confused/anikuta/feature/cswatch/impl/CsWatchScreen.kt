@@ -102,6 +102,19 @@ fun CsWatchScreen(
         }
     }
 
+    // Task 53 / RC-3 + R13-REVIEW F3: a NEW episode's resolution start
+    // hard-resets the engine — whatever was loaded stops and clears, so nothing
+    // stale can play under the resolving overlay regardless of any race.
+    // Declared ABOVE the play trigger: on frames where a seed's reset tick and
+    // its play request land together, effects run in declaration order —
+    // reset-then-start. (Declared below, the same frame would start-then-reset
+    // and wipe the fresh media.)
+    LaunchedEffect(uiState.engineResetTick) {
+        if (uiState.engineResetTick > 0) {
+            engine.reset()
+        }
+    }
+
     // ── The play trigger: VM says "load this" → engine loads it ──────────────
     // Task 53 / RC-3: the body reads the LIVE StateFlow (viewModel.uiState.value),
     // NOT the composed snapshot — the collectAsState State object lags the
@@ -153,15 +166,6 @@ fun CsWatchScreen(
         }
         if (!selected) {
             Logger.w("Anikuta:CS:Subs") { "reattached sub never exposed its track (id=$pendingSubId)" }
-        }
-    }
-
-    // Task 53 / RC-3: a NEW episode's resolution start hard-resets the engine —
-    // whatever was loaded stops and clears, so nothing stale can play under
-    // the resolving overlay regardless of any race.
-    LaunchedEffect(uiState.engineResetTick) {
-        if (uiState.engineResetTick > 0) {
-            engine.reset()
         }
     }
 
@@ -252,7 +256,7 @@ fun CsWatchScreen(
             audioTracks = engine.audioTracks()
             selectedAudioId = audioTracks.firstOrNull {
                 runCatching {
-                    engine.player.currentTracks.groups.getOrNull(it.groupIndex)?.isSelected
+                    engine.player.currentTracks.groups.getOrNull(it.groupIndex)?.isSelected == true
                 }.getOrDefault(false)
             }?.id
         }
