@@ -30,6 +30,7 @@ import com.confused.anikuta.core.watchprogress.watchProgressModule
 import com.confused.anikuta.data.extension.extensionModule
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.cloudstream.di.cloudstreamModule
+import com.confused.anikuta.feature.cswatch.impl.di.csWatchModule
 import com.confused.anikuta.data.cloudstream.content.CloudstreamSourceRegistry
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
@@ -154,6 +155,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
                 adsModule,  // D-272: smart-link ad system
                 extensionModule,
                 cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)
+                csWatchModule,  // Task 52 (round 12): the CS watch screen (playback port)
                 playerModule,
                 videoResolverModule,
                 downloadModule,

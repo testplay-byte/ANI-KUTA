@@ -49,6 +49,14 @@ val cloudstreamModule = module {
     // watch screen's ViewModel.
     single { com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver() }
 
+    // Task 52: the playback engine's OkHttp client — the CS runtime's plugin
+    // client (its interceptors/cookies stay active on stream requests, exactly
+    // like upstream's `app.baseClient` wiring). factory(): `app` is a var the
+    // runtime can replace, so resolve it fresh at each watch-screen entry.
+    factory<OkHttpClient>(named("cloudstreamPlayback")) {
+        com.lagradost.cloudstream3.app.baseClient
+    }
+
     // Task 45 — the SOURCE BRIDGE registry: every trusted provider published as
     // an aniyomi AnimeHttpSource under a stable synthetic id. The app wires it
     // into ExtensionManager.setExternalSources so CloudStream results open the

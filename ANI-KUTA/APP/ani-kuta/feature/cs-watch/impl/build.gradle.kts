@@ -25,11 +25,17 @@ dependencies {
     implementation(project(":core:watch-progress"))  // SAME provider-agnostic store as the aniyomi screen
     implementation(project(":data:cloudstream"))     // CloudstreamLinkResolver (Phase C)
 
+    // Media3 — the engine types flow through :core:cs-player's public surface
+    // (Player access for PlayerView + track enumeration in the sheets).
+    implementation(libs.media3.common)
+    implementation(libs.media3.ui)
+
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.core.ktx)  // WindowInsetsControllerCompat (immersive mode scaffolding)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
