@@ -55,8 +55,25 @@ class CloudstreamLinkResolver(
         /** How long to wait for the FIRST playable link before failing honestly. */
         internal const val FIRST_LINK_TIMEOUT_MS = 30_000L
 
+        /** Total loadLinks budget (upstream APIRepository: 120 s default). */
+        internal const val DEFAULT_TOTAL_TIMEOUT_MS = 120_000L
+
+        /** Upstream clamp: 5 s – 480 s. */
+        internal const val MIN_TOTAL_TIMEOUT_MS = 5_000L
+        internal const val MAX_TOTAL_TIMEOUT_MS = 480_000L
+
         /** Fresh link-cache window (upstream RepoLinkGenerator's 20 minutes). */
         internal const val CACHE_TTL_MS = 20 * 60 * 1000L
+
+        /** Header values are logged truncated — enough to diagnose, not a URL dump. */
+        internal fun formatHeaders(headers: Map<String, String>): String =
+            headers.entries.joinToString(",", "\u007b", "\u007d") { "${it.key}=${it.value.take(32)}" }
+
+        /** The provider's total-budget override (upstream MainAPI.loadLinksTimeoutMs), clamped. */
+        internal fun totalTimeoutMs(provider: MainAPI): Long {
+            val raw = runCatching { provider.loadLinksTimeoutMs }.getOrNull() ?: DEFAULT_TOTAL_TIMEOUT_MS
+            return raw.coerceIn(MIN_TOTAL_TIMEOUT_MS, MAX_TOTAL_TIMEOUT_MS)
+        }
     }
 
     /** Progressive resolution snapshots — the screen renders the latest of each. */
@@ -141,7 +158,8 @@ class CloudstreamLinkResolver(
         }
 
         Logger.i(TAG) {
-            "resolve: START '$providerName' data=${data.take(80)}${if (data.length > 80) "…" else ""}"
+            "resolve: START '$providerName' data=${data.take(80)}${if (data.length > 80) "…" else ""} " +
+                "timeout=${totalTimeoutMs(provider) / 1000}s"
         }
 
         val seenLinkUrls = ConcurrentHashMap.newKeySet<String>()
@@ -202,7 +220,7 @@ class CloudstreamLinkResolver(
             Logger.i(TAG) {
                 "link #${links.size}: ${mapped.displayLabel} type=${mapped.type} " +
                     "referer=${if (mapped.referer.isBlank()) "none" else mapped.referer.take(48)} " +
-                    "headers=${mapped.headers.keys} url=${mapped.url.take(96)}"
+                    "headers=${formatHeaders(mapped.headers)} url=${mapped.url.take(96)}"
             }
             // Snapshot emission keeps Compose simple (state = latest list).
             trySend(
@@ -233,18 +251,42 @@ class CloudstreamLinkResolver(
                 id = "$fixedUrl|$name",
             )
             synchronized(subtitles) { subtitles += mapped }
-            Logger.i(TAG) { "subtitle #${subtitles.size}: ${mapped.name} mime=${mapped.mimeType} url=${mapped.url.take(80)}" }
+            Logger.i(TAG) {
+                "subtitle #${subtitles.size}: ${mapped.name} mime=${mapped.mimeType} " +
+                    "headers=${formatHeaders(mapped.headers)} url=${mapped.url.take(80)}"
+            }
             trySend(CsResolveEvent.SubtitlesSnapshot(synchronized(subtitles) { subtitles.toList() }))
         }
 
         val providerJob = launch(Dispatchers.IO) {
+            val timeoutMs = totalTimeoutMs(provider)
             val returned = try {
-                provider.loadLinks(
-                    data,
-                    isCasting = false,
-                    subtitleCallback = { onSubtitle(it) },
-                    callback = { onLink(it) },
+                // Task 53 / RC-4: upstream APIRepository wraps loadLinks in
+                // withTimeout(api.loadLinksTimeoutMs ?: 120s, clamped 5–480s).
+                kotlinx.coroutines.withTimeout(timeoutMs) {
+                    provider.loadLinks(
+                        data,
+                        isCasting = false,
+                        subtitleCallback = { onSubtitle(it) },
+                        callback = { onLink(it) },
+                    )
+                }
+            } catch (te: kotlinx.coroutines.TimeoutCancellationException) {
+                // Total-budget exhaustion — partial links stay usable.
+                Logger.w(TAG) {
+                    "resolve: TOTAL TIMEOUT after ${timeoutMs / 1000}s — '$providerName' " +
+                        "links=${synchronized(links) { links.size }} subs=${synchronized(subtitles) { subtitles.size }}"
+                }
+                trySend(
+                    CsResolveEvent.Failed(
+                        "'$providerName' took longer than ${timeoutMs / 1000}s to resolve — " +
+                            "try again or pick another source",
+                        synchronized(links) { links.size },
+                        hiddenTorrent.get(),
+                        timedOut = true,
+                    ),
                 )
+                return@launch
             } catch (ce: CancellationException) {
                 throw ce
             } catch (cf: CloudflareBlockedException) {
@@ -279,7 +321,7 @@ class CloudstreamLinkResolver(
             Logger.i(TAG) {
                 "resolve: DONE '$providerName' providerReturned=$returned links=$linkCount " +
                     "subs=$subCount hiddenTorrent=${hiddenTorrent.get()} drm=${unsupportedDrm.get()} " +
-                    "in ${System.currentTimeMillis() - startedAt}ms"
+                    "in ${System.currentTimeMillis() - startedAt}ms (cache=miss)"
             }
             trySend(
                 CsResolveEvent.Completed(

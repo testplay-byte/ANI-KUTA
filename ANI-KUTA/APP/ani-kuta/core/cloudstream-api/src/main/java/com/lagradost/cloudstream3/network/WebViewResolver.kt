@@ -22,6 +22,7 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.lagradost.api.Log
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.USER_AGENT
@@ -91,14 +92,23 @@ class WebViewResolver(
         return chain.proceed(chain.request())
     }
 
+    // Task 53 / RC-5: upstream NEVER throws out of WebView resolution — a failed
+    // resolve returns `null to emptyList()` and the caller (provider extractor)
+    // degrades gracefully. Our previous stub THREW NotImplementedError, which
+    // killed plugin flows that call resolveUsingWebView directly (they catch
+    // nothing). Same null-pair semantics as AnymeX's stub until a real
+    // implementation lands (documented limitation, doc 04 §6).
+    private fun stubResult(url: String): Pair<Request?, List<Request>> {
+        Log.w("Anikuta:CS:WebView", "resolveUsingWebView is not implemented in this build — returning no match for ${url.take(72)}")
+        return null to emptyList()
+    }
+
     suspend fun resolveUsingWebView(
         url: String,
         referer: String? = null,
         method: String = "GET",
         requestCallBack: (Request) -> Boolean = { false },
-    ): Pair<Request?, List<Request>> {
-        throw NotImplementedError("WebViewResolver is not implemented in this build yet (playback session)")
-    }
+    ): Pair<Request?, List<Request>> = stubResult(url)
 
     suspend fun resolveUsingWebView(
         url: String,
@@ -106,16 +116,12 @@ class WebViewResolver(
         headers: Map<String, String> = emptyMap(),
         method: String = "GET",
         requestCallBack: (Request) -> Boolean = { false },
-    ): Pair<Request?, List<Request>> {
-        throw NotImplementedError("WebViewResolver is not implemented in this build yet (playback session)")
-    }
+    ): Pair<Request?, List<Request>> = stubResult(url)
 
     suspend fun resolveUsingWebView(
         request: Request,
         requestCallBack: (Request) -> Boolean = { false },
-    ): Pair<Request?, List<Request>> {
-        throw NotImplementedError("WebViewResolver is not implemented in this build yet (playback session)")
-    }
+    ): Pair<Request?, List<Request>> = stubResult(request.url.toString())
 }
 
 /**

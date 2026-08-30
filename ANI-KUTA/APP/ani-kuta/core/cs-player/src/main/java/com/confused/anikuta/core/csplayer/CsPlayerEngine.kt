@@ -70,6 +70,15 @@ data class CsVideoTrack(
     val label: String,
 )
 
+/** One selectable audio track inside the current stream (DASH multi-audio etc.). */
+data class CsAudioTrackInfo(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val id: String?,
+    val label: String,
+    val language: String?,
+)
+
 /** One selectable text track (sidecar subtitle OR embedded). */
 data class CsTextTrack(
     val groupIndex: Int,
@@ -110,7 +119,7 @@ sealed interface CsEngineEvent {
 class CsPlayerEngine(
     context: Context,
     baseClient: OkHttpClient,
-    defaultUserAgent: String = CsPlayerDefaults.USER_AGENT,
+    private val defaultUserAgent: String = CsPlayerDefaults.USER_AGENT,
 ) {
     companion object {
         internal const val TAG = "Anikuta:CS:Player"
@@ -131,6 +140,12 @@ class CsPlayerEngine(
 
     private var current: CurrentPlayback? = null
     private var tickerJob: Job? = null
+
+    /** Task 53 / RC-2: one clean-profile retry per link load (see CsHttpDataSourceFactory). */
+    private var cleanRetryUsed = false
+
+    /** True once the CURRENT load reached READY — mid-playback errors are NOT clean-retry candidates. */
+    private var reachedReady = false
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context))
@@ -173,6 +188,25 @@ class CsPlayerEngine(
                     else -> CsBufferState.IDLE
                 }
                 _state.value = _state.value.copy(bufferState = mapped, durationMs = safeDuration())
+                if (mapped == CsBufferState.READY) {
+                    reachedReady = true
+                    // Track census — the subtitle/audio diagnosis baseline.
+                    val groups = player.currentTracks.groups
+                    var videoGroups = 0
+                    var audioGroups = 0
+                    var textGroups = 0
+                    groups.forEach { g ->
+                        when (g.type) {
+                            C.TRACK_TYPE_VIDEO -> videoGroups++
+                            C.TRACK_TYPE_AUDIO -> audioGroups++
+                            C.TRACK_TYPE_TEXT -> textGroups++
+                        }
+                    }
+                    Logger.i(TAG) {
+                        "READY: track groups video=$videoGroups audio=$audioGroups text=$textGroups " +
+                            "(url=${_state.value.currentLinkUrl?.take(64)})"
+                    }
+                }
                 if (mapped == CsBufferState.ENDED) {
                     Logger.i(TAG) { "playback ENDED (url=${_state.value.currentLinkUrl})" }
                     _events.tryEmit(CsEngineEvent.Ended)
@@ -193,6 +227,24 @@ class CsPlayerEngine(
             override fun onPlayerError(error: PlaybackException) {
                 val playback = current
                 val csError = classify(error)
+                // Task 53 / RC-2: a 4xx at OPEN time (never reached READY) on the
+                // upstream profile → one automatic CLEAN retry (no UA override,
+                // referer dropped). Empirically resurrects CDNs like hcdn3
+                // (browser UA → 428, referer → 429, clean profile → 206).
+                if (playback != null && !cleanRetryUsed && !reachedReady &&
+                    csError.kind == CsPlaybackError.Kind.HTTP &&
+                    (csError.httpCode ?: 0) in 400..499
+                ) {
+                    cleanRetryUsed = true
+                    val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
+                    Logger.w(TAG) {
+                        "playerError http=${csError.httpCode} before READY → CLEAN RETRY " +
+                            "(client-default UA, referer dropped) '${playback.link.displayLabel}' " +
+                            "keeping position=${keepAt}ms"
+                    }
+                    startInternal(playback.link, playback.subtitles, keepAt, clean = true)
+                    return
+                }
                 // The upstream diagnostic gold standard (GeneratorPlayer.playerError):
                 // every field a stream diagnosis needs, on one line.
                 val diagnostics = buildString {
@@ -207,6 +259,7 @@ class CsPlayerEngine(
                     append(", duration=${if (player.duration == C.TIME_UNSET) "unset" else player.duration}")
                     append(", isPlaying=${player.isPlaying}")
                     append(", linkName=${playback?.link?.displayLabel ?: "none"}")
+                    if (cleanRetryUsed) append(", cleanRetry=alreadyTried")
                 }
                 Logger.e(TAG, error) { diagnostics }
                 _events.tryEmit(CsEngineEvent.PlaybackError(csError, diagnostics, playback?.link?.url))
@@ -217,23 +270,60 @@ class CsPlayerEngine(
     // ── Playback control ──────────────────────────────────────────────────────
 
     /**
-     * Loads [link] with its [subtitles] and starts playback.
+     * Loads [link] with its [subtitles] and starts playback (upstream header profile).
      *
      * @param startPositionMs resume position; 0 = let ExoPlayer pick the default
      *   position (for live M3U8/DASH that is the live edge — the upstream
      *   `playbackPosition = TIME_UNSET` nuance, research R12-A §5).
      */
     fun start(link: CsVideoLink, subtitles: List<CsSubtitle>, startPositionMs: Long = 0L) {
-        Logger.i(TAG) {
-            "start: ${link.displayLabel} type=${link.type} url=${link.url.take(96)} " +
-                "subs=${subtitles.size} audio=${link.audioTracks.size} resumeMs=$startPositionMs"
-        }
+        startInternal(link, subtitles, startPositionMs, clean = false)
+    }
+
+    /** Re-loads [link] keeping the current position (quality/source switch UX). */
+    fun switchLink(link: CsVideoLink, subtitles: List<CsSubtitle>) {
+        val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
+        Logger.i(TAG) { "switchLink → ${link.displayLabel} keeping position=${keepAt}ms" }
+        startInternal(link, subtitles, keepAt, clean = false)
+    }
+
+    /**
+     * The one real loader. [clean] selects the retry request profile (RC-2):
+     * no User-Agent override + referer dropped — see CsHttpDataSourceFactory.
+     * Every load logs its full outgoing request profile (diagnosability).
+     */
+    private fun startInternal(
+        link: CsVideoLink,
+        subtitles: List<CsSubtitle>,
+        startPositionMs: Long,
+        clean: Boolean,
+    ) {
         current = CurrentPlayback(link, subtitles)
+        cleanRetryUsed = clean
+        reachedReady = false
+
+        val headersOut = if (clean) {
+            link.allHeaders.filterKeys { !it.equals("referer", ignoreCase = true) }
+        } else {
+            link.allHeaders
+        }
+        val uaOut = when {
+            clean -> "client-default"
+            link.userAgent != null -> link.userAgent!!.take(48)
+            else -> defaultUserAgent.take(48)
+        }
+        Logger.i(TAG) {
+            "start[profile=${if (clean) "clean" else "upstream"}]: ${link.displayLabel} type=${link.type} " +
+                "ua=$uaOut headers=${headersOut.entries.joinToString(",") { "${it.key}=${it.value.take(24)}" }} " +
+                "url=${link.url.take(96)} subs=${subtitles.size} audio=${link.audioTracks.size} resumeMs=$startPositionMs"
+        }
 
         val mime = CsMediaTypes.mimeFor(link.type)
         val mediaItem = MediaItem.Builder().setUri(link.url).setMimeType(mime).build()
         val videoSource: MediaSource =
-            DefaultMediaSourceFactory(dataSourceFactory.forLink(link)).createMediaSource(mediaItem)
+            DefaultMediaSourceFactory(
+                if (clean) dataSourceFactory.forLinkClean(link) else dataSourceFactory.forLink(link),
+            ).createMediaSource(mediaItem)
 
         // Sidecar subtitles — each with its OWN DataSource (per-sub headers),
         // exactly like upstream getSubSources (research R12-A §6).
@@ -280,11 +370,28 @@ class CsPlayerEngine(
         Logger.d(TAG) { "prepared: mime=$mime subSources=${subSources.size} audioSources=${audioSources.size} merged=${subSources.isNotEmpty() || audioSources.isNotEmpty()}" }
     }
 
-    /** Re-loads [link] keeping the current position (quality/source switch UX). */
-    fun switchLink(link: CsVideoLink, subtitles: List<CsSubtitle>) {
-        val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
-        Logger.i(TAG) { "switchLink → ${link.displayLabel} keeping position=${keepAt}ms" }
-        start(link, subtitles, keepAt)
+    /**
+     * Task 53 / RC-3: hard-stops the engine and clears its media — the watch
+     * screen calls this whenever a NEW episode's resolution starts, so no
+     * stale content can keep playing under the resolving overlay.
+     */
+    fun reset() {
+        Logger.i(TAG) { "reset: stopping + clearing (had=${current?.link?.displayLabel ?: "nothing"})" }
+        cleanRetryUsed = false
+        reachedReady = false
+        current = null
+        tickerJob?.cancel()
+        player.stop()
+        player.clearMediaItems()
+        _state.value = _state.value.copy(
+            isPlaying = false,
+            playWhenReady = false,
+            bufferState = CsBufferState.IDLE,
+            positionMs = 0L,
+            durationMs = 0L,
+            bufferedMs = 0L,
+            currentLinkUrl = null,
+        )
     }
 
     fun playPause() {
@@ -360,6 +467,41 @@ class CsPlayerEngine(
             }
         }
         return out
+    }
+
+    /** Audio tracks embedded in the current stream (DASH multi-audio). */
+    fun audioTracks(): List<CsAudioTrackInfo> {
+        val out = mutableListOf<CsAudioTrackInfo>()
+        player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+            if (group.type != C.TRACK_TYPE_AUDIO) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                out += CsAudioTrackInfo(
+                    groupIndex = groupIndex,
+                    trackIndex = trackIndex,
+                    id = format.id,
+                    label = format.label ?: format.language ?: "Audio ${out.size + 1}",
+                    language = format.language,
+                )
+            }
+        }
+        return out
+    }
+
+    /** Selects an embedded audio track (null = auto). */
+    fun selectAudioTrack(track: CsAudioTrackInfo?) {
+        if (track == null) {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .build()
+            Logger.i(TAG) { "audio track override cleared (auto)" }
+            return
+        }
+        val group = player.currentTracks.groups.getOrNull(track.groupIndex) ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
+            .build()
+        Logger.i(TAG) { "audio track selected: ${track.label} (g${track.groupIndex}/t${track.trackIndex})" }
     }
 
     /** Picks a specific video format (null = clear override, back to auto/ABR). */
@@ -490,7 +632,12 @@ class CsPlayerEngine(
 
 /** Engine-wide constants. */
 object CsPlayerDefaults {
-    /** Mobile Chrome UA — the same one the app's network stack identifies with. */
+    /**
+     * Desktop Chrome — upstream CloudStream's USER_AGENT constant, byte-parity
+     * (their player sends this when a link carries no UA of its own).
+     * Task 53 / RC-2: the previous Mobile-Chrome default was the direct cause
+     * of the 428 class on CDNs that reject browser UAs.
+     */
     const val USER_AGENT =
-        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 }

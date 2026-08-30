@@ -7,7 +7,11 @@
 // `M3u8Helper.generateM3u8(...)` from loadLinks to fan out one ExtractorLink
 // per quality variant of a master playlist. Behavior (from the documented HLS
 // spec + the documented CloudStream contract):
-//   • fetch the playlist with the caller's headers (referer = the URL itself);
+//   • fetch the playlist with the caller's headers AS-IS — NO referer param
+//     (Task 53 / RC-1: passing referer = the stream URL made nicehttp REPLACE
+//     the caller's Referer header; CDNs like cdn.kryntal.top then 403 the
+//     request and the plugin silently resolves 0 links. Upstream passes only
+//     `headers = m3u8.headers, verify = false` — we now match that exactly);
 //   • anything not starting with #EXTM3U is not a playlist → ErrorLoadingException;
 //   • MASTER playlists (#EXT-X-STREAM-INF) → one M3u8Stream per variant, quality
 //     = the RESOLUTION height, variant URIs absolutized against the playlist URL;
@@ -23,12 +27,16 @@
 // plugin dexes call exactly those members.
 package com.lagradost.cloudstream3.utils
 
+import com.lagradost.api.Log
 import com.lagradost.cloudstream3.ErrorLoadingException
 import com.lagradost.cloudstream3.app
 
 /** Backwards api surface. */
 class M3u8Helper {
     companion object {
+        /** One-filter logcat recipe member: Anikuta:CS:*. */
+        internal const val M3U8_TAG = "Anikuta:CS:M3u8"
+
         /** RESOLUTION=<width>x<height> inside an #EXT-X-STREAM-INF tag. */
         private val RESOLUTION_REGEX = Regex("""RESOLUTION=(\d+)x(\d+)""")
 
@@ -120,20 +128,38 @@ class M3u8Helper {
      * Resolves [m3u8] into its list of quality streams. A master playlist
      * yields every variant; a media playlist yields the input itself (when
      * [returnThis]) because it is already the playable stream.
+     *
+     * Task 53 / RC-1: the request carries ONLY the caller's headers (upstream
+     * parity — no referer param, verify=false for lenient SSL). Every outcome
+     * is logged under Anikuta:CS:M3u8 so a CDN rejection is diagnosable from
+     * logcat instead of silently zeroing a provider's links.
      */
     suspend fun m3u8Generation(m3u8: M3u8Stream, returnThis: Boolean? = true): List<M3u8Stream> {
         val response = try {
-            app.get(m3u8.streamUrl, referer = m3u8.streamUrl, headers = m3u8.headers)
+            app.get(m3u8.streamUrl, headers = m3u8.headers, verify = false)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            Log.w(
+                M3U8_TAG,
+                "m3u8 request FAILED ${m3u8.streamUrl.take(96)} " +
+                    "headers=${m3u8.headers.keys}: ${e::class.java.simpleName}: ${e.message}",
+            )
             throw ErrorLoadingException("m3u8 request failed: ${e.message}")
         }
         val text = response.text
         if (!text.startsWith("#EXTM3U")) {
+            Log.w(
+                M3U8_TAG,
+                "not an m3u8 body (http=${response.code}) ${m3u8.streamUrl.take(96)} " +
+                    "headers=${m3u8.headers.keys} body=" +
+                    text.take(90).replace('\n', ' ').replace('\r', ' '),
+            )
             throw ErrorLoadingException("Not m3u8")
         }
         val variants = parseMasterPlaylist(text, m3u8.streamUrl, m3u8.quality)
+        val kind = if (variants.isNotEmpty()) "master" else "media playlist"
+        Log.i(M3U8_TAG, "m3u8 ok ${m3u8.streamUrl.take(72)} variants=${variants.size} ($kind)")
         if (variants.isEmpty()) {
             // Media playlist (or an unparseable master) — the input IS the stream.
             return if (returnThis == true) listOf(m3u8) else emptyList()
