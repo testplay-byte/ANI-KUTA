@@ -71,6 +71,18 @@ abstract class AnimeHttpSource : AnimeCatalogueSource {
     open val videoListTimeoutMs: Long = 30_000L
 
     /**
+     * Task 50 (round 10): true when this source is a CloudStream provider
+     * bridged through the data/cloudstream bridge. Bridged sources manage
+     * their OWN link-resolution budget inside getVideoList (upstream
+     * CloudStream semantics: partial links are kept on timeout, never
+     * discarded) — the resolver must NOT wrap them in its own
+     * withTimeoutOrNull, and must not probe getHosterList. Lets the shared
+     * VideoResolver dispatch into ecosystem-specific pipelines without a
+     * module dependency on the bridge.
+     */
+    open val isCloudStreamBridged: Boolean get() = false
+
+    /**
      * ID of the source. By default it uses a generated id using the first 16 characters (64 bits)
      * of the MD5 of the string `"${name.lowercase()}/$lang/$versionId"`.
      *

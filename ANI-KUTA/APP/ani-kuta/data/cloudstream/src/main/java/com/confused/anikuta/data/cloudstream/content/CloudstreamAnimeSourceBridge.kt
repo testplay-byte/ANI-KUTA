@@ -30,6 +30,7 @@ import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.TorrentLoadResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.utils.DrmExtractorLink
@@ -121,6 +122,11 @@ class CloudstreamAnimeSourceBridge(
     override val baseUrl: String get() = liveProviderOrNull()?.mainUrl ?: "https://localhost"
     override val supportsLatest: Boolean = true
 
+    /** Task 50: this source is a bridged CloudStream provider — the resolver dispatches
+     *  it into the dedicated CloudStream pipeline (no getHosterList probe, no outer
+     *  timeout — [getVideoList] bounds provider.loadLinks itself and keeps partials). */
+    override val isCloudStreamBridged: Boolean get() = true
+
     private fun liveProviderOrNull(): MainAPI? = APIHolder.getApiFromNameNull(providerName)
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList()
@@ -170,7 +176,7 @@ class CloudstreamAnimeSourceBridge(
         Logger.i(TAG) { "bridge: getEpisodeList '$providerName' url=${anime.url.take(120)}" }
         val response = guard { liveProvider().load(anime.url) }
             ?: throw IllegalStateException("Provider '$providerName' returned no content for this URL")
-        return response.toEpisodes()
+        return response.episodesOrComingSoon()
     }
 
     override suspend fun getSeasonList(anime: SAnime): List<SAnime> = emptyList()
@@ -208,6 +214,19 @@ class CloudstreamAnimeSourceBridge(
      *   play them — doc 19 §2.5) and counted for the log;
      * • SEpisode.url carries the provider's opaque Episode.data handle — the
      *   exact `data` string loadLinks expects.
+     *
+     * Task 50 (Fix D — upstream APIRepository parity): the link budget
+     * ([videoListTimeoutMs], CS3 clamp 5 s – 8 min, default 120 s) wraps ONLY
+     * `provider.loadLinks` — a withTimeoutOrNull INSIDE this function. On
+     * expiry everything already streamed is KEPT (upstream never discards
+     * partial links); only the zero-link timeout is an error. The Task-49
+     * HLS/DASH expansion pass and the ExtractorLink→Video mapping run OUTSIDE
+     * the budget, so the ≤30 s expansion worst case can no longer push a
+     * ~100 s resolve past the 120 s cliff. The shared resolver applies NO
+     * outer timeout to bridged sources ([isCloudStreamBridged]) — this
+     * function is the only clock. A Cloudflare block mid-resolve keeps
+     * partials too (one extractor's failure is not the episode's failure);
+     * it only surfaces when nothing else streamed.
      */
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val provider = liveProvider()
@@ -226,27 +245,67 @@ class CloudstreamAnimeSourceBridge(
         val links = ConcurrentLinkedQueue<ExtractorLink>()
         val subtitles = ConcurrentLinkedQueue<SubtitleFile>()
         val startedAt = System.currentTimeMillis()
+        val timeoutMs = videoListTimeoutMs
         Logger.i(TAG) {
-            "links: '$providerName' loadLinks start (episode='${episode.name.take(60)}' timeout=${videoListTimeoutMs}ms)"
+            "links: '$providerName' loadLinks start (episode='${episode.name.take(60)}' timeout=${timeoutMs}ms)"
         }
 
-        var success = false
-        val failure: Throwable? = try {
-            success = provider.loadLinks(
-                data = data,
-                isCasting = false,
-                subtitleCallback = { subtitles.add(it) },
-                callback = { links.add(it) },
+        // ── Task 50 (Fix D): the budget wraps ONLY provider.loadLinks. ──
+        // Upstream APIRepository does `withTimeout(getTimeout(loadLinksTimeoutMs))
+        // { api.loadLinks(...) }` and NEVER discards what the callbacks already
+        // streamed on expiry. withTimeoutOrNull returns null ONLY for its own
+        // TimeoutCancellationException (converted), and rethrows every other
+        // exception — including caller cancellation, which the inner catch
+        // rethrows verbatim so a user abort can never masquerade as a timeout.
+        var loadCompleted = false
+        var failure: Throwable? = null
+        val timedOut = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            try {
+                loadCompleted = provider.loadLinks(
+                    data = data,
+                    isCasting = false,
+                    subtitleCallback = { subtitles.add(it) },
+                    callback = { links.add(it) },
+                )
+                false
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce // rethrow ALL cancellations — withTimeoutOrNull converts
+                // ITS OWN TimeoutCancellationException to null and propagates
+                // caller cancels (Kotlin requirement: never swallow Cancellation)
+            } catch (cf: com.lagradost.cloudstream3.network.CloudflareBlockedException) {
+                // Upstream parity: a blocked embed is ONE extractor's failure —
+                // keep whatever streamed; only the zero-link case surfaces the
+                // CF error (D-2: the rethrow used to discard all partials).
+                if (links.isEmpty()) throw cf
+                Logger.w(TAG) {
+                    "links: '$providerName' Cloudflare-blocked mid-resolve — keeping ${links.size} partial link(s)"
+                }
+                false
+            } catch (t: Throwable) {
+                failure = t
+                false
+            }
+        } == null // null == the budget expired
+
+        // ── Outcome matrix (Task 50 / Fix D — write it down, verify each branch) ──
+        //  timedOut && links.isEmpty()                   → honest timeout ISE
+        //  timedOut && links.isNotEmpty()                → WARN + KEEP partials, continue (THE fix)
+        //  failure != null && links.isEmpty()            → total-failure ISE (existing message)
+        //  failure != null && partials                    → WARN + continue (existing behavior)
+        //  !loadCompleted && links.isEmpty() && no failure && !timedOut
+        //                                                → "returned no links" ISE (existing)
+        //  happy path (loadCompleted or partials present) → continue to expansion + mapping
+        if (timedOut && links.isEmpty()) {
+            throw IllegalStateException(
+                "CloudStream '$providerName': link resolution timed out after " +
+                    "${timeoutMs / 1000}s — the provider's hosts are slow or down",
             )
-            null
-        } catch (ce: kotlinx.coroutines.CancellationException) {
-            throw ce
-        } catch (cf: com.lagradost.cloudstream3.network.CloudflareBlockedException) {
-            throw cf
-        } catch (t: Throwable) {
-            t
         }
-
+        if (timedOut) {
+            Logger.w(TAG) {
+                "links: '$providerName' timed out after ${timeoutMs}ms — keeping ${links.size} partial link(s)"
+            }
+        }
         // Total failure only when NOTHING was streamed; partial results win.
         if (failure != null && links.isEmpty()) {
             throw IllegalStateException(
@@ -260,7 +319,7 @@ class CloudstreamAnimeSourceBridge(
                 "links: '$providerName' loadLinks failed midway — keeping ${links.size} partial link(s)"
             }
         }
-        if (!success && links.isEmpty()) {
+        if (!loadCompleted && links.isEmpty() && failure == null && !timedOut) {
             throw IllegalStateException(
                 "CloudStream '$providerName' returned no links for this episode (the provider's hosts may all be down)",
             )
@@ -671,7 +730,33 @@ class CloudstreamAnimeSourceBridge(
         else -> null
     }
 
-    private fun LoadResponse.toEpisodes(): List<SEpisode> {
+    /**
+     * Task 50 (Fix E-2 — honest episodes): a provider that flagged the load
+     * response `comingSoon` (the CS3 factories set it automatically when an
+     * anime/tv-series has zero episodes, a movie has a blank dataUrl, or a
+     * torrent response has neither magnet nor torrent) must NOT surface as
+     * the silent "No episodes found on this source." card — the honest error
+     * tells the user the show simply has nothing published yet. comingSoon
+     * WITH episodes lists normally (the flag is advisory, the list is fact).
+     * Pure decision seam over [toEpisodes] — internal for tests.
+     */
+    internal fun LoadResponse.episodesOrComingSoon(): List<SEpisode> {
+        val episodes = toEpisodes()
+        if (episodes.isEmpty() && comingSoon) {
+            throw IllegalStateException(
+                "CloudStream '$providerName' marked this as coming soon — no episodes published yet",
+            )
+        }
+        return episodes
+    }
+
+    /**
+     * CloudStream [LoadResponse] → aniyomi [SEpisode]s. Pure mapping — no
+     * provider calls ([resolveImageUrl] falls back to pass-through when no
+     * live provider is registered, which is exactly the JVM-test situation).
+     * Internal for tests ([CloudstreamBridgeEpisodesTest]).
+     */
+    internal fun LoadResponse.toEpisodes(): List<SEpisode> {
         val raw: List<Pair<Episode, String?>> = when (this) {
             is TvSeriesLoadResponse -> episodes.map { it to null }
             is AnimeLoadResponse -> episodes.entries
@@ -686,7 +771,41 @@ class CloudstreamAnimeSourceBridge(
                 }
             is MovieLoadResponse -> listOf(Episode(data = dataUrl, name = "Movie") to null)
             is LiveStreamLoadResponse -> listOf(Episode(data = dataUrl, name = "Live Stream") to null)
+            // Task 50 (Fix E-3 — honest torrent rows): torrent providers used
+            // to fall into the empty branch → a silent "no episodes" card. One
+            // row carrying the .torrent/magnet data handle is honest: resolution
+            // then reports "no playable links (N torrent link(s) hidden)" instead
+            // of a lie about the episode list.
+            is TorrentLoadResponse -> listOf(
+                Episode(data = (torrent ?: magnet ?: ""), name = "Torrent") to null,
+            )
             else -> emptyList()
+        }
+
+        // Task 50 (Fix E-1, AMENDED — label neutralization, NOT a dedup-key
+        // change): some providers emit the SAME data handle under BOTH the Sub
+        // and the Dub map entries (the handle resolves to one dual-audio
+        // stream — the "dub" data is not a separate encode). Labeling those
+        // rows (Sub)/(Dub) is a visible lie (the "dub" row plays the sub mix)
+        // and distinctBy { url } collapsed them into an arbitrary labeled
+        // survivor. Rows whose data handle appears under ≥2 DISTINCT dub
+        // labels are emitted label-free (scanlator null, no name suffix);
+        // different-handle sub/dub rows keep their labels. The final
+        // distinctBy { it.url } dedupe is UNCHANGED — downstream
+        // (EpisodeListNormalizer, DetailsScreen LazyColumn keys, the episode
+        // cache UNIQUE(main_id, episode_number)) keys on URL, so no duplicate
+        // rows are ever produced.
+        val sharedHandles: Set<String> = raw
+            .groupBy({ it.first.data })
+            .filterValues { rows -> rows.map { (_, label) -> label }.toSet().size > 1 }
+            .keys
+        if (sharedHandles.isNotEmpty()) {
+            Logger.i(TAG) {
+                "episodes: ${sharedHandles.size} shared data handle(s) across dub tracks — label-neutral rows"
+            }
+        }
+        val labeled: List<Pair<Episode, String?>> = raw.map { (ep, label) ->
+            if (ep.data in sharedHandles) ep to null else ep to label
         }
 
         // Task 46 (device round 5, "all episodes land in one season"): the CS
@@ -699,7 +818,7 @@ class CloudstreamAnimeSourceBridge(
         // Per-season fallback numbering keeps the tag complete when the
         // provider omits Episode.episode.
         val perSeasonCounters = HashMap<Int, Int>()
-        val mapped = raw.mapIndexed { index, (ep, dubLabel) ->
+        val mapped = labeled.mapIndexed { index, (ep, dubLabel) ->
             val season = ep.season?.takeIf { it > 0 }
             val episodeInSeason = ep.episode ?: season?.let { s ->
                 perSeasonCounters[s] = (perSeasonCounters[s] ?: 0) + 1

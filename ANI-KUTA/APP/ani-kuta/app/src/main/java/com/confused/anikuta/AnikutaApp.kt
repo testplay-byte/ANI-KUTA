@@ -270,6 +270,22 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
         } catch (e: Exception) {
             Logger.w("AnikutaApp") { "Failed to start playback cache: ${e.message}" }
         }
+
+        // Task 50 (round 10, Fix F): stale episode-cache heal — legacy rows with
+        // null/blank episode_url (v0.2.68-era writes) can never resolve: the cache
+        // restore path (DetailsViewModel) falls back to the SERIES url, and
+        // loadLinks on a series URL always fails, so those series showed "no
+        // episodes resolve" forever. One-shot purge at start — idempotent,
+        // non-fatal (runCatching), never blocks startup.
+        appScope.launch(Dispatchers.IO) {
+            runCatching {
+                org.koin.core.context.GlobalContext.get()
+                    .get<com.confused.anikuta.core.datacache.DataCacheRepository>()
+                    .purgeUnresolvableEpisodeRows()
+            }.onFailure {
+                Logger.w("AnikutaApp") { "Failed to purge stale episode-cache rows: ${it.message}" }
+            }
+        }
     }
 
     // Phase UP: Configuration.Provider for WorkManager (disables default initializer).

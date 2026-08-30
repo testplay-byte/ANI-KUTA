@@ -15,4 +15,7 @@ dependencies {
     implementation(libs.logcat)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
+    // Task 50 (round 10): CloudstreamLinkCacheTest runs on the JVM (same
+    // pattern as core/common's RingLogBufferTest).
+    testImplementation(libs.junit)
 }

@@ -164,6 +164,24 @@ class DataCacheRepository(
         queries.deleteEpisodeMetadata(mainId)
     }
 
+    /**
+     * Task 50 (round 10, Fix F): one-shot startup purge of legacy episode rows
+     * that can never resolve. Rows with NULL/blank episode_url (v0.2.68-era
+     * writes) restore with url = animeUrl (the SERIES url) — loadLinks on a
+     * series URL always fails, so those series showed "no episodes resolve"
+     * forever. Idempotent; safe to call on every start. Never touches rows
+     * with a non-blank episode_url.
+     */
+    fun purgeUnresolvableEpisodeRows() {
+        // SQLDelight 2.x: DELETE executes directly (same shape as
+        // deleteEpisodeMetadata above); COUNT(*) is a Query<Long>.
+        val purged = queries.countUnresolvableEpisodes().executeAsOne()
+        if (purged > 0L) {
+            queries.purgeUnresolvableEpisodes()
+            Logger.i(TAG) { "purge: removed $purged unresolvable episode row(s) (null/blank episode_url)" }
+        }
+    }
+
     // ── Browse cache ───────────────────────────────────────────────────────
 
     fun getBrowseCache(sectionKey: String): CachedBrowseSection? {

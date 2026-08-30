@@ -55,7 +55,10 @@ class ReResolver(
 
         // Collect the resolve result — use first() to get the terminal state.
         val servers: List<ResolverServer> = try {
-            val state = videoResolver.resolve(source, episode).first { s ->
+            // Task 50: forceRefresh=true — a dead download link must be
+            // RE-RESOLVED through the provider; replaying the 20-min
+            // CloudStream link cache would hand back the same dead URLs.
+            val state = videoResolver.resolve(source, episode, forceRefresh = true).first { s ->
                 s is com.confused.anikuta.core.videoresolver.ResolverState.Success ||
                     s is com.confused.anikuta.core.videoresolver.ResolverState.Error
             }

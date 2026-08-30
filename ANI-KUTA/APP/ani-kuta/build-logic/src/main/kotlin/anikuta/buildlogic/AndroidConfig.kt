@@ -135,8 +135,40 @@ object AndroidConfig {
     // CHALLENGED PATH (not host root), and the WebView ATTACHES to the live
     // activity (1dp — attached views pass challenge-JS probes detached ones
     // fail; the original app solves attached).
-    const val versionCode = 71
-    const val versionName = "0.2.71"
+    // v0.2.72 (Task 50, device round 10 — THE SEPARATION: "the aniyomi system
+    // is not working either. I think you have mixed them up… Cloud stream
+    // handles things a bit differently so we cannot use the exact same system"):
+    // (1) THE ANIYOMI REGRESSION (D-364) — D-294's unconditional parent-first
+    //     classloader made the host's serialization-2.x classes win at
+    //     class-resolution, so extensions bundling 1.x hit NoSuchMethodError AT
+    //     RESOLUTION time while browse/search kept working ("some episodes
+    //     don't resolve"). Old-kuta's child-first loader restored + hardened
+    //     with parent-first exclusion prefixes (kotlin./API/network pinned
+    //     host-side) + per-class LinkageError → parent-first retry;
+    // (2) THE SEPARATION (D-365) — VideoResolver dispatches via the new
+    //     isCloudStreamBridged marker into two pipelines: AniyomiSourcePipeline
+    //     (restored: probe memoization, honest hoster-only errors, lazy
+    //     resolveVideo, literal-"null" URL filter) and CloudstreamSourcePipeline
+    //     (UPSTREAM semantics: no outer timeout — the bridge's budget wraps
+    //     ONLY provider.loadLinks and a timeout KEEPS every streamed link
+    //     instead of discarding them; Cloudflare blocks keep partials; the
+    //     HLS/MPD expansion runs outside the budget);
+    // (3) LINK CACHE + PURGE (D-366) — 20-min CloudStream link cache (re-entry/
+    //     mirror-switch replay instantly; forceRefresh on the recovery ladder +
+    //     dead downloads) and the v0.2.68 stale episode-cache purge (NULL/blank
+    //     episode_url rows restored with the SERIES url — could never resolve);
+    // (4) HONEST EPISODES (D-367) — comingSoon → real error (not silent
+    //     "No episodes found"), TorrentLoadResponse → one honest torrent row,
+    //     shared dub data handles → label-neutral rows; +8 census mirror-host
+    //     extractors (dood.to/.wf/d000d, vidhidevip/plus, mixdrop.ag,
+    //     streamsb.net, waaw.to; 35→43) + provider-name collision WARN;
+    // (5) SELECTION INTELLIGENCE + UN-MIXING (D-368) — old-kuta server-grouping
+    //     rules (audio tokens never server names, resolution priority, Server
+    //     A/B/C, "All Videos" raw fallback), the 5-tier episode-switch
+    //     preference (keeps server/audio/quality across episodes), and the
+    //     Link-Source sheet sectioned into Aniyomi / CloudStream.
+    const val versionCode = 72
+    const val versionName = "0.2.72"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

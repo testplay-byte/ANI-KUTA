@@ -85,6 +85,19 @@ INSERT OR REPLACE INTO data_cache_episode(
 deleteEpisodeMetadata:
 DELETE FROM data_cache_episode WHERE main_id = :mainId;
 
+-- Task 50 (round 10, Fix F): stale-cache heal — one-shot purge of legacy episode
+-- rows that can never resolve. v0.2.68-era writes left episode_url NULL/blank;
+-- the cache-restore path (DetailsViewModel) maps those to url = animeUrl (the
+-- SERIES url), so loadLinks on a series URL always returns nothing → those
+-- series showed "no episodes resolve" forever, and the background refresh kept
+-- the stale rows when the provider also returned empty. Rows with a valid
+-- (non-blank) episode_url are never touched (exact WHERE).
+countUnresolvableEpisodes:
+SELECT COUNT(*) FROM data_cache_episode WHERE episode_url IS NULL OR episode_url = '';
+
+purgeUnresolvableEpisodes:
+DELETE FROM data_cache_episode WHERE episode_url IS NULL OR episode_url = '';
+
 -- ============================================================================
 -- Queries: browse_cache
 -- ============================================================================

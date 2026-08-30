@@ -636,7 +636,8 @@ fun WatchScreen(
             }
             var swapped = false
             try {
-                videoResolver.resolve(source, episode).collect { state ->
+                // Task 50: the current link just failed — never replay the 20-min link cache; force a fresh loadLinks.
+                videoResolver.resolve(source, episode, forceRefresh = true).collect { state ->
                     when (state) {
                         is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
                             val servers = videoResolver.buildServers(state.rawEntries, source.name)
@@ -1350,6 +1351,17 @@ fun WatchScreen(
                         episode_number = ep.episodeNumber
                     }
 
+                    // Task 50 (round 10): remember the user's CURRENT server/audio/
+                    // quality so the new episode keeps the same pick (old-kuta's
+                    // switchEpisode behavior — 5-tier matching below). currentVideoTitle
+                    // is "server|audio|quality|urlHash" (buildVideoTitle); parsed BEFORE
+                    // the resolve because the Success branch below overwrites
+                    // currentVideoTitle with the new episode's title.
+                    val titleParts = currentVideoTitle.split("|")
+                    val prefServer = titleParts.getOrNull(0)?.takeIf { it.isNotBlank() }
+                    val prefAudio = titleParts.getOrNull(1)?.takeIf { it.isNotBlank() && it != "Default" }
+                    val prefQuality = titleParts.getOrNull(2)?.takeIf { it.isNotBlank() }
+
                     Logger.i(TAG) { "Re-resolving videos for episode ${ep.url}..." }
                     videoResolver.resolve(source, sEpisode).collect { state ->
                         when (state) {
@@ -1357,25 +1369,42 @@ fun WatchScreen(
                                 Logger.d(TAG) { "Resolving..." }
                             }
                             is com.confused.anikuta.core.videoresolver.ResolverState.Success -> {
-                                if (state.videos.isNotEmpty()) {
-                                    val video = state.videos.first()
-                                    Logger.i(TAG) { "Episode switch — got ${state.videos.size} videos, picking first: ${video.quality} (${video.url.take(60)})" }
+                                // Build the structured servers for the QualitySheet +
+                                // the registry, then run the 5-tier preference pick
+                                // over them (Task 50, round 10 — the old code took
+                                // state.videos.first(), which lands on the wrong
+                                // server/audio/quality on every episode transition).
+                                val servers = videoResolver.buildServers(state.rawEntries, source.name)
+                                // Candidates in stable (server, audio) order — same
+                                // shape the recovery ladder uses.
+                                val candidates = servers.flatMap { s ->
+                                    s.audioVersions.flatMap { av ->
+                                        av.videos.map { Triple(s.name, av.label, it) }
+                                    }
+                                }
+                                val pickedResolverVideo: ResolverVideo? =
+                                    if (candidates.isNotEmpty()) {
+                                        selectBestVideoEpisodeSwitch(candidates, prefServer, prefAudio, prefQuality)
+                                    } else null
 
-                                    // Build structured servers for QualitySheet +
-                                    // find the matching ResolverVideo (first video
-                                    // of first server's first audio version) to get
-                                    // external tracks + videoTitle.
-                                    val servers = videoResolver.buildServers(state.rawEntries, source.name)
+                                if (pickedResolverVideo != null) {
+                                    Logger.i(TAG) {
+                                        "Episode switch — got ${state.videos.size} videos " +
+                                            "(${candidates.size} candidates), picked: ${pickedResolverVideo.quality} " +
+                                            "(${pickedResolverVideo.url.take(60)})"
+                                    }
+
                                     val newRegistryKey = if (servers.isNotEmpty()) {
                                         ResolvedVideosRegistry.put(servers)
                                     } else ""
-                                    val pickedResolverVideo: ResolverVideo? = servers
-                                        .firstOrNull()?.audioVersions?.firstOrNull()?.videos?.firstOrNull()
 
-                                    // Update local video state.
-                                    currentVideoUrl = video.url
-                                    currentVideoTitle = pickedResolverVideo?.videoTitle ?: ""
-                                    currentVideoHeaders = video.headers
+                                    // Update local video state. The chosen ResolverVideo
+                                    // is the SINGLE source of truth for the swap (url,
+                                    // headers, tracks, title) — the flat state.videos
+                                    // entry is no longer consulted.
+                                    currentVideoUrl = pickedResolverVideo.url
+                                    currentVideoTitle = pickedResolverVideo.videoTitle
+                                    currentVideoHeaders = pickedResolverVideo.videoHeaders ?: ""
 
                                     // Update the state holder's current-episode state
                                     // so the episode list highlight + "now playing" card
@@ -1388,16 +1417,14 @@ fun WatchScreen(
                                     )
 
                                     // Set pending external tracks + headers on the observer.
-                                    pickedResolverVideo?.let { pv ->
-                                        observer?.let { obs ->
-                                            obs.pendingSubtitleTracks = pv.subtitleTracks.map {
-                                                PendingExternalTrack(it.url, it.lang, it.headers)
-                                            }
-                                            obs.pendingAudioTracks = pv.audioTracks.map {
-                                                PendingExternalTrack(it.url, it.lang, it.headers)
-                                            }
-                                            obs.trackHeaders = pv.videoHeaders ?: video.headers
+                                    observer?.let { obs ->
+                                        obs.pendingSubtitleTracks = pickedResolverVideo.subtitleTracks.map {
+                                            PendingExternalTrack(it.url, it.lang, it.headers)
                                         }
+                                        obs.pendingAudioTracks = pickedResolverVideo.audioTracks.map {
+                                            PendingExternalTrack(it.url, it.lang, it.headers)
+                                        }
+                                        obs.trackHeaders = pickedResolverVideo.videoHeaders ?: currentVideoHeaders
                                     }
 
                                     // Video caching: new identity for the new episode's video.
@@ -1407,15 +1434,15 @@ fun WatchScreen(
                                         episodeNumber = ep.episodeNumber,
                                         episodeTitle = ep.name,
                                         sourceId = watchKey.sourceId,
-                                        videoTitle = pickedResolverVideo?.videoTitle ?: "",
+                                        videoTitle = pickedResolverVideo.videoTitle,
                                     )
                                     // Video caching: carry the new episode's external tracks (for tap-to-play replay).
-                                    currentSubTracksSerialized = pickedResolverVideo?.let { pv ->
-                                        serializeTracks(pv.subtitleTracks.map { Triple(it.url, it.lang, it.headers) })
-                                    } ?: ""
-                                    currentAudioTracksSerialized = pickedResolverVideo?.let { pv ->
-                                        serializeTracks(pv.audioTracks.map { Triple(it.url, it.lang, it.headers) })
-                                    } ?: ""
+                                    currentSubTracksSerialized = serializeTracks(
+                                        pickedResolverVideo.subtitleTracks.map { Triple(it.url, it.lang, it.headers) },
+                                    )
+                                    currentAudioTracksSerialized = serializeTracks(
+                                        pickedResolverVideo.audioTracks.map { Triple(it.url, it.lang, it.headers) },
+                                    )
                                     // D-247: fresh episode → re-arm cache playback for retries.
                                     bypassCacheNextRetry = false
 
@@ -1423,12 +1450,12 @@ fun WatchScreen(
                                     // CRITICAL: For localhost proxy URLs (AniKotoS),
                                     // do NOT set upstream headers (Referer, Origin, etc.).
                                     // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
-                                    val headers = if (video.headers.isNotBlank()) video.headers
+                                    val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                                         else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                                     // Task 48.1: escape ONLY at the mpv argument (raw csv everywhere else).
                                     MPVLib.setOptionString("http-header-fields", MpvHeaderFields.escapeForMpv(headers))
-                                    MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
-                                    Logger.i(TAG) { "Episode switch — loadfile sent for ${video.url.take(80)}" }
+                                    MPVLib.command(arrayOf("loadfile", cachedUrl(currentVideoUrl, headers), "replace"))
+                                    Logger.i(TAG) { "Episode switch — loadfile sent for ${currentVideoUrl.take(80)}" }
                                 } else {
                                     stateHolder.setSwitchingError("No videos found for this episode")
                                 }
@@ -2448,6 +2475,86 @@ private fun buildCacheId(
         serverKey = serverKey,
         quality = serverKey.substringAfterLast('|'),
     )
+}
+
+/**
+ * Task 50 (round 10): numeric quality rank for the episode-switch preference
+ * matcher — parses the LEADING digits of a quality label ("1080p" → 1080,
+ * "720p" → 720). Non-numeric labels ("Default", "HD", …) rank -1 and sort
+ * last. Higher rank wins.
+ */
+private fun qualityRank(quality: String?): Int =
+    quality?.takeWhile { it.isDigit() }?.takeIf { it.isNotEmpty() }?.toInt() ?: -1
+
+/**
+ * Task 50 (round 10): old-kuta's 5-tier selection — keep the user's chosen
+ * server/audio/quality across episode transitions instead of videos.first().
+ * Tiers: (1) exact server+audio+quality, (2) server+audio (best quality),
+ * (3) same server (prefer same audio, best quality), (4) same audio (any
+ * server, best quality), (5) first (highest quality overall).
+ *
+ * Tiers that need a null preference are skipped (e.g. a blank title before
+ * the first pick → straight to tier 5). Returns null only when there are no
+ * candidates at all; logs the winning tier via [Logger].
+ */
+private fun selectBestVideoEpisodeSwitch(
+    candidates: List<Triple<String, String, ResolverVideo>>,
+    prefServer: String?,
+    prefAudio: String?,
+    prefQuality: String?,
+): Triple<String, String, ResolverVideo>? {
+    if (candidates.isEmpty()) return null
+
+    fun bestOf(list: List<Triple<String, String, ResolverVideo>>) =
+        list.maxByOrNull { qualityRank(it.third.quality) }
+
+    var tier = 5
+    var winner: Triple<String, String, ResolverVideo>? = null
+
+    // Tier 1: exact server + audio + quality.
+    if (prefServer != null && prefAudio != null && prefQuality != null) {
+        winner = candidates.firstOrNull {
+            it.first == prefServer && it.second == prefAudio && it.third.quality == prefQuality
+        }
+        if (winner != null) tier = 1
+    }
+
+    // Tier 2: same server + audio, best available quality.
+    if (winner == null && prefServer != null && prefAudio != null) {
+        winner = bestOf(candidates.filter { it.first == prefServer && it.second == prefAudio })
+        if (winner != null) tier = 2
+    }
+
+    // Tier 3: same server — prefer the same audio within it, fall back to
+    // the whole server (best quality either way).
+    if (winner == null && prefServer != null) {
+        val sameServer = candidates.filter { it.first == prefServer }
+        winner = if (prefAudio != null) {
+            bestOf(sameServer.filter { it.second == prefAudio }) ?: bestOf(sameServer)
+        } else {
+            bestOf(sameServer)
+        }
+        if (winner != null) tier = 3
+    }
+
+    // Tier 4: same audio on any server, best available quality.
+    if (winner == null && prefAudio != null) {
+        winner = bestOf(candidates.filter { it.second == prefAudio })
+        if (winner != null) tier = 4
+    }
+
+    // Tier 5: first available — highest quality overall.
+    if (winner == null) {
+        winner = bestOf(candidates) ?: candidates.firstOrNull()
+        tier = 5
+    }
+
+    return winner?.also {
+        Logger.i(TAG) {
+            "Episode switch — 5-tier pick: server=${it.first}, audio=${it.second}, " +
+                "quality=${it.third.quality} (tier $tier)"
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -1,6 +1,7 @@
 package com.confused.anikuta.data.extension.loader
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -27,24 +28,31 @@ import java.security.MessageDigest
  * Algorithm:
  * 1. Query [PackageManager] for packages with the `tachiyomi.animeextension` feature.
  * 2. SHA-256 hash the signing certificate → ask [TrustService] if it's trusted.
- * 3. Build a **parent-first** [PathClassLoader] (exactly like the reference Aniyomi)
- *    so the host's kotlin-stdlib / okhttp / rx / source-api always win; the extension
- *    APK only supplies classes the host does NOT have (its own source classes,
- *    bundled extractors, apache-commons, keiyoushi/utils, multisrc themes, …).
+ * 3. Instantiate each declared source class (or factory) through a HYBRID
+ *    loader policy (Task 50 / round-10 Fix A): child-first via
+ *    [ChildFirstPathClassLoader] — the extension's bundled
+ *    kotlinx-serialization / kotlinx-coroutines win for its own code, while
+ *    boundary types (source API, kotlin stdlib, network stack) are pinned
+ *    parent-first — with a per-class parent-first [PathClassLoader] fallback
+ *    on [LinkageError] (the old-kuta retry).
  * 4. Validate the lib version (parsed from versionName) — informational only;
  *    D-297: out-of-range versions are still ATTEMPTED (the failure mode is a
  *    visible [LoadResult.Error], never a silent drop).
- * 5. Instantiate each declared source class (or factory).
- * 6. Return a [LoadResult] (Success / Untrusted / Error).
+ * 5. Return a [LoadResult] (Success / Untrusted / Error).
  *
- * D-294 (root fix for "extensions disappear after trust"): the previous
- * child-first classloader let an extension's PARTIAL bundled kotlin-stdlib
- * shadow the host's complete stdlib — a mixed-stdlib class-identity breakage
- * that threw during source instantiation. Reference Aniyomi is parent-first;
- * with parent-first the bundled kotlin classes are inert dead weight and the
- * extension resolves the host's (binary-compatible) stdlib instead. Verified
- * against the sb-extensions-source template family (moviebox/anikoto-v16 etc.)
- * which bundle kotlin 2.0.x partials while the app ships kotlin 2.2.0.
+ * Loader history (D-294 → Task 50 / round-10 Fix A): D-294 (v0.2.57) replaced
+ * the original child-first loader with unconditional parent-first to stop a
+ * mixed-stdlib crash at INSTANTIATION time ("extension disappears after
+ * trust"). That worked, but broke RESOLUTION for extensions that bundle
+ * kotlinx-serialization 1.x: under parent-first the host's 2.x classes win at
+ * class-resolution and extension code then hits NoSuchMethodError /
+ * NoClassDefFoundError while browse/search kept working (FM-1 — "some
+ * episodes don't resolve"). Round 10 restores the old-kuta hybrid
+ * (child-first with a parent-first retry per class — which worked for this
+ * user) hardened with parent-first exclusion prefixes old-kuta lacked.
+ * Invariant keeping the "kotlin." exclusion safe: the host's Kotlin (2.2.0
+ * today) must stay ≥ any extension-bundled stdlib (2.0.x today) — see
+ * [ChildFirstPathClassLoader] for the full rationale.
  *
  * CORE_RULES §20: All operations logged with tag "Anikuta:Data:Extension:Loader".
  */
@@ -188,16 +196,16 @@ class ExtensionLoader(
                 return LoadResult.Error(pkgName, "No source class metadata")
             }
 
-        // D-294: parent-first PathClassLoader — EXACTLY like the reference Aniyomi.
-        // The extension APK supplies only classes the host lacks; the host's
-        // kotlin-stdlib / okhttp / source-api always win. (The old child-first loader
-        // shadowed the host stdlib with the extension's partial bundled copy →
-        // mixed-stdlib breakage → "extension disappears after trust".)
-        val classLoader = try {
-            PathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, context.classLoader)
-        } catch (e: Exception) {
-            Logger.e(TAG, e) { "Failed to create classloader for $pkgName" }
-            return LoadResult.Error(pkgName, "Classloader error: ${e.message}", extName)
+        // Task 50 (round-10 Fix A): hybrid loader policy — PARTIAL reversal of
+        // D-294's unconditional parent-first (see the class KDoc for the history).
+        // One child-first loader per extension, created lazily so the DEX is only
+        // opened when a source class is actually instantiated; every fqcn of this
+        // extension shares it (shared loader = one Class identity per extension;
+        // D-294's single-loader identity behavior is preserved). Loader
+        // construction failures surface per-class below with the REAL reason
+        // (D-295) — a corrupt DEX fails both strategies identically.
+        val childFirstLoader = lazy {
+            ChildFirstPathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, context.classLoader)
         }
 
         // Instantiate sources. D-295: collect per-class failures so the Error result
@@ -207,7 +215,7 @@ class ExtensionLoader(
         val failures = mutableListOf<String>()
         sourceClassName.split(";").map { it.trim() }.filter { it.isNotEmpty() }.forEach { fqcn ->
             val resolved = if (fqcn.startsWith(".")) pkgName + fqcn else fqcn
-            when (val result = instantiateSource(resolved, classLoader, extName)) {
+            when (val result = instantiateSource(resolved, appInfo, extName, childFirstLoader)) {
                 is SourceInstantiation.Success -> sources.addAll(result.sources)
                 is SourceInstantiation.Failure -> failures.add(result.reason)
             }
@@ -264,32 +272,100 @@ class ExtensionLoader(
     }
 
     /**
-     * Instantiate a source class. Handles both [AnimeSource] and [AnimeSourceFactory].
-     * D-295: failures return the exception class + message so callers can surface
-     * the actual cause to the user.
+     * Instantiate a source class under the hybrid loader policy
+     * (Task 50 / round-10 Fix A). Handles both [AnimeSource] and
+     * [AnimeSourceFactory]. Strategy per fqcn:
+     * 1. Try the extension's shared [ChildFirstPathClassLoader] (child-first,
+     *    boundary types excluded — see its KDoc).
+     * 2. On [LinkageError] (class load OR instantiation — includes
+     *    NoClassDefFoundError, VerifyError, ExceptionInInitializerError, …),
+     *    retry the SAME fqcn with a plain parent-first [PathClassLoader]
+     *    (the old-kuta fallback: some extensions only link against the host's
+     *    copies of everything).
+     * 3. Any other failure, or a parent-first retry failure, returns
+     *    [SourceInstantiation.Failure]. D-295: failures carry the exception
+     *    class + message so callers can surface the actual cause to the user.
+     *
+     * @param fqcn             fully-qualified source class name (already package-resolved).
+     * @param appInfo          the extension's [android.content.pm.ApplicationInfo]
+     *                         (sourceDir/nativeLibraryDir for the parent-first fallback loader).
+     * @param extName          display name (for logs).
+     * @param childFirstLoader lazily-created child-first loader shared by all
+     *                         fqcn of this extension (one Class identity per extension).
      */
-    private fun instantiateSource(fqcn: String, classLoader: ClassLoader, extName: String): SourceInstantiation {
-        return try {
-            val clazz = Class.forName(fqcn, false, classLoader)
-            when {
-                AnimeSourceFactory::class.java.isAssignableFrom(clazz) -> {
-                    val factory = clazz.getDeclaredConstructor().newInstance() as AnimeSourceFactory
-                    SourceInstantiation.Success(factory.createSources())
-                }
-                AnimeSource::class.java.isAssignableFrom(clazz) -> {
-                    SourceInstantiation.Success(listOf(clazz.getDeclaredConstructor().newInstance() as AnimeSource))
-                }
-                else -> {
-                    Logger.w(TAG) { "Class $fqcn in $extName is neither AnimeSource nor AnimeSourceFactory" }
-                    SourceInstantiation.Failure("$fqcn is not an AnimeSource")
-                }
+    private fun instantiateSource(
+        fqcn: String,
+        appInfo: ApplicationInfo,
+        extName: String,
+        childFirstLoader: Lazy<ClassLoader>,
+    ): SourceInstantiation {
+        // Attempt 1: hybrid child-first loader.
+        try {
+            val result = instantiateWithLoader(fqcn, childFirstLoader.value, extName)
+            if (result is SourceInstantiation.Success) {
+                Logger.d(TAG) { "child-first strategy won for $fqcn in $extName" }
+            }
+            return result
+        } catch (e: LinkageError) {
+            // The extension's own classes fail to link (partial bundled stdlib,
+            // verify errors, …). The old app retried the same class parent-first.
+            Logger.w(TAG) {
+                "child-first failed for $fqcn in $extName " +
+                    "(${e.javaClass.simpleName}${if (!e.message.isNullOrBlank()) ": ${e.message}" else ""}), " +
+                    "retrying parent-first"
             }
         } catch (e: Throwable) {
-            // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError (an Error).
+            // Non-linkage failure (constructor exception, wrong type, loader
+            // construction failure, …) — a different delegation order cannot
+            // help. Catch Throwable (not Exception) — binary-incompat throws
+            // NoClassDefFoundError (an Error), although that is handled above.
             Logger.e(TAG, e) { "Failed to instantiate $fqcn in $extName: ${e.message}" }
+            return SourceInstantiation.Failure(
+                "$fqcn: ${e.javaClass.simpleName}${if (!e.message.isNullOrBlank()) ": ${e.message}" else ""}"
+            )
+        }
+
+        // Attempt 2: plain parent-first PathClassLoader for the SAME fqcn
+        // (created on demand — this path is rare).
+        return try {
+            val result = instantiateWithLoader(
+                fqcn,
+                PathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, context.classLoader),
+                extName,
+            )
+            if (result is SourceInstantiation.Success) {
+                Logger.i(TAG) { "parent-first fallback won for $fqcn in $extName" }
+            }
+            result
+        } catch (e: Throwable) {
+            // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError (an Error).
+            Logger.e(TAG, e) { "Failed to instantiate $fqcn in $extName (parent-first retry): ${e.message}" }
             SourceInstantiation.Failure(
                 "$fqcn: ${e.javaClass.simpleName}${if (!e.message.isNullOrBlank()) ": ${e.message}" else ""}"
             )
+        }
+    }
+
+    /**
+     * Load [fqcn] with [classLoader] and instantiate it as an [AnimeSource]
+     * or [AnimeSourceFactory]. Throws whatever the classload/instantiation
+     * throws (including [LinkageError]) so the caller can pick the retry
+     * strategy; only type-mismatch returns a [SourceInstantiation.Failure].
+     */
+    private fun instantiateWithLoader(fqcn: String, classLoader: ClassLoader, extName: String): SourceInstantiation {
+        val clazz = Class.forName(fqcn, false, classLoader)
+        return when {
+            AnimeSourceFactory::class.java.isAssignableFrom(clazz) -> {
+                val factory = clazz.getDeclaredConstructor().newInstance() as AnimeSourceFactory
+                SourceInstantiation.Success(factory.createSources())
+            }
+            AnimeSource::class.java.isAssignableFrom(clazz) -> {
+                SourceInstantiation.Success(listOf(clazz.getDeclaredConstructor().newInstance() as AnimeSource))
+            }
+            else -> {
+                Logger.w(TAG) { "Class $fqcn in $extName is neither AnimeSource nor AnimeSourceFactory" }
+                SourceInstantiation.Failure("$fqcn is not an AnimeSource")
+            }
         }
     }
 

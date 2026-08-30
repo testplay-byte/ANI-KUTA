@@ -821,6 +821,70 @@ open class Jeniusplay : ExtractorApi() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Task 50 (round 10): census top-ups — 8 mirror hosts the 80-plugin census
+// hits with no built-in (Fix G). Same mirror pattern as the families above:
+// override name/mainUrl (var/val kind mirrors the PARENT's declaration —
+// narrowing a parent `var` to a `val` override does not compile), inherit
+// the family's getUrl. None of these hosts collide with an existing mainUrl
+// (dood.la/.yt, vidhidepro.com/.pro/.io, mixdrop.co, watchsb.com, …).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** dood.to — DoodStream mirror (upstream DoodToExtractor parity). */
+open class DoodTo : DoodLaExtractor() {
+    override var name = "DoodStream"
+    override var mainUrl = "https://dood.to"
+}
+
+/** dood.wf — DoodStream mirror (upstream DoodWfExtractor parity). */
+open class DoodWf : DoodLaExtractor() {
+    override var name = "DoodStream"
+    override var mainUrl = "https://dood.wf"
+}
+
+/** d000d.com — DoodStream mirror (upstream D000dCom parity). */
+open class D000D : DoodLaExtractor() {
+    override var name = "DoodStream"
+    override var mainUrl = "https://d000d.com"
+}
+
+/**
+ * waaw.to — dood-family embed host several census providers link directly.
+ * CHOICE NOTE: the upstream research clone has NO Waaw extractor
+ * (`rg -i "waaw"` over library/ — zero hits), so per the round-10 plan it is
+ * bound to the dood engine (pass_md5 dance) by host-family inference. If
+ * waaw ever serves a different page shape the extractor simply fails and
+ * the provider's other mirrors serve — no silent empty result.
+ */
+open class WaawTo : DoodLaExtractor() {
+    override var name = "Waaw"
+    override var mainUrl = "https://waaw.to"
+}
+
+/** vidhidevip.com — VidHide mirror (upstream VidHidePro5 parity). */
+open class VidhideVip : VidHidePro() {
+    override var name = "VidHide"
+    override var mainUrl = "https://vidhidevip.com"
+}
+
+/** vidhideplus.com — VidHide mirror (no upstream counterpart in the clone). */
+open class VidhidePlus : VidHidePro() {
+    override var name = "VidHide"
+    override var mainUrl = "https://vidhideplus.com"
+}
+
+/** mixdrop.ag — MixDrop mirror (upstream MixDropAg parity; base is mixdrop.co). */
+open class MixdropAg : MixDrop() {
+    override var name = "MixDrop"
+    override var mainUrl = "https://mixdrop.ag"
+}
+
+/** streamsb.net — StreamSB mirror (upstream StreamSB8 parity; base is watchsb.com). */
+open class StreamSBNet : StreamSB() {
+    override var name = "StreamSB"
+    override var mainUrl = "https://streamsb.net"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registration (mirrors the upstream behavior of registering built-ins at app
 // start — BEFORE any plugin loads, so plugin-registered mirror extractors win
 // the reverse-order dispatch)
@@ -838,6 +902,9 @@ fun registerBuiltinExtractors() {
         ::FileMoon, ::Mp4Upload, ::Vidmolyme, ::VidHidePro3, ::VidHidePro5, ::VidHidePro6,
         ::StreamSB8, ::OkRuHTTP, ::DoodYtExtractor, ::Geodailymotion, ::Upstream, ::Vtbe,
         ::Krakenfiles, ::LuluStream, ::ByseVepoin, ::GDMirrorbot, ::XStreamCdn, ::Jeniusplay,
+        // Task 50 (round 10): census top-ups (Fix G).
+        ::DoodTo, ::DoodWf, ::D000D, ::WaawTo, ::VidhideVip, ::VidhidePlus,
+        ::MixdropAg, ::StreamSBNet,
     )
     builtins.forEach { constructor -> extractorApis.add(constructor.invoke()) }
     Log.i("BuiltinExtractors", "registered ${builtins.size} built-in extractor(s)")

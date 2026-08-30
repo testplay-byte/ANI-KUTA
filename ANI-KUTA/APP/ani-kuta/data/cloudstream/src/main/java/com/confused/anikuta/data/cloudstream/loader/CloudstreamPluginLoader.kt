@@ -152,7 +152,25 @@ class CloudstreamPluginLoader(
             val providersAfter = APIHolder.allProviders.withLock { APIHolder.allProviders.toList() }
             val newProviders = providersAfter.filter { it !in providersBefore }
             val newExtractorCount = extractorApis.withLock { extractorApis.toList() }.size - extractorsBefore.size
-            newProviders.forEach { providerOwners[it.name] = filePath }
+            newProviders.forEach { provider ->
+                val previousOwner = providerOwners.put(provider.name, filePath)
+                // Task 50 (round 10): WARN on provider-name collisions across
+                // DIFFERENT plugin files. Behavior is unchanged — last-wins,
+                // exactly like upstream's name→index apiMap (later registration
+                // overwrites the earlier index) — but the collision deserves a
+                // log line: bridged sources resolve BY NAME (APIHolder
+                // .getApiFromNameNull), so the last registered instance is the
+                // one every episode resolve dispatches to, silently shadowing
+                // the first plugin's provider.
+                if (previousOwner != null && previousOwner != filePath) {
+                    Logger.w(TAG) {
+                        "plugin provider name collision: '${provider.name}' from " +
+                            "${filePath.substringAfterLast('/')} overrides " +
+                            "${previousOwner.substringAfterLast('/')} — bridged sources resolve " +
+                            "by name; the LAST registered instance wins"
+                    }
+                }
+            }
             loadedPlugins[filePath] = LoadedEntry(plugin, manifest, newExtractorCount)
 
             Logger.i(TAG) {

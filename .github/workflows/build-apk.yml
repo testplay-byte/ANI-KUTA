@@ -74,8 +74,11 @@ jobs:
       # logging tool); cloudstream-api now also runs LoadExtractorDispatchTest
       # (the dead-dispatch regression lock), M3u8ParseMasterPlaylistTest (HLS
       # quality selection) and MpdParserTest (DASH surfacing).
-      - name: Run unit tests (cloudstream + network + common modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:network:testDebugUnitTest :core:common:testDebugUnitTest
+      # 2026-08-30 (Task 50): :core:video-resolver added — CloudstreamLinkCacheTest
+      # locks the 20-min CloudStream link cache (roundtrip / TTL / empty-put
+      # no-op / invalidate) behind the resolver pipeline split.
+      - name: Run unit tests (cloudstream + network + common + video-resolver modules)
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:network:testDebugUnitTest :core:common:testDebugUnitTest :core:video-resolver:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
