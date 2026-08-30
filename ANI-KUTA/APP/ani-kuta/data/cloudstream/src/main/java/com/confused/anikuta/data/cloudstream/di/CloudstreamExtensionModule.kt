@@ -44,6 +44,11 @@ val cloudstreamModule = module {
     single { CloudstreamBrowseCache(androidContext()) }
     single { CloudstreamContentRepository(get(), get()) }
 
+    // Task 52 (round 12 — the playback port): the loadLinks orchestration.
+    // Stateless singleton (its link cache lives inside); consumed by the CS
+    // watch screen's ViewModel.
+    single { com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver() }
+
     // Task 45 — the SOURCE BRIDGE registry: every trusted provider published as
     // an aniyomi AnimeHttpSource under a stable synthetic id. The app wires it
     // into ExtensionManager.setExternalSources so CloudStream results open the

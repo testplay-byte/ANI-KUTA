@@ -37,6 +37,13 @@ dependencies {
     // screen (same page as aniyomi extensions, per the user's round-4 directive).
     api(project(":core:source-api"))
 
+    // Task 52 (round 12 — the playback port): the link resolver maps plugin
+    // ExtractorLink/SubtitleFile onto the app-side player models (CsVideoLink/
+    // CsSubtitle) that live in :core:cs-player. implementation(): the models
+    // flow outward through the resolver's event types, so dependents
+    // (:feature:cs-watch:impl) also declare :core:cs-player themselves.
+    implementation(project(":core:cs-player"))
+
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)
