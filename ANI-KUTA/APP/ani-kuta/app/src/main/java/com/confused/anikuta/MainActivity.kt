@@ -782,22 +782,33 @@ fun AppRoot() {
                         )
                     )
                 },
-                onNavigateToExtensionAnime = { sourceId, animeUrl, title, thumbnailUrl ->
+                onNavigateToExtensionAnime = { sourceId, sourceKey, animeUrl, title, thumbnailUrl, year ->
+                    // CloudStream V2: CS results open the EXACT SAME details
+                    // screen as aniyomi results — the source bridge (registered
+                    // in ExtensionManager under the stable CS id) makes the
+                    // standard DetailsScreen resolve details/episodes through
+                    // the provider. year = the search-time seed for the Year row.
+                    // (sourceKey rides along for grid identity + the future
+                    // playback port; navigation itself only needs the id.)
                     navigateToDetails(
                         AnimeDetailsKey.Extension(
                             sourceId,
                             animeUrl,
                             title,
                             thumbnailUrl,
+                            year = year,
                             transitionKey = searchCoverKey(thumbnailUrl),
                         )
                     )
                 },
                 // D-209: Cloudflare manual solver — launched from the Search error card.
-                onOpenCloudflareWebView = { url, sourceName ->
+                onOpenCloudflareWebView = { url, sourceName, userAgent ->
+                    // CloudStream V2: CS providers must solve with the CS client's
+                    // pinned UA (cf_clearance is UA-bound) — the search error card
+                    // passes it through.
                     appContext.startActivity(
                         com.confused.anikuta.webview.CloudflareWebViewActivity.newIntent(
-                            context = appContext, url = url, sourceName = sourceName,
+                            context = appContext, url = url, sourceName = sourceName, userAgent = userAgent,
                         ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 },

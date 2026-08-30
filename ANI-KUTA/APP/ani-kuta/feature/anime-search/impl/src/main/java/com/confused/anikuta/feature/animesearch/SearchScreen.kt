@@ -24,6 +24,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as lazyRowItems
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -94,10 +98,17 @@ fun SearchScreen(
     // D-320: passes the full anime so the nav key can carry the cover/title
     // + the shared-element key (experimental cover transition).
     onNavigateToDetails: (AniListAnime) -> Unit,
-    onNavigateToExtensionAnime: (Long, String, String, String?) -> Unit = { _, _, _, _ -> },
+    // Session 3: +sourceKey — "cloudstream:<provider>" for CloudStream results
+    // (null = aniyomi; MainActivity branches the details destination on it).
+    // Task 47: +year — the search-time release year (CloudStream providers
+    // often set it on search responses but omit it on load(); the details
+    // screen seeds SAnime.year with it as a fallback).
+    onNavigateToExtensionAnime: (Long, String?, String, String, String?, Int?) -> Unit = { _, _, _, _, _, _ -> },
     // D-209: callback to open the Cloudflare WebView solver (launched from the
     // CloudflareBlocked error state). MainActivity launches CloudflareWebViewActivity.
-    onOpenCloudflareWebView: (url: String, sourceName: String) -> Unit = { _, _ -> },
+    // Task 45: +userAgent — CloudStream providers must solve with the CS client's
+    // pinned UA (clearance cookies are UA-bound); null = aniyomi default.
+    onOpenCloudflareWebView: (url: String, sourceName: String, userAgent: String?) -> Unit = { _, _, _ -> },
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -109,12 +120,38 @@ fun SearchScreen(
     val trustedSources by viewModel.trustedSources.collectAsState()
     val selectedSourceId by viewModel.selectedSourceId.collectAsState()
 
+    // Session 3 (CloudStream execution): the picker + top-bar label read both
+    // ecosystems' selections.
+    val csSources by viewModel.csSources.collectAsState()
+    val selectedKind by viewModel.selectedKind.collectAsState()
+    val selectedCsProvider by viewModel.selectedCsProvider.collectAsState()
+    val selectedExtensionSourceName = when (selectedKind) {
+        SelectedSourceKind.CLOUDSTREAM ->
+            csSources.firstOrNull { it.providerName == selectedCsProvider }?.providerName
+        SelectedSourceKind.ANIYOMI ->
+            trustedSources.firstOrNull { it.id == selectedSourceId }?.name
+    }
+
+    // Task 45: CloudStream providers must solve Cloudflare with the CS client's
+    // pinned USER_AGENT — cf_clearance is UA-bound and the plugin HTTP client
+    // pins com.lagradost.cloudstream3.USER_AGENT, so the manual WebView must use
+    // the SAME one or the earned cookie won't validate on replay.
+    val cloudflareWebViewUserAgent: String? = when (selectedKind) {
+        SelectedSourceKind.CLOUDSTREAM -> com.lagradost.cloudstream3.USER_AGENT
+        SelectedSourceKind.ANIYOMI -> null
+    }
+
     val scrollState = rememberScrollState()
     val gridState = rememberLazyGridState()
+    // Task 44: the sectioned CloudStream browse renders a LazyColumn of rows —
+    // its own scroll state drives the top-bar collapse + blur overlay.
+    val browseListState = rememberLazyListState()
     // Collapse when EITHER the scroll column OR the grid is scrolled past 20px.
     val collapsed = scrollState.value > 20 ||
         gridState.firstVisibleItemIndex > 0 ||
-        gridState.firstVisibleItemScrollOffset > 20
+        gridState.firstVisibleItemScrollOffset > 20 ||
+        browseListState.firstVisibleItemIndex > 0 ||
+        browseListState.firstVisibleItemScrollOffset > 20
 
     var showFilterSheet by remember { mutableStateOf(false) }
     var showSourcePicker by remember { mutableStateOf(false) }
@@ -160,7 +197,7 @@ fun SearchScreen(
             // Extension source picker — opens when the extension button is tapped
             // (even if already selected, per user spec).
             onExtensionSourceClick = { showSourcePicker = true },
-            selectedExtensionSourceName = trustedSources.firstOrNull { it.id == selectedSourceId }?.name,
+            selectedExtensionSourceName = selectedExtensionSourceName,
         )
 
         // Scrollable content
@@ -179,9 +216,11 @@ fun SearchScreen(
             val effectiveState = when (source) {
                 SearchSource.ANILIST -> when (uiState) {
                     is SearchUiState.ExtensionSuccess,
+                    is SearchUiState.ExtensionBrowseSuccess,
                     is SearchUiState.ExtensionError,
                     is SearchUiState.ExtensionEmpty,
                     SearchUiState.ExtensionNotAvailable,
+                    is SearchUiState.ExtensionNoBrowse,
                     is SearchUiState.CloudflareBlocked -> SearchUiState.Loading
                     else -> uiState
                 }
@@ -246,6 +285,17 @@ fun SearchScreen(
                     icon = Icons.Filled.HourglassEmpty,
                 )
 
+                // Session 3 (CloudStream): the provider has no browse page — it
+                // is search-only. Prompt to type, NOT an error/retry card.
+                is SearchUiState.ExtensionNoBrowse -> {
+                    val nb = effectiveState as SearchUiState.ExtensionNoBrowse
+                    SearchPromptCard(
+                        title = "${nb.sourceName} is search-only",
+                        description = "This source has no browse page. Type a query above to search it.",
+                        icon = Icons.Filled.HourglassEmpty,
+                    )
+                }
+
                 is SearchUiState.ExtensionError -> {
                     val msg = (effectiveState as SearchUiState.ExtensionError).message
                     SearchPromptCard(
@@ -272,7 +322,7 @@ fun SearchScreen(
                         secondaryActionLabel = "Open in WebView",
                         onSecondaryAction = {
                             viewModel.onOpenWebView()
-                            onOpenCloudflareWebView(cf.url, cf.sourceName)
+                            onOpenCloudflareWebView(cf.url, cf.sourceName, cloudflareWebViewUserAgent)
                         },
                     )
                 }
@@ -291,7 +341,7 @@ fun SearchScreen(
                         onSecondaryAction = if (ee.sourceUrl != null) {
                             {
                                 viewModel.onOpenWebView()
-                                onOpenCloudflareWebView(ee.sourceUrl, ee.sourceName)
+                                onOpenCloudflareWebView(ee.sourceUrl, ee.sourceName, cloudflareWebViewUserAgent)
                             }
                         } else null,
                     )
@@ -319,7 +369,39 @@ fun SearchScreen(
                         results = results,
                         gridState = gridState,
                         onResultTap = { anime ->
-                            onNavigateToExtensionAnime(anime.sourceId, anime.url, anime.title, anime.thumbnailUrl)
+                            onNavigateToExtensionAnime(
+                                anime.sourceId,
+                                anime.sourceKey,
+                                anime.url,
+                                anime.title,
+                                anime.thumbnailUrl,
+                                anime.year,
+                            )
+                        },
+                        recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
+                            RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
+                        } else null,
+                    )
+                }
+
+                // Task 44: SECTIONED CloudStream browse — every provider shelf
+                // ("Latest Updated", "Most Popular", …) renders as its own titled
+                // horizontal row (the device round-3 "sections in row format"
+                // request); search results stay the flat grid above.
+                is SearchUiState.ExtensionBrowseSuccess -> {
+                    val browse = effectiveState as SearchUiState.ExtensionBrowseSuccess
+                    ExtensionBrowseSections(
+                        sections = browse.sections,
+                        listState = browseListState,
+                        onResultTap = { anime ->
+                            onNavigateToExtensionAnime(
+                                anime.sourceId,
+                                anime.sourceKey,
+                                anime.url,
+                                anime.title,
+                                anime.thumbnailUrl,
+                                anime.year,
+                            )
                         },
                         recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
                             RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
@@ -335,6 +417,10 @@ fun SearchScreen(
                         is SearchUiState.ExtensionSuccess -> {
                             if (gridState.firstVisibleItemIndex > 0) Float.MAX_VALUE
                             else gridState.firstVisibleItemScrollOffset.toFloat()
+                        }
+                        is SearchUiState.ExtensionBrowseSuccess -> {
+                            if (browseListState.firstVisibleItemIndex > 0) Float.MAX_VALUE
+                            else browseListState.firstVisibleItemScrollOffset.toFloat()
                         }
                         else -> scrollState.value.toFloat()
                     }
@@ -367,12 +453,27 @@ fun SearchScreen(
         ExtensionSourcePickerSheet(
             sources = trustedSources,
             sourceIcons = viewModel.sourceIcons.collectAsState().value,
-            selectedSourceId = selectedSourceId,
+            // Task 46 (device round 5, the double-checkmark bug): BOTH params
+            // are now kind-gated symmetrically. The aniyomi id used to be passed
+            // unconditionally, so after picking a CloudStream source the sheet
+            // showed checkmarks on the (stale) aniyomi row AND the CS row at
+            // once. Only the ecosystem the kind flag points at can render a
+            // checkmark now; the other side's remembered selection stays
+            // persisted for switching back, it just isn't "selected".
+            selectedSourceId = if (selectedKind == SelectedSourceKind.ANIYOMI) selectedSourceId else null,
             onSelect = { id ->
                 viewModel.onSelectExtensionSource(id)
                 showSourcePicker = false
             },
             onDismiss = { showSourcePicker = false },
+            // Session 3: the CloudStream section (hidden entirely when no CS
+            // plugins are trusted + loaded — the sheet renders exactly as before).
+            csSources = csSources,
+            selectedCsProvider = if (selectedKind == SelectedSourceKind.CLOUDSTREAM) selectedCsProvider else null,
+            onSelectCs = { name ->
+                viewModel.onSelectCloudstreamSource(name)
+                showSourcePicker = false
+            },
         )
     }
 }
@@ -604,7 +705,9 @@ private fun ExtensionResultsGrid(
     // (device-reported IllegalArgumentException). Dedupe again at render time
     // so no future code path can reintroduce the crash.
     val distinctResults = remember(results) {
-        results.distinctBy { "${it.sourceId}:${it.url}" }
+        // Session 3: the identity is sourceKey-first (cloudstream:<provider>) with the
+        // aniyomi Long id as fallback — unique across BOTH ecosystems.
+        results.distinctBy { "${it.sourceKey ?: it.sourceId}:${it.url}" }
     }
     LazyVerticalGrid(
         state = gridState,
@@ -629,8 +732,79 @@ private fun ExtensionResultsGrid(
                 )
             }
         }
-        items(distinctResults, key = { "${it.sourceId}:${it.url}" }) { anime ->
+        items(distinctResults, key = { "${it.sourceKey ?: it.sourceId}:${it.url}" }) { anime ->
             ExtensionResultCard(anime, onResultTap)
+        }
+    }
+}
+
+// ── Sectioned CloudStream browse (Task 44: shelves as titled rows) ──────────
+
+/**
+ * The sectioned CloudStream browse view: one titled horizontal row of cards per
+ * provider shelf ("Latest Updated", "Most Popular", …) — the device round-3
+ * "popular, latest and other sections in row format" request. Cards reuse the
+ * flat-grid [ExtensionResultCard] at a fixed row width; taps route through the
+ * same extension-details navigation.
+ */
+@Composable
+private fun ExtensionBrowseSections(
+    sections: List<ExtensionBrowseSection>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onResultTap: (ExtensionAnime) -> Unit,
+    recentsHeader: RecentsHeaderData? = null,
+) {
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 110.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (recentsHeader != null) {
+            item(key = "recents-header") {
+                RecentSearchesCard(
+                    recents = recentsHeader.recents,
+                    onPick = recentsHeader.onPick,
+                    onRemove = recentsHeader.onRemove,
+                    onClear = recentsHeader.onClear,
+                )
+            }
+        }
+
+        sections.forEachIndexed { sectionIndex, section ->
+            item(key = "section-$sectionIndex-${section.title}") {
+                // D-304 defense-in-depth: dedupe within the row so LazyRow keys
+                // stay unique even if a future code path reintroduces dupes.
+                val distinct = remember(section) {
+                    section.results.distinctBy { "${it.sourceKey ?: it.sourceId}:${it.url}" }
+                }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = section.title,
+                        fontFamily = RobotoFamily,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                            ?: MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        lazyRowItems(
+                            distinct,
+                            key = { "${it.sourceKey ?: it.sourceId}:${it.url}" },
+                        ) { anime ->
+                            Box(modifier = Modifier.width(110.dp)) {
+                                ExtensionResultCard(anime, onResultTap)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

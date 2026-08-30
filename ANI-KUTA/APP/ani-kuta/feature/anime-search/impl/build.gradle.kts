@@ -19,6 +19,9 @@ dependencies {
     implementation(project(":core:source-api"))
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
     implementation(project(":data:extension"))
+    // Session 3 (CloudStream execution phase 1): provider browse/search through
+    // CloudstreamContentRepository + the persisted NSFW gate on AppPreferences.
+    implementation(project(":data:cloudstream"))
 
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.tooling.preview)
