@@ -82,9 +82,15 @@ object MpdParser {
                 for (repElement in childrenOf(adaptationSet, "Representation")) {
                     val rep = repElement
                     val kind = setKind ?: kindOf(rep) ?: continue
-                    val repBase = baseUrlOf(rep)?.let { absolutize(it, setBase) } ?: continue
                     val segmented = rep.getElementsByTagName("SegmentTemplate").length > 0 ||
                         rep.getElementsByTagName("SegmentList").length > 0
+                    // No BaseURL of its own → the rep's media lives in (many)
+                    // template/list segments or is address-only via the parent
+                    // base — never a directly playable single file. Report it
+                    // (url="", singleFile=false) so callers can COUNT multi-
+                    // segment reps; dropping it would make a SegmentTemplate
+                    // manifest look like an empty one (CI round-3 lesson).
+                    val repBase = baseUrlOf(rep)?.let { absolutize(it, setBase) } ?: ""
                     val representation = MpdRepresentation(
                         id = rep.getAttribute("id").ifBlank { null },
                         kind = kind,
@@ -94,8 +100,9 @@ object MpdParser {
                         // SegmentBase (a byte-range index over ONE file) still
                         // leaves the BaseURL a complete progressive file — MPV
                         // plays it fine. SegmentTemplate/SegmentList = many
-                        // segment files → NOT progressive.
-                        singleFile = !segmented,
+                        // segment files → NOT progressive. No BaseURL at all
+                        // → likewise not directly addressable.
+                        singleFile = repBase.isNotBlank() && !segmented,
                     )
                     if (kind == "video") videos += representation else audios += representation
                 }
