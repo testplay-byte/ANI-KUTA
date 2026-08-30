@@ -173,6 +173,7 @@ fun DetailsScreen(
                 animeUrl = detailsKey.animeUrl,
                 title = detailsKey.title,
                 thumbnailUrl = detailsKey.thumbnailUrl,
+                year = detailsKey.year,
             )
         }
     }
@@ -1709,9 +1710,13 @@ private fun DetailBanner(
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                // Meta row: score · status · episode count
+                // Meta row: score · year · status · episode count.
+                // CloudStream V2: the year next to the title (populated for both
+                // AniList entries and CS entries — the search-time seed covers
+                // providers whose load() omits year).
                 val metaParts = buildList {
                     anime.averageScore?.let { add("\u2605 $it%") }
+                    anime.seasonYear?.let { add(it.toString()) }
                     anime.status?.let { add(it.replace("_", " ").lowercase().replaceFirstChar { c -> c.uppercase() }) }
                     anime.episodes?.let { add("$it eps") }
                 }

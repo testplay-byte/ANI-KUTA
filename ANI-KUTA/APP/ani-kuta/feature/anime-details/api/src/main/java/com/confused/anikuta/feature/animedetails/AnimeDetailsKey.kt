@@ -57,6 +57,11 @@ sealed interface AnimeDetailsKey : NavKey {
      * @param autoPlayEpisode Phase 3: if non-null, auto-trigger this episode
      *   when the page loads.
      * @param transitionKey D-320: the shared-element key the SOURCE card used.
+     * @param year Task 47: the search-time release year, when the search
+     *   response carried one — seeded onto the stub SAnime so the details
+     *   page can render Year even when the provider's load() omits it
+     *   (common in CloudStream plugins). Additive default keeps previously
+     *   saved backstacks deserializable.
      */
     @Serializable
     data class Extension(
@@ -65,6 +70,7 @@ sealed interface AnimeDetailsKey : NavKey {
         val title: String,
         val thumbnailUrl: String? = null,
         val autoPlayEpisode: Int? = null,
+        val year: Int? = null,
         override val transitionKey: String? = null,
     ) : AnimeDetailsKey
 }

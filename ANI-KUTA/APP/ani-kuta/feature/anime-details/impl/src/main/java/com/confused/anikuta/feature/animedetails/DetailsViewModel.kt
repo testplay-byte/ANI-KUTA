@@ -1530,6 +1530,9 @@ class DetailsViewModel(
             try {
                 val enriched = extensionProvider.fetchFromExtension(
                     sourceId, animeUrl, anime.displayName, anime.coverUrl,
+                    // Task 47: re-seed the currently displayed year so a refresh
+                    // never drops the Year row when the source's load() omits it.
+                    anime.seasonYear,
                 )
                     if (enriched != null) {
                         if (metaGen == loadGeneration) {
@@ -1705,7 +1708,7 @@ class DetailsViewModel(
 
     // ── Load from Extension (Phase A + Phase B auto-link) ──
 
-    fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?) {
+    fun loadFromExtension(sourceId: Long, animeUrl: String, title: String, thumbnailUrl: String?, year: Int? = null) {
         currentAnimeId = 0 // No AniList ID yet — will be set by auto-link if it matches.
         // D-192 Phase 5: Increment generation — async blocks from previous loads will be discarded.
         loadGeneration++
@@ -1771,9 +1774,14 @@ class DetailsViewModel(
                     // Doesn't block the user — they see the cached data immediately.
                     viewModelScope.launch {
                         try {
+                            // Task 47: seed the cached year so the refresh (whose
+                            // load() may omit year) keeps the Year row instead of
+                            // silently dropping it on remerge.
+                            val seedYear = year ?: cachedDetails.extExtras.year
                             val refreshed = extensionProvider.fetchFromExtension(
                                 sourceId, animeUrl, title,
                                 cachedDetails.extThumbnailUrl ?: thumbnailUrl,
+                                seedYear,
                             )
                             // D-313: stale guard — this coroutine can outlive the screen
                             // (network fetch); never remerge old data over a new anime.
@@ -1813,7 +1821,7 @@ class DetailsViewModel(
                     }
                 }
                 // Use the ExtensionDetailsProvider to fetch full details.
-                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, effectiveThumbnailUrl)
+                val unifiedAnime = extensionProvider.fetchFromExtension(sourceId, animeUrl, title, effectiveThumbnailUrl, year)
 
                 // D-313 (review round): stale guard — this network fetch can
                 // outlive the screen (user navigated away / opened another anime).
@@ -1880,6 +1888,10 @@ class DetailsViewModel(
             // D-198: getExtensionDetail → getContentDetails; build extensionBase from ext_* axis.
             val details = contentRepository.getContentDetails(existingContent.mainId)
             if (details != null && details.hasExtensionLink) {
+                // Task 47: year + score now persist in extExtraJson — restore
+                // them so the cache-first reopen keeps the Year/Score rows
+                // (the silent background refresh re-fetches live data after).
+                val cachedExtras = details.extExtras
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
                     title = existingContent.title,
                     description = details.extDescription,
@@ -1892,6 +1904,8 @@ class DetailsViewModel(
                     sourceName = null,
                     animeUrl = details.animeUrl,
                     entryMode = com.confused.anikuta.core.common.model.EntryMode.EXTENSION,
+                    seasonYear = cachedExtras.year,
+                    averageScore = cachedExtras.score,
                 )
             } else {
                 extensionBase = com.confused.anikuta.core.common.model.UnifiedAnime(
@@ -2057,6 +2071,12 @@ class DetailsViewModel(
                             extAuthor = unifiedAnime.author,
                             extArtist = unifiedAnime.artist,
                             extThumbnailUrl = unifiedAnime.coverUrl,
+                            // Task 47: persist year + score in the additive
+                            // extras JSON so cache-first reopens keep them.
+                            extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
+                                year = unifiedAnime.seasonYear,
+                                score = unifiedAnime.averageScore,
+                            ).toJson(),
                             extUpdatedAt = System.currentTimeMillis(),
                         )
                         contentResolver.linkExtensionToExisting(
@@ -2114,6 +2134,12 @@ class DetailsViewModel(
                         extAuthor = unifiedAnime.author,
                         extArtist = unifiedAnime.artist,
                         extThumbnailUrl = unifiedAnime.coverUrl,
+                        // Task 47: persist year + score in the additive
+                        // extras JSON so cache-first reopens keep them.
+                        extExtraJson = com.confused.anikuta.core.content.ExtensionExtras(
+                            year = unifiedAnime.seasonYear,
+                            score = unifiedAnime.averageScore,
+                        ).toJson(),
                         extUpdatedAt = System.currentTimeMillis(),
                     ),
                 )
@@ -2823,8 +2849,11 @@ class DetailsViewModel(
                         // D-313 (review round): stale guard — the enrichment
                         // fetch can outlive the screen.
                         val enrichGen = loadGeneration
+                        // Task 47: re-seed the displayed year (see refresh path).
+                        val seedYear = (_state.value as? DetailsState.Success)?.anime?.seasonYear
                         val enriched = extensionProvider.fetchFromExtension(
                             sourceId, animeUrl, sAnime.title, null,
+                            seedYear,
                         )
                         if (enriched != null && enrichGen == loadGeneration) {
                             extensionBase = enriched
@@ -2935,8 +2964,11 @@ class DetailsViewModel(
             // Fetch the full details via getAnimeDetails to enrich extensionBase.
             viewModelScope.launch {
                 try {
+                    // Task 47: re-seed the displayed year (see refresh path).
+                    val seedYear = (_state.value as? DetailsState.Success)?.anime?.seasonYear
                     val enriched = extensionProvider.fetchFromExtension(
                         source.id, sAnime.url, sAnime.title, sAnime.thumbnail_url,
+                        seedYear,
                     )
                     if (enriched != null) {
                         extensionBase = enriched
@@ -3459,7 +3491,13 @@ class DetailsViewModel(
             } else null
         }
         if (linked == null) {
+            // Task 49 (R9-A FM-13): the silent return left the already-open
+            // resolver sheet in Idle ("No resolution in progress") — the user
+            // tapped an episode and NOTHING happened. Surface an honest error.
             Logger.w(TAG) { "Cannot resolve — no source linked and no extension sourceId" }
+            _resolverState.value = ResolverState.Error(
+                "No playable source is linked to this entry — refresh the page or re-link it to a source",
+            )
             return
         }
         val source = extensionManager.getSource(linked.sourceId) as? AnimeHttpSource ?: run {
