@@ -39,11 +39,21 @@ import java.util.concurrent.TimeUnit
  * solve timeout, or the retry was challenged again). Honest-error contract
  * (D-295/D-296): the caller surfaces this instead of silently parsing a
  * challenge page into 0 results.
+ *
+ * Task 48.1 (device round 8 — THE CRASH): MUST extend [java.io.IOException].
+ * The plugin HTTP client's async calls (nicehttp `Call.await()` → OkHttp
+ * `enqueue`) only route IOException to `onFailure` → coroutine
+ * `resumeWithException`; any other Throwable is rethrown ON THE OKHTTP
+ * DISPATCHER THREAD → default uncaught-exception handler → process death
+ * (the round-8 "resolving spinner for 20s then the app dies" report:
+ * `FATAL EXCEPTION: OkHttp Dispatcher — CloudflareBlockedException`). As an
+ * IOException subclass it now flows into the resolver's normal error path
+ * where the bridge keeps already-streamed partial links (D-295).
  */
 class CloudflareBlockedException(
     val host: String,
     detail: String,
-) : Exception("Cloudflare challenge on $host could not be solved ($detail)") {
+) : java.io.IOException("Cloudflare challenge on $host could not be solved ($detail)") {
 
     companion object {
         private const val serialVersionUID = 1L
@@ -142,6 +152,21 @@ class CloudflareKiller : Interceptor {
 
         /** Headless solve budget — invisible challenges clear in 2–6s; 20s is the slow tail. */
         const val SOLVE_TIMEOUT_MS = 20_000L
+
+        /**
+         * Task 48.1 (device round 8 — the 20s-per-host hang): a headless WebView
+         * that finishes a challenge page with ZERO cookies will never solve a
+         * modern managed/interactive Cloudflare challenge (the round-8 logcat:
+         * page finished cookies=false ×N on s1.akirax.buzz / cdn.kryntal.top,
+         * then 19 more seconds of watchdog burn before the throw). Fail fast
+         * once this much time has passed after the FIRST page finish with no
+         * cookie at all — solvable invisible challenges set cookies within
+         * 2–6s, so a completely empty jar at +8s is conclusive.
+         */
+        const val ZERO_COOKIE_GRACE_MS = 8_000L
+
+        /** Cookie-poll interval for the early-success / fast-fail probes. */
+        const val COOKIE_POLL_MS = 1_000L
 
         /** How long a FAILED solve is remembered (fast-fail window). */
         const val FAILED_SOLVE_COOLDOWN_MS = 60_000L
@@ -337,11 +362,54 @@ class CloudflareKiller : Interceptor {
 
         val posted = mainHandler.post {
             var webView: WebView? = null
+            // Task 48.1 fast-fail state — every mutation below happens on the
+            // MAIN thread (onPageFinished / cookie probe / watchdog); the
+            // latch gives the reader thread a happens-before edge.
+            val startedAt = System.currentTimeMillis()
+            var firstPageFinishAt = -1L
             try {
                 // CookieManager.getInstance() lazily initializes the WebView
                 // provider on first use — safe to obtain before creating the view.
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
+
+                // Task 48.1: early-success + fast-fail cookie probe (1s cadence).
+                //  • cf_clearance appears → release EARLY (no watchdog wait).
+                //  • still ZERO cookies ZERO_COOKIE_GRACE_MS after the first page
+                //    finish → the headless WebView cannot solve this challenge
+                //    (managed/interactive) → fail fast instead of burning the
+                //    full 20s budget per host.
+                //  • partial cookies (some, no clearance) → keep waiting; the
+                //    20s watchdog still captures whatever exists at timeout.
+                // Self-cancels as soon as the latch releases.
+                val cookieProbe = object : Runnable {
+                    override fun run() {
+                        if (latch.count == 0L) return // solved or already failed
+                        val raw = runCatching { cookieManager.getCookie(cookieUrl) }.getOrNull()
+                        when {
+                            raw != null && raw.contains("cf_clearance") -> {
+                                result = parseCookieMap(raw)
+                                android.util.Log.i(
+                                    TAG,
+                                    "cf: early clearance on ${url.host} " +
+                                        "(+${System.currentTimeMillis() - startedAt}ms) — done",
+                                )
+                                latch.countDown()
+                            }
+                            raw == null && firstPageFinishAt > 0 &&
+                                System.currentTimeMillis() - firstPageFinishAt >= ZERO_COOKIE_GRACE_MS -> {
+                                android.util.Log.w(
+                                    TAG,
+                                    "cf: ZERO cookies ${ZERO_COOKIE_GRACE_MS}ms after page finish " +
+                                        "on ${url.host} — headless solve impossible (interactive " +
+                                        "challenge?), failing fast",
+                                )
+                                latch.countDown() // result stays null → CloudflareBlockedException
+                            }
+                            else -> mainHandler.postDelayed(this, COOKIE_POLL_MS)
+                        }
+                    }
+                }
 
                 webView = WebView(context).apply {
                     settings.javaScriptEnabled = true
@@ -358,12 +426,17 @@ class CloudflareKiller : Interceptor {
                                 TAG,
                                 "cf: WebView page finished ($finishedUrl) cookies=${raw != null}",
                             )
+                            if (firstPageFinishAt <= 0L) {
+                                firstPageFinishAt = System.currentTimeMillis()
+                            }
                             if (raw != null && raw.contains("cf_clearance")) {
                                 result = parseCookieMap(raw)
                                 latch.countDown()
                             }
                             // Without cf_clearance we keep waiting — the challenge
-                            // may redirect once more before it lands.
+                            // may redirect once more before it lands, and the cookie
+                            // probe / fast-fail / watchdog ends the wait early when
+                            // the evidence says waiting is pointless.
                         }
 
                         override fun onReceivedError(
@@ -384,6 +457,7 @@ class CloudflareKiller : Interceptor {
 
                 android.util.Log.i(TAG, "cf: WebView loading $cookieUrl (ua=${USER_AGENT.take(40)}…)")
                 webView?.loadUrl(cookieUrl)
+                mainHandler.postDelayed(cookieProbe, COOKIE_POLL_MS)
 
                 // Watchdog: capture whatever cookies exist at timeout (partial
                 // sets sometimes unblock the replay) and release the latch.

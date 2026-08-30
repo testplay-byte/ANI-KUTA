@@ -157,28 +157,19 @@ data class SpanPart(val start: Long, val endInclusive: Long, val cached: Boolean
 /**
  * Parses MPV-format header strings ("Key: Value,Key2: Value2") into pairs.
  *
- * Modeled on :core:download's DownloadHeaderParser (which is private to that
- * module): a regex per entry so commas INSIDE values (e.g. the UA string's
- * "(KHTML, like Gecko)") don't split an entry into garbage. A naive split(',')
- * would swallow Referer/Origin into the User-Agent (D-207 lesson class).
+ * Task 48.1 (device round 8 — the 428 fix): delegates to the CANONICAL
+ * gluing parser in :core:network (`MpvHeaderFields.parse`, the algorithm
+ * shared with :core:download's DownloadHeaderParser). The previous local
+ * implementation split on ',' and DROPPED non-`Name:`-shaped fragments —
+ * every User-Agent containing `(KHTML, like Gecko)` was truncated at
+ * `(KHTML`, and every upstream request this proxy made (learn/serve/fill)
+ * sent the mangled UA (the CDN's `428 Precondition Required`). Comma
+ * continuation fragments are now glued back onto their entry's value.
  */
 object MpvHeaderParser {
 
-    private val entryRegex = Regex("^[A-Za-z][A-Za-z0-9-]*:")
-
-    fun parse(headers: String?): List<Pair<String, String>> {
-        if (headers.isNullOrBlank()) return emptyList()
-        return headers.split(',')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && entryRegex.containsMatchIn(it) }
-            .mapNotNull { entry ->
-                val idx = entry.indexOf(':')
-                if (idx <= 0) return@mapNotNull null
-                val key = entry.substring(0, idx).trim()
-                val value = entry.substring(idx + 1).trim()
-                if (key.isEmpty() || value.isEmpty()) null else key to value
-            }
-    }
+    fun parse(headers: String?): List<Pair<String, String>> =
+        com.confused.anikuta.core.network.MpvHeaderFields.parse(headers)
 }
 
 /**

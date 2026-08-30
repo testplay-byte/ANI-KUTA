@@ -4,10 +4,13 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The NEW SAF-based storage system per `04-storage-paths.md`.
@@ -575,28 +578,89 @@ class DownloadStorageProvider(
      * Atomicity: writes to a temp file in `context.cacheDir` first, then
      * copies to the SAF target. The SAF provider either has the old
      * `.data.json` or the new one — never a half-written one.
+     *
+     * Task 48.1 (device round 8 — 7 corrupted .data.json files): two hardening
+     * layers added, both driven by the round-8 scan log (every corrupted file
+     * = a COMPLETE valid JSON object followed by stale bytes from the previous
+     * LONGER write):
+     *  1. **Truncation** — SAF's `openOutputStream(uri, "w")` does NOT
+     *     truncate on many DocumentsProviders (Google issue 146330523); a
+     *     shorter new JSON left the old file's tail appended after the closing
+     *     brace. The copy now opens with `"rwt"` (read-write+truncate) and
+     *     falls back to delete-then-create if a provider rejects the mode.
+     *  2. **Serialization** — the read-modify-write cycles here had no mutex;
+     *     two concurrent downloads of the same anime could interleave
+     *     read→write windows and lose an episode entry (DownloadScanner.kt
+     *     already documents "interleaved runs clobber"). A per-folder mutex
+     *     now serializes every `.data.json` mutation.
      */
     private suspend fun writeDataJsonRaw(
         data: ContentDataJson,
         folder: DocumentFile,
         index: Map<String, DocumentFile>,
     ) = withContext(Dispatchers.IO) {
-        val jsonText = ContentDataJson.stringify(data)
-        val tempFile = File.createTempFile("data", ".json", context.cacheDir)
-        try {
-            tempFile.writeText(jsonText)
-            val target = index[".data.json"]
-                ?: folder.createFile("application/json", ".data.json")
-                ?: throw DownloadException("Failed to create data.json in ${folder.name}")
-            DownloadLogger.i {
-                "writeDataJsonRaw — writing ${jsonText.length} chars " +
-                    "(${tempFile.length()} bytes) to uri=${target.uri}, " +
-                    "folder.name='${folder.name}', episodes=${data.episodes.size}"
+        folderWriteMutex(folder).withLock {
+            val jsonText = ContentDataJson.stringify(data)
+            val tempFile = File.createTempFile("data", ".json", context.cacheDir)
+            try {
+                tempFile.writeText(jsonText)
+                val target = index[".data.json"]
+                    ?: folder.createFile("application/json", ".data.json")
+                    ?: throw DownloadException("Failed to create data.json in ${folder.name}")
+                DownloadLogger.i {
+                    "writeDataJsonRaw — writing ${jsonText.length} chars " +
+                        "(${tempFile.length()} bytes) to uri=${target.uri}, " +
+                        "folder.name='${folder.name}', episodes=${data.episodes.size}"
+                }
+                copyFileTruncating(tempFile, target)
+                DownloadLogger.i { "writeDataJsonRaw — copyFile completed" }
+            } finally {
+                tempFile.delete()
             }
-            copyFile(tempFile, target.uri)
-            DownloadLogger.i { "writeDataJsonRaw — copyFile completed" }
-        } finally {
-            tempFile.delete()
+        }
+    }
+
+    /**
+     * Task 48.1: per-folder `.data.json` mutation lock. Parallel downloads of
+     * two episodes of the SAME anime both read-modify-write one file — without
+     * this lock the interleaved windows drop one episode's entry.
+     */
+    private val dataJsonMutexes = ConcurrentHashMap<Uri, Mutex>()
+
+    private fun folderWriteMutex(folder: DocumentFile): Mutex =
+        dataJsonMutexes.getOrPut(folder.uri) { Mutex() }
+
+    /**
+     * Task 48.1: SAF-overwriting copy that GUARANTEES truncation.
+     *
+     * `openOutputStream(uri, "w")` leaves the previous (longer) content's tail
+     * in place on many DocumentsProviders — the exact signature of all 7
+     * round-8 corrupted `.data.json` files (valid JSON + stale tail). "rwt"
+     * (read-write+truncate) is the documented truncating mode; if a provider
+     * throws on it, fall back to delete-then-create (fresh file, no tail).
+     */
+    private fun copyFileTruncating(source: File, target: DocumentFile) {
+        val resolver = context.contentResolver
+        val opened = runCatching { resolver.openOutputStream(target.uri, "rwt") }
+            .getOrElse {
+                DownloadLogger.w {
+                    "copyFileTruncating — 'rwt' rejected (${it.message}); " +
+                        "falling back to delete-then-create for ${target.uri}"
+                }
+                null
+            } ?: run {
+                // Fallback: delete + recreate the target so no stale tail survives.
+                val name = target.name ?: ".data.json"
+                val parent = target.parentFile
+                    ?: throw DownloadException("Failed to open output stream for ${target.uri} (no parent)")
+                target.delete()
+                val recreated = parent.createFile("application/json", name)
+                    ?: throw DownloadException("Failed to recreate $name after rwt rejection")
+                resolver.openOutputStream(recreated.uri, "w")
+                    ?: throw DownloadException("Failed to open output stream for ${recreated.uri}")
+            }
+        opened.use { out ->
+            source.inputStream().use { it.copyTo(out) }
         }
     }
 
@@ -748,7 +812,7 @@ class DownloadStorageProvider(
         }
     }
 
-    /** Copies a regular [File] to a SAF [uri] via ContentResolver. */
+    /** Copies a regular [File] to a SAF [uri] via ContentResolver (non-truncating "w" — only for FRESH targets). */
     private fun copyFile(source: File, target: Uri) {
         context.contentResolver.openOutputStream(target, "w")?.use { out ->
             source.inputStream().use { it.copyTo(out) }

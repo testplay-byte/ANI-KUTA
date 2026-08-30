@@ -11,4 +11,7 @@ dependencies {
     implementation(libs.okhttp.logging.interceptor)
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)  // D.0.4 — for org.koin.core.qualifier.named (the DOWNLOAD qualifier)
+
+    // Unit tests (Task 48.1): MpvHeaderFields parse/escape locks.
+    testImplementation(libs.junit)
 }

@@ -163,16 +163,12 @@ class SubtitleEngine(
         // Build the request with headers.
         val requestBuilder = Request.Builder().url(url)
         if (request.headers.isNotBlank()) {
-            // Parse "Key: Value,Key2: Value2" format and add as headers.
-            for (headerPair in request.headers.split(",")) {
-                val colonIdx = headerPair.indexOf(":")
-                if (colonIdx > 0) {
-                    val name = headerPair.substring(0, colonIdx).trim()
-                    val value = headerPair.substring(colonIdx + 1).trim()
-                    if (name.isNotEmpty() && value.isNotEmpty()) {
-                        requestBuilder.addHeader(name, value)
-                    }
-                }
+            // Task 48.1: use the canonical comma-SMART parser — the previous
+            // naive split(",") truncated every header value containing a comma
+            // (every real User-Agent: "…(KHTML, like Gecko) Chrome/…" → cut at
+            // "(KHTML"), so subtitle hosts requiring a full browser UA 403'd.
+            for ((name, value) in com.confused.anikuta.core.network.MpvHeaderFields.parse(request.headers)) {
+                requestBuilder.addHeader(name, value)
             }
         }
         // Always add a User-Agent if not already set.

@@ -174,6 +174,26 @@ class CloudstreamPluginManager(
             // Main-dispatcher scope, so it executes atomically wrt every other
             // main-thread coroutine — the mutex would add delay, not safety.
             loadAll()
+
+            // Task 48.1 (device round 8 — MovieBox dead after a crash): when the
+            // app restarts INTO ErrorActivity (the crash handler's screen), no
+            // activity registers with CommonActivity (only MainActivity does),
+            // so the initial load ran with the APP context and every
+            // AppCompatActivity-casting plugin (MovieBoxProvider & friends)
+            // errored for the WHOLE session — even after the user reopened
+            // MainActivity. Self-heal: the moment a real activity appears, load
+            // everything again (the loader is idempotent — successes are
+            // re-reported from the live registry, failures get a real retry).
+            if (activity == null) {
+                scope.launch {
+                    val late = CommonActivity.activityFlow.first { it != null }
+                    Logger.i(TAG) {
+                        "Activity arrived late (${late.javaClass.simpleName}) after app-context load — " +
+                            "reloading plugins (activity-dependent self-heal)"
+                    }
+                    loadAll()
+                }
+            }
         }
         scope.launch {
             repoRepository.repos.collect {

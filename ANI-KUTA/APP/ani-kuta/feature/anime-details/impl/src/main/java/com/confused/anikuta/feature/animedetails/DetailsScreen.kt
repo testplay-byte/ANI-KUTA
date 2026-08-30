@@ -2772,6 +2772,22 @@ private fun EpisodeGroupSwitcher(
  * Provider-only values fill the gaps; the per-episode scanlator comes from the
  * extension episode (falling back to the current episode's, as before).
  *
+ * Task 48.1 (device round 8 — "no description / thumbnails / synopsis on the
+ * player page"): previously iterated `metadata.entries` ONLY — the AniZip/
+ * Jikan map, which is EMPTY for extension/CloudStream content (its fetch is
+ * gated on `currentAnimeId > 0`, and extension content has id 0). The watch
+ * page then starved: no "Currently playing" description, no episode-list
+ * thumbnails or synopses — even though the CS bridge populates
+ * SEpisode.summary/preview_url for every episode. Now iterates the UNION of
+ * the extension's episode numbers ∪ the metadata keys (extension values win),
+ * so the watch page lights up on the FIRST open.
+ *
+ * Robustness for the line-oriented wire format (WatchKey.parseEpisodeMetadata
+ * splits on '\n' with limit=6): every text field is newline-sanitized (\n/\r
+ * → space) and the description is capped (500+ episode shows × long synopses
+ * would balloon WatchKey through the Nav3 backstack → restore Bundle →
+ * TransactionTooLargeException).
+ *
  * Format per line: "epNum\u001Ftitle\u001FthumbnailUrl\u001FairDateMillis\u001Fdescription\u001Fscanlator".
  */
 private fun buildEpisodeMetadataSerialized(
@@ -2781,13 +2797,23 @@ private fun buildEpisodeMetadataSerialized(
 ): String {
     val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
     val byNumber = episodes.associateBy { it.episode_number.toInt() }
-    return metadata.entries.joinToString("\n") { (epNum, meta) ->
+    // Task 48.1: union of extension episode numbers ∪ provider metadata keys,
+    // sorted for a stable, human-readable wire order.
+    val allNumbers = buildSortedSet {
+        byNumber.keys.forEach { add(it) }
+        metadata.keys.forEach { add(it) }
+    }
+    fun sanitize(text: String?): String =
+        text?.replace('\n', ' ')?.replace('\r', ' ')?.trim() ?: ""
+    return allNumbers.joinToString("\n") { epNum ->
         val ext = byNumber[epNum]
-        val title = ext?.let { EpisodeDisplayResolver.extensionTitle(it) } ?: meta.title ?: ""
-        val thumb = ext?.preview_url?.takeIf { it.isNotBlank() } ?: meta.thumbnailUrl ?: ""
-        val date = meta.airDate?.toString() ?: "0"
-        val desc = ext?.summary?.takeIf { it.isNotBlank() } ?: meta.description ?: ""
-        val scanlator = ext?.scanlator ?: currentScanlator ?: ""
+        val meta = metadata[epNum]
+        val title = sanitize(ext?.let { EpisodeDisplayResolver.extensionTitle(it) } ?: meta?.title)
+        val thumb = ext?.preview_url?.takeIf { it.isNotBlank() } ?: meta?.thumbnailUrl ?: ""
+        val date = meta?.airDate?.toString() ?: "0"
+        val desc = sanitize(ext?.summary?.takeIf { it.isNotBlank() } ?: meta?.description)
+            .take(400) // WatchKey size safety (see KDoc)
+        val scanlator = sanitize(ext?.scanlator ?: currentScanlator)
         "$epNum${delim}$title${delim}$thumb${delim}$date${delim}$desc${delim}$scanlator"
     }
 }

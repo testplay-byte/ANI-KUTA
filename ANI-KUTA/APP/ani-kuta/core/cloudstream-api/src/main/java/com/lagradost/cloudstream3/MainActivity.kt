@@ -10,6 +10,7 @@
 package com.lagradost.cloudstream3
 
 import com.lagradost.cloudstream3.network.CloudflareKiller
+import com.lagradost.cloudstream3.network.CsInterceptorSafetyNet
 import com.lagradost.cloudstream3.network.CsNetLoggingInterceptor
 import com.lagradost.cloudstream3.utils.AppUtils
 import com.lagradost.nicehttp.Requests
@@ -42,8 +43,14 @@ private val jsonResponseParser = object : ResponseParser {
  * when a response is an actual challenge page; everything else passes through
  * untouched. `insecureApp` derives its SSL-ignoring client from this same base
  * so the bypass applies there too.
+ *
+ * Task 48.1 (round 8): the safety net is added FIRST = OUTERMOST, so it wraps
+ * every other interceptor — no interceptor-thrown Throwable can escape an
+ * async call and kill the process (see CsInterceptorSafetyNet's header for the
+ * round-8 FATAL EXCEPTION this prevents).
  */
 private val pluginHttpClient = okhttp3.OkHttpClient.Builder()
+    .addInterceptor(CsInterceptorSafetyNet()) // outermost — wraps ALL interceptor failures
     .addInterceptor(CsNetLoggingInterceptor()) // Task 45: http:/body: diagnostic lines
     .addInterceptor(CloudflareKiller())
     .build()

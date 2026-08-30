@@ -283,9 +283,14 @@ class PlayerObserver(
             lowerText.contains("mbedtls") || lowerText.contains("tls:") || lowerText.contains("ssl") -> {
                 stateHolder.setHttpError("[$prefix] $text")
             }
-            // HTTP status errors (source-side — server returned an error)
+            // HTTP status errors (source-side — server returned an error).
+            // Task 48.1: 428 (Precondition Required — MovieBox-family CDNs
+            // rejecting a stale sign/t or mangled UA) + 429 (rate limit) added —
+            // the recovery ladder keys off these to skip the pointless same-URL
+            // retry and re-resolve a fresh link instead.
             lowerText.contains("http error") || lowerText.contains("403") ||
-                lowerText.contains("404") || lowerText.contains("500") -> {
+                lowerText.contains("404") || lowerText.contains("500") ||
+                lowerText.contains("428") || lowerText.contains("429") -> {
                 stateHolder.setHttpError("[$prefix] $text")
             }
             // Connection errors (network-side)

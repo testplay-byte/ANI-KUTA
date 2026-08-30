@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.network.MpvHeaderFields
 import com.confused.anikuta.core.player.AnikutaMPVView
 import com.confused.anikuta.core.player.PendingExternalTrack
 import com.confused.anikuta.core.player.PlayerInitializer
@@ -721,7 +722,10 @@ fun WatchScreen(
                                         bypassCacheNextRetry = false
                                         val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                                             else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                                        MPVLib.setOptionString("http-header-fields", headers)
+                                        // Task 48.1: escape ONLY at the mpv argument — cachedUrl() and the
+                                        // cache descriptor keep the RAW csv (the proxy's parser glues
+                                        // commas itself; double-escaping would corrupt both paths).
+                                        MPVLib.setOptionString("http-header-fields", MpvHeaderFields.escapeForMpv(headers))
                                         MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
                                         Logger.i(TAG) {
                                             "Ladder: swapped to '$srv/$audio/${video.quality}' " +
@@ -764,9 +768,15 @@ fun WatchScreen(
 
         // An error whose HTTP context already says the link is dead → skip the
         // pointless same-URL retry and go straight to re-resolving.
+        // Task 48.1 (round 8): 428 added — "Precondition Required" from
+        // sign/token-gated CDNs (the MovieBox 428 report: the proxy's upstream
+        // AND mpv's direct retry both got 428 — the same-URL retry can never
+        // fix a stale sign; a re-resolve mints a fresh one). 429 = rate limit —
+        // the pinned link stays dead for a while; next mirror is the answer.
         val httpCtx = (stateHolder.httpError ?: "").lowercase()
         val looksExpired = httpCtx.contains("403") || httpCtx.contains("401") ||
-            httpCtx.contains("410") || errorMsg.lowercase().contains("403")
+            httpCtx.contains("410") || httpCtx.contains("428") || httpCtx.contains("429") ||
+            errorMsg.lowercase().contains("403")
 
         when (ladderStep) {
             0 -> {
@@ -784,7 +794,8 @@ fun WatchScreen(
                     try {
                         val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                             else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                        MPVLib.setOptionString("http-header-fields", headers)
+                        // Task 48.1: escape ONLY at the mpv argument (raw csv everywhere else).
+                        MPVLib.setOptionString("http-header-fields", MpvHeaderFields.escapeForMpv(headers))
                         // D-247 cache-failure fallback: if this playback went through
                         // the cache, the FIRST retry bypasses it entirely (direct
                         // network) — the episode must never fail because of the cache
@@ -946,7 +957,11 @@ fun WatchScreen(
                     if (!isContentUri) {
                         val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                             else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                        MPVLib.setOptionString("http-header-fields", headers)
+                        // Task 48.1: escape ONLY at the mpv argument — mpv splits
+                        // http-header-fields on ',' (backslash escapes only; verified
+                        // against mpv m_option.c), so a comma-bearing UA must be
+                        // escaped or it arrives truncated (the round-8 428).
+                        MPVLib.setOptionString("http-header-fields", MpvHeaderFields.escapeForMpv(headers))
                         Logger.i(TAG) { "=== MPV LOADFILE (${if (isLocalhost) "localhost proxy" else "network"}) ===" }
                         Logger.i(TAG) { "URL: $loadUrl" }
                         Logger.i(TAG) { "Headers: $headers" }
@@ -1095,7 +1110,8 @@ fun WatchScreen(
         try {
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-            MPVLib.setOptionString("http-header-fields", headers)
+            // Task 48.1: escape ONLY at the mpv argument (raw csv everywhere else).
+            MPVLib.setOptionString("http-header-fields", MpvHeaderFields.escapeForMpv(headers))
             // D-247: after a cache-failure we keep retrying DIRECT until a successful
             // load re-arms the cache (bypassCacheNextRetry resets on READY).
             if (bypassCacheNextRetry) {
@@ -1157,7 +1173,8 @@ fun WatchScreen(
             // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
             val headers = if (currentVideoHeaders.isNotBlank()) currentVideoHeaders
                 else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-            MPVLib.setOptionString("http-header-fields", headers)
+            // Task 48.1: escape ONLY at the mpv argument (raw csv everywhere else).
+            MPVLib.setOptionString("http-header-fields", MpvHeaderFields.escapeForMpv(headers))
             MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
         } catch (e: Exception) {
             Logger.e(TAG, e) { "Failed to switch quality" }
@@ -1408,7 +1425,8 @@ fun WatchScreen(
                                     // D-199: Always set headers (even for localhost proxy — see initial loadfile comment).
                                     val headers = if (video.headers.isNotBlank()) video.headers
                                         else "User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-                                    MPVLib.setOptionString("http-header-fields", headers)
+                                    // Task 48.1: escape ONLY at the mpv argument (raw csv everywhere else).
+                                    MPVLib.setOptionString("http-header-fields", MpvHeaderFields.escapeForMpv(headers))
                                     MPVLib.command(arrayOf("loadfile", cachedUrl(video.url, headers), "replace"))
                                     Logger.i(TAG) { "Episode switch — loadfile sent for ${video.url.take(80)}" }
                                 } else {

@@ -379,7 +379,17 @@ class AnikutaMPVView(
 
         // Set HTTP headers if provided (for extension proxy URLs)
         if (headers.isNotEmpty()) {
-            val headerStr = headers.entries.joinToString(",") { "${it.key}: ${it.value}" }
+            // Task 48.1: escape per-entry — mpv splits http-header-fields on ','
+            // and only honors backslash escapes (verified against mpv m_option.c),
+            // so comma-bearing values (every real User-Agent) must be escaped.
+            // (Effectively dead code — WatchScreen drives all loadfiles — but
+            // kept correct for any future caller.)
+            val headerStr = headers.entries
+                .joinToString(",") { (k, v) ->
+                    val ek = k.replace("\\", "\\\\").replace(",", "\\,")
+                    val ev = v.replace("\\", "\\\\").replace(",", "\\,")
+                    "$ek: $ev"
+                }
             MPVLib.setPropertyString("http-header-fields", headerStr)
         }
 

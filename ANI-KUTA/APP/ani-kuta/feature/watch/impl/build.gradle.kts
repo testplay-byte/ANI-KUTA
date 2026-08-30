@@ -20,6 +20,7 @@ dependencies {
     implementation(project(":core:ratings"))  // Phase 4: per-episode rating UI
     implementation(project(":core:download"))
     implementation(project(":core:playback-cache"))  // Video caching (test-feature branch)
+    implementation(project(":core:network"))  // Task 48.1: MpvHeaderFields (mpv-safe header escaping)
     implementation(project(":core:activity-tracker"))  // D-192: activity tracking
     implementation(project(":data:extension"))
     implementation(project(":core:source-api"))
