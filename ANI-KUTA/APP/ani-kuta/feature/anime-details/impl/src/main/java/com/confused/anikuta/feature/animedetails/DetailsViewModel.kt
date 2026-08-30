@@ -3506,6 +3506,20 @@ class DetailsViewModel(
             return
         }
 
+        // CloudStream V2 (R11-REVIEW F1): the honest playback boundary. Video
+        // resolution is deliberately NOT wired for bridged CS sources on this
+        // branch — routing through the classic resolver would swallow the
+        // bridge's descriptive ISE into a generic "No videos available"
+        // (main's VideoResolver catches every Throwable from getVideoList).
+        // Short-circuit HERE so the resolver sheet renders the real message.
+        if (source.isCloudStreamBridged) {
+            Logger.i(TAG) { "CS playback boundary: episode tap for ${source.name} — details/episodes available, playback arrives with the playback port" }
+            _resolverState.value = ResolverState.Error(
+                "CloudStream playback arrives with the playback port — episodes and details are available now",
+            )
+            return
+        }
+
         _resolverState.value = ResolverState.Loading
         viewModelScope.launch {
             try {

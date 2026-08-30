@@ -426,12 +426,12 @@ class CloudstreamPluginManager(
             _installStates.value = _installStates.value + (internalName to InstallStep.Pending)
             try {
                 installQueueMutex.withLock {
-                    // Re-check after dequeuing: a duplicate may have enqueued
-                    // while this one waited (belt-and-braces; the double-tap
-                    // guard above already prevents the common case).
-                    if (!isInstallActive(_installStates.value[internalName]) ||
-                        _installStates.value[internalName] == InstallStep.Pending
-                    ) {
+                    // Re-check after dequeuing: only run when this row is
+                    // still PENDING (queued) or stateless — a terminal state
+                    // (Installed/Error in the completion-beat window) means a
+                    // stale duplicate already finished and must not re-run.
+                    val currentStep = _installStates.value[internalName]
+                    if (currentStep == null || currentStep == InstallStep.Pending) {
                         val target = CloudstreamPluginInstaller.pluginPath(context.filesDir, internalName, extension.repoUrl)
                         installer.download(plugin.url, plugin.fileHash, target).collect { step ->
                             _installStates.value = _installStates.value + (internalName to step)

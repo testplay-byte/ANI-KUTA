@@ -2527,3 +2527,37 @@ User gate opened: "After doing it I would like you to directly merge this branch
 - **Files:** AndroidConfig.kt + memory docs.
 - **Status:** ✅ Implemented; tag v0.2.63 + release after CI green.
 - **Date:** 2026-08-29.
+
+### D-369 — Task 51 (round 11): the CloudStream V2 rebuild — branch, scope, and the separation doctrine
+
+The user scrapped the `streaming/CLOUDSTREAM` work line after round 10 ("This is going to be your last attempt" → "we are going to scrape this current branch… create a new branch from the main branch… implement this whole cloud stream functionality again properly"). **V2 = branch `streaming/CLOUDSTREAM-V2`** (forked from main 1962faff, v0.2.63; the old branch kept read-only as reference). Scope per directive: plugin system + repositories + dedicated CS settings section (trusted/untrusted/available + detail pages + trust/untrust + SEQUENTIAL multi-download) + search page (categories + memory + caching) + details page + episodes/seasons. **NO playback** (explicitly excluded until its own port); the aniyomi system untouched save 7 additive seams. Doctrine: the two ecosystems are SEPARATE BY CONSTRUCTION — they meet only in the source-registry merge + the isCloudStreamBridged marker; proven modules ported verbatim (the clean-room ABI, loader/manager/installer/repos/UI), integration seams rebuilt cleanly. Version line 0.3.x (0.3.0/code 64). Phased delivery A→J with CI-green gates per phase (8 builds, all green at doc time).
+- **Files:** DOCUMENTATION/cloudstream-v2/00-PLAN.md + 01-ARCHITECTURE.md (the full plan + what shipped).
+- **Status:** ✅ Implemented (Task 51).
+- **Date:** 2026-08-30.
+
+### D-370 — Task 51: the sequential install queue (a V2 divergence from the reference, user-mandated)
+
+The reference ran CloudStream plugin downloads in PARALLEL (each tap raced the network); the user's round-11 requirement is explicit: "multiple download functionality tools where I can download multiple at a time and they will get downloaded one by one at a time." V2 wraps the WHOLE install (download → sha256 verify → atomic move → record → load) in a dedicated `installQueueMutex` — N taps enqueue instantly (each row shows its own Pending state via the shared installStates map), exactly ONE install runs at a time, FIFO by tap order. Deliberately separate from `installMutex` (the store/loader mutation lock) so a long download never blocks trust/untrust/refresh. The double-tap guard (isInstallActive) covers queued rows; a belt-and-braces re-check runs after dequeue.
+- **Files:** CloudstreamPluginManager.kt (installQueueMutex + installPlugin body).
+- **Status:** ✅ Implemented (Task 51).
+- **Date:** 2026-08-30.
+
+### D-371 — Task 51: the honest playback boundary (details/episodes now, playback later)
+
+The V2 bridge is stripped to details/episodes scope (929 → 501 lines): getVideoList throws "CloudStream playback arrives with the playback port — episodes and details are available now." The classic resolver contract is kept intact — getHosterList throws the fast-fallback ISE → getVideoList throws the descriptive not-yet → the resolver sheet renders the message verbatim. Rationale: a clear "not yet" beats a dead affordance or a half-broken player (the round-10 lesson: half-wired playback mixed the two ecosystems' semantics). The playback port (loadLinks + extractors + watch page + CS downloads) is its own future phase; every entry point is marked.
+- **Files:** CloudstreamAnimeSourceBridge.kt.
+- **Status:** ✅ Implemented (Task 51).
+- **Date:** 2026-08-30.
+
+### D-372 — Task 51: the R11-B "BrowseCache L102 corruption" was a terminal display artifact — byte-level verification discipline
+
+The round-11 research agent reported that `CloudstreamBrowseCache.kt:102` contained a corrupted expression (`memoryemKey(providerName)]`) making the reference tip non-compilable. Byte-level verification during the port proved the file was ALWAYS correct (`memory[memKey(providerName)]` — the exact byte sequence present, no corruption found): the `[m` in `[memKey` was being consumed as an ANSI escape by the TERMINAL DISPLAY layer when file contents passed through bash/grep output, making the rendered line LOOK corrupted. The reference's green CI runs corroborate. **Lesson (logged in lessons-learned):** never trust a "corrupted source" claim derived from terminal-rendered file contents — verify with byte-level checks (Python `bytes in data`) before planning a fix around it.
+- **Status:** ✅ Verified (no fix needed — the artifact is now documented).
+- **Date:** 2026-08-30.
+
+### D-373 — Task 51 (R11-REVIEW): two inherited reference bugs caught pre-release — the id-bit classifier + the swallowed boundary
+
+The adversarial review before the v0.3.0 tag found two real bugs inherited from the reference branch (both high-severity, both previously undetected): **(F2) THE BIT-62 COLLISION** — `CsSourceIds.isCloudstreamId(id)` was used as a CLASSIFIER for arbitrary source ids in the SearchViewModel's trustedSources filter, but aniyomi's MD5 ids clear only the SIGN bit (bit 63) — bit 62 stays random, so ~50% of real aniyomi sources (AnimePahe, Aniwatch, Zoro, Gogoanime, Crunchyroll all verified) classified as "CloudStream" and were HIDDEN from the picker + had their persisted selection stolen on every cold start. This bug shipped through five device rounds on the reference without detection (luck of the installed set). Fix: classify by the ECOSYSTEM MARKER (`isCloudStreamBridged` — added in Phase C precisely for this), never the id bit; `CsSourceIds` remains the id MINTER (collision-proof for lookups) but not a classifier. **(F1) THE SWALLOWED BOUNDARY** — main's VideoResolver catches every Throwable from getVideoList into a generic "No videos available", so the bridge's honest playback-boundary ISE never reached the resolver sheet (the plan's device-checklist item would have failed). Fix: DetailsViewModel.resolveEpisode short-circuits bridged sources with the boundary message BEFORE entering the resolver (additive branch; the aniyomi path untouched). Also (F3, cosmetic): the install-queue re-check tightened to `null || Pending` so a stale duplicate in the completion-beat window can't re-run a finished install.
+- **Files:** SearchViewModel.kt (marker filter), DetailsViewModel.kt (boundary short-circuit), CloudstreamPluginManager.kt (re-check).
+- **Status:** ✅ Implemented (Task 51, pre-release review).
+- **Date:** 2026-08-30.

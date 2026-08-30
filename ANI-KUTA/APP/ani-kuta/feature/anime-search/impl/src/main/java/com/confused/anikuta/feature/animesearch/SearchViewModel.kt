@@ -175,7 +175,12 @@ class SearchViewModel(
     val trustedSources: StateFlow<List<AnimeCatalogueSource>> =
         extensionManager.sources.map { sourceMap ->
             sourceMap.values.filterIsInstance<AnimeCatalogueSource>()
-                .filterNot { com.confused.anikuta.data.cloudstream.content.CsSourceIds.isCloudstreamId(it.id) }
+                // R11-REVIEW F2: classify by the ECOSYSTEM MARKER, never the id
+                // bit — aniyomi's MD5 ids clear only the sign bit, so bit 62 is
+                // random (~50% of real aniyomi sources set it) and the old
+                // isCloudstreamId() predicate silently hid them from the picker
+                // AND stole their persisted selection on every cold start.
+                .filterNot { (it as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.isCloudStreamBridged == true }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
