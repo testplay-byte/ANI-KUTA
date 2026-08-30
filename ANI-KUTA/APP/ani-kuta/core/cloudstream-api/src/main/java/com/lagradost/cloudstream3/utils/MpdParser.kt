@@ -51,7 +51,11 @@ object MpdParser {
      * a broken manifest must never abort resolution of the OTHER links.
      */
     fun parse(manifestXml: String, manifestUrl: String): MpdInfo {
-        val document = runCatching { newHardenedFactory().parse(manifestXml.byteInputStream()) }
+        val document = runCatching {
+            // DocumentBuilderFactory → DocumentBuilder → parse (the factory
+            // itself has no parse — common slip, caught by CI round 1).
+            newHardenedFactory().newDocumentBuilder().parse(manifestXml.byteInputStream())
+        }
             .getOrElse { return MpdInfo(dynamic = false, videoReps = emptyList(), audioReps = emptyList()) }
         return parseDocument(document, manifestUrl)
     }
