@@ -77,6 +77,9 @@ private data class NamespaceFilter(val label: String, val prefix: String?)
 
 private val NamespaceFilters = listOf(
     NamespaceFilter("All", null),
+    // Task 52 (round 12): the whole CS playback pipeline (Resolver + Player +
+    // Subs + Watch) — matches the one-filter logcat recipe in doc cloudstream-v2/02.
+    NamespaceFilter("CS Playback", "Anikuta:CS:"),
     NamespaceFilter("Cloudstream", "Anikuta:Data:Cloudstream"),
     NamespaceFilter("Resolver", "Anikuta:Core:VideoResolver"),
     NamespaceFilter("Player", "Anikuta:Core:Player"),

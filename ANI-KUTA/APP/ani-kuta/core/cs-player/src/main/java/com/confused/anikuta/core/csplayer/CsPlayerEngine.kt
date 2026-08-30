@@ -111,6 +111,10 @@ class CsPlayerEngine(
 ) {
     companion object {
         internal const val TAG = "Anikuta:CS:Player"
+
+        /** Subtitle-specific events get their own tag — the one-filter recipe
+         *  (doc cloudstream-v2/02) covers the whole pipeline via Anikuta:CS:*. */
+        internal const val SUBS_TAG = "Anikuta:CS:Subs"
     }
 
     private val dataSourceFactory = CsHttpDataSourceFactory(baseClient, defaultUserAgent)
@@ -219,6 +223,10 @@ class CsPlayerEngine(
 
         // Sidecar subtitles — each with its OWN DataSource (per-sub headers),
         // exactly like upstream getSubSources (research R12-A §6).
+        Logger.i(SUBS_TAG) {
+            "attaching ${subtitles.size} sidecar subtitle(s): " +
+                subtitles.joinToString { "${it.name}(${it.mimeType.substringAfterLast('/')})" }
+        }
         val subSources: List<MediaSource> = subtitles.mapNotNull { sub ->
             runCatching {
                 val config: SubtitleConfiguration = SubtitleConfiguration.Builder(Uri.parse(sub.url))
@@ -231,7 +239,7 @@ class CsPlayerEngine(
                 SingleSampleMediaSource.Factory(dataSourceFactory.forSubtitle(sub))
                     .createMediaSource(config, C.TIME_UNSET)
             }.onFailure {
-                Logger.w(TAG, it) { "subtitle source dropped: ${sub.name} (${sub.url.take(64)})" }
+                Logger.w(SUBS_TAG, it) { "subtitle source dropped: ${sub.name} (${sub.url.take(64)})" }
             }.getOrNull()
         }
 
@@ -364,7 +372,7 @@ class CsPlayerEngine(
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                 .build()
-            Logger.i(TAG) { "subtitles OFF" }
+            Logger.i(SUBS_TAG) { "subtitles OFF" }
             return
         }
         val group = player.currentTracks.groups.getOrNull(track.groupIndex) ?: return
@@ -372,7 +380,7 @@ class CsPlayerEngine(
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
             .build()
-        Logger.i(TAG) { "subtitle selected: ${track.name} (embedded=${track.embedded})" }
+        Logger.i(SUBS_TAG) { "subtitle selected: ${track.name} (embedded=${track.embedded})" }
     }
 
     /** The id of the currently selected text track (for the sheet's highlight), or null when OFF. */
@@ -426,16 +434,15 @@ class CsPlayerEngine(
             PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
             -> CsPlaybackError.Kind.NETWORK
 
-            PlaybackException.ERROR_CODE_PARSING_CONTAINER_FAILED,
-            PlaybackException.ERROR_CODE_PARSING_MANIFEST_FAILED,
             PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
             PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED,
             -> CsPlaybackError.Kind.PARSING
 
             PlaybackException.ERROR_CODE_DECODING_FAILED,
             PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
             PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-            PlaybackException.ERROR_CODE_DECODING_INIT_FAILED,
             -> CsPlaybackError.Kind.DECODING
 
             PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED,
