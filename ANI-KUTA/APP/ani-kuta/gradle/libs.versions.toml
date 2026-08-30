@@ -56,6 +56,14 @@ sqldelight = "2.0.2"
 # Using 4.x causes binary compat errors: "No virtual method maxAge-LRDsOJo(J)...".
 okhttp = "5.0.0-alpha.14"
 
+# Media3 ExoPlayer — the CloudStream V2 playback engine (task 52 / round 12,
+# doc cloudstream-v2/02-PLAYBACK-PLAN.md). Pinned to 1.9.3 = upstream
+# CloudStream's own pin (proven against the same ExtractorLink models our ABI
+# mirrors); compileSdk 36 + minSdk 24 compatible. DASH, HLS, sidecar subtitles
+# and track selection are native here — the reason CS playback does NOT ride
+# MPV (the round-10 lesson: MPV cannot play .mpd manifests).
+androidxMedia3 = "1.9.3"
+
 # Serialization
 kotlinxSerialization = "2.2.0"
 kotlinxCoroutines = "1.9.0"
@@ -138,6 +146,17 @@ okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-i
 # JSON token" errors. AniMiru has both interceptors; we were missing Brotli.
 # Artifact name is "okhttp-brotli" (NOT "brotli") per the AniMiru reference.
 okhttp-brotli = { group = "com.squareup.okhttp3", name = "okhttp-brotli", version.ref = "okhttp" }
+
+# Media3 — CloudStream V2 playback engine (task 52). OkHttp DataSource keeps
+# per-link referer/headers/UA + provider interceptors on the stream requests;
+# exoplayer-hls/-dash give native manifest playback; media3-ui provides the
+# SubtitleView used under the Compose control layer.
+media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "androidxMedia3" }
+media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "androidxMedia3" }
+media3-exoplayer-hls = { group = "androidx.media3", name = "media3-exoplayer-hls", version.ref = "androidxMedia3" }
+media3-exoplayer-dash = { group = "androidx.media3", name = "media3-exoplayer-dash", version.ref = "androidxMedia3" }
+media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "androidxMedia3" }
+media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "androidxMedia3" }
 
 # KotlinX
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }

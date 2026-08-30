@@ -67,8 +67,10 @@ jobs:
       # data:cloudstream the repo-parsing + episode-mapping locks, and
       # core:common the ring-buffer logging lock. Tests run BEFORE
       # assembleDebug so a red test fails the build fast.
+      # Task 52 (round 12): :core:cs-player carries the playback-port locks
+      # (mime/quality mapping, subtitle mime detection, track selection).
       - name: Run unit tests (CloudStream modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest :core:cs-player:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

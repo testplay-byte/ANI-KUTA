@@ -14,9 +14,14 @@ object AndroidConfig {
     // v0.2.63) opens the 0.3.x line: a fresh, modular, well-documented CS
     // implementation (plugin system + repos + trust UI + search + details +
     // episodes/seasons; playback deliberately excluded until its own port).
-    // versionCode continues the monotonic line from main's 63.
-    const val versionCode = 64
-    const val versionName = "0.3.0"
+    // ── Task 52 (round 12) — the playback port ───────────────────────────────
+    // 0.4.0 completes the CS system: link resolution (loadLinks), the dedicated
+    // Media3 ExoPlayer engine (:core:cs-player) and the dedicated CS watch
+    // screen (:feature:cs-watch) — the aniyomi playback stack untouched.
+    // Minor-bump precedent: headline features get the minor (0.2.63 → 0.3.0).
+    // versionCode continues the monotonic line from 0.3.0's 64.
+    const val versionCode = 65
+    const val versionName = "0.4.0"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

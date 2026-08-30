@@ -74,6 +74,10 @@ dependencies {
     implementation(project(":feature:download"))
     implementation(project(":feature:watch:api"))
     implementation(project(":feature:watch:impl"))
+    // CloudStream V2 (task 52): the dedicated CS watch screen — runs on the
+    // Media3 engine (:core:cs-player), never touches the MPV watch stack.
+    implementation(project(":feature:cs-watch:api"))
+    implementation(project(":feature:cs-watch:impl"))
     implementation(project(":feature:anime-history:api"))
     implementation(project(":feature:anime-history:impl"))
     implementation(project(":feature:updates:api"))
