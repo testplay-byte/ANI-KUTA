@@ -1384,7 +1384,7 @@ fun WatchScreen(
                                 }
                                 val pickedResolverVideo: ResolverVideo? =
                                     if (candidates.isNotEmpty()) {
-                                        selectBestVideoEpisodeSwitch(candidates, prefServer, prefAudio, prefQuality)
+                                        selectBestVideoEpisodeSwitch(candidates, prefServer, prefAudio, prefQuality)?.third
                                     } else null
 
                                 if (pickedResolverVideo != null) {
