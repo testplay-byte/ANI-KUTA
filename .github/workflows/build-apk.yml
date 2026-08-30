@@ -62,12 +62,12 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # CloudStream V2: unit tests gate every push — the cloudstream-api module
-      # carries the plugin binary-compat surface (CompatSurfaceTest etc.). The
-      # :data:cloudstream test target joins in the Phase D commit (module port).
-      # Tests run BEFORE assembleDebug so a red test fails the build fast.
+      # CloudStream V2: unit tests gate every push — cloudstream-api carries
+      # the plugin binary-compat surface (CompatSurfaceTest etc.) and
+      # data:cloudstream the repo-parsing + episode-mapping locks. Tests run
+      # BEFORE assembleDebug so a red test fails the build fast.
       - name: Run unit tests (CloudStream modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

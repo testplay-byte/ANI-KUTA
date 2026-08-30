@@ -56,8 +56,7 @@ include(":core:cloudstream-api")  // CloudStream V2: clean-room CS3 plugin binar
 
 // ── :data ──
 include(":data:extension")
-// CloudStream V2: :data:cloudstream joins in the Phase D commit (runtime port)
-// — each commit must compile independently.
+include(":data:cloudstream")  // CloudStream V2: extension system runtime (loader/manager/repos/bridge)
 
 // ── :feature (api/impl split per Nav3 Pattern B) ──
 include(":feature:anime-browse:api")

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Anikoto",
+    "pkg": "aniyomi-en.anikoto",
+    "apk": "aniyomi-en.anikoto-v14.4.apk",
+    "lang": "en",
+    "code": 4,
+    "version": "14.4.0",
+    "nsfw": 0,
+    "torrent": 0,
+    "sources": [
+      {
+        "id": 123456,
+        "lang": "en",
+        "name": "Anikoto",
+        "baseUrl": "https://anikoto.com"
+      }
+    ]
+  }
+]
