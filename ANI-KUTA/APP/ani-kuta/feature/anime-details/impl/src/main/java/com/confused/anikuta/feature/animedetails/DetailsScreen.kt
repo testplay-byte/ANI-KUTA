@@ -680,7 +680,7 @@ fun DetailsScreen(
             Logger.i("Anikuta:Feature:Details") {
                 "Auto-play from Continue Watching: triggering episode $autoPlayEpisode"
             }
-            onEpisodeClick(targetEp, fromAutoPlay = true)
+            onEpisodeClick(targetEp, true)
         }
     }
 
@@ -910,7 +910,7 @@ fun DetailsScreen(
                                 onOpenSourcePicker = { showManualSearch = true },
                                 onOpenCloudflareWebView = onOpenCloudflareWebView,
                                 onUnlinkSource = { viewModel.unlinkSource() },
-                                onEpisodeClick = onEpisodeClick,
+                                onEpisodeClick = { ep -> onEpisodeClick(ep, false) },
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->
                                     currentEpisode = episode
@@ -1056,7 +1056,7 @@ fun DetailsScreen(
                                         episode = episode,
                                         metadata = metadata,
                                         episodeTag = episodeTag,
-                                        onClick = { onEpisodeClick(episode, fromAutoPlay = false) },
+                                        onClick = { onEpisodeClick(episode, false) },
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
                                         onDownload = { currentEpisode = episode; resolverDownloadMode = true; viewModel.resolveEpisode(episode); showResolverSheet = true },
@@ -1065,7 +1065,7 @@ fun DetailsScreen(
                                         onCancel = { viewModel.cancelEpisodeDownload(episode) },
                                         onRetry = { viewModel.retryEpisodeDownload(episode) },
                                         onDelete = { viewModel.deleteDownloadedEpisode(episode) },
-                                        onPlayDownloaded = { onEpisodeClick(episode, fromAutoPlay = false) },
+                                        onPlayDownloaded = { onEpisodeClick(episode, false) },
                                         isWatched = isWatched,
                                         progressFraction = progress?.progressFraction ?: 0f,
                                         onToggleWatched = { epKey?.let { viewModel.toggleWatched(it) } },
@@ -1311,7 +1311,7 @@ fun DetailsScreen(
             onEpisodeClick = { episode ->
                 showEpisodeSearch = false
                 episodeSearchQuery = ""
-                onEpisodeClick(episode, fromAutoPlay = false)
+                onEpisodeClick(episode, false)
             },
             onDismiss = {
                 showEpisodeSearch = false
