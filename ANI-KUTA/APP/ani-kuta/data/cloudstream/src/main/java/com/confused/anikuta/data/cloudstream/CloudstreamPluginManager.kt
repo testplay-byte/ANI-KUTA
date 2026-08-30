@@ -186,7 +186,9 @@ class CloudstreamPluginManager(
             // re-reported from the live registry, failures get a real retry).
             if (activity == null) {
                 scope.launch {
-                    val late = CommonActivity.activityFlow.first { it != null }
+                    // The predicate guarantees non-null, but the flow's element
+                    // type is Activity? — elvis for the smart cast.
+                    val late = CommonActivity.activityFlow.first { it != null } ?: return@launch
                     Logger.i(TAG) {
                         "Activity arrived late (${late.javaClass.simpleName}) after app-context load — " +
                             "reloading plugins (activity-dependent self-heal)"
