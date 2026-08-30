@@ -583,12 +583,16 @@ fun DetailsScreen(
 
     // D-230: Hoist onEpisodeClick to screen level so both the Success branch's
     // items() AND the EpisodeSearchSheet (outside MaterialTheme) can use it.
-    val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = onEpisodeClick@{ episode ->
+    // R12-REVIEW F4: [fromAutoPlay] preserves the continue-watching autoplay's
+    // ORIGINAL semantics when it routes through here — autoplay always
+    // auto-navigates (the isAutoSelectEnabled gate is a tap-time preference)
+    // and skips the downloaded-file branch (the old flow resolved ONLINE).
+    val onEpisodeClick: (eu.kanade.tachiyomi.animesource.model.SEpisode, Boolean) -> Unit = onEpisodeClick@{ episode, fromAutoPlay ->
         currentEpisode = episode
         resolverDownloadMode = false
         val stateKey = viewModel.episodeDownloadStateKey(episode)
         val downloadState = stateKey?.let { downloadStates[it] }
-        if (downloadState is EpisodeDownloadState.Downloaded) {
+        if (!fromAutoPlay && downloadState is EpisodeDownloadState.Downloaded) {
             val mainId = viewModel.currentMainId
             if (mainId != null) {
                 val localUri = downloadManager.getDownloadedEpisodeUri(mainId, episode.url)
@@ -655,7 +659,7 @@ fun DetailsScreen(
         }
         viewModel.clearResolver()
         viewModel.resolveEpisode(episode)
-        if (viewModel.isAutoSelectEnabled()) {
+        if (fromAutoPlay || viewModel.isAutoSelectEnabled()) {
             pendingAutoPlay = true
         } else {
             showResolverSheet = true
@@ -676,7 +680,7 @@ fun DetailsScreen(
             Logger.i("Anikuta:Feature:Details") {
                 "Auto-play from Continue Watching: triggering episode $autoPlayEpisode"
             }
-            onEpisodeClick(targetEp)
+            onEpisodeClick(targetEp, fromAutoPlay = true)
         }
     }
 
@@ -1052,7 +1056,7 @@ fun DetailsScreen(
                                         episode = episode,
                                         metadata = metadata,
                                         episodeTag = episodeTag,
-                                        onClick = { onEpisodeClick(episode) },
+                                        onClick = { onEpisodeClick(episode, fromAutoPlay = false) },
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
                                         onDownload = { currentEpisode = episode; resolverDownloadMode = true; viewModel.resolveEpisode(episode); showResolverSheet = true },
@@ -1061,7 +1065,7 @@ fun DetailsScreen(
                                         onCancel = { viewModel.cancelEpisodeDownload(episode) },
                                         onRetry = { viewModel.retryEpisodeDownload(episode) },
                                         onDelete = { viewModel.deleteDownloadedEpisode(episode) },
-                                        onPlayDownloaded = { onEpisodeClick(episode) },
+                                        onPlayDownloaded = { onEpisodeClick(episode, fromAutoPlay = false) },
                                         isWatched = isWatched,
                                         progressFraction = progress?.progressFraction ?: 0f,
                                         onToggleWatched = { epKey?.let { viewModel.toggleWatched(it) } },
@@ -1307,7 +1311,7 @@ fun DetailsScreen(
             onEpisodeClick = { episode ->
                 showEpisodeSearch = false
                 episodeSearchQuery = ""
-                onEpisodeClick(episode)
+                onEpisodeClick(episode, fromAutoPlay = false)
             },
             onDismiss = {
                 showEpisodeSearch = false

@@ -50,5 +50,8 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 
+    // Unit tests: the episode-key parity locks.
+    testImplementation(libs.junit)
+
     debugImplementation(libs.androidx.ui.tooling)
 }

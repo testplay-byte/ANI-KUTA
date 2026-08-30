@@ -86,6 +86,9 @@ sealed interface CsEngineEvent {
         val error: CsPlaybackError,
         /** Full upstream-style diagnostic line — url/referer/headers/position/duration. */
         val diagnostics: String,
+        /** R12-REVIEW F5: the URL the error belongs to — lets the screen reject
+         *  STALE errors after a link switch instead of failing the fresh pick. */
+        val linkUrl: String?,
     ) : CsEngineEvent
 
     data object Ended : CsEngineEvent
@@ -132,6 +135,17 @@ class CsPlayerEngine(
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context))
         .build()
+        .apply {
+            // Audio focus: pause competing apps, duck on notifications — the
+            // standard media-player contract (upstream sets the same).
+            setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus = */ true,
+            )
+        }
 
     // ── State + events ────────────────────────────────────────────────────────
 
@@ -195,7 +209,7 @@ class CsPlayerEngine(
                     append(", linkName=${playback?.link?.displayLabel ?: "none"}")
                 }
                 Logger.e(TAG, error) { diagnostics }
-                _events.tryEmit(CsEngineEvent.PlaybackError(csError, diagnostics))
+                _events.tryEmit(CsEngineEvent.PlaybackError(csError, diagnostics, playback?.link?.url))
             }
         })
     }
@@ -275,6 +289,12 @@ class CsPlayerEngine(
 
     fun playPause() {
         player.playWhenReady = !player.playWhenReady
+    }
+
+    /** Pauses WITHOUT toggling (episode-switch transitions — the old episode's
+     *  audio must not keep playing under the resolving overlay). */
+    fun pause() {
+        player.playWhenReady = false
     }
 
     fun seekTo(positionMs: Long) {

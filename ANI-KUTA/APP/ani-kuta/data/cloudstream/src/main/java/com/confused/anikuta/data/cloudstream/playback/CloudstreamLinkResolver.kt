@@ -150,8 +150,10 @@ class CloudstreamLinkResolver(
 
         val links = mutableListOf<CsVideoLink>()
         val subtitles = mutableListOf<CsSubtitle>()
-        var hiddenTorrent = 0
-        var unsupportedDrm = 0
+        // R12-REVIEW F6: callbacks can fire from parallel extractor coroutines —
+        // plain Ints would lose increments; the sheet footer counts must be exact.
+        val hiddenTorrent = AtomicInteger(0)
+        val unsupportedDrm = AtomicInteger(0)
 
         /** Thread-safe append + snapshot emit. */
         fun onLink(link: ExtractorLink) {
@@ -161,12 +163,12 @@ class CloudstreamLinkResolver(
             }
             when {
                 link is DrmExtractorLink -> {
-                    unsupportedDrm++
+                    unsupportedDrm.incrementAndGet()
                     Logger.w(TAG) { "DRM link hidden (unsupported): ${link.name} ${link.url.take(64)}" }
                     return
                 }
                 link.type == ExtractorLinkType.TORRENT || link.type == ExtractorLinkType.MAGNET -> {
-                    hiddenTorrent++
+                    hiddenTorrent.incrementAndGet()
                     Logger.i(TAG) { "torrent/magnet link hidden: ${link.name} (${link.type})" }
                     return
                 }
@@ -206,8 +208,8 @@ class CloudstreamLinkResolver(
             trySend(
                 CsResolveEvent.LinksSnapshot(
                     synchronized(links) { links.toList() },
-                    hiddenTorrent,
-                    unsupportedDrm,
+                    hiddenTorrent.get(),
+                    unsupportedDrm.get(),
                 ),
             )
         }
@@ -247,7 +249,7 @@ class CloudstreamLinkResolver(
                 throw ce
             } catch (cf: CloudflareBlockedException) {
                 Logger.w(TAG) { "resolve: Cloudflare blocked '$providerName'" }
-                trySend(CsResolveEvent.Failed("Cloudflare blocked '$providerName' — open the site once in the WebView, then retry", synchronized(links) { links.size }, hiddenTorrent))
+                trySend(CsResolveEvent.Failed("Cloudflare blocked '$providerName' — open the site once in the WebView, then retry", synchronized(links) { links.size }, hiddenTorrent.get()))
                 return@launch
             } catch (t: Throwable) {
                 Logger.e(TAG, t) {
@@ -257,7 +259,7 @@ class CloudstreamLinkResolver(
                     CsResolveEvent.Failed(
                         "CloudStream provider '$providerName' error: ${t::class.java.simpleName}: ${t.message}",
                         synchronized(links) { links.size },
-                        hiddenTorrent,
+                        hiddenTorrent.get(),
                     ),
                 )
                 return@launch
@@ -269,14 +271,14 @@ class CloudstreamLinkResolver(
                 cache[cacheKey] = CachedResolution(
                     links = synchronized(links) { links.toList() },
                     subtitles = synchronized(subtitles) { subtitles.toList() },
-                    hiddenTorrentCount = hiddenTorrent,
-                    unsupportedDrmCount = unsupportedDrm,
+                    hiddenTorrentCount = hiddenTorrent.get(),
+                    unsupportedDrmCount = unsupportedDrm.get(),
                     atMillis = System.currentTimeMillis(),
                 )
             }
             Logger.i(TAG) {
                 "resolve: DONE '$providerName' providerReturned=$returned links=$linkCount " +
-                    "subs=$subCount hiddenTorrent=$hiddenTorrent drm=$unsupportedDrm " +
+                    "subs=$subCount hiddenTorrent=${hiddenTorrent.get()} drm=${unsupportedDrm.get()} " +
                     "in ${System.currentTimeMillis() - startedAt}ms"
             }
             trySend(
@@ -284,8 +286,8 @@ class CloudstreamLinkResolver(
                     providerSucceeded = returned,
                     linkCount = linkCount,
                     subtitleCount = subCount,
-                    hiddenTorrentCount = hiddenTorrent,
-                    unsupportedDrmCount = unsupportedDrm,
+                    hiddenTorrentCount = hiddenTorrent.get(),
+                    unsupportedDrmCount = unsupportedDrm.get(),
                     durationMs = System.currentTimeMillis() - startedAt,
                 ),
             )
@@ -306,7 +308,7 @@ class CloudstreamLinkResolver(
                     CsResolveEvent.Failed(
                         "No playable streams arrived from '$providerName' within ${firstLinkTimeoutMs / 1000}s",
                         0,
-                        hiddenTorrent,
+                        hiddenTorrent.get(),
                         timedOut = true,
                     ),
                 )

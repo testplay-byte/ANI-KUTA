@@ -72,6 +72,12 @@ class CsWatchViewModel(
         val playStartPositionMs: Long = 0L,
         /** Whether this play request should SEEK to playStartPositionMs (resume) or reset (link switch). */
         val playIsResume: Boolean = false,
+        /** R12-REVIEW F2: true ONLY for same-episode link switches (quality/source
+         *  change, error fallback, subtitle reattach) — the engine keeps the
+         *  position. FALSE for a new episode's first link (auto-advance would
+         *  otherwise inherit the PREVIOUS episode's end-position and cascade
+         *  through the whole season). */
+        val playKeepPosition: Boolean = false,
         val resumePositionMs: Long = 0L,
     )
 
@@ -81,15 +87,51 @@ class CsWatchViewModel(
     private var resolveJob: Job? = null
     private var currentKey: CsWatchKey? = null
 
-    /** Entry point — call once from the screen with the nav key. */
+    /**
+     * Entry point — the screen calls this on every composition with its nav
+     * key. THREE cases (R12-REVIEW F1 — the VM is activity-scoped, so it
+     * SURVIVES navigation; a hard-return here made the second CS-watch visit
+     * replay the FIRST episode):
+     *  - first entry (currentKey == null) → seed + resolve;
+     *  - SAME key re-entry (back → tap the same episode) → keep the resolved
+     *    state, but re-request playback with a FRESH resume lookup (the new
+     *    composition's engine is empty); — the resolution flow re-requests
+     *    play on the first snapshot anyway, so a fresh lookup happens there;
+     *  - DIFFERENT key (VM survived, new episode/show tapped) → full reset +
+     *    resolve (the house DetailsViewModel pattern).
+     */
     fun initialize(key: CsWatchKey) {
-        if (currentKey != null) return // idempotent per ViewModel instance
+        when {
+            currentKey == null -> seedAndResolve(key)
+            currentKey == key -> {
+                // New composition = new engine; re-request playback with a FRESH
+                // resume lookup (the entry-time startPosition is stale after a
+                // watched session). Falls back to re-resolving when the first
+                // entry never produced a link.
+                Logger.i(TAG) { "re-entry: same episode — re-requesting play with fresh resume" }
+                viewModelScope.launch {
+                    val link = _uiState.value.currentLink
+                    if (link != null) {
+                        requestPlay(link, lookupResumePositionMs(), isResume = true, keepPosition = false)
+                    } else {
+                        startResolution(key)
+                    }
+                }
+            }
+            else -> {
+                Logger.i(TAG) { "re-entry: NEW episode '${key.animeTitle}' EP ${key.episodeNumber} — resetting" }
+                seedAndResolve(key)
+            }
+        }
+    }
+
+    private fun seedAndResolve(key: CsWatchKey) {
         currentKey = key
         Logger.i(TAG) {
             "open: '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
                 "mainId=${key.mainId.take(8)}… episodes=${key.parseEpisodeList().size} resumeHint=${key.startPosition}ms"
         }
-        _uiState.value = _uiState.value.copy(
+        _uiState.value = CsWatchUiState(
             animeTitle = key.animeTitle,
             providerName = key.providerName,
             episodeNumber = key.episodeNumber,
@@ -172,7 +214,9 @@ class CsWatchViewModel(
             .maxByOrNull { it.quality }
             ?: links.firstOrNull()
             ?: return
-        requestPlay(best, resumeMs, isResume = resumeMs > 0)
+        // A new episode's FIRST link is a FRESH start (resume ms or 0) — never
+        // position-keeping (R12-REVIEW F2).
+        requestPlay(best, resumeMs, isResume = resumeMs > 0, keepPosition = false)
     }
 
     /** Keeps currentLink valid when a snapshot replaces the list objects. */
@@ -196,7 +240,12 @@ class CsWatchViewModel(
         }
     }
 
-    private fun requestPlay(link: CsVideoLink, startPositionMs: Long, isResume: Boolean) {
+    private fun requestPlay(
+        link: CsVideoLink,
+        startPositionMs: Long,
+        isResume: Boolean,
+        keepPosition: Boolean = false,
+    ) {
         _uiState.value = _uiState.value.copy(
             phase = Phase.PLAYING,
             currentLink = link,
@@ -205,15 +254,16 @@ class CsWatchViewModel(
             playSubtitles = _uiState.value.subtitles,
             playStartPositionMs = startPositionMs,
             playIsResume = isResume,
+            playKeepPosition = keepPosition,
         )
     }
 
     // ── User + engine actions ─────────────────────────────────────────────────
 
-    /** The links sheet: user picked a specific link. */
+    /** The links sheet: user picked a specific link (same episode → keep position). */
     fun selectLink(link: CsVideoLink) {
         Logger.i(TAG) { "user selected link: ${link.displayLabel}" }
-        requestPlay(link, 0L, isResume = false)
+        requestPlay(link, 0L, isResume = false, keepPosition = true)
     }
 
     /** The engine reported an error for [url] — mark bad; auto-advance if it was current. */
@@ -233,7 +283,7 @@ class CsWatchViewModel(
         } else {
             val next = remaining.maxByOrNull { it.quality } ?: remaining.first()
             Logger.i(TAG) { "auto-advancing to next link: ${next.displayLabel} (${remaining.size - 1} left)" }
-            requestPlay(next, 0L, isResume = false)
+            requestPlay(next, 0L, isResume = false, keepPosition = true)
         }
     }
 
@@ -288,7 +338,7 @@ class CsWatchViewModel(
                 if (autoSelectSub != null) ", will select '${autoSelectSub.name}'" else ""
         }
         pendingSubSelectId = autoSelectSub?.id
-        requestPlay(link, 0L, isResume = false)
+        requestPlay(link, 0L, isResume = false, keepPosition = true)
     }
 
     /** One-shot: the subtitle id to auto-select after a reattach (nulls when read). */

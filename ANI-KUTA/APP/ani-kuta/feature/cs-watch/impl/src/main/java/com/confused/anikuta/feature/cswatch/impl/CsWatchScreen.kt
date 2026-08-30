@@ -63,11 +63,21 @@ fun CsWatchScreen(
     // ── Engine lifecycle (main thread — ExoPlayer's threading rule) ──────────
     val engine = remember { CsPlayerEngine(context.applicationContext, playbackClient) }
     val engineState by engine.state.collectAsState()
+
+    /** F3: engine position belongs to the CURRENT episode only when the loaded
+     *  URL matches the state's current link — otherwise a switch is in flight
+     *  and saving would write episode N-1's progress under episode N's key. */
+    fun engineBelongsToCurrentLink(st: com.confused.anikuta.core.csplayer.CsEngineState): Boolean =
+        st.currentLinkUrl != null && st.currentLinkUrl == viewModel.uiState.value.currentLink?.url
+
     DisposableEffect(engine) {
         onDispose {
-            // Final progress save on exit (the ticker only fires every 10 s).
+            // Final progress save on exit (the ticker only fires every 10 s) —
+            // ONLY when the engine still plays the current link (F3: during an
+            // episode switch the engine holds the OLD episode's position while
+            // the VM already points at the new one).
             val st = engine.state.value
-            if (st.durationMs > 0 && st.positionMs > 0) {
+            if (st.durationMs > 0 && st.positionMs > 0 && engineBelongsToCurrentLink(st)) {
                 viewModel.saveProgress(st.positionMs, st.durationMs)
             }
             engine.release()
@@ -96,11 +106,15 @@ fun CsWatchScreen(
     LaunchedEffect(uiState.playRequestId) {
         val link = uiState.playLink ?: return@LaunchedEffect
         if (uiState.playRequestId <= 0) return@LaunchedEffect
-        if (uiState.playIsResume) {
-            engine.start(link, uiState.playSubtitles, uiState.playStartPositionMs)
-        } else {
-            // Link switch keeps the position (quality/source change UX).
-            engine.switchLink(link, uiState.playSubtitles)
+        when {
+            // Resume (fresh episode with progress, or same-key re-entry): seek.
+            uiState.playIsResume -> engine.start(link, uiState.playSubtitles, uiState.playStartPositionMs)
+            // Same-episode link switch (quality/source change, error fallback,
+            // subtitle reattach): keep the position (R12-REVIEW F2).
+            uiState.playKeepPosition -> engine.switchLink(link, uiState.playSubtitles)
+            // A NEW episode's first link: FRESH start — never inherit the
+            // previous episode's position (F2: auto-advance cascade).
+            else -> engine.start(link, uiState.playSubtitles, 0L)
         }
         // Subtitle reattach flow: after a reload, auto-select the picked sub
         // once its track appears (bounded poll — tracks land post-prepare).
@@ -123,10 +137,12 @@ fun CsWatchScreen(
         engine.events.collect { event ->
             when (event) {
                 is CsEngineEvent.PlaybackError -> {
+                    // F5: the event carries the URL it belongs to — stale errors
+                    // (a link already switched away from) are rejected by the VM.
                     Logger.w("Anikuta:CS:Watch") {
-                        "engine error → fallback (url=${viewModel.uiState.value.currentLink?.url?.take(64)})"
+                        "engine error → fallback (url=${event.linkUrl?.take(64)})"
                     }
-                    viewModel.onEngineError(viewModel.uiState.value.currentLink?.url)
+                    viewModel.onEngineError(event.linkUrl)
                 }
                 CsEngineEvent.Ended -> {
                     val st = engine.state.value
@@ -139,12 +155,23 @@ fun CsWatchScreen(
         }
     }
 
+    // R12-REVIEW F3-adjacent: an episode switch leaves the OLD episode playing
+    // under the resolving overlay — pause it the moment the phase changes.
+    LaunchedEffect(uiState.phase) {
+        if (uiState.phase != CsWatchViewModel.Phase.PLAYING) {
+            engine.pause()
+        }
+    }
+
     // ── Periodic progress persistence (the aniyomi screen's 10 s cadence) ────
     LaunchedEffect(Unit) {
         while (true) {
             delay(10_000L)
             val st = engine.state.value
-            if (st.durationMs > 0 && st.currentLinkUrl != null && st.positionMs > 0) {
+            if (st.durationMs > 0 && st.positionMs > 0 &&
+                viewModel.uiState.value.phase == CsWatchViewModel.Phase.PLAYING &&
+                engineBelongsToCurrentLink(st)
+            ) {
                 viewModel.saveProgress(st.positionMs, st.durationMs)
             }
         }
