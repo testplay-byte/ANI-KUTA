@@ -2581,3 +2581,10 @@ The CS watch screen saves progress through the SAME `WatchProgressStore` (`episo
 - **Files:** CsWatchViewModel.kt (progress), DetailsScreen.kt (autoplay unified).
 - **Status:** ✅ Implemented (Task 52).
 - **Date:** 2026-08-30.
+
+### D-377 — Task 53: vendored-API drift is a bug class — diff EVERY call site against upstream, and Compose play-triggers read LIVE StateFlow
+
+Two root-cause families from the v0.4.0 device round: (1) **Vendored-API drift** — our clean-room M3u8Helper invented `referer = the stream URL` where upstream passes headers-only; nicehttp's referer param REPLACES the headers-map Referer, so the plugin's CDN-required Referer (megaplay.buzz) was silently dropped → kryntal 403 → the plugin's runCatching swallowed it → 0 links/0 subs in ~19 s. Rule: when porting an upstream API surface, the CALL SITES (not just the signatures) are the contract — every invented default must be diffed against upstream usage; and silent-failure paths inside plugins demand loud logging at OUR layer boundaries. (2) **collectAsState lag in engine triggers** — a LaunchedEffect keyed on snapshot state can execute with a one-dispatch-stale State object when another effect resets the StateFlow synchronously in the same apply pass (the previous episode's link replayed on a fresh engine). Rule: engine/media triggers read `viewModel.uiState.value` (the authoritative StateFlow) and validate a generation token; every new resolution hard-resets the engine (engineResetTick) so stale content is structurally impossible. Also: the MovieBox CDN's anti-browser-UA/anti-referer rules (empirically: browser UA → 428, referer → 429, clean → 206) motivated the one-shot clean-retry profile on 4xx-at-open — an ANI-KUTA extension over upstream (documented in doc 03 §5).
+- **Files:** M3u8Helper.kt, WebViewResolver.kt, CloudstreamLinkResolver.kt, CsHttpDataSourceFactory.kt, CsPlayerEngine.kt, CsWatchViewModel.kt, CsWatchScreen.kt, CsResolveSheet.kt (NEW), CsSourceMemory.kt (NEW), MainActivity.kt (CS seams only), docs 03/04.
+- **Status:** ✅ Implemented (Task 53).
+- **Date:** 2026-08-31.

@@ -63,6 +63,8 @@ class CsWatchViewModel(
         val unsupportedDrmCount: Int = 0,
         /** URLs of links that errored in the engine (auto-skip + sheet badges). */
         val failedLinkUrls: Set<String> = emptySet(),
+        /** Task 53 / RC-8: per-URL failure reason ("HTTP 428", "Parsing"…) for the exhausted message. */
+        val failureReasons: Map<String, String> = emptyMap(),
         val currentLink: CsVideoLink? = null,
         val resolveCompleted: Boolean = false,
         val resolveError: String? = null,
@@ -229,6 +231,7 @@ class CsWatchViewModel(
             hiddenTorrentCount = 0,
             unsupportedDrmCount = 0,
             failedLinkUrls = emptySet(),
+            failureReasons = emptyMap(),
             currentLink = null,
             resolveCompleted = false,
             resolveError = null,
@@ -366,23 +369,39 @@ class CsWatchViewModel(
         requestPlay(link, 0L, isResume = false, keepPosition = true)
     }
 
-    /** The engine reported an error for [url] — mark bad; auto-advance if it was current. */
-    fun onEngineError(url: String?) {
+    /**
+     * The engine reported an error for [url] — mark bad; auto-advance if it was
+     * current. [failureReason] ("HTTP 428" / "Parsing" / …) rides along for the
+     * all-links-exhausted message (Task 53 / RC-8 diagnosability).
+     */
+    fun onEngineError(url: String?, failureReason: String? = null) {
         val state = _uiState.value
         if (url == null || state.currentLink?.url != url) return
         val failed = state.failedLinkUrls + url
+        val reasons = if (failureReason != null) {
+            state.failureReasons + (url to failureReason)
+        } else {
+            state.failureReasons
+        }
+        _uiState.value = state.copy(failedLinkUrls = failed, failureReasons = reasons)
         val remaining = state.links.filterNot { it.url in failed }
-        _uiState.value = state.copy(failedLinkUrls = failed)
         if (remaining.isEmpty()) {
             resolver.invalidate(state.providerName, currentKey?.episodeData ?: "")
+            val reasonSummary = reasons.values.distinct().joinToString(", ")
             _uiState.value = _uiState.value.copy(
                 phase = Phase.FAILED,
-                resolveError = "All ${state.links.size} stream(s) failed — every link was tried",
+                resolveError = "All ${state.links.size} stream(s) failed" +
+                    if (reasonSummary.isNotBlank()) " — $reasonSummary" else " — every link was tried",
             )
-            Logger.w(TAG) { "ALL links exhausted (${state.links.size}); cache invalidated" }
+            Logger.w(TAG) {
+                "ALL links exhausted (${state.links.size}); cache invalidated; reasons: $reasonSummary"
+            }
         } else {
             val next = remaining.maxByOrNull { it.quality } ?: remaining.first()
-            Logger.i(TAG) { "auto-advancing to next link: ${next.displayLabel} (${remaining.size - 1} left)" }
+            Logger.i(TAG) {
+                "auto-advancing to next link: ${next.displayLabel} (${remaining.size - 1} left)" +
+                    (failureReason?.let { " (previous failed: $it)" } ?: "")
+            }
             requestPlay(next, 0L, isResume = false, keepPosition = true)
         }
     }

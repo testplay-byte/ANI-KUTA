@@ -172,10 +172,11 @@ fun CsWatchScreen(
                 is CsEngineEvent.PlaybackError -> {
                     // F5: the event carries the URL it belongs to — stale errors
                     // (a link already switched away from) are rejected by the VM.
+                    val reason = event.error.httpCode?.let { "HTTP $it" } ?: event.error.kind.name.lowercase()
                     Logger.w("Anikuta:CS:Watch") {
-                        "engine error → fallback (url=${event.linkUrl?.take(64)})"
+                        "engine error → fallback (url=${event.linkUrl?.take(64)}, reason=$reason)"
                     }
-                    viewModel.onEngineError(event.linkUrl)
+                    viewModel.onEngineError(event.linkUrl, reason)
                 }
                 CsEngineEvent.Ended -> {
                     val st = engine.state.value
