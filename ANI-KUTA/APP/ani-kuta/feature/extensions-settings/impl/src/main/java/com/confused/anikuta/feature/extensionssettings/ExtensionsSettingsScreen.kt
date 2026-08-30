@@ -85,7 +85,6 @@ import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.core.providerapi.isCompleted
-import com.confused.anikuta.data.extension.installer.isCompleted
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
