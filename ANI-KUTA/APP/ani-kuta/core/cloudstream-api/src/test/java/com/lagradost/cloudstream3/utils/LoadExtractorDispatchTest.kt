@@ -7,8 +7,6 @@
 // built-ins), and unknown hosts return false.
 package com.lagradost.cloudstream3.utils
 
-import com.lagradost.cloudstream3.ExtractorLink
-import com.lagradost.cloudstream3.ExtractorLinkType
 import com.lagradost.cloudstream3.SubtitleFile
 import kotlinx.coroutines.runBlocking
 import org.junit.After

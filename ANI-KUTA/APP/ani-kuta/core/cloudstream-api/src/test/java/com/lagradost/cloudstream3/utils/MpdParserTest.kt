@@ -66,7 +66,7 @@ class MpdParserTest {
           <Period id="1">
             <AdaptationSet contentType="video">
               <Representation id="v1" mimeType="video/mp4" height="720" bandwidth="2000000">
-                <SegmentTemplate media="seg_$Number$.m4s" initialization="init.m4s" duration="4" startNumber="1"/>
+                <SegmentTemplate media="seg_${'$'}Number${'$'}.m4s" initialization="init.m4s" duration="4" startNumber="1"/>
               </Representation>
             </AdaptationSet>
           </Period>
