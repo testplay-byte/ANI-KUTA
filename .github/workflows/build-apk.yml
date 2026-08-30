@@ -68,8 +68,10 @@ jobs:
       # project's first unit tests (CloudStream compat + repo/plugin logic —
       # pure JVM, fixtures from real repository JSON). Runs BEFORE assembleDebug
       # so logic failures fail fast.
-      - name: Run unit tests (cloudstream modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest
+      # 2026-08-30 (Task 48.1): :core:network added — MpvHeaderFieldsTest locks
+      # the header-csv gluing parser + the mpv backslash escaping boundary.
+      - name: Run unit tests (cloudstream + network modules)
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:network:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

@@ -2799,10 +2799,7 @@ private fun buildEpisodeMetadataSerialized(
     val byNumber = episodes.associateBy { it.episode_number.toInt() }
     // Task 48.1: union of extension episode numbers ∪ provider metadata keys,
     // sorted for a stable, human-readable wire order.
-    val allNumbers = buildSortedSet {
-        byNumber.keys.forEach { add(it) }
-        metadata.keys.forEach { add(it) }
-    }
+    val allNumbers = (byNumber.keys + metadata.keys).sorted()
     fun sanitize(text: String?): String =
         text?.replace('\n', ' ')?.replace('\r', ' ')?.trim() ?: ""
     return allNumbers.joinToString("\n") { epNum ->
