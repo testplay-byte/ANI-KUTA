@@ -89,6 +89,7 @@ import com.confused.anikuta.feature.download.DownloadedFilesScreen
 import com.confused.anikuta.feature.download.DownloadSettingsKey
 import com.confused.anikuta.feature.download.DownloadSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsKey
+import com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionDetailKey
 import com.confused.anikuta.feature.extensionssettings.SourcePreferencesKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionsSettingsScreen
@@ -878,6 +879,13 @@ fun AppRoot() {
                 onOpenAbout = { backstack.add(AboutKey) },
                 onBack = pop,
             )
+            // CloudStream V2: the plugin detail page — resolves the plugin across
+            // Trusted/Untrusted/Failed/Available and shows metadata + live
+            // providers + state actions (trust/untrust/install/uninstall/retry).
+            is CloudstreamPluginDetailKey -> com.confused.anikuta.feature.extensionssettings.CloudstreamPluginDetailScreen(
+                internalName = currentKey.internalName,
+                onBack = pop,
+            )
             // D-220: Trackers page.
             is TrackersKey -> com.confused.anikuta.settings.TrackersScreen(
                 onBack = pop,
@@ -911,6 +919,8 @@ fun AppRoot() {
                 onBack = pop,
                 onOpenRepoSettings = { backstack.add(ExtensionRepoSettingsKey) },
                 onOpenExtensionDetail = { backstack.add(ExtensionDetailKey(it)) },
+                // CloudStream V2: the CS plugin detail page (trust/uninstall/retry hub).
+                onOpenCloudstreamPluginDetail = { backstack.add(CloudstreamPluginDetailKey(it)) },
             )
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
                 onBack = pop,

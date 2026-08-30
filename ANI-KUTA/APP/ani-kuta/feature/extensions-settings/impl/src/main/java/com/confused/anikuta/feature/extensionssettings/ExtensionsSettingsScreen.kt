@@ -1,23 +1,13 @@
 package com.confused.anikuta.feature.extensionssettings
 
 import android.graphics.drawable.Drawable
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +16,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,7 +29,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle  // D-311: install-success indicator
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -60,7 +48,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -84,7 +71,6 @@ import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
-import com.confused.anikuta.core.providerapi.isCompleted
 import com.confused.anikuta.data.extension.manager.ExtensionManager
 import com.confused.anikuta.data.extension.model.AnimeExtension
 import com.confused.anikuta.data.extension.repo.ExtensionRepoRepository
@@ -123,8 +109,11 @@ fun ExtensionsSettingsScreen(
     onBack: () -> Unit,
     onOpenRepoSettings: () -> Unit,
     onOpenExtensionDetail: (String) -> Unit = {},
+    onOpenCloudstreamPluginDetail: (String) -> Unit = {},
     extensionManager: ExtensionManager = koinInject(),
     repoRepository: ExtensionRepoRepository = koinInject(),
+    csManager: com.confused.anikuta.data.cloudstream.CloudstreamPluginManager = koinInject(),
+    csRepoRepository: com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository = koinInject(),
 ) {
     val installedExtensions by extensionManager.installedExtensions.collectAsState()
     val untrustedExtensions by extensionManager.untrustedExtensions.collectAsState()
@@ -134,11 +123,39 @@ fun ExtensionsSettingsScreen(
     val installStates by extensionManager.installStates.collectAsState()
     val updateCheckState by extensionManager.updateCheckState.collectAsState()
 
+    // ── Task 41: the unified source tabs (doc 23 §5.4, the user's G3-adjacent gate). ──
+    // The CloudStream tab appears once that system has content (saved repos or
+    // installed plugins); the aniyomi tab is the built-in default. When only one
+    // system has content the tab row is hidden — nothing to switch between.
+    // Session 2: installed plugins count as content EVEN with zero repos —
+    // deleting a repository no longer cascades to its plugins, so the tab (and
+    // its Trusted Sources section) survives as long as one plugin is installed.
+    // Session 3: UNTRUSTED plugins count too — a fresh install lands in the
+    // Untrusted section (trust flow), so the tab must survive before the first
+    // trust even with the repo already deleted.
+    val csInstalled by csManager.installed.collectAsState()
+    val csUntrusted by csManager.untrusted.collectAsState()
+    val csErrored by csManager.errored.collectAsState()
+    val csAvailable by csManager.available.collectAsState()
+    val csRepos by csRepoRepository.repos.collectAsState()
+    val csHasContent = csRepos.isNotEmpty() || csInstalled.isNotEmpty() ||
+        csUntrusted.isNotEmpty() || csErrored.isNotEmpty()
+    var activeTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("aniyomi") }
+    val showCloudstreamTab = activeTab == "cloudstream" && csHasContent
+
     val scope = rememberCoroutineScope()
     var showFilters by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortMode by remember { mutableStateOf(ExtensionSortMode.NAME) }
     var showNsfw by remember { mutableStateOf(true) }
+
+    // Session 2: ONE filters bar drives BOTH tabs. The aniyomi NSFW state stays
+    // session-local (default on, unchanged behavior); the CloudStream NSFW
+    // state is the persisted G4 gate (default OFF). Each tab reads whichever
+    // toggle is active — one shared control, two independent settings.
+    val appPreferences = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    var csShowNsfw by remember { mutableStateOf(appPreferences.cloudstreamShowNsfw) }
+
     var langFilter by remember { mutableStateOf<String?>(null) }
     var reorderMode by remember { mutableStateOf(false) }
     var reorderedInstalled by remember { mutableStateOf<List<AnimeExtension.Installed>>(emptyList()) }
@@ -151,12 +168,20 @@ fun ExtensionsSettingsScreen(
     // (throttled to once per 30 min inside the manager) + non-blocking.
     LaunchedEffect(Unit) {
         extensionManager.checkForUpdates()
+        csManager.checkForUpdates()
     }
 
     // Force a fresh check whenever the repo set changes.
     LaunchedEffect(repos.size) {
         if (repos.isNotEmpty()) {
             extensionManager.checkForUpdates(force = true)
+        }
+    }
+
+    // Same for CloudStream repos.
+    LaunchedEffect(csRepos.size) {
+        if (csRepos.isNotEmpty()) {
+            csManager.checkForUpdates(force = true)
         }
     }
 
@@ -168,12 +193,20 @@ fun ExtensionsSettingsScreen(
     val installedPkgs = installedExtensions.map { it.pkgName }.toSet()
     val untrustedPkgs = untrustedExtensions.map { it.pkgName }.toSet()
 
-    // D-298: language filter — the distinct set of languages across all sections.
-    val allLanguages = remember(installedExtensions, untrustedExtensions, erroredExtensions, availableExtensions) {
+    // D-298: language filter — the distinct set of languages across ALL sections
+    // of BOTH tabs (session 2: the shared filters bar serves aniyomi + CloudStream,
+    // so the dropdown must cover both ecosystems' languages).
+    val allLanguages = remember(
+        installedExtensions, untrustedExtensions, erroredExtensions, availableExtensions,
+        csInstalled, csErrored, csAvailable,
+    ) {
         (installedExtensions.mapNotNull { it.lang } +
             untrustedExtensions.mapNotNull { it.lang } +
             erroredExtensions.mapNotNull { it.lang } +
-            availableExtensions.mapNotNull { it.lang })
+            availableExtensions.mapNotNull { it.lang } +
+            csInstalled.mapNotNull { it.language } +
+            csErrored.mapNotNull { it.language } +
+            csAvailable.mapNotNull { it.plugin.language })
             .distinct()
             .sorted()
     }
@@ -241,6 +274,14 @@ fun ExtensionsSettingsScreen(
                 },
             )
 
+            // ── Task 41: source tabs (only when both systems have content) ──
+            if (csHasContent) {
+                SourceTabRow(
+                    activeTab = activeTab,
+                    onSelect = { activeTab = it },
+                )
+            }
+
             // ── Filters bar (hidden by default, revealed on tap) ──
             AnimatedVisibility(
                 visible = showFilters,
@@ -252,14 +293,38 @@ fun ExtensionsSettingsScreen(
                     onQueryChange = { searchQuery = it },
                     sortMode = sortMode,
                     onSortModeChange = { sortMode = it },
-                    showNsfw = showNsfw,
-                    onToggleNsfw = { showNsfw = !showNsfw },
+                    // Session 2: the bar controls whichever tab is ACTIVE — the
+                    // aniyomi session-local toggle or the persisted CS gate (G4).
+                    showNsfw = if (showCloudstreamTab) csShowNsfw else showNsfw,
+                    onToggleNsfw = {
+                        if (showCloudstreamTab) {
+                            csShowNsfw = !csShowNsfw
+                            appPreferences.cloudstreamShowNsfw = csShowNsfw
+                        } else {
+                            showNsfw = !showNsfw
+                        }
+                    },
                     languages = allLanguages,
                     langFilter = langFilter,
                     onLangFilterChange = { langFilter = it },
                 )
             }
 
+            if (showCloudstreamTab) {
+                // ── CloudStream tab content (doc 23 §5.4) ──
+                // Session 2: rendered with the SAME section chrome + row anatomy
+                // as the aniyomi tab (ExtensionListChrome.kt) and driven by the
+                // SAME filters bar — search, sort, language and the NSFW gate
+                // all flow in from the shared controls above.
+                CloudstreamExtensionsSection(
+                    csManager = csManager,
+                    searchQuery = searchQuery,
+                    sortMode = sortMode,
+                    langFilter = langFilter,
+                    showNsfw = csShowNsfw,
+                    onOpenPluginDetail = onOpenCloudstreamPluginDetail,
+                )
+            } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     state = listState,
@@ -415,7 +480,73 @@ fun ExtensionsSettingsScreen(
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
             }
+            }
         }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Task 41: source tab row — Aniyomi / CloudStream (doc 23 §5.4)
+// Session-3 device round: chips are LEFT-aligned under the title (the round-2
+// report reversed the round-1 right-edge request — left is the resting default).
+// ════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun SourceTabRow(
+    activeTab: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
+    ) {
+        SourceTabChip(
+            label = "Aniyomi",
+            selected = activeTab != "cloudstream",
+            onClick = { onSelect("aniyomi") },
+        )
+        SourceTabChip(
+            label = "CloudStream",
+            selected = activeTab == "cloudstream",
+            onClick = { onSelect("cloudstream") },
+        )
+    }
+}
+
+@Composable
+private fun SourceTabChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val backgroundColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        },
+        animationSpec = tween(200),
+        label = "tabChipColor",
+    )
+    androidx.compose.material3.Surface(
+        color = backgroundColor,
+        shape = RoundedCornerShape(20.dp),
+        onClick = onClick,
+    ) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+        )
     }
 }
 
@@ -519,292 +650,6 @@ private fun ExtensionFiltersBar(
         }
     }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Section header (D-299 — standalone item so section ROWS can be virtualized
-//  as individual LazyColumn items instead of one giant Column-in-item)
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun SectionHeader(
-    title: String,
-    count: Int,
-    isEmpty: Boolean,
-    emptyMessage: String? = null,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = if (isEmpty) RoundedCornerShape(16.dp) else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        tonalElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = title,
-                    fontFamily = RobotoFamily,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "($count)",
-                    fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                thickness = 0.5.dp,
-            )
-            if (isEmpty && emptyMessage != null) {
-                Box(modifier = Modifier.padding(12.dp)) {
-                    EmptySectionBody(emptyMessage)
-                }
-            }
-        }
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  D-309: ExtensionUpdateControl — the update/install progress control.
-//  Was: a bare Refresh icon (indistinguishable from Retry) with ZERO feedback
-//  during the APK download. Now: a filled "Update" pill that morphs into a
-//  live download-progress animation (ring + %) and an installing state.
-// ════════════════════════════════════════════════════════════════════════════
-
-/** Internal UI states of [ExtensionUpdateControl] (drives AnimatedContent).
- *  Deliberately carries NO progress payload — a new data class per 200ms tick
- *  would restart the cross-fade constantly (D-309 review fix). The live
- *  progress is read from [InstallStep.Downloading] inside the content lambda. */
-private enum class UpdateControlPhase {
-    /** No update available and nothing installing — control hidden. */
-    HIDDEN,
-
-    /** Update available — show the "Update" pill button. */
-    READY,
-
-    /** Queued on the install mutex. */
-    PENDING,
-
-    /** APK downloading. */
-    DOWNLOADING,
-
-    /** PackageInstaller session open (OS prompt imminent). */
-    INSTALLING,
-
-    /**
-     * D-311: install SUCCEEDED — brief success state while the manager's
-     * post-install refresh ([ExtensionManager.onInstallResult] → `loadAll`)
-     * lands. Previously this terminal state fell into READY, which resurrected
-     * the Update pill on the STALE `hasUpdate = true` row for a moment (the
-     * user saw "Update" again right after installing), and worse: when the
-     * refresh then flipped `onUpdate` to null mid-AnimatedContent-transition,
-     * the exiting READY slot recomposed with `onUpdate!!` → NPE CRASH
-     * (ExtensionsSettingsScreen.kt:621, device report 2026-08-28 13:59).
-     */
-    INSTALLED,
-}
-
-@Composable
-private fun ExtensionUpdateControl(
-    installStep: InstallStep?,
-    onUpdate: (() -> Unit)?,
-) {
-    val phase = when (installStep) {
-        is InstallStep.Pending -> UpdateControlPhase.PENDING
-        is InstallStep.Downloading -> UpdateControlPhase.DOWNLOADING
-        is InstallStep.Installing -> UpdateControlPhase.INSTALLING
-        // D-311: success is its OWN phase (see UpdateControlPhase.INSTALLED) — it
-        // must NOT fall through to READY and resurrect the Update pill.
-        is InstallStep.Installed -> UpdateControlPhase.INSTALLED
-        // Terminal / null / Idle / Error → the button (when an update is available).
-        else -> if (onUpdate != null) UpdateControlPhase.READY else UpdateControlPhase.HIDDEN
-    }
-
-    AnimatedContent(
-        targetState = phase,
-        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
-        label = "extUpdateControl",
-    ) { target ->
-        when (target) {
-            UpdateControlPhase.HIDDEN -> Spacer(Modifier.width(0.dp))
-            UpdateControlPhase.READY -> {
-                // D-311 CRASH FIX: NEVER `onUpdate!!` here. During a READY→HIDDEN
-                // fade-out, the EXITING slot recomposes with the LATEST captured
-                // onUpdate — which is null once the post-install refresh flips
-                // hasUpdate to false. Render nothing in that window instead of
-                // crashing with a NullPointerException on the main thread.
-                val click = onUpdate
-                if (click != null) {
-                    UpdatePillButton(onClick = click)
-                } else {
-                    Spacer(Modifier.width(0.dp))
-                }
-            }
-            UpdateControlPhase.PENDING -> InstallProgressIndicator(
-                label = null,
-                progress = null,
-            )
-            UpdateControlPhase.DOWNLOADING -> {
-                // Read the LIVE progress here (re-composed per tick) — the
-                // AnimatedContent target stays DOWNLOADING so the transition
-                // runs only once (no per-tick cross-fade flicker).
-                val progress = (installStep as? InstallStep.Downloading)?.progress ?: -1
-                InstallProgressIndicator(
-                    label = if (progress >= 0) "$progress%" else null,
-                    progress = progress.takeIf { it >= 0 },
-                )
-            }
-            UpdateControlPhase.INSTALLING -> InstallProgressIndicator(
-                label = "Installing",
-                progress = null,
-                pulsing = true,
-            )
-            UpdateControlPhase.INSTALLED -> InstallSuccessIndicator()
-        }
-    }
-}
-
-/**
- * D-311: brief post-install success state — a check + "Done" shown between the
- * OS install completing and the manager's `loadAll()` refresh clearing the
- * install state (the row then shows the new version with no Update pill).
- */
-@Composable
-private fun InstallSuccessIndicator() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(horizontal = 4.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Filled.CheckCircle,
-            contentDescription = "Updated",
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = "Done",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-    }
-}
-
-/** The filled "Update" pill (primary bg, Download icon, press-scale feedback). */
-@Composable
-private fun UpdatePillButton(onClick: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.94f else 1f,
-        animationSpec = tween(150),
-        label = "updatePillScale",
-    )
-    Surface(
-        color = MaterialTheme.colorScheme.primary,
-        shape = RoundedCornerShape(50),
-        modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = {
-                    com.confused.anikuta.core.common.HapticHelper.lightTick(context)
-                    onClick()
-                },
-            ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(14.dp),
-            )
-            Spacer(Modifier.width(5.dp))
-            Text(
-                text = "Update",
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
-        }
-    }
-}
-
-/**
- * Compact install-progress indicator: determinate ring (0..100) when the size
- * is known, indeterminate ring otherwise; optional label; `pulsing` animates
- * the label alpha (used for the "Installing" phase).
- */
-@Composable
-private fun InstallProgressIndicator(
-    label: String?,
-    progress: Int?,
-    pulsing: Boolean = false,
-) {
-    val labelAlpha = if (pulsing) {
-        val transition = rememberInfiniteTransition(label = "installPulse")
-        transition.animateFloat(
-            initialValue = 0.35f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(700, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "installPulseAlpha",
-        ).value
-    } else 1f
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(horizontal = 4.dp),
-    ) {
-        if (progress != null) {
-            // Determinate ring — fills as the APK streams in.
-            CircularProgressIndicator(
-                progress = { progress / 100f },
-                modifier = Modifier.size(20.dp),
-                strokeWidth = 2.5.dp,
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            )
-        } else {
-            // Indeterminate (unknown size / queued / installing).
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                strokeWidth = 2.5.dp,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        if (label != null) {
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.graphicsLayer { alpha = labelAlpha },
-            )
-        }
-    }
-}
-
 
 @Composable
 private fun InstalledExtensionRow(
@@ -1102,8 +947,6 @@ private fun AvailableExtensionRow(
     installStep: InstallStep?,
     onInstall: () -> Unit,
 ) {
-    val isInstalling = installStep != null && !installStep.isCompleted()
-
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         shape = RoundedCornerShape(12.dp),
@@ -1141,120 +984,21 @@ private fun AvailableExtensionRow(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
-            if (isInstalling) {
-                // D-309: live install feedback (was: a bare indeterminate spinner
-                // for the whole install). Determinate ring + % while downloading;
-                // pulsing "Installing" during the PackageInstaller phase.
-                when (installStep) {
-                    is InstallStep.Downloading -> InstallProgressIndicator(
-                        label = if (installStep.progress >= 0) "${installStep.progress}%" else null,
-                        progress = installStep.progress.takeIf { it >= 0 },
-                    )
-                    is InstallStep.Installing -> InstallProgressIndicator(
-                        label = "Installing",
-                        progress = null,
-                        pulsing = true,
-                    )
-                    else -> InstallProgressIndicator(label = null, progress = null)
-                }
-            } else {
-                ActionIconButton(
-                    icon = Icons.Filled.Download,
-                    contentDescription = "Install",
-                    onClick = onInstall,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  Extension icon (Drawable for installed/untrusted, URL for available)
-// ════════════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun ExtensionIcon(icon: Drawable?, fallbackName: String) {
-    if (icon != null) {
-        // Coil's AsyncImage accepts a Drawable as the model.
-        AsyncImage(
-            model = icon,
-            contentDescription = fallbackName,
-            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
-        )
-    } else {
-        ExtensionIconPlaceholder(fallbackName)
-    }
-}
-
-@Composable
-private fun ExtensionIconPlaceholder(name: String) {
-    val firstLetter = name.firstOrNull()?.uppercase() ?: "?"
-    val colors = listOf(
-        Color(0xFFB1F256), Color(0xFF7CC8FA), Color(0xFFFF8A65),
-        Color(0xFFE57C9F), Color(0xFFFFB300),
-    )
-    val color = colors[name.hashCode().and(0x7FFFFFFF) % colors.size]
-    Surface(
-        color = color,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.size(40.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = firstLetter,
-                fontFamily = RobotoFamily,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.Black,
+            // Session 2: the shared install control (ExtensionListChrome.kt) —
+            // identical state machine for the aniyomi AND CloudStream available
+            // rows: Download button → animated ring + % → pulsing "Installing"
+            // → check + "Done" beat (D-309/D-311 lineage).
+            AvailableInstallControl(
+                installStep = installStep,
+                onInstall = onInstall,
             )
         }
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  Shared UI helpers
-// ════════════════════════════════════════════════════════════════════════════
 
-@Composable
-private fun EmptySectionBody(message: String) {
-    Text(
-        text = message,
-        fontFamily = RobotoFamily,
-        fontSize = 13.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 16.dp),
-    )
-}
-
-@Composable
-private fun ActionIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tint: Color,
-    enabled: Boolean = true,
-) {
-    val alpha by animateFloatAsState(
-        targetValue = if (enabled) 1f else 0f,
-        animationSpec = tween(150),
-        label = "actionAlpha",
-    )
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint.copy(alpha = alpha),
-            modifier = Modifier.size(20.dp),
-        )
-    }
-}
+// ── Screen-header circular icon button (screen-local; rows use the shared
+//    ActionIconButton from ExtensionListChrome.kt) ──
 
 @Composable
 private fun HeaderIconButton(
@@ -1279,19 +1023,3 @@ private fun HeaderIconButton(
     }
 }
 
-// ── Filtering + sorting helpers ──
-
-private fun matchesSearch(name: String, query: String): Boolean =
-    query.isBlank() || name.contains(query, ignoreCase = true)
-
-private enum class ExtensionSortMode(val label: String) {
-    NAME("Sort by name"),
-    LANGUAGE("Sort by language"),
-    NSFW("NSFW first"),
-}
-
-private fun <T : AnimeExtension> sortExtensions(list: List<T>, mode: ExtensionSortMode): List<T> = when (mode) {
-    ExtensionSortMode.NAME -> list.sortedBy { it.name.lowercase() }
-    ExtensionSortMode.LANGUAGE -> list.sortedBy { (it.lang ?: "zz").lowercase() }
-    ExtensionSortMode.NSFW -> list.sortedByDescending { it.isNsfw }
-}
