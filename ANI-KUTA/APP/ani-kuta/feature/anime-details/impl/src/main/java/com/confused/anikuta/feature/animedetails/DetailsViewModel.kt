@@ -3491,7 +3491,13 @@ class DetailsViewModel(
             } else null
         }
         if (linked == null) {
+            // Task 49 (R9-A FM-13): the silent return left the already-open
+            // resolver sheet in Idle ("No resolution in progress") — the user
+            // tapped an episode and NOTHING happened. Surface an honest error.
             Logger.w(TAG) { "Cannot resolve — no source linked and no extension sourceId" }
+            _resolverState.value = ResolverState.Error(
+                "No playable source is linked to this entry — refresh the page or re-link it to a source",
+            )
             return
         }
         val source = extensionManager.getSource(linked.sourceId) as? AnimeHttpSource ?: run {

@@ -70,8 +70,12 @@ jobs:
       # so logic failures fail fast.
       # 2026-08-30 (Task 48.1): :core:network added — MpvHeaderFieldsTest locks
       # the header-csv gluing parser + the mpv backslash escaping boundary.
-      - name: Run unit tests (cloudstream + network modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:network:testDebugUnitTest
+      # 2026-08-30 (Task 49): :core:common added (RingLogBufferTest — console
+      # logging tool); cloudstream-api now also runs LoadExtractorDispatchTest
+      # (the dead-dispatch regression lock), M3u8ParseMasterPlaylistTest (HLS
+      # quality selection) and MpdParserTest (DASH surfacing).
+      - name: Run unit tests (cloudstream + network + common modules)
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:network:testDebugUnitTest :core:common:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

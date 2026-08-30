@@ -194,6 +194,12 @@ class CloudflareKiller : Interceptor {
          * challenge-shaped statuses are inspected (403/429/503 always; 200 HTML
          * gets a cheap first-chunk scan because some CF modes interstitial with
          * 200). A plain origin 403 that contains no CF markers is NOT a challenge.
+         *
+         * Task 49 (R9-A FM-8): a 200-HTML page needs ≥2 DISTINCT markers — legit
+         * pages embedding a Cloudflare Turnstile widget (more and more video
+         * hosts do) contain a single `challenges.cloudflare.com`/`cf-chl`
+         * reference and would otherwise be mis-solved as a challenge, poisoning
+         * the host for 60s and burning the per-host solve lock.
          */
         internal fun isChallengeResponse(response: Response): Boolean {
             val code = response.code
@@ -202,7 +208,8 @@ class CloudflareKiller : Interceptor {
             if (code != 403 && code != 429 && code != 503) {
                 // Cheap 200-interstitial scan: only HTML, only the first chunk.
                 if (code == 200 && response.header("content-type")?.contains("html", ignoreCase = true) == true) {
-                    return bodyHasChallengeMarkers(response)
+                    val markers = countChallengeMarkers(response)
+                    return markers >= 2
                 }
                 return false
             }
@@ -217,6 +224,14 @@ class CloudflareKiller : Interceptor {
                 val peek = response.peekBody(16 * 1024).string()
                 CHALLENGE_MARKERS.any { peek.contains(it, ignoreCase = true) }
             }.getOrDefault(false)
+        }
+
+        /** How many DISTINCT challenge markers the body carries (Task 49). */
+        private fun countChallengeMarkers(response: Response): Int {
+            return runCatching {
+                val peek = response.peekBody(16 * 1024).string()
+                CHALLENGE_MARKERS.count { peek.contains(it, ignoreCase = true) }
+            }.getOrDefault(0)
         }
     }
 
@@ -267,7 +282,7 @@ class CloudflareKiller : Interceptor {
         val merged = (saved ?: emptyMap()) + manual
         val initial = if (merged.isNotEmpty()) withClearance(request, merged) else request
         if (manual.isNotEmpty() && saved == null) {
-            android.util.Log.i(TAG, "cf: attaching ${manual.size} manual-WebView cookie(s) for $host")
+            com.lagradost.api.Log.i(TAG, "cf: attaching ${manual.size} manual-WebView cookie(s) for $host")
         }
 
         val response = chain.proceed(initial)
@@ -277,11 +292,11 @@ class CloudflareKiller : Interceptor {
         // 2. Challenge. Fast-fail if a solve just failed for this host.
         val lastFail = failedSolves[host]
         if (lastFail != null && System.currentTimeMillis() - lastFail < FAILED_SOLVE_COOLDOWN_MS) {
-            android.util.Log.w(TAG, "cf: challenge on $host — solve on cooldown (recent failure), failing fast")
+            com.lagradost.api.Log.w(TAG, "cf: challenge on $host — solve on cooldown (recent failure), failing fast")
             throw CloudflareBlockedException(host, "recent solve failed, retry later")
         }
 
-        android.util.Log.w(
+        com.lagradost.api.Log.w(
             TAG,
             "cf: challenge detected on $host (code=${response.code} path=${request.url.encodedPath}) — solving via WebView",
         )
@@ -294,14 +309,14 @@ class CloudflareKiller : Interceptor {
             if (nowSaved != null) {
                 val quickRetry = chain.proceed(withClearance(request, nowSaved))
                 if (!isChallengeResponse(quickRetry)) {
-                    android.util.Log.i(TAG, "cf: reused concurrent solve on $host")
+                    com.lagradost.api.Log.i(TAG, "cf: reused concurrent solve on $host")
                     return quickRetry
                 }
                 quickRetry.close()
             }
 
             val solved = runCatching { solveViaWebView(request.url) }.getOrElse { t ->
-                android.util.Log.w(
+                com.lagradost.api.Log.w(
                     TAG,
                     "cf: WebView solve error on $host: ${t::class.java.simpleName}: ${t.message}",
                 )
@@ -319,11 +334,11 @@ class CloudflareKiller : Interceptor {
             if (isChallengeResponse(replayed)) {
                 replayed.close()
                 failedSolves[host] = System.currentTimeMillis()
-                android.util.Log.w(TAG, "cf: replay still challenged on $host — giving up this round")
+                com.lagradost.api.Log.w(TAG, "cf: replay still challenged on $host — giving up this round")
                 throw CloudflareBlockedException(host, "replay still challenged")
             }
 
-            android.util.Log.i(TAG, "cf: bypassed challenge on $host (${solved.size} cookies cached)")
+            com.lagradost.api.Log.i(TAG, "cf: bypassed challenge on $host (${solved.size} cookies cached)")
             return replayed
         }
     }
@@ -341,23 +356,36 @@ class CloudflareKiller : Interceptor {
     // ── Headless WebView solver ────────────────────────────────────────────────
 
     /**
-     * Loads [url] in a headless WebView on the MAIN thread and waits for the
-     * challenge to clear (the `cf_clearance` cookie to appear) or the timeout.
-     * Returns ALL cookies the WebView holds for the domain — even a partial set
-     * can unblock the replay (the replay itself is the final judge).
+     * Loads [url] in a WebView on the MAIN thread and waits for the challenge
+     * to clear (the `cf_clearance` cookie to appear) or the timeout. Returns
+     * ALL cookies the WebView holds for the domain — even a partial set can
+     * unblock the replay (the replay itself is the final judge).
+     *
+     * Task 49 (round 9 — CF-solver parity with the original app):
+     *  • the WebView is ATTACHED to the live activity's decor view (1dp) while
+     *    solving — challenge JS inspects `document.visibilityState`/attachment
+     *    and a detached headless view fails checks the original app's (attached)
+     *    solver passes. No-activity / attach failure → the old detached path.
+     *  • the CHALLENGED PATH is loaded (not the host root) — path-bound
+     *    rate-limits then also clear, and the solve is faithful to what the
+     *    browser would actually run.
      */
     @SuppressLint("SetJavaScriptEnabled")
     private fun solveViaWebView(url: HttpUrl): Map<String, String>? {
         val context: Context = CloudStreamApp.context
             ?: CommonActivity.activity?.applicationContext
             ?: run {
-                android.util.Log.w(TAG, "cf: no Context available for WebView solve")
+                com.lagradost.api.Log.w(TAG, "cf: no Context available for WebView solve")
                 return null
             }
 
         val mainHandler = Handler(Looper.getMainLooper())
         val latch = CountDownLatch(1)
         val cookieUrl = "https://${url.host}"
+        // Task 49: solve the actual challenged URL (cookie scope stays
+        // domain-wide — CookieManager keys on the host — but the challenge JS
+        // runs on the path the CDN actually gated).
+        val solveUrl = url.toString()
         var result: Map<String, String>? = null
 
         val posted = mainHandler.post {
@@ -389,7 +417,7 @@ class CloudflareKiller : Interceptor {
                         when {
                             raw != null && raw.contains("cf_clearance") -> {
                                 result = parseCookieMap(raw)
-                                android.util.Log.i(
+                                com.lagradost.api.Log.i(
                                     TAG,
                                     "cf: early clearance on ${url.host} " +
                                         "(+${System.currentTimeMillis() - startedAt}ms) — done",
@@ -398,7 +426,7 @@ class CloudflareKiller : Interceptor {
                             }
                             raw == null && firstPageFinishAt > 0 &&
                                 System.currentTimeMillis() - firstPageFinishAt >= ZERO_COOKIE_GRACE_MS -> {
-                                android.util.Log.w(
+                                com.lagradost.api.Log.w(
                                     TAG,
                                     "cf: ZERO cookies ${ZERO_COOKIE_GRACE_MS}ms after page finish " +
                                         "on ${url.host} — headless solve impossible (interactive " +
@@ -422,7 +450,7 @@ class CloudflareKiller : Interceptor {
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView, finishedUrl: String) {
                             val raw = cookieManager.getCookie(cookieUrl)
-                            android.util.Log.d(
+                            com.lagradost.api.Log.d(
                                 TAG,
                                 "cf: WebView page finished ($finishedUrl) cookies=${raw != null}",
                             )
@@ -448,16 +476,39 @@ class CloudflareKiller : Interceptor {
                             // will ever run — stop early instead of burning the
                             // full timeout.
                             if (request.isForMainFrame) {
-                                android.util.Log.w(TAG, "cf: WebView main-frame error: ${error.description}")
+                                com.lagradost.api.Log.w(TAG, "cf: WebView main-frame error: ${error.description}")
                                 latch.countDown()
                             }
                         }
                     }
                 }
 
-                android.util.Log.i(TAG, "cf: WebView loading $cookieUrl (ua=${USER_AGENT.take(40)}…)")
-                webView?.loadUrl(cookieUrl)
+                com.lagradost.api.Log.i(TAG, "cf: WebView loading $solveUrl (ua=${USER_AGENT.take(40)}…)")
+                webView?.loadUrl(solveUrl)
                 mainHandler.postDelayed(cookieProbe, COOKIE_POLL_MS)
+
+                // Task 49: ATTACH the WebView to the live activity (1dp, over
+                // everything but visually negligible) — attached views pass
+                // visibility/attachment probes in challenge JS that detached
+                // headless views fail (the original app solves inside a real
+                // activity). Best-effort: no activity / finishing → stay detached.
+                val attachTarget = CommonActivity.activity
+                if (attachTarget != null &&
+                    !attachTarget.isFinishing &&
+                    !attachTarget.isDestroyed
+                ) {
+                    runCatching {
+                        val decor = attachTarget.window?.decorView as? android.view.ViewGroup
+                        val view = webView
+                        if (decor != null && view != null) {
+                            decor.addView(view, android.view.ViewGroup.LayoutParams(1, 1))
+                            com.lagradost.api.Log.i(
+                                TAG,
+                                "cf: WebView attached to ${attachTarget.javaClass.simpleName} for solving",
+                            )
+                        }
+                    }
+                }
 
                 // Watchdog: capture whatever cookies exist at timeout (partial
                 // sets sometimes unblock the replay) and release the latch.
@@ -470,13 +521,17 @@ class CloudflareKiller : Interceptor {
                     SOLVE_TIMEOUT_MS,
                 )
             } catch (t: Throwable) {
-                android.util.Log.w(TAG, "cf: WebView setup failed: ${t::class.java.simpleName}: ${t.message}")
+                com.lagradost.api.Log.w(TAG, "cf: WebView setup failed: ${t::class.java.simpleName}: ${t.message}")
                 latch.countDown()
             } finally {
                 // WebView teardown must also happen on the main thread, after the
                 // latch released — schedule it generously behind the watchdog.
                 mainHandler.postDelayed(
                     {
+                        runCatching {
+                            // Task 49: detach first (attached solver), then destroy.
+                            (webView?.parent as? android.view.ViewGroup)?.removeView(webView)
+                        }
                         runCatching { webView?.stopLoading() }
                         runCatching { webView?.destroy() }
                     },
@@ -486,7 +541,7 @@ class CloudflareKiller : Interceptor {
         }
 
         if (!posted) {
-            android.util.Log.w(TAG, "cf: main-thread post failed")
+            com.lagradost.api.Log.w(TAG, "cf: main-thread post failed")
             return null
         }
 

@@ -538,6 +538,13 @@ suspend fun loadExtractor(
  * extractor is loaded. Dispatch (our own implementation of the documented contract,
  * doc 03 §6): reverse registration order (newest extractor wins), URL prefix match
  * after schema/www strip, then a fuzzy mirror-domain pass (partial-ratio > 80).
+ *
+ * Task 49 (round 9 — THE DEAD-DISPATCH BUG, R9-A FM-1): the URL was normalized
+ * (scheme + www stripped) but `extractor.mainUrl` was NOT — "dood.la/e/x"
+ * never startsWith "https://dood.la", so pass 1 could never match and the fuzzy
+ * pass scored 6–27 against a threshold of 80. Every loadExtractor-based provider
+ * (53/80 census plugins) silently resolved 0 links. Both sides are now normalized
+ * with [normalizeForDispatch] (http AND https, optional www, trailing slash).
  */
 @Throws(CancellationException::class)
 suspend fun loadExtractor(
@@ -547,19 +554,13 @@ suspend fun loadExtractor(
     callback: (ExtractorLink) -> Unit,
 ): Boolean {
     if (url.isBlank()) return false
-    val currentUrl = url.lowercase().let {
-        if (it.startsWith("https") || it.startsWith("http")) {
-            schemaStripRegex.replace(url, "")
-        } else {
-            url
-        }
-    }
+    val currentUrl = normalizeForDispatch(url)
 
     // Pass 1: exact prefix match, reverse registration order.
     val target = extractorApis.withLock { extractorApis.toList() }
     for (index in target.indices.reversed()) {
         val extractor = target[index]
-        if (currentUrl.startsWith(extractor.mainUrl.lowercase(), 0)) {
+        if (currentUrl.startsWith(normalizeForDispatch(extractor.mainUrl), 0)) {
             extractor.getSafeUrl(url, referer, subtitleCallback, callback)
             return true
         }
@@ -568,13 +569,39 @@ suspend fun loadExtractor(
     // Pass 2: fuzzy mirror-domain match.
     for (index in target.indices.reversed()) {
         val extractor = target[index]
-        if (partialRatio(extractor.mainUrl.lowercase(), currentUrl) > 80) {
+        if (partialRatio(normalizeForDispatch(extractor.mainUrl), currentUrl) > 80) {
             extractor.getSafeUrl(url, referer, subtitleCallback, callback)
             return true
         }
     }
+    // Task 49: silent `return false` made dead dispatch invisible for a whole
+    // device round — name the unmatched host so the console shows WHY an embed
+    // produced zero links (feeds the on-device log console + logcat export).
+    com.lagradost.api.Log.w(
+        "Anikuta:Data:Cloudstream:Extract",
+        "loadExtractor: no extractor for ${currentUrl.take(60)} (registry=${target.size}) " +
+            "— the embed's host is unsupported; its server will yield no links",
+    )
     return false
 }
+
+/**
+ * Task 49 (dead-dispatch fix): canonical dispatch form — strips http(s):// and
+ * www., lowercases, trims a trailing slash. Applied to BOTH the embed URL and
+ * every registered extractor mainUrl so prefix comparison is apples-to-apples
+ * (the pre-fix code kept the scheme on the mainUrl side, which can never match).
+ */
+internal fun normalizeForDispatch(url: String): String {
+    var normalized = url.trim().lowercase()
+    normalized = dispatchStripRegex.replace(normalized, "")
+    while (normalized.endsWith("/")) {
+        normalized = normalized.dropLast(1)
+    }
+    return normalized
+}
+
+/** http/https + optional www. — unlike [schemaStripRegex] this also covers plain `http://`. */
+private val dispatchStripRegex = Regex("""^(https?://)?(www\.)?""")
 
 /** Our own bounded Levenshtein partial-ratio (0-100) for mirror-domain matching. */
 private fun partialRatio(a: String, b: String): Int {
@@ -691,6 +718,11 @@ abstract class ExtractorApi {
             getUrl(url, referer, subtitleCallback, callback)
         } catch (e: Exception) {
             if (e is KCancellationException) throw e
+            // Task 49 (R9-A FM-6): a Cloudflare block is a DIAGNOSTIC root cause,
+            // not extractor noise — rethrow so the bridge/resolver surfaces "X is
+            // blocking the app with Cloudflare" instead of a generic 0-links
+            // failure (previously swallowed here, masking the real reason).
+            if (e is com.lagradost.cloudstream3.network.CloudflareBlockedException) throw e
             com.lagradost.api.Log.e("ExtractorApi", "getSafeUrl error: ${e.message}")
         }
     }

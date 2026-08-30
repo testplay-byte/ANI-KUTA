@@ -75,7 +75,7 @@ class NiceResponse(
                     if (total >= MAX_TEXT_SIZE) truncatedAtCap = true
                 }
                 if (truncatedAtCap) {
-                    android.util.Log.w(
+                    com.lagradost.api.Log.w(
                         NET_LOG_TAG,
                         "body: capped read at ${MAX_TEXT_SIZE} bytes for ${okhttpResponse.request.url} " +
                             "(body is larger — use .textLarge/.documentLarge if the plugin needs it all)",
@@ -182,7 +182,7 @@ class NiceResponse(
             .replace('\n', ' ')
             .replace('\r', ' ')
             .take(90)
-        android.util.Log.i(
+        com.lagradost.api.Log.i(
             NET_LOG_TAG,
             "body: read ${text.length} chars (large=$large) code=${okhttpResponse.code} " +
                 "url=${okhttpResponse.request.url} first=\"$snippet\"",

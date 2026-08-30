@@ -58,7 +58,6 @@ class VideoResolver {
             val entries = withContext(Dispatchers.IO) {
                 resolveVideoEntries(source, episode)
             }
-            Logger.d(TAG) { "Fetched ${entries.size} raw video entries from ${source.name}" }
 
             val validEntries = entries.filter { it.video.videoUrl.isNotBlank() }
             if (validEntries.size < entries.size) {
@@ -129,6 +128,9 @@ class VideoResolver {
         return servers
     }
 
+    /** A resolution failure captured while isolating per-hoster/per-call errors. */
+    private class CapturedFailure(val throwable: Throwable, val stage: String)
+
     /**
      * Try getHosterList first (ext-lib 16+), fall back to getVideoList.
      * Returns VideoEntry list (carries hoster name alongside each video).
@@ -136,19 +138,41 @@ class VideoResolver {
      * Task 47: the timeout budget is the SOURCE's own [AnimeHttpSource.videoListTimeoutMs]
      * (CloudStream providers declare up to 8 min — a fixed 30 s cut multi-
      * extractor resolution short).
+     *
+     * Task 49 (R9-A FM-2 — the error black hole): every failure used to collapse
+     * into `emptyList()` and the caller emitted a GENERIC "No videos available",
+     * discarding the bridge's detailed IllegalStateException / Cloudflare-
+     * blocked / timeout reasons. Failures are now captured while isolation is
+     * preserved (one dead hoster never aborts the others); when the FINAL result
+     * is empty, the captured failure is rethrown so [resolve] surfaces the REAL
+     * reason in the resolver sheet (which displays the message verbatim).
      */
     private suspend fun resolveVideoEntries(
         source: AnimeHttpSource,
         episode: SEpisode,
     ): List<VideoEntry> {
+        var failure: CapturedFailure? = null
+
         val hosters = try {
             withTimeoutOrNull(source.videoListTimeoutMs) {
                 source.getHosterList(episode)
-            } ?: emptyList()
+            } ?: run {
+                // null = the budget expired — capture (don't throw: the fallback
+                // getVideoList path below may still resolve).
+                failure = CapturedFailure(
+                    IllegalStateException("Resolution timed out after ${source.videoListTimeoutMs / 1000}s (getHosterList)"),
+                    "getHosterList",
+                )
+                Logger.w(TAG) { "getHosterList timed out after ${source.videoListTimeoutMs}ms for ${source.name}" }
+                emptyList()
+            }
         } catch (e: IllegalStateException) {
+            // The CloudStream bridge intentionally throws ISE("getHosterList not
+            // supported…") for instant fallback — NOT a failure worth capturing.
             Logger.d(TAG) { "getHosterList not supported by ${source.name}, falling back to getVideoList" }
             emptyList()
         } catch (e: Throwable) {
+            failure = failure ?: CapturedFailure(e, "getHosterList")
             Logger.w(TAG, e) { "getHosterList failed for ${source.name}: ${e.message}" }
             emptyList()
         }
@@ -168,29 +192,44 @@ class VideoResolver {
                     try {
                         val resolved = withTimeoutOrNull(source.videoListTimeoutMs) {
                             source.getVideoList(hoster)
-                        } ?: emptyList()
+                        } ?: run {
+                            failure = failure ?: CapturedFailure(
+                                IllegalStateException("Hoster '${hoster.hosterName}' timed out after ${source.videoListTimeoutMs / 1000}s"),
+                                "getVideoList(hoster)",
+                            )
+                            emptyList()
+                        }
                         for (video in resolved) {
                             entries.add(VideoEntry(video, hoster.hosterName))
                         }
                     } catch (e: Throwable) {
+                        failure = failure ?: CapturedFailure(e, "getVideoList(hoster=${hoster.hosterName})")
                         Logger.w(TAG, e) { "getVideoList for hoster ${hoster.hosterName} failed: ${e.message}" }
                     }
                 }
+            }
+            if (entries.isEmpty()) {
+                // Every hoster failed and nothing resolved — rethrow the first
+                // captured failure so the user sees WHY (not "No videos available").
+                failure?.let { throw it.throwable }
             }
             return entries
         }
 
         // Fallback: old direct API (ext-lib < 16) — no hoster names available.
         Logger.d(TAG) { "Falling back to getVideoList(episode) for ${source.name}" }
-        return try {
-            val videos = withTimeoutOrNull(source.videoListTimeoutMs) {
+        val videos = try {
+            withTimeoutOrNull(source.videoListTimeoutMs) {
                 source.getVideoList(episode)
-            } ?: emptyList()
-            videos.map { VideoEntry(it, null) }
+            } ?: run {
+                Logger.w(TAG) { "getVideoList(episode) timed out after ${source.videoListTimeoutMs}ms for ${source.name}" }
+                throw IllegalStateException("Resolution timed out after ${source.videoListTimeoutMs / 1000}s")
+            }
         } catch (e: Throwable) {
             Logger.e(TAG, e) { "getVideoList(episode) failed for ${source.name}: ${e.message}" }
-            emptyList()
+            throw e
         }
+        return videos.map { VideoEntry(it, null) }
     }
 
     /**
@@ -213,7 +252,9 @@ class VideoResolver {
     private fun formatError(e: Throwable): String {
         val type = e::class.java.simpleName
         val msg = e.message ?: "Unknown error"
-        return "$type: $msg"
+        // Task 49: bound the sheet message — ResolverSheet renders it verbatim
+        // and some provider exceptions carry whole stack pages.
+        return ("$type: $msg").take(300)
     }
 
     private fun formatHeaders(headers: okhttp3.Headers?): String {

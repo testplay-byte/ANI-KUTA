@@ -35,6 +35,8 @@ import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.utils.DrmExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.M3u8Helper
+import com.lagradost.cloudstream3.utils.MpdParser
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
@@ -264,25 +266,39 @@ class CloudstreamAnimeSourceBridge(
             )
         }
 
+        // ── Task 49: HLS/DASH expansion pass ──
+        // Master .m3u8 links become one Video PER QUALITY VARIANT (the original
+        // app's picker behavior); static single-file .mpd DASH links become
+        // directly playable progressive URLs. Both are bounded, fault-isolated
+        // and FAIL-OPEN (any error keeps the original link / hides only the
+        // DASH link, never aborts the whole resolution).
+        val expandedLinks = expandHlsAndDashLinks(links.toList())
+
         // ── Mapping: ExtractorLink → Video ──
         var hiddenCount = 0
+        var droppedCount = 0
         val seenUrls = HashSet<String>()
         val mirrorIndex = HashMap<String, Int>()
         val collectedSubtitles = subtitles.toList()
-        val videos = links.mapNotNull { link ->
+        val videos = expandedLinks.mapNotNull { link ->
             when {
                 link is DrmExtractorLink -> {
                     hiddenCount++
                     null
                 }
-                link.type == ExtractorLinkType.DASH ||
-                    link.type == ExtractorLinkType.TORRENT ||
+                link.type == ExtractorLinkType.TORRENT ||
                     link.type == ExtractorLinkType.MAGNET -> {
                     hiddenCount++
                     null
                 }
-                link.url.isBlank() -> null
-                !seenUrls.add(link.url) -> null
+                link.url.isBlank() -> {
+                    droppedCount++
+                    null
+                }
+                !seenUrls.add(link.url) -> {
+                    droppedCount++
+                    null
+                }
                 else -> link.toVideo(collectedSubtitles, mirrorIndex)
             }
         }
@@ -291,14 +307,18 @@ class CloudstreamAnimeSourceBridge(
             val byType = links.groupBy { it.type }.entries
                 .joinToString(", ") { (type, list) -> "${type.name}=${list.size}" }
             "links: '$providerName' finished in ${System.currentTimeMillis() - startedAt}ms — " +
-                "${videos.size} playable video(s) [$byType hidden=$hiddenCount] " +
+                "${videos.size} playable video(s) [$byType hidden=$hiddenCount dropped=$droppedCount] " +
                 "subs=${collectedSubtitles.size} audio=${links.sumOf { it.audioTracks.size }} " +
                 "sample=[${videos.take(3).joinToString { it.videoTitle.take(40) }}]"
         }
         if (videos.isEmpty()) {
+            val reasons = buildList {
+                if (hiddenCount > 0) add("$hiddenCount DRM/DASH/torrent link(s) hidden")
+                if (droppedCount > 0) add("$droppedCount blank/duplicate link(s) dropped")
+            }
             throw IllegalStateException(
-                "CloudStream '$providerName': no playable links for this episode " +
-                    (if (hiddenCount > 0) "($hiddenCount unsupported DRM/DASH/torrent link(s) hidden)" else ""),
+                "CloudStream '$providerName': no playable links for this episode" +
+                    (if (reasons.isNotEmpty()) " (${reasons.joinToString(", ")})" else ""),
             )
         }
         return videos
@@ -364,6 +384,181 @@ class CloudstreamAnimeSourceBridge(
                 Track(audio.url, "Audio ${index + 1}")
             },
         )
+    }
+
+    // ── Task 49: HLS master expansion + DASH surfacing ─────────────────────
+
+    /**
+     * Round-9 general-compatibility pass over the raw [ExtractorLink]s before
+     * Video mapping (R9-C recommendations b + a):
+     *
+     * • **HLS quality selection** — an M3U8 link the plugin did NOT label with
+     *   a quality (raw master playlists, e.g. MovieBox's play-info streams) is
+     *   fetched once and expanded into one link per quality variant, mirroring
+     *   the original app's per-quality picker. Media playlists / fetch
+     *   failures → the original link survives untouched (fail-open).
+     *
+     * • **DASH surfacing** — a .mpd link is fetched and parsed ([MpdParser]):
+     *   a STATIC manifest whose representations are complete single files
+     *   becomes directly playable VIDEO links (the BaseURL is the whole file —
+     *   MPV plays it progressively; separate audio rides the audioTracks
+     *   plumbing as mpv `audio-add`). Dynamic / multi-segment manifests stay
+     *   hidden but are LOGGED so the next device round knows exactly what
+     *   MovieBox serves.
+     *
+     * Bounds: ≤[MAX_HLS_EXPANSION_FETCHES] master fetches and ≤[MAX_MPD_SNIFFS]
+     * manifest fetches per resolution, [EXPANSION_FETCH_TIMEOUT_MS] each — the
+     * pass can add at most a few seconds to the worst case and nothing to the
+     * providers that pre-expand (AniKoto/AllMovieLand label their variants, so
+     * their links skip expansion entirely).
+     */
+    private suspend fun expandHlsAndDashLinks(links: List<ExtractorLink>): List<ExtractorLink> {
+        if (links.isEmpty()) return links
+        val out = mutableListOf<ExtractorLink>()
+        var hlsFetches = 0
+        var mpdFetches = 0
+        for (link in links) {
+            when {
+                link.type == ExtractorLinkType.M3U8 &&
+                    hlsFetches < MAX_HLS_EXPANSION_FETCHES &&
+                    needsHlsExpansion(link) -> {
+                    hlsFetches++
+                    out += expandMasterPlaylist(link)
+                }
+                link.type == ExtractorLinkType.DASH &&
+                    mpdFetches < MAX_MPD_SNIFFS &&
+                    link.url.isNotBlank() -> {
+                    mpdFetches++
+                    out += surfaceDashManifest(link)
+                }
+                else -> out += link
+            }
+        }
+        return out
+    }
+
+    /**
+     * A master needs expansion when neither the label nor the quality carries
+     * a height. Qualities.Unknown (400) is NOT a height (the same convention
+     * [toVideo] uses) — raw masters arrive with Unknown quality.
+     */
+    private fun needsHlsExpansion(link: ExtractorLink): Boolean =
+        !qualityTokenRegex.containsMatchIn(link.name) &&
+            (link.quality !in 100..2160 || link.quality == 400)
+
+    /** Fetch the playlist and fan out variants; ANY failure keeps the original link. */
+    private suspend fun expandMasterPlaylist(link: ExtractorLink): List<ExtractorLink> {
+        val variants = try {
+            kotlinx.coroutines.withTimeoutOrNull(EXPANSION_FETCH_TIMEOUT_MS) {
+                val response = com.lagradost.cloudstream3.app.get(
+                    link.url,
+                    referer = link.referer,
+                    headers = link.getAllHeaders(),
+                )
+                val text = response.text
+                if (!text.startsWith("#EXTM3U")) null
+                else M3u8Helper.parseMasterPlaylist(text, link.url)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Logger.d(TAG) { "hls: master expansion skipped for ${link.url.take(60)} — ${t.message}" }
+            null
+        }
+        if (variants == null || variants.size <= 1) {
+            // Media playlist, unparseable, or a single variant — nothing gained.
+            return listOf(link)
+        }
+        Logger.i(TAG) {
+            "hls: expanded master ${link.url.take(70)} → ${variants.size} variants " +
+                "(${variants.mapNotNull { it.quality }.joinToString("/") { "$it" }}p)"
+        }
+        return variants.take(MAX_VARIANTS_PER_MASTER).map { variant ->
+            ExtractorLink(
+                source = link.source,
+                name = link.name,
+                url = variant.streamUrl,
+                referer = link.referer,
+                quality = variant.quality ?: link.quality,
+                headers = link.headers,
+                extractorData = link.extractorData,
+                type = ExtractorLinkType.M3U8,
+                audioTracks = link.audioTracks,
+            )
+        }
+    }
+
+    /**
+     * Sniff a .mpd manifest. Returns playable VIDEO links (possibly with an
+     * attached audio track) or NOTHING (the link stays hidden — but the reason
+     * is logged for device diagnostics).
+     */
+    private suspend fun surfaceDashManifest(link: ExtractorLink): List<ExtractorLink> {
+        val headers = link.getAllHeaders()
+        val manifestText = try {
+            kotlinx.coroutines.withTimeoutOrNull(EXPANSION_FETCH_TIMEOUT_MS) {
+                com.lagradost.cloudstream3.app.get(link.url, referer = link.referer, headers = headers).text
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Logger.w(TAG) { "mpd: manifest fetch failed for ${link.url.take(60)} — ${t.message} (staying hidden)" }
+            null
+        }
+        if (manifestText == null) return emptyList()
+
+        val info = MpdParser.parse(manifestText, link.url)
+        return when {
+            info.dynamic -> {
+                Logger.i(TAG) {
+                    "mpd: hidden DYNAMIC manifest ${link.url.take(60)} " +
+                        "(video=${info.videoReps.size} audio=${info.audioReps.size}) — live manifests need a DASH client"
+                }
+                emptyList()
+            }
+            info.videoReps.none { it.singleFile && it.url.isNotBlank() } -> {
+                Logger.i(TAG) {
+                    "mpd: hidden multi-segment static manifest ${link.url.take(60)} " +
+                        "(video=${info.videoReps.size} audio=${info.audioReps.size}, " +
+                        "segmentTemplate=${info.videoReps.count { !it.singleFile }}) — segment-based DASH needs a DASH client"
+                }
+                emptyList()
+            }
+            else -> {
+                val playableVideoReps = info.videoReps
+                    .filter { it.singleFile && it.url.isNotBlank() }
+                    .sortedByDescending { it.height ?: 0 }
+                    .take(MAX_DASH_REPS_PER_MANIFEST)
+                val audioRep = info.audioReps.firstOrNull { it.singleFile && it.url.isNotBlank() }
+                Logger.i(TAG) {
+                    "mpd: surfaced ${playableVideoReps.size} static DASH rendition(s) " +
+                        "(${playableVideoReps.mapNotNull { it.height }.joinToString("/") { "$it" }}p" +
+                        (if (audioRep != null) " + audio" else "") + ") from ${link.url.take(60)}"
+                }
+                playableVideoReps.map { rep ->
+                    val audioTracks = if (audioRep != null) {
+                        listOf(
+                            com.lagradost.cloudstream3.newAudioFile(audioRep.url).apply {
+                                this.headers = headers
+                            },
+                        )
+                    } else {
+                        emptyList()
+                    }
+                    ExtractorLink(
+                        source = link.source,
+                        name = link.name,
+                        url = rep.url,
+                        referer = link.referer,
+                        quality = rep.height ?: link.quality,
+                        headers = link.headers,
+                        extractorData = link.extractorData,
+                        type = ExtractorLinkType.VIDEO,
+                        audioTracks = audioTracks,
+                    )
+                }
+            }
+        }
     }
 
     // ── AnimeHttpSource request/parse plumbing — NEVER called (all suspend
@@ -553,6 +748,22 @@ class CloudstreamAnimeSourceBridge(
 
     companion object {
         internal const val TAG = "Anikuta:Data:Cloudstream:Bridge"
+
+        // ── Task 49: HLS/DASH expansion bounds (R9-PLAN reviewed) ──
+        /** Master-playlist fetches per resolution (labeled variants skip expansion). */
+        internal const val MAX_HLS_EXPANSION_FETCHES = 4
+
+        /** Manifest fetches per resolution (MovieBox serves 5 .mpd — we sniff 2). */
+        internal const val MAX_MPD_SNIFFS = 2
+
+        /** Per-fetch budget — fail-open keeps the original link on expiry. */
+        internal const val EXPANSION_FETCH_TIMEOUT_MS = 5_000L
+
+        /** Quality variants surfaced per master (CDNs listing 15 variants stay sane). */
+        internal const val MAX_VARIANTS_PER_MASTER = 8
+
+        /** DASH renditions surfaced per static single-file manifest. */
+        internal const val MAX_DASH_REPS_PER_MANIFEST = 4
     }
 }
 

@@ -9,10 +9,45 @@ package com.lagradost.api
 
 import android.util.Log as AndroidLog
 
-/** Plugin-facing logging facade — routes straight into android.util.Log. */
+/**
+ * Plugin-facing logging facade — routes straight into android.util.Log.
+ *
+ * Task 49 (round 9 — the console logging tool): two hardenings.
+ *
+ * 1. **runCatching around android.util.Log** — plain JVM unit tests (the
+ *    cloudstream-api test sourceset) hit "Method … not mocked" RuntimeExceptions
+ *    the moment any code under test logs; wrapped, logging becomes a no-op
+ *    off-device instead of a test killer.
+ *
+ * 2. **[sink]** — an optional in-process tap the app installs at startup so
+ *    PLUGIN logging (plugins call `Log.i("TAG", …)` — 48/80 of them) and the
+ *    vendored CS layer's raw-Log sites reach the user-facing console
+ *    (Settings → Developer tools → Console logs) and its logcat export.
+ *    The sink NEVER replaces logcat output, only mirrors it. cloudstream-api
+ *    deliberately does not depend on :core:common (module graph), so the hook
+ *    is set from the app side.
+ */
 object Log {
-    fun d(tag: String, message: String) = AndroidLog.d(tag, message)
-    fun i(tag: String, message: String) = AndroidLog.i(tag, message)
-    fun w(tag: String, message: String) = AndroidLog.w(tag, message)
-    fun e(tag: String, message: String) = AndroidLog.e(tag, message)
+    /** Mirrors every facade call; installed by the app process. Must be cheap + never throw. */
+    @Volatile
+    var sink: ((level: Level, tag: String, message: String) -> Unit)? = null
+
+    enum class Level { D, I, W, E }
+
+    private fun emit(level: Level, tag: String, message: String) {
+        runCatching {
+            when (level) {
+                Level.D -> AndroidLog.d(tag, message)
+                Level.I -> AndroidLog.i(tag, message)
+                Level.W -> AndroidLog.w(tag, message)
+                Level.E -> AndroidLog.e(tag, message)
+            }
+        }
+        runCatching { sink?.invoke(level, tag, message) }
+    }
+
+    fun d(tag: String, message: String) = emit(Level.D, tag, message)
+    fun i(tag: String, message: String) = emit(Level.I, tag, message)
+    fun w(tag: String, message: String) = emit(Level.W, tag, message)
+    fun e(tag: String, message: String) = emit(Level.E, tag, message)
 }

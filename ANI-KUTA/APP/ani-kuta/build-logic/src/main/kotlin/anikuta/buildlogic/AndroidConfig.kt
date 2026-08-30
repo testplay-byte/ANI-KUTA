@@ -102,8 +102,41 @@ object AndroidConfig {
     // files showed valid JSON + stale tails; now "rwt" + delete-recreate
     // fallback + a per-folder write mutex against interleaved read-modify-
     // writes).
-    const val versionCode = 70
-    const val versionName = "0.2.70"
+    // v0.2.71 (Task 49, device round 9 — "no extension resolves any videos"):
+    // (1) THE DEAD-DISPATCH FIX — loadExtractor normalized the embed URL but
+    // NOT the extractor mainUrl (scheme stayed on one side), so dispatch could
+    // never match: every embed-based provider (53/80 census plugins) silently
+    // resolved 0 links. Both sides now normalized (http/https + www + trailing
+    // slash), no-match logs a WARN naming the host, CloudflareBlockedException
+    // rethrows out of getSafeUrl (root cause no longer masked), and
+    // LoadExtractorDispatchTest locks the contract;
+    // (2) ERROR VISIBILITY — VideoResolver swallowed every bridge/provider
+    // exception into a generic "No videos available"; failures are now
+    // captured per-hoster (isolation kept) and rethrown when the final result
+    // is empty, so the resolver sheet shows the REAL reason (CF block, timeout,
+    // provider down, hidden-count); timeouts get distinct messages;
+    // DetailsViewModel's linked==null silent no-op becomes an honest error;
+    // (3) THE CONSOLE LOGGING TOOL — release-available in-app log console
+    // (Settings → Developer tools → Console logs) over a new RingLogBuffer in
+    // :core:common wired in ALL builds (Logger min-level INFO in release,
+    // D-362); the com.lagradost.api.Log facade (plugin logging!) mirrors into
+    // the ring via a sink + runCatching (JVM-test-safe); WebViewResolver /
+    // CsNetLoggingInterceptor / NiceResponse raw-Log sites mirrored; export =
+    // version/device header + ring snapshot + own-process logcat → share sheet
+    // via the existing FileProvider;
+    // (4) HLS QUALITY SELECTION — the bridge now expands unlabeled M3U8
+    // masters into one link per quality variant (M3u8Helper.parseMasterPlaylist
+    // extracted pure + tested; fail-open; ≤4 fetches/resolve, ≤8 variants);
+    // (5) DASH SURFACING — MpdParser (XXE-hardened): static single-file .mpd
+    // manifests become directly playable VIDEO links (separate audio rides the
+    // mpv audio-add plumbing); dynamic/multi-segment stay hidden but LOGGED;
+    // (6) CF SOLVER HARDENING — 200-HTML challenges now need ≥2 markers
+    // (Turnstile-embedding pages false-positived), the solver loads the
+    // CHALLENGED PATH (not host root), and the WebView ATTACHES to the live
+    // activity (1dp — attached views pass challenge-JS probes detached ones
+    // fail; the original app solves attached).
+    const val versionCode = 71
+    const val versionName = "0.2.71"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

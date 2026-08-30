@@ -14,6 +14,13 @@
 //   • MEDIA playlists (no variants) → the input stream as-is when returnThis,
 //     else nothing;
 //   • duplicate qualities collapse to the first occurrence.
+//
+// Task 49 (round 9 — HLS quality selection): the variant-parsing loop is
+// extracted into the PURE [parseMasterPlaylist] so the BRIDGE can reuse it
+// (master→variant expansion for providers that hand back an unexpanded master
+// link) and unit-test it without HTTP. The plugin-facing surface
+// (generateM3u8 / m3u8Generation / M3u8Stream) is byte-for-byte compatible —
+// plugin dexes call exactly those members.
 package com.lagradost.cloudstream3.utils
 
 import com.lagradost.cloudstream3.ErrorLoadingException
@@ -26,7 +33,7 @@ class M3u8Helper {
         private val RESOLUTION_REGEX = Regex("""RESOLUTION=(\d+)x(\d+)""")
 
         /** Resolves a (possibly relative) playlist URI against its base URL. */
-        private fun absolutize(uri: String, baseUrl: String): String = runCatching {
+        internal fun absolutize(uri: String, baseUrl: String): String = runCatching {
             java.net.URI(baseUrl).resolve(uri).toString()
         }.getOrDefault(uri)
 
@@ -53,6 +60,54 @@ class M3u8Helper {
                 )
             }
         }
+
+        /**
+         * Task 49: PURE master-playlist parser (no HTTP — testable). Returns the
+         * quality variants of a MASTER playlist with absolutized URIs, or an
+         * EMPTY list for media playlists / anything without variants.
+         */
+        fun parseMasterPlaylist(
+            playlistText: String,
+            playlistUrl: String,
+            fallbackQuality: Int? = null,
+        ): List<M3u8Stream> {
+            val lines = playlistText.lines()
+            val streams = mutableListOf<M3u8Stream>()
+            val seenQualities = mutableSetOf<Int>()
+            var index = 0
+            while (index < lines.size) {
+                val line = lines[index].trim()
+                if (line.startsWith("#EXT-X-STREAM-INF")) {
+                    // The next non-comment, non-blank line is the variant URI.
+                    var uriIndex = index + 1
+                    while (uriIndex < lines.size &&
+                        (lines[uriIndex].isBlank() || lines[uriIndex].startsWith("#"))
+                    ) {
+                        uriIndex++
+                    }
+                    if (uriIndex < lines.size) {
+                        val variantUri = lines[uriIndex].trim()
+                        val height = RESOLUTION_REGEX.find(line)
+                            ?.groupValues?.get(2)?.toIntOrNull()
+                        val quality = height ?: fallbackQuality
+                        // Collapse duplicate qualities (CDNs sometimes list the
+                        // same resolution twice with different bandwidths).
+                        if (quality == null || seenQualities.add(quality)) {
+                            streams.add(
+                                M3u8Stream(
+                                    streamUrl = absolutize(variantUri, playlistUrl),
+                                    quality = quality,
+                                ),
+                            )
+                        }
+                    }
+                    index = uriIndex + 1
+                } else {
+                    index++
+                }
+            }
+            return streams
+        }
     }
 
     data class M3u8Stream(
@@ -78,48 +133,11 @@ class M3u8Helper {
         if (!text.startsWith("#EXTM3U")) {
             throw ErrorLoadingException("Not m3u8")
         }
-
-        val lines = text.lines()
-        val streams = mutableListOf<M3u8Stream>()
-        val seenQualities = mutableSetOf<Int>()
-        var index = 0
-        while (index < lines.size) {
-            val line = lines[index].trim()
-            if (line.startsWith("#EXT-X-STREAM-INF")) {
-                // The next non-comment, non-blank line is the variant URI.
-                var uriIndex = index + 1
-                while (uriIndex < lines.size &&
-                    (lines[uriIndex].isBlank() || lines[uriIndex].startsWith("#"))
-                ) {
-                    uriIndex++
-                }
-                if (uriIndex < lines.size) {
-                    val variantUri = lines[uriIndex].trim()
-                    val height = RESOLUTION_REGEX.find(line)
-                        ?.groupValues?.get(2)?.toIntOrNull()
-                    val quality = height ?: m3u8.quality
-                    // Collapse duplicate qualities (CDNs sometimes list the
-                    // same resolution twice with different bandwidths).
-                    if (quality == null || seenQualities.add(quality)) {
-                        streams.add(
-                            M3u8Stream(
-                                streamUrl = absolutize(variantUri, m3u8.streamUrl),
-                                quality = quality,
-                                headers = m3u8.headers,
-                            ),
-                        )
-                    }
-                }
-                index = uriIndex + 1
-            } else {
-                index++
-            }
-        }
-
-        if (streams.isEmpty()) {
+        val variants = parseMasterPlaylist(text, m3u8.streamUrl, m3u8.quality)
+        if (variants.isEmpty()) {
             // Media playlist (or an unparseable master) — the input IS the stream.
             return if (returnThis == true) listOf(m3u8) else emptyList()
         }
-        return streams
+        return variants
     }
 }

@@ -7,7 +7,9 @@ import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.ads.di.adsModule  // D-272: smart-link ad system
 import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
+import com.confused.anikuta.core.common.LogLevel
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.common.RingLogBuffer
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
 import com.confused.anikuta.core.network.HttpClientFactory
@@ -88,8 +90,28 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             com.confused.anikuta.error.AnikutaCrashHandler(this)
         )
 
-        // CORE_RULES §20: Logger init with :app's BuildConfig.DEBUG
-        Logger.setEnabled(BuildConfig.DEBUG)
+        // Task 49 (round 9 — console logging tool): the Logger + its ring buffer
+        // now run in EVERY build so Settings → Developer tools → Console logs
+        // captures, filters and exports logs from the user's device (the whole
+        // point is diagnosing release-APK device rounds). Min level bounds the
+        // overhead: DEBUG lines only in debug builds, INFO+ in release
+        // (decision D-362 — reverses CORE_RULES §20 "release off" deliberately:
+        // lambda-gated logging makes the cost an if-check + string build for
+        // INFO+, and device-diagnosability outweighed it).
+        Logger.setEnabled(true)
+        Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO)
+        // The ring captures ALL Logger output in all builds.
+        Logger.setAppender(RingLogBuffer)
+        // Plugin-facing facade (com.lagradost.api.Log — 48/80 census plugins log
+        // through it) + the vendored CS layer's mirrored sites → the same ring.
+        com.lagradost.api.Log.sink = { level, tag, message ->
+            when (level) {
+                com.lagradost.api.Log.Level.D -> RingLogBuffer.append(LogLevel.DEBUG, tag, message, null)
+                com.lagradost.api.Log.Level.I -> RingLogBuffer.append(LogLevel.INFO, tag, message, null)
+                com.lagradost.api.Log.Level.W -> RingLogBuffer.append(LogLevel.WARN, tag, message, null)
+                com.lagradost.api.Log.Level.E -> RingLogBuffer.append(LogLevel.ERROR, tag, message, null)
+            }
+        }
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,

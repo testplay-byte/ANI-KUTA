@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -47,6 +48,7 @@ fun SettingsScreen(
     onOpenNotifications: () -> Unit,
     onOpenPlayerSettings: () -> Unit,
     onOpenVideoCaching: () -> Unit,
+    onOpenConsoleLogs: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -142,6 +144,19 @@ fun SettingsScreen(
                             title = "About & Updates",
                             subtitle = "App version, update checks, downloaded APKs",
                             onClick = onOpenAbout,
+                        )
+                    }
+
+                    // ── Developer tools (Task 49 — console logging tool) ──
+                    // Release-available: the console + export are how device-round
+                    // bug reports get REAL data (ring buffer + own-process logcat).
+                    item {
+                        SettingsSectionLabel("Developer tools")
+                        MoreListRow(
+                            icon = Icons.Filled.Terminal,
+                            title = "Console logs",
+                            subtitle = "Live app log — filter, copy, export for bug reports",
+                            onClick = onOpenConsoleLogs,
                         )
                     }
 

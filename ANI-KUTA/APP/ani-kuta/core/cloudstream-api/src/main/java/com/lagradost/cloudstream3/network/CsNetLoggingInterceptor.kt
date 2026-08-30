@@ -28,13 +28,13 @@ class CsNetLoggingInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val started = System.currentTimeMillis()
-        android.util.Log.i(TAG, "http: → ${request.method} ${request.url}")
+        com.lagradost.api.Log.i(TAG, "http: → ${request.method} ${request.url}")
         return try {
             val response = chain.proceed(request)
             val took = System.currentTimeMillis() - started
             val contentType = response.header("content-type") ?: "?"
             val declaredLen = response.header("content-length") ?: "?"
-            android.util.Log.i(
+            com.lagradost.api.Log.i(
                 TAG,
                 "http: ← ${response.code} $contentType len=$declaredLen (${took}ms) " +
                     "host=${response.request.url.host}",
@@ -46,7 +46,7 @@ class CsNetLoggingInterceptor : Interceptor {
                         .replace('\n', ' ')
                         .replace('\r', ' ')
                         .take(160)
-                    android.util.Log.w(
+                    com.lagradost.api.Log.w(
                         TAG,
                         "http: error body snippet code=${response.code}: \"$snippet\"",
                     )
@@ -54,7 +54,7 @@ class CsNetLoggingInterceptor : Interceptor {
             }
             response
         } catch (t: Throwable) {
-            android.util.Log.w(
+            com.lagradost.api.Log.w(
                 TAG,
                 "http: ✗ ${request.method} ${request.url} FAILED " +
                     "in ${System.currentTimeMillis() - started}ms: " +

@@ -321,6 +321,10 @@ object PlayerSettingsKey : NavKey
 @Serializable
 object VideoCachingKey : NavKey
 
+// Task 49 (console logging tool): release-available log console + export.
+@Serializable
+object ConsoleLogsKey : NavKey
+
 // About & Updates screen — hosts the app-update UI (version, auto-check toggle,
 // manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
 // from AppRoot (below) gated on AppUpdateManager.shouldShowUpdateSheet.
@@ -374,6 +378,7 @@ private val allowedUpdateSheetKeys = setOf(
     AppearanceKey::class,
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
+    ConsoleLogsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
     VideoCachingKey::class,
@@ -885,7 +890,12 @@ fun AppRoot() {
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
+                onOpenConsoleLogs = { backstack.add(ConsoleLogsKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
+                onBack = pop,
+            )
+            // Task 49: console logs (release-available diagnostics console).
+            is ConsoleLogsKey -> com.confused.anikuta.settings.ConsoleLogsScreen(
                 onBack = pop,
             )
             // D-220: Trackers page.
