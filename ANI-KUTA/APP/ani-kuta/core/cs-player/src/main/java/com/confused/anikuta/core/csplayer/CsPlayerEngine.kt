@@ -294,7 +294,7 @@ class CsPlayerEngine(
     fun videoTracks(): List<CsVideoTrack> {
         val out = mutableListOf<CsVideoTrack>()
         player.currentTracks.groups.forEachIndexed { groupIndex, group ->
-            if (group.type != Player.TRACK_TYPE_VIDEO) return@forEachIndexed
+            if (group.type != C.TRACK_TYPE_VIDEO) return@forEachIndexed
             for (trackIndex in 0 until group.length) {
                 if (!group.isTrackSupported(trackIndex)) continue
                 val format = group.getTrackFormat(trackIndex)
@@ -317,7 +317,7 @@ class CsPlayerEngine(
         val sidecarIds = current?.subtitles?.map { it.id }?.toSet() ?: emptySet()
         val out = mutableListOf<CsTextTrack>()
         player.currentTracks.groups.forEachIndexed { groupIndex, group ->
-            if (group.type != Player.TRACK_TYPE_TEXT) return@forEachIndexed
+            if (group.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
                 val id = format.id
@@ -339,7 +339,7 @@ class CsPlayerEngine(
         val group = player.currentTracks.groups.getOrNull(track?.groupIndex ?: -1)
         if (track == null || group == null) {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .clearOverridesOfType(Player.TRACK_TYPE_VIDEO)
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                 .build()
             Logger.i(TAG) { "video track override cleared (auto)" }
             return
@@ -362,16 +362,15 @@ class CsPlayerEngine(
     fun selectTextTrack(track: CsTextTrack?) {
         if (track == null) {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                .setTrackTypeDisabled(Player.TRACK_TYPE_TEXT, true)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                 .build()
             Logger.i(TAG) { "subtitles OFF" }
             return
         }
         val group = player.currentTracks.groups.getOrNull(track.groupIndex) ?: return
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .clearTrackTypeDisabled(Player.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
-            .setTrackTypeDisabled(Player.TRACK_TYPE_TEXT, false)
             .build()
         Logger.i(TAG) { "subtitle selected: ${track.name} (embedded=${track.embedded})" }
     }
@@ -379,7 +378,7 @@ class CsPlayerEngine(
     /** The id of the currently selected text track (for the sheet's highlight), or null when OFF. */
     fun selectedTextTrackId(): String? {
         player.currentTracks.groups.forEach { group ->
-            if (group.type != Player.TRACK_TYPE_TEXT || !group.isSelected) return@forEach
+            if (group.type != C.TRACK_TYPE_TEXT || !group.isSelected) return@forEach
             for (i in 0 until group.length) {
                 if (group.isTrackSelected(i)) return group.getTrackFormat(i).id
             }

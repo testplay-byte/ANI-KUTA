@@ -99,6 +99,7 @@ import com.confused.anikuta.feature.extensionssettings.AutoLinkSettingsScreen
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsKey
 import com.confused.anikuta.feature.extensionssettings.ExtensionRepoSettingsScreen
 import com.confused.anikuta.feature.watch.WatchKey
+import com.confused.anikuta.feature.cswatch.api.CsWatchKey
 import com.confused.anikuta.feature.watch.WatchScreen
 import com.confused.anikuta.download.DownloadOrchestrator
 import com.confused.anikuta.download.EnqueueResult
@@ -677,6 +678,23 @@ fun AppRoot() {
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
+                        // Task 52: CloudStream episodes → the dedicated CS watch
+                        // screen (loadLinks + Media3 ExoPlayer). The aniyomi watch
+                        // stack is untouched by this branch.
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId ->
+                            backstack.add(
+                                CsWatchKey(
+                                    providerName = providerName,
+                                    animeTitle = animeTitle,
+                                    episodeData = episodeData,
+                                    episodeNumber = epNum,
+                                    episodeTitle = epTitle,
+                                    episodeListSerialized = epList,
+                                    mainId = mainId,
+                                    sourceId = sourceId,
+                                ),
+                            )
+                        },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
                                 detailsKey = currentKey,
@@ -711,6 +729,22 @@ fun AppRoot() {
                         onBack = pop,
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
+                        },
+                        // Task 52: CloudStream episodes → the dedicated CS watch
+                        // screen (loadLinks + Media3 ExoPlayer).
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId ->
+                            backstack.add(
+                                CsWatchKey(
+                                    providerName = providerName,
+                                    animeTitle = animeTitle,
+                                    episodeData = episodeData,
+                                    episodeNumber = epNum,
+                                    episodeTitle = epTitle,
+                                    episodeListSerialized = epList,
+                                    mainId = mainId,
+                                    sourceId = sourceId,
+                                ),
+                            )
                         },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
@@ -1011,6 +1045,13 @@ fun AppRoot() {
             )
             is WatchKey -> WatchScreen(
                 watchKey = currentKey,
+                onBack = pop,
+            )
+            // Task 52 (round 12): the DEDICATED CloudStream watch screen — loadLinks
+            // resolution + Media3 ExoPlayer, fully parallel to the MPV watch stack
+            // above (zero shared code; same WatchProgressStore contract).
+            is CsWatchKey -> com.confused.anikuta.feature.cswatch.impl.CsWatchScreen(
+                key = currentKey,
                 onBack = pop,
             )
             is com.confused.anikuta.feature.updates.UpdatesKey -> {

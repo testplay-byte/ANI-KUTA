@@ -138,6 +138,13 @@ fun DetailsScreen(
     detailsKey: AnimeDetailsKey,
     onBack: () -> Unit,
     onNavigateToWatch: (mainId: String, videoUrl: String, animeTitle: String, quality: String, episodeUrl: String, episodeNumber: Float, episodeTitle: String, episodeListSerialized: String, videoHeaders: String, resolvedVideosKey: String, sourceId: Long, subtitleTracksSerialized: String, audioTracksSerialized: String, episodeMetadataSerialized: String) -> Unit = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
+    // Task 52 (round 12 — the playback port): CloudStream episode taps route
+    // here INSTEAD of the classic resolver/watch pipeline. Primitives (not
+    // CsWatchKey) to keep :feature:anime-details free of feature-to-feature
+    // deps — MainActivity builds the key. Args: providerName, animeTitle,
+    // episodeData (the CS data handle), episodeNumber, episodeTitle,
+    // episodeListSerialized, mainId, sourceId.
+    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -525,25 +532,6 @@ fun DetailsScreen(
             },
         )
     }
-    // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on the key,
-    // auto-trigger the episode click when episodes are loaded. Uses the Phase 2
-    // auto-resolve flow (pendingAutoPlay → tryAutoSelect → navigate to watch).
-    LaunchedEffect(episodeState, autoPlayEpisode, hasAutoPlayed) {
-        if (autoPlayEpisode == null || hasAutoPlayed) return@LaunchedEffect
-        val episodes = (episodeState as? EpisodeState.Loaded)?.episodes
-        if (episodes.isNullOrEmpty()) return@LaunchedEffect
-        val targetEp = episodes.find { it.episode_number.toInt() == autoPlayEpisode }
-        if (targetEp != null) {
-            hasAutoPlayed = true
-            Logger.i("Anikuta:Feature:Details") {
-                "Auto-play from Continue Watching: triggering episode $autoPlayEpisode"
-            }
-            currentEpisode = targetEp
-            resolverDownloadMode = false
-            viewModel.resolveEpisode(targetEp)
-            pendingAutoPlay = true
-        }
-    }
 
     // DB-7: provide debug context for the Current Screen tab.
     // Shows the anime's mainId, resolver state, + relevant DB rows.
@@ -640,12 +628,55 @@ fun DetailsScreen(
             }
         }
         // Not downloaded — resolve + try auto-play (Phase 2).
+        // CloudStream V2 (task 52): bridged CS sources route to the DEDICATED
+        // CS watch screen — loadLinks resolution + the Media3 player live
+        // there. The classic resolver path (below) is aniyomi-only.
+        if (viewModel.isLinkedSourceCloudStream()) {
+            val anime = (state as? DetailsState.Success)?.anime
+            val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+            val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+                "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+            } ?: ""
+            Logger.i("Anikuta:Feature:Details") {
+                "onEpisodeClick — CloudStream source: routing to the CS player " +
+                    "(EP ${episode.episode_number}, provider=${effectiveLinkedSource?.sourceName})"
+            }
+            onNavigateToCsWatch(
+                effectiveLinkedSource?.sourceName ?: "",
+                anime?.displayName ?: "",
+                episode.url, // the CS data handle
+                episode.episode_number,
+                episode.name,
+                epListStr,
+                viewModel.currentMainId ?: "",
+                effectiveLinkedSource?.sourceId ?: 0L,
+            )
+            return@onEpisodeClick
+        }
         viewModel.clearResolver()
         viewModel.resolveEpisode(episode)
         if (viewModel.isAutoSelectEnabled()) {
             pendingAutoPlay = true
         } else {
             showResolverSheet = true
+        }
+    }
+
+    // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on
+    // the key, fire the hoisted click handler once episodes load (declared
+    // AFTER onEpisodeClick so the effect can reference it; declaration order in
+    // composition is irrelevant to effect timing).
+    LaunchedEffect(episodeState, autoPlayEpisode, hasAutoPlayed, onEpisodeClick) {
+        if (autoPlayEpisode == null || hasAutoPlayed) return@LaunchedEffect
+        val episodes = (episodeState as? EpisodeState.Loaded)?.episodes
+        if (episodes.isNullOrEmpty()) return@LaunchedEffect
+        val targetEp = episodes.find { it.episode_number.toInt() == autoPlayEpisode }
+        if (targetEp != null) {
+            hasAutoPlayed = true
+            Logger.i("Anikuta:Feature:Details") {
+                "Auto-play from Continue Watching: triggering episode $autoPlayEpisode"
+            }
+            onEpisodeClick(targetEp)
         }
     }
 

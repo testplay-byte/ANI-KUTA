@@ -3506,16 +3506,18 @@ class DetailsViewModel(
             return
         }
 
-        // CloudStream V2 (R11-REVIEW F1): the honest playback boundary. Video
-        // resolution is deliberately NOT wired for bridged CS sources on this
-        // branch — routing through the classic resolver would swallow the
-        // bridge's descriptive ISE into a generic "No videos available"
+        // CloudStream V2 (task 52 — the playback port): the details screen now
+        // ROUTES CS episode taps to the dedicated CS watch screen BEFORE this
+        // resolver path (see DetailsScreen.onEpisodeClick). This short-circuit
+        // remains as defense in depth: if a CS episode still reaches the
+        // classic resolver (today: the episode-download path; tomorrow: the CS
+        // downloads port), it gets an honest message instead of the classic
+        // resolver swallowing the bridge boundary into "No videos available"
         // (main's VideoResolver catches every Throwable from getVideoList).
-        // Short-circuit HERE so the resolver sheet renders the real message.
         if (source.isCloudStreamBridged) {
-            Logger.i(TAG) { "CS playback boundary: episode tap for ${source.name} — details/episodes available, playback arrives with the playback port" }
+            Logger.i(TAG) { "CS playback boundary: episode tap for ${source.name} — streaming opens in the CloudStream player" }
             _resolverState.value = ResolverState.Error(
-                "CloudStream playback arrives with the playback port — episodes and details are available now",
+                "CloudStream episodes stream in the CloudStream player (tap the episode) — downloads arrive with the downloads port",
             )
             return
         }
@@ -3560,6 +3562,19 @@ class DetailsViewModel(
     fun clearResolver() {
         _resolverState.value = ResolverState.Idle
         _resolvedVideosKey.value = ""
+    }
+
+    /**
+     * Task 52 (round 12 — the playback port): true when the CURRENTLY linked
+     * source is a bridged CloudStream provider. The details screen routes CS
+     * episode taps to the dedicated CS watch screen using this check — the
+     * classic aniyomi resolver path is never entered for CS content.
+     */
+    fun isLinkedSourceCloudStream(): Boolean {
+        val linkedId = _linkedSource.value?.sourceId
+            ?: (_state.value as? DetailsState.Success)?.anime?.sourceId
+            ?: return false
+        return (extensionManager.getSource(linkedId) as? AnimeHttpSource)?.isCloudStreamBridged == true
     }
 
     /**
