@@ -43,10 +43,28 @@ fun debugKoinModules(): List<Module> = listOf(
  * Called AFTER `startKoin { ... modules(debugKoinModules()) }`.
  *
  * DB-4: wires Logger.setAppender(DebugLogBuffer).
+ *
+ * Task 49: the app now registers the release-available RingLogBuffer as the
+ * Logger appender in ALL builds (console logging tool). Debug builds layer the
+ * bubble's DebugLogBuffer on top via a COMPOSITE appender so BOTH consoles
+ * capture the same entries.
  */
 fun initDebugIntegrations() {
     val buffer = org.koin.core.context.GlobalContext.get().get<DebugLogBuffer>()
-    Logger.setAppender(buffer)
+    Logger.setAppender(
+        object : com.confused.anikuta.core.common.LogAppender {
+            override fun append(
+                level: com.confused.anikuta.core.common.LogLevel,
+                tag: String,
+                message: String,
+                throwable: Throwable?,
+            ) {
+                // Order matters: the ring first (cheap, lock-guarded), the bubble second.
+                com.confused.anikuta.core.common.RingLogBuffer.append(level, tag, message, throwable)
+                buffer.append(level, tag, message, throwable)
+            }
+        },
+    )
 }
 
 /**
