@@ -147,6 +147,9 @@ Every delta is the fix of a root cause with a source/empirical proof chain
   with the FULL pre-resolved list (instant playback, no re-resolve);
   dismissal cancels the resolution. A per-anime remembered server
   (CsSourceMemory) auto-selects on arrival; single-link results auto-select.
+  Early picks hand off a partial list — a quiet same-generation **top-up
+  walk** (R13-REVIEW F4) then saturates the Sources sheet + the fallback
+  chain append-only without ever touching playback.
 - **Sheets**: "Streams" → **Sources** (quality-desc sort, subtitle-track
   count, type badges, failed markers); the subs sheet becomes **Audio &
   Subtitles** when the stream exposes >1 embedded audio track (DASH

@@ -67,7 +67,7 @@
 2. `CloudstreamLinkResolver`: wrap `provider.loadLinks` in `withTimeout(timeoutMs)` honoring `loadLinksTimeoutMs` (120s default, 5–480s clamp); TimeoutCancellation → `Failed(timedOut)` with partial links; log the honored timeout at START.
 3. Resolver logging richness: link/sub lines now include header VALUES (truncated to 32 chars) and quality label; DONE line includes cache decision.
 4. `WebViewResolver` stubs: return `null to emptyList()` with a one-shot warning log (never throw).
-5. Unit tests: m3u8Generation referer-drop (fake app capture), resolver timeout paths.
+5. Unit tests: m3u8Generation referer-drop (fake app capture), resolver timeout paths. → **DEFERRED (conscious)**: the m3u8/referer fix is locked by review + the M3U8_TAG forensics instead — a fake-`app` harness needs the okhttp mockwebserver dependency + global-var swapping, out of proportion for this release; revisit with the WebViewResolver port.
 
 ### Phase B — engine + DataSource (core/cs-player)
 6. `CsHttpDataSourceFactory.forLink`: attempt-1 semantics = UA from link headers else the injected desktop-Chrome default; `forLinkClean(link)`: no UA override, referer stripped (retry profile).
