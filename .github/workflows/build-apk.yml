@@ -63,11 +63,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       # CloudStream V2: unit tests gate every push — cloudstream-api carries
-      # the plugin binary-compat surface (CompatSurfaceTest etc.) and
-      # data:cloudstream the repo-parsing + episode-mapping locks. Tests run
-      # BEFORE assembleDebug so a red test fails the build fast.
+      # the plugin binary-compat surface (CompatSurfaceTest etc.),
+      # data:cloudstream the repo-parsing + episode-mapping locks, and
+      # core:common the ring-buffer logging lock. Tests run BEFORE
+      # assembleDebug so a red test fails the build fast.
       - name: Run unit tests (CloudStream modules)
-        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest :data:cloudstream:testDebugUnitTest :core:common:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

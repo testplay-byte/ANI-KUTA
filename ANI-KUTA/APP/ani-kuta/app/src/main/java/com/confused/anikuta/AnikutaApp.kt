@@ -7,7 +7,9 @@ import com.confused.anikuta.core.activitytracker.activityTrackerModule
 import com.confused.anikuta.core.ads.di.adsModule  // D-272: smart-link ad system
 import com.confused.anikuta.core.anilist.di.anilistModule
 import com.confused.anikuta.core.appupdate.di.appUpdateModule
+import com.confused.anikuta.core.common.LogLevel
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.common.RingLogBuffer
 import com.confused.anikuta.core.database.AnikutaDatabase
 import com.confused.anikuta.core.database.DatabaseDriverFactory
 import com.confused.anikuta.core.network.HttpClientFactory
@@ -26,6 +28,9 @@ import com.confused.anikuta.core.trackeranilist.trackerAniListModule
 import com.confused.anikuta.core.videoresolver.videoResolverModule
 import com.confused.anikuta.core.watchprogress.watchProgressModule
 import com.confused.anikuta.data.extension.extensionModule
+import com.confused.anikuta.data.extension.manager.ExtensionManager
+import com.confused.anikuta.data.cloudstream.di.cloudstreamModule
+import com.confused.anikuta.data.cloudstream.content.CloudstreamSourceRegistry
 import com.confused.anikuta.feature.animebrowse.di.browseModule
 import com.confused.anikuta.feature.animedetails.di.detailsModule
 import com.confused.anikuta.feature.animelibrary.di.libraryModule
@@ -49,6 +54,9 @@ import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.koin.core.qualifier.named
 import org.koin.core.module.dsl.viewModelOf
@@ -59,7 +67,18 @@ import uy.kohesive.injekt.api.addSingletonFactory
 import uy.kohesive.injekt.api.fullType
 import java.util.UUID
 
-class AnikutaApp : Application(), androidx.work.Configuration.Provider {
+/**
+ * Task 44: extends CloudStreamApp (was Application) — the CloudStream compat
+ * layer's app holder. super.onCreate() publishes this instance as
+ * CloudStreamApp.context, which (a) plugins using getKey/setKey resolve and
+ * (b) the Cloudflare challenge solver uses as its fallback WebView context.
+ * CloudStreamApp adds nothing else to Application behavior.
+ */
+class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
+    androidx.work.Configuration.Provider {
+
+    /** App-lifetime scope for background wiring (Task 45: the CS source bridge). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
@@ -71,8 +90,28 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             com.confused.anikuta.error.AnikutaCrashHandler(this)
         )
 
-        // CORE_RULES §20: Logger init with :app's BuildConfig.DEBUG
-        Logger.setEnabled(BuildConfig.DEBUG)
+        // Task 49 (round 9 — console logging tool): the Logger + its ring buffer
+        // now run in EVERY build so Settings → Developer tools → Console logs
+        // captures, filters and exports logs from the user's device (the whole
+        // point is diagnosing release-APK device rounds). Min level bounds the
+        // overhead: DEBUG lines only in debug builds, INFO+ in release
+        // (decision D-362 — reverses CORE_RULES §20 "release off" deliberately:
+        // lambda-gated logging makes the cost an if-check + string build for
+        // INFO+, and device-diagnosability outweighed it).
+        Logger.setEnabled(true)
+        Logger.setMinLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.INFO)
+        // The ring captures ALL Logger output in all builds.
+        Logger.setAppender(RingLogBuffer)
+        // Plugin-facing facade (com.lagradost.api.Log — 48/80 census plugins log
+        // through it) + the vendored CS layer's mirrored sites → the same ring.
+        com.lagradost.api.Log.sink = { level, tag, message ->
+            when (level) {
+                com.lagradost.api.Log.Level.D -> RingLogBuffer.append(LogLevel.DEBUG, tag, message, null)
+                com.lagradost.api.Log.Level.I -> RingLogBuffer.append(LogLevel.INFO, tag, message, null)
+                com.lagradost.api.Log.Level.W -> RingLogBuffer.append(LogLevel.WARN, tag, message, null)
+                com.lagradost.api.Log.Level.E -> RingLogBuffer.append(LogLevel.ERROR, tag, message, null)
+            }
+        }
 
         // ── Extension compat setup (BEFORE Koin, BEFORE any extension loads) ──
         // Extensions use Injekt (a service locator) to resolve NetworkHelper,
@@ -114,6 +153,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
                 appUpdateModule,
                 adsModule,  // D-272: smart-link ad system
                 extensionModule,
+                cloudstreamModule,  // Task 41: CloudStream extension system (doc 23)
                 playerModule,
                 videoResolverModule,
                 downloadModule,
@@ -140,6 +180,25 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
             initDebugIntegrations()
         } catch (e: Exception) {
             Logger.e("AnikutaApp", e) { "Failed to init debug integrations" }
+        }
+
+        // Task 45: the CloudStream→aniyomi SOURCE BRIDGE — every trusted CloudStream
+        // provider is published as an AnimeSource into ExtensionManager, so a
+        // CloudStream result opens the STANDARD details screen (same page as
+        // aniyomi extensions; the user's round-4 directive — no custom CS page).
+        // Trust/untrust/install/uninstall flow through manager.installed → the
+        // registry re-emits → the bridged sources appear/disappear live.
+        try {
+            val csRegistry = org.koin.core.context.GlobalContext.get().get<CloudstreamSourceRegistry>()
+            val extensionManager = org.koin.core.context.GlobalContext.get().get<ExtensionManager>()
+            appScope.launch {
+                csRegistry.sources.collect { bridged ->
+                    extensionManager.setExternalSources(bridged)
+                }
+            }
+            Logger.i("AnikutaApp") { "CloudStream source bridge wired into ExtensionManager" }
+        } catch (e: Exception) {
+            Logger.e("AnikutaApp", e) { "Failed to wire CloudStream source bridge" }
         }
 
         // Seed lookup tables + Default library category (idempotent — INSERT OR IGNORE).
@@ -211,6 +270,7 @@ class AnikutaApp : Application(), androidx.work.Configuration.Provider {
         } catch (e: Exception) {
             Logger.w("AnikutaApp") { "Failed to start playback cache: ${e.message}" }
         }
+
     }
 
     // Phase UP: Configuration.Provider for WorkManager (disables default initializer).
