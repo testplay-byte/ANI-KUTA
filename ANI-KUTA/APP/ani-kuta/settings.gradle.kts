@@ -52,9 +52,12 @@ include(":core:app-update")
 include(":core:ads")  // Ad system — smart-link interstitial (D-272)
 include(":core:playback-cache")  // Video caching (test-feature/video-cache-new-download)
 include(":core:debug-api")
+include(":core:cloudstream-api")  # CloudStream V2: clean-room CS3 plugin binary-compat surface (see DOCUMENTATION/cloudstream-v2/)
 
 // ── :data ──
 include(":data:extension")
+# CloudStream V2: :data:cloudstream joins in the Phase D commit (runtime port)
+# — each commit must compile independently.
 
 // ── :feature (api/impl split per Nav3 Pattern B) ──
 include(":feature:anime-browse:api")

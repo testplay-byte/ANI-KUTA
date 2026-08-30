@@ -21,7 +21,8 @@ on:
     # NOTE: 'test-feature/**' is a BRANCH-ONLY edit for the
     # test-feature/video-cache-new-download work branch — remove this pattern
     # before merging to main (same precedent as the TEST_BETA_FEATURE edit).
-    branches: [ main, 'feature/**', 'functionality/**', 'test-feature/**' ]
+    # 'streaming/**' — the CloudStream V2 work line (streaming/CLOUDSTREAM-V2).
+    branches: [ main, 'feature/**', 'functionality/**', 'test-feature/**', 'streaming/**' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -60,6 +61,13 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      # CloudStream V2: unit tests gate every push — the cloudstream-api module
+      # carries the plugin binary-compat surface (CompatSurfaceTest etc.). The
+      # :data:cloudstream test target joins in the Phase D commit (module port).
+      # Tests run BEFORE assembleDebug so a red test fails the build fast.
+      - name: Run unit tests (CloudStream modules)
+        run: ./gradlew :core:cloudstream-api:testDebugUnitTest
 
       - name: Build debug APK
         run: ./gradlew assembleDebug

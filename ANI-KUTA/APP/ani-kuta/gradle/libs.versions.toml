@@ -4,6 +4,15 @@ agp = "8.9.1"
 kotlin = "2.2.0"
 gradle = "8.11.1"
 
+# CloudStream plugin compat (cloudstream-v2 docs): versions mirror what the CS3
+# plugin ecosystem compiles against. Jackson STRICTLY 2.13.1 — newer versions
+# drop minSdk<26 support (our minSdk is 24). Gson 2.11.0 = CS3 app's own pin
+# (~16% of real plugins import gson directly).
+jacksonModuleKotlin = { strictly = "2.13.1" }
+gson = "2.11.0"
+junit = "4.13.2"
+kotlinxDatetime = "0.6.1"
+
 # AndroidX
 coreKtx = "1.15.0"
 activityCompose = "1.10.1"
@@ -81,6 +90,10 @@ trueTypeParser = "2.1.4"
 [libraries]
 # AndroidX
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+# CloudStream V2: AppCompat — MainActivity extends AppCompatActivity (the CS
+# plugin load() contract: plugins cast the Context to AppCompatActivity) and it
+# satisfies the androidx.appcompat.* references present in real .cs3 plugin dexes.
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version = "1.7.1" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-palette-ktx = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }  # D-223
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version = "1.0.1" }
@@ -146,6 +159,20 @@ nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanoht
 injekt = { group = "com.github.mihonapp", name = "injekt", version.ref = "injekt" }
 androidx-preference-ktx = { group = "androidx.preference", name = "preference-ktx", version.ref = "androidxPreference" }
 kotlinx-serialization-json-okio = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json-okio", version.ref = "kotlinxSerializationJsonOkio" }
+
+# CloudStream plugin compat: properly-licensed third-party deps the plugin
+# ecosystem expects on the host classpath. Jackson (Apache-2.0) is the JSON
+# fallback stack plugin bytecode inlines against (parseJson<T> reified bodies);
+# gson (Apache-2.0) is imported directly by ~16% of real plugins.
+jackson-module-kotlin = { group = "com.fasterxml.jackson.module", name = "jackson-module-kotlin", version.ref = "jacksonModuleKotlin" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+
+# Testing (CloudStream V2 unit tests)
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+
+# kotlinx-datetime — LocalDate appears in the plugin-visible Episode.addDate
+# overload (Apache-2.0, small; mirrors the upstream library's dependency).
+kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
 
 # Player (MPV + FFmpeg)
 mpv-lib = { group = "com.github.aniyomiorg", name = "aniyomi-mpv-lib", version.ref = "mpvLib" }
