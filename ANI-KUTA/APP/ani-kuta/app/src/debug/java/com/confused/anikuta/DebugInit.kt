@@ -51,11 +51,20 @@ fun debugKoinModules(): List<Module> = listOf(
  */
 fun initDebugIntegrations() {
     val buffer = org.koin.core.context.GlobalContext.get().get<DebugLogBuffer>()
-    Logger.setAppender { level, tag, message, throwable ->
-        // Order matters: the ring first (cheap, lock-guarded), the bubble second.
-        com.confused.anikuta.core.common.RingLogBuffer.append(level, tag, message, throwable)
-        buffer.append(level, tag, message, throwable)
-    }
+    Logger.setAppender(
+        object : com.confused.anikuta.core.common.LogAppender {
+            override fun append(
+                level: com.confused.anikuta.core.common.LogLevel,
+                tag: String,
+                message: String,
+                throwable: Throwable?,
+            ) {
+                // Order matters: the ring first (cheap, lock-guarded), the bubble second.
+                com.confused.anikuta.core.common.RingLogBuffer.append(level, tag, message, throwable)
+                buffer.append(level, tag, message, throwable)
+            }
+        },
+    )
 }
 
 /**
