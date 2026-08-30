@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 class CsWatchViewModel(
     private val resolver: CloudstreamLinkResolver,
     private val watchProgressStore: WatchProgressStore,
+    private val sourceMemory: com.confused.anikuta.data.cloudstream.playback.CsSourceMemory,
 ) : ViewModel() {
 
     companion object {
@@ -65,6 +66,17 @@ class CsWatchViewModel(
         val currentLink: CsVideoLink? = null,
         val resolveCompleted: Boolean = false,
         val resolveError: String? = null,
+        /**
+         * Task 53 / RC-3 — the generation lock. Every resolution attempt bumps
+         * [resolveGeneration]; every play request stamps [playGeneration]. The
+         * screen's engine trigger accepts a request ONLY while the two match,
+         * killing the collectAsState one-dispatch-lag race that replayed the
+         * PREVIOUS episode's link on a fresh engine.
+         */
+        val resolveGeneration: Int = 0,
+        val playGeneration: Int = 0,
+        /** Bumped whenever the engine should hard-reset (new episode resolution start). */
+        val engineResetTick: Int = 0,
         /** Bumped whenever the engine should (re)load — the screen's play trigger. */
         val playRequestId: Int = 0,
         val playLink: CsVideoLink? = null,
@@ -88,6 +100,32 @@ class CsWatchViewModel(
     private var currentKey: CsWatchKey? = null
 
     /**
+     * Task 53 / RC-6: a resolution produced OUTSIDE this VM (the resolve
+     * sheet at the details-page entry) — adopted by [initialize] instead of
+     * re-resolving, so the watch screen starts INSTANTLY with the full list.
+     */
+    private var pendingSeed: PreResolvedSeed? = null
+
+    /** The resolve sheet's handoff payload (see [pendingSeed]). */
+    data class PreResolvedSeed(
+        val key: CsWatchKey,
+        val links: List<CsVideoLink>,
+        val subtitles: List<CsSubtitle>,
+        val selectedLink: CsVideoLink,
+        val hiddenTorrentCount: Int,
+        val unsupportedDrmCount: Int,
+    )
+
+    /** The resolve sheet calls this right before navigating to the watch screen. */
+    fun seedResolution(seed: PreResolvedSeed) {
+        pendingSeed = seed
+        Logger.i(TAG) {
+            "seeded: '${seed.key.animeTitle}' EP ${seed.key.episodeNumber} " +
+                "links=${seed.links.size} subs=${seed.subtitles.size} selected=${seed.selectedLink.displayLabel}"
+        }
+    }
+
+    /**
      * Entry point — the screen calls this on every composition with its nav
      * key. THREE cases (R12-REVIEW F1 — the VM is activity-scoped, so it
      * SURVIVES navigation; a hard-return here made the second CS-watch visit
@@ -101,6 +139,15 @@ class CsWatchViewModel(
      *    resolve (the house DetailsViewModel pattern).
      */
     fun initialize(key: CsWatchKey) {
+        // Task 53 / RC-6: the resolve sheet's handoff wins over every other
+        // path — one-shot, strictly key-matched (a stale seed is dropped).
+        val seed = pendingSeed
+        if (seed != null && seed.key == key) {
+            pendingSeed = null
+            adoptSeed(seed)
+            return
+        }
+        pendingSeed = null
         when {
             currentKey == null -> seedAndResolve(key)
             currentKey == key -> {
@@ -125,6 +172,35 @@ class CsWatchViewModel(
         }
     }
 
+    /** Adopts the resolve sheet's handoff — no re-resolve, instant playback. */
+    private fun adoptSeed(seed: PreResolvedSeed) {
+        val key = seed.key
+        currentKey = key
+        Logger.i(TAG) {
+            "open: SEEDED '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
+                "mainId=${key.mainId.take(8)}… links=${seed.links.size} subs=${seed.subtitles.size} — skipping resolve"
+        }
+        _uiState.value = CsWatchUiState(
+            animeTitle = key.animeTitle,
+            providerName = key.providerName,
+            episodeNumber = key.episodeNumber,
+            episodeTitle = key.episodeTitle,
+            episodes = key.parseEpisodeList(),
+            links = seed.links,
+            subtitles = seed.subtitles,
+            hiddenTorrentCount = seed.hiddenTorrentCount,
+            unsupportedDrmCount = seed.unsupportedDrmCount,
+            currentLink = seed.selectedLink,
+            resolveCompleted = true,
+            resolveGeneration = 1,
+            engineResetTick = 1,
+        )
+        viewModelScope.launch {
+            val resumeMs = if (key.startPosition > 0) key.startPosition else lookupResumePositionMs()
+            requestPlay(seed.selectedLink, resumeMs, isResume = resumeMs > 0, keepPosition = false)
+        }
+    }
+
     private fun seedAndResolve(key: CsWatchKey) {
         currentKey = key
         Logger.i(TAG) {
@@ -145,6 +221,7 @@ class CsWatchViewModel(
 
     private fun startResolution(key: CsWatchKey) {
         resolveJob?.cancel()
+        val generation = _uiState.value.resolveGeneration + 1
         _uiState.value = _uiState.value.copy(
             phase = Phase.RESOLVING,
             links = emptyList(),
@@ -155,7 +232,13 @@ class CsWatchViewModel(
             currentLink = null,
             resolveCompleted = false,
             resolveError = null,
+            resolveGeneration = generation,
+            engineResetTick = _uiState.value.engineResetTick + 1,
         )
+        Logger.i(TAG) {
+            "resolve: generation=$generation episode=${key.episodeNumber} " +
+                "provider=${key.providerName} — engineResetTick=${_uiState.value.engineResetTick}"
+        }
         resolveJob = viewModelScope.launch {
             var firstLinkPlayed = false
             val initialResume = key.startPosition
@@ -208,12 +291,22 @@ class CsWatchViewModel(
         }
     }
 
-    /** Picks the best link (quality desc, skipping failed) and requests playback. */
+    /** Picks the best link (remembered server first, then quality desc, skipping failed) and requests playback. */
     private fun autoStart(links: List<CsVideoLink>, resumeMs: Long) {
-        val best = links.filterNot { it.url in _uiState.value.failedLinkUrls }
-            .maxByOrNull { it.quality }
+        val candidates = links.filterNot { it.url in _uiState.value.failedLinkUrls }
+        // Task 53 / RC-6: the remembered server for this anime wins (AnymeX
+        // dub/server-consistency scoring, simplified) — auto-advance keeps the
+        // same server across episodes; quality within it stays max-first.
+        val remembered = currentKey?.let { sourceMemory.recall(it.mainId) }
+        val best = remembered
+            ?.let { r -> candidates.filter { it.name == r }.maxByOrNull { it.quality } }
+            ?: candidates.maxByOrNull { it.quality }
             ?: links.firstOrNull()
             ?: return
+        Logger.i(TAG) {
+            "autoStart: ${best.displayLabel}" +
+                (if (remembered != null && best.name == remembered) " (remembered server)" else "")
+        }
         // A new episode's FIRST link is a FRESH start (resume ms or 0) — never
         // position-keeping (R12-REVIEW F2).
         requestPlay(best, resumeMs, isResume = resumeMs > 0, keepPosition = false)
@@ -246,12 +339,18 @@ class CsWatchViewModel(
         isResume: Boolean,
         keepPosition: Boolean = false,
     ) {
-        _uiState.value = _uiState.value.copy(
+        val state = _uiState.value
+        Logger.i(TAG) {
+            "play request: id=${state.playRequestId + 1} generation=${state.resolveGeneration} " +
+                "link=${link.displayLabel} resume=$isResume keepPosition=$keepPosition positionMs=$startPositionMs"
+        }
+        _uiState.value = state.copy(
             phase = Phase.PLAYING,
             currentLink = link,
-            playRequestId = _uiState.value.playRequestId + 1,
+            playRequestId = state.playRequestId + 1,
+            playGeneration = state.resolveGeneration,
             playLink = link,
-            playSubtitles = _uiState.value.subtitles,
+            playSubtitles = state.subtitles,
             playStartPositionMs = startPositionMs,
             playIsResume = isResume,
             playKeepPosition = keepPosition,
@@ -263,6 +362,7 @@ class CsWatchViewModel(
     /** The links sheet: user picked a specific link (same episode → keep position). */
     fun selectLink(link: CsVideoLink) {
         Logger.i(TAG) { "user selected link: ${link.displayLabel}" }
+        currentKey?.let { sourceMemory.remember(it.mainId, link.name) }
         requestPlay(link, 0L, isResume = false, keepPosition = true)
     }
 

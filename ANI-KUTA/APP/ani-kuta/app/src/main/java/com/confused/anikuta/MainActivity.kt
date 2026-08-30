@@ -581,6 +581,12 @@ fun AppRoot() {
     // provider's subtree and can read the context (D-162 C1 fix).
     var debugContext by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.core.debugapi.DebugContext?>(null) }
 
+    // Task 53 / RC-6: the CS resolve-sheet request — set by a CloudStream
+    // episode tap on the details page; the sheet (an overlay sibling of the
+    // nav content) resolves streams over the details page and hands off to
+    // the watch screen on selection (the AnymeX entry pattern).
+    var csResolveRequest by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.feature.cswatch.api.CsWatchKey?>(null) }
+
     androidx.compose.runtime.CompositionLocalProvider(
         LocalLibrarySelectionMode provides librarySelectionMode,
         com.confused.anikuta.core.debugapi.LocalDebugContext provides debugContext,
@@ -678,21 +684,21 @@ fun AppRoot() {
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
-                        // Task 52: CloudStream episodes → the dedicated CS watch
-                        // screen (loadLinks + Media3 ExoPlayer). The aniyomi watch
-                        // stack is untouched by this branch.
+                        // Task 52: CloudStream episodes → the resolve sheet
+                        // (Task 53 / RC-6): the details page stays visible under
+                        // an AnymeX-style bottom sheet; the selected stream + the
+                        // full pre-resolved list hand off to the CS watch screen.
+                        // The aniyomi watch stack is untouched by this branch.
                         onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId ->
-                            backstack.add(
-                                CsWatchKey(
-                                    providerName = providerName,
-                                    animeTitle = animeTitle,
-                                    episodeData = episodeData,
-                                    episodeNumber = epNum,
-                                    episodeTitle = epTitle,
-                                    episodeListSerialized = epList,
-                                    mainId = mainId,
-                                    sourceId = sourceId,
-                                ),
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
                             )
                         },
                         onDownloadEpisode = { episode ->
@@ -730,20 +736,18 @@ fun AppRoot() {
                         onNavigateToWatch = { mainId, videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, subTracks, audioTracks, epMeta ->
                             backstack.add(WatchKey(videoUrl, animeTitle, quality, epUrl, epNum, epTitle, epList, videoHeaders, resolvedVideosKey, sourceId, mainId, subTracks, audioTracks, epMeta))
                         },
-                        // Task 52: CloudStream episodes → the dedicated CS watch
-                        // screen (loadLinks + Media3 ExoPlayer).
+                        // Task 52: CloudStream episodes → the resolve sheet
+                        // (Task 53 / RC-6, AnymeX entry pattern).
                         onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId ->
-                            backstack.add(
-                                CsWatchKey(
-                                    providerName = providerName,
-                                    animeTitle = animeTitle,
-                                    episodeData = episodeData,
-                                    episodeNumber = epNum,
-                                    episodeTitle = epTitle,
-                                    episodeListSerialized = epList,
-                                    mainId = mainId,
-                                    sourceId = sourceId,
-                                ),
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
                             )
                         },
                         onDownloadEpisode = { episode ->
@@ -1168,6 +1172,22 @@ fun AppRoot() {
         // DebugBubbleHost is a no-op in release builds (release source set).
         // In debug builds it renders the draggable squircle bubble.
         DebugBubbleHost()
+
+        // ── Task 53 / RC-6: the CS resolve sheet (AnymeX entry pattern) ──
+        // Overlay sibling of the nav content: the details page stays visible
+        // underneath while streams resolve in this bottom sheet; a selection
+        // seeds the CS watch ViewModel + pushes the watch screen (instant
+        // playback, no re-resolve). Dismissal cancels the resolution.
+        csResolveRequest?.let { csKey ->
+            com.confused.anikuta.feature.cswatch.impl.CsResolveSheet(
+                key = csKey,
+                onDismiss = { csResolveRequest = null },
+                onPlay = { playedKey ->
+                    backstack.add(playedKey)
+                    csResolveRequest = null
+                },
+            )
+        }
 
         // ── App update bottom sheet (page-gated) ──
         // Rendered as an overlay from AppRoot (NOT pushed onto the backstack) so

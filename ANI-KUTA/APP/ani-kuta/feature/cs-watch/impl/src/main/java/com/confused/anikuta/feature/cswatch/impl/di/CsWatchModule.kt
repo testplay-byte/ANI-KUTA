@@ -10,5 +10,11 @@ import org.koin.dsl.module
  * the WatchProgressStore from core:watch-progress's watchProgressModule.
  */
 val csWatchModule = module {
-    viewModel { CsWatchViewModel(resolver = get(), watchProgressStore = get()) }
+    viewModel {
+        CsWatchViewModel(
+            resolver = get(),
+            watchProgressStore = get(),
+            sourceMemory = get(),
+        )
+    }
 }

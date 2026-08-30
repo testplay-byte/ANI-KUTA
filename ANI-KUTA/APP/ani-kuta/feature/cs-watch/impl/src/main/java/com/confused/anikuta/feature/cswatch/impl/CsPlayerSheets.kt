@@ -19,6 +19,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,7 @@ internal fun CsLinksSheet(
     hiddenTorrentCount: Int,
     unsupportedDrmCount: Int,
     resolveCompleted: Boolean,
+    subtitleCount: Int,
     videoTracks: List<CsVideoTrack>,
     selectedTrackLabel: String?,
     onLinkSelect: (CsVideoLink) -> Unit,
@@ -72,19 +74,23 @@ internal fun CsLinksSheet(
     ) {
         Column(Modifier.padding(bottom = 20.dp)) {
             SheetHeader(
-                title = "Streams",
+                title = "Sources",
                 subtitle = buildString {
                     append("${links.size} available")
+                    if (subtitleCount > 0) append(" · $subtitleCount subtitle track(s)")
                     if (!resolveCompleted) append(" · still resolving…")
                 },
             )
+            // Quality-desc ordering (ties keep arrival order) — the upstream
+            // sources-dialog sort. Task 53 / RC-7.
+            val sortedLinks = remember(links) { links.sortedByDescending { it.quality } }
             // Capped scrollable list (long lists get max-height + scroll).
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(320.dp),
             ) {
-                items(links, key = { it.url }) { link ->
+                items(sortedLinks, key = { it.url }) { link ->
                     LinkRow(
                         link = link,
                         isCurrent = link.url == currentLinkUrl,
@@ -213,6 +219,10 @@ internal fun CsSubtitlesSheet(
      *  selecting one reloads the stream so they attach (upstream REQUIRES_RELOAD). */
     pendingSubs: List<com.confused.anikuta.core.csplayer.CsSubtitle> = emptyList(),
     onPendingSubSelect: (com.confused.anikuta.core.csplayer.CsSubtitle) -> Unit = {},
+    /** Embedded audio tracks (Task 53 / RC-7) — sectioned in when there is a real choice. */
+    audioTracks: List<com.confused.anikuta.core.csplayer.CsAudioTrackInfo> = emptyList(),
+    selectedAudioId: String? = null,
+    onAudioSelect: (com.confused.anikuta.core.csplayer.CsAudioTrackInfo?) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -221,12 +231,37 @@ internal fun CsSubtitlesSheet(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(Modifier.padding(bottom = 20.dp)) {
-            SheetHeader(title = "Subtitles", subtitle = "${tracks.size + pendingSubs.size} track(s)")
+            val showAudio = audioTracks.size > 1
+            SheetHeader(
+                title = if (showAudio) "Audio & Subtitles" else "Subtitles",
+                subtitle = buildString {
+                    append("${tracks.size + pendingSubs.size} subtitle track(s)")
+                    if (showAudio) append(" · ${audioTracks.size} audio track(s)")
+                },
+            )
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(320.dp),
+                    .height(360.dp),
             ) {
+                if (showAudio) {
+                    item(key = "sec-audio") { SheetSectionLabel("Audio language") }
+                    item(key = "audio-auto") {
+                        SubtitleRow(
+                            label = "Auto",
+                            selected = selectedAudioId == null,
+                            onClick = { onAudioSelect(null) },
+                        )
+                    }
+                    items(audioTracks, key = { "a-${it.groupIndex}-${it.trackIndex}" }) { audio ->
+                        SubtitleRow(
+                            label = audio.label,
+                            selected = audio.id == selectedAudioId,
+                            onClick = { onAudioSelect(audio) },
+                        )
+                    }
+                    item(key = "audio-divider") { HorizontalDivider(Modifier.padding(vertical = 6.dp)) }
+                }
                 item(key = "off") {
                     SubtitleRow(
                         label = "Off",

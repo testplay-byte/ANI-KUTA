@@ -103,18 +103,42 @@ fun CsWatchScreen(
     }
 
     // ── The play trigger: VM says "load this" → engine loads it ──────────────
+    // Task 53 / RC-3: the body reads the LIVE StateFlow (viewModel.uiState.value),
+    // NOT the composed snapshot — the collectAsState State object lags the
+    // StateFlow by one dispatch, and an initialize()-reset landing between
+    // composition and this coroutine used to make it replay the PREVIOUS
+    // episode's link. The generation lock makes that class of race a logged
+    // no-op: a play request only touches the engine while its generation
+    // still matches the CURRENT resolution attempt.
     LaunchedEffect(uiState.playRequestId) {
-        val link = uiState.playLink ?: return@LaunchedEffect
-        if (uiState.playRequestId <= 0) return@LaunchedEffect
+        val live = viewModel.uiState.value
+        val link = live.playLink
+        if (live.playRequestId <= 0 || link == null) {
+            Logger.d("Anikuta:CS:Watch") { "play trigger: no active request (id=${live.playRequestId}) — idle" }
+            return@LaunchedEffect
+        }
+        if (live.playGeneration != live.resolveGeneration) {
+            Logger.w("Anikuta:CS:Watch") {
+                "play trigger: REJECTED stale request id=${live.playRequestId} " +
+                    "gen=${live.playGeneration} != current=${live.resolveGeneration} " +
+                    "link=${link.displayLabel.take(40)}"
+            }
+            return@LaunchedEffect
+        }
+        Logger.i("Anikuta:CS:Watch") {
+            "play trigger: ACCEPT id=${live.playRequestId} gen=${live.playGeneration} " +
+                "resume=${live.playIsResume} keepPosition=${live.playKeepPosition} " +
+                "link=${link.displayLabel}"
+        }
         when {
             // Resume (fresh episode with progress, or same-key re-entry): seek.
-            uiState.playIsResume -> engine.start(link, uiState.playSubtitles, uiState.playStartPositionMs)
+            live.playIsResume -> engine.start(link, live.playSubtitles, live.playStartPositionMs)
             // Same-episode link switch (quality/source change, error fallback,
             // subtitle reattach): keep the position (R12-REVIEW F2).
-            uiState.playKeepPosition -> engine.switchLink(link, uiState.playSubtitles)
+            live.playKeepPosition -> engine.switchLink(link, live.playSubtitles)
             // A NEW episode's first link: FRESH start — never inherit the
             // previous episode's position (F2: auto-advance cascade).
-            else -> engine.start(link, uiState.playSubtitles, 0L)
+            else -> engine.start(link, live.playSubtitles, 0L)
         }
         // Subtitle reattach flow: after a reload, auto-select the picked sub
         // once its track appears (bounded poll — tracks land post-prepare).
@@ -129,6 +153,15 @@ fun CsWatchScreen(
         }
         if (!selected) {
             Logger.w("Anikuta:CS:Subs") { "reattached sub never exposed its track (id=$pendingSubId)" }
+        }
+    }
+
+    // Task 53 / RC-3: a NEW episode's resolution start hard-resets the engine —
+    // whatever was loaded stops and clears, so nothing stale can play under
+    // the resolving overlay regardless of any race.
+    LaunchedEffect(uiState.engineResetTick) {
+        if (uiState.engineResetTick > 0) {
+            engine.reset()
         }
     }
 
@@ -195,6 +228,9 @@ fun CsWatchScreen(
     var selectedTrackLabel by remember { mutableStateOf<String?>(null) }
     var textTracks by remember { mutableStateOf<List<com.confused.anikuta.core.csplayer.CsTextTrack>>(emptyList()) }
     var selectedSubId by remember { mutableStateOf<String?>(null) }
+    // Task 53 / RC-7: embedded audio tracks (DASH multi-audio) for the subs sheet.
+    var audioTracks by remember { mutableStateOf<List<com.confused.anikuta.core.csplayer.CsAudioTrackInfo>>(emptyList()) }
+    var selectedAudioId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(showLinksSheet, uiState.currentLink?.url, engineState.bufferState) {
         if (showLinksSheet) {
@@ -212,6 +248,12 @@ fun CsWatchScreen(
         if (showSubsSheet) {
             textTracks = engine.textTracks()
             selectedSubId = engine.selectedTextTrackId()
+            audioTracks = engine.audioTracks()
+            selectedAudioId = audioTracks.firstOrNull {
+                runCatching {
+                    engine.player.currentTracks.groups.getOrNull(it.groupIndex)?.isSelected
+                }.getOrDefault(false)
+            }?.id
         }
     }
 
@@ -293,6 +335,7 @@ fun CsWatchScreen(
                 hiddenTorrentCount = uiState.hiddenTorrentCount,
                 unsupportedDrmCount = uiState.unsupportedDrmCount,
                 resolveCompleted = uiState.resolveCompleted,
+                subtitleCount = uiState.subtitles.size,
                 videoTracks = videoTracks,
                 selectedTrackLabel = selectedTrackLabel,
                 onLinkSelect = { link ->
@@ -326,6 +369,12 @@ fun CsWatchScreen(
                 onPendingSubSelect = { sub ->
                     viewModel.reattachSubtitles(sub)
                     showSubsSheet = false
+                },
+                audioTracks = audioTracks,
+                selectedAudioId = selectedAudioId,
+                onAudioSelect = { audio ->
+                    engine.selectAudioTrack(audio)
+                    selectedAudioId = audio?.id
                 },
                 onDismiss = { showSubsSheet = false },
             )

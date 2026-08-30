@@ -49,6 +49,9 @@ val cloudstreamModule = module {
     // watch screen's ViewModel.
     single { com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver() }
 
+    // Task 53 (round 13 — AnymeX "remember server"): per-anime last source.
+    single { com.confused.anikuta.data.cloudstream.playback.CsSourceMemory(androidContext()) }
+
     // Task 52: the playback engine's OkHttp client — the CS runtime's plugin
     // client (its interceptors/cookies stay active on stream requests, exactly
     // like upstream's `app.baseClient` wiring). factory(): `app` is a var the
