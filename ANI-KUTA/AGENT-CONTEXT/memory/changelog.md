@@ -1541,3 +1541,13 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - **Phase I** — console logging tool: Settings → Developer tools → Console logs (live view, filters, level chips, export+share w/ own-process logcat).
 - **Phase J** — documentation (cloudstream-v2 zone: PLAN + ARCHITECTURE), adversarial review, release v0.3.0.
 - v0.3.0 (versionCode 64).
+
+## v0.4.0 — Task 52 (round 12): the CloudStream playback port
+
+- **Phase A** — gradle/CI groundwork: media3 1.9.3 pins (= upstream CS's own pin), :core:cs-player + :feature:cs-watch module skeletons, version 0.4.0/65, `:core:cs-player` added to the CI unit-test gate.
+- **Phase B+C** — the engine + the resolver: CsPlayerEngine (ExoPlayer host: per-link OkHttp DataSource w/ referer/UA/headers + provider interceptor, sidecar subtitle sources, external audio merge, track selection, upstream-format error diagnostics) + CloudstreamLinkResolver (progressive loadLinks snapshots, URL dedup, torrent/DRM filtering + counting, subtitle unique-ifying, 20-min link cache, 30-s first-link watchdog) — 12+13 unit locks.
+- **Phase D+E** — the CS watch screen: CsWatchKey (Nav3), CsWatchViewModel (resolution state + auto-pick + next-link fallback + watch progress on the SAME provider-agnostic store), Media3 PlayerView surface w/ Compose glass controls (seek/speed/auto-hide/immersive), resolving + honest error overlays, Streams sheet (type badges VIDEO/HLS/DASH, failed markers, hidden counts, long-press copy, per-stream quality rows), Subtitles sheet (sidecar + embedded), Episodes sheet, episode auto-advance.
+- **Phase F** — the seams: DetailsScreen routes CS episode taps to `onNavigateToCsWatch` BEFORE the classic resolver; continue-watching autoplay unified through the same handler; MainActivity CsWatchKey nav branch; the resolveEpisode CS short-circuit stays as defense in depth (downloads get the honest message).
+- **Phase G** — logging: the `Anikuta:CS:*` namespace (Resolver/Player/Subs/Watch) + the "CS Playback" console chip; the one-filter logcat recipe (doc cloudstream-v2/03).
+- **Phase H** — docs: 02-PLAYBACK-PLAN.md + 03-PLAYBACK.md (as-built), D-374..D-376, the long-task-execution skill (the user-requested agent-method doc).
+- v0.4.0 (versionCode 65). Aniyomi playback stack: zero diff (R12-REVIEW-verified).

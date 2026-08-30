@@ -383,6 +383,13 @@ class CsPlayerEngine(
         Logger.i(SUBS_TAG) { "subtitle selected: ${track.name} (embedded=${track.embedded})" }
     }
 
+    /** Selects a text track by its format id (sidecar subs carry [CsSubtitle.id]); true when found+selected. */
+    fun selectTextTrackById(id: String): Boolean {
+        val track = textTracks().firstOrNull { it.id == id } ?: return false
+        selectTextTrack(track)
+        return true
+    }
+
     /** The id of the currently selected text track (for the sheet's highlight), or null when OFF. */
     fun selectedTextTrackId(): String? {
         player.currentTracks.groups.forEach { group ->

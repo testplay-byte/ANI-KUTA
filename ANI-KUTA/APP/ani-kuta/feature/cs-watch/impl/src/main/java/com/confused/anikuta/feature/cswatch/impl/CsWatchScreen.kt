@@ -55,7 +55,6 @@ fun CsWatchScreen(
     val context = LocalContext.current
     val view = LocalView.current
     val uiState by viewModel.uiState.collectAsState()
-    val engineState by engine.state.collectAsState()
 
     // The playback OkHttp client = the CS runtime's plugin client (registered
     // by :data:cloudstream's DI — keeps com.lagradost.* out of this module).
@@ -63,6 +62,7 @@ fun CsWatchScreen(
 
     // ── Engine lifecycle (main thread — ExoPlayer's threading rule) ──────────
     val engine = remember { CsPlayerEngine(context.applicationContext, playbackClient) }
+    val engineState by engine.state.collectAsState()
     DisposableEffect(engine) {
         onDispose {
             // Final progress save on exit (the ticker only fires every 10 s).
@@ -101,6 +101,20 @@ fun CsWatchScreen(
         } else {
             // Link switch keeps the position (quality/source change UX).
             engine.switchLink(link, uiState.playSubtitles)
+        }
+        // Subtitle reattach flow: after a reload, auto-select the picked sub
+        // once its track appears (bounded poll — tracks land post-prepare).
+        val pendingSubId = viewModel.consumePendingSubSelectId() ?: return@LaunchedEffect
+        var selected = false
+        repeat(40) {
+            if (engine.selectTextTrackById(pendingSubId)) {
+                selected = true
+                return@LaunchedEffect
+            }
+            delay(250)
+        }
+        if (!selected) {
+            Logger.w("Anikuta:CS:Subs") { "reattached sub never exposed its track (id=$pendingSubId)" }
         }
     }
 
@@ -271,12 +285,19 @@ fun CsWatchScreen(
         }
 
         if (showSubsSheet) {
+            val engineTrackIds = textTracks.mapNotNull { it.id }.toSet()
+            val pendingSubs = uiState.subtitles.filter { it.id !in engineTrackIds }
             CsSubtitlesSheet(
                 tracks = textTracks,
                 selectedTrackId = selectedSubId,
                 onSelect = { track ->
                     engine.selectTextTrack(track)
                     selectedSubId = track?.id
+                    showSubsSheet = false
+                },
+                pendingSubs = pendingSubs,
+                onPendingSubSelect = { sub ->
+                    viewModel.reattachSubtitles(sub)
                     showSubsSheet = false
                 },
                 onDismiss = { showSubsSheet = false },

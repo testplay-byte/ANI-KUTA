@@ -209,6 +209,10 @@ internal fun CsSubtitlesSheet(
     tracks: List<CsTextTrack>,
     selectedTrackId: String?,
     onSelect: (CsTextTrack?) -> Unit,
+    /** Sidecar subs NOT yet attached to the player (arrived after playback started) —
+     *  selecting one reloads the stream so they attach (upstream REQUIRES_RELOAD). */
+    pendingSubs: List<com.confused.anikuta.core.csplayer.CsSubtitle> = emptyList(),
+    onPendingSubSelect: (com.confused.anikuta.core.csplayer.CsSubtitle) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -217,7 +221,7 @@ internal fun CsSubtitlesSheet(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         Column(Modifier.padding(bottom = 20.dp)) {
-            SheetHeader(title = "Subtitles", subtitle = "${tracks.size} track(s)")
+            SheetHeader(title = "Subtitles", subtitle = "${tracks.size + pendingSubs.size} track(s)")
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -249,6 +253,16 @@ internal fun CsSubtitlesSheet(
                             label = track.name,
                             selected = track.id == selectedTrackId,
                             onClick = { onSelect(track) },
+                        )
+                    }
+                }
+                if (pendingSubs.isNotEmpty()) {
+                    item(key = "sec-pending") { SheetSectionLabel("Needs a quick reload to attach") }
+                    items(pendingSubs, key = { "p-${it.id}" }) { sub ->
+                        SubtitleRow(
+                            label = "${sub.name}  ↻",
+                            selected = false,
+                            onClick = { onPendingSubSelect(sub) },
                         )
                     }
                 }

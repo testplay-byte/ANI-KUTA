@@ -2561,3 +2561,23 @@ The adversarial review before the v0.3.0 tag found two real bugs inherited from 
 - **Files:** SearchViewModel.kt (marker filter), DetailsViewModel.kt (boundary short-circuit), CloudstreamPluginManager.kt (re-check).
 - **Status:** ✅ Implemented (Task 51, pre-release review).
 - **Date:** 2026-08-30.
+
+### D-374 — Task 52: CloudStream playback gets its OWN stack (Media3 ExoPlayer), never MPV
+
+The round-12 playback port gives CloudStream a fully separate playback pipeline modeled on UPSTREAM CloudStream's own architecture: `data/cloudstream`'s `CloudstreamLinkResolver` (loadLinks orchestration: progressive snapshots, URL dedup, torrent/DRM filtering, 20-min cache, 30-s first-link watchdog) → app-side `CsVideoLink`/`CsSubtitle` models → `core:cs-player`'s `CsPlayerEngine` (Media3 1.9.3 = upstream's own pin; per-link OkHttp DataSource with referer/headers/UA + provider interceptor; sidecar subs via SingleSampleMediaSource; external audio merge; track selection) → `feature:cs-watch`'s dedicated Compose screen. The aniyomi MPV stack (VideoResolver/WatchScreen/core:player/core:player-mpv-lib/playback-cache) is byte-untouched. Rationale: the round-10 reference failures (5 hidden .mpd streams because MPV can't play DASH; PlaybackCache 428-on-redirect header forwarding) were BOTH artifacts of forcing CS's model through the aniyomi pipeline. DASH is now a first-class citizen; the proxy is bypassed structurally (per-link DataSources carry headers natively, OkHttp follows redirects).
+- **Files:** core/cs-player/* (NEW module), data/cloudstream/playback/CloudstreamLinkResolver.kt (NEW), feature/cs-watch/* (NEW modules), DI in CloudstreamExtensionModule.kt + CsWatchModule.kt.
+- **Status:** ✅ Implemented (Task 52).
+- **Date:** 2026-08-30.
+
+### D-375 — Task 52: the plugin-class boundary at the resolver, primitives at the seams
+
+Two isolation rules govern the playback port: (1) `core:cs-player` imports ZERO `com.lagradost.*` classes — the resolver maps ExtractorLink/SubtitleFile onto app-side models at the data-layer boundary (the OkHttp `Interceptor` from the provider's `getVideoInterceptor` hook is allowed through: okhttp is an app dependency, not a plugin class). (2) `:feature:anime-details` takes PRIMITIVE callback args (`onNavigateToCsWatch(providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId)`) instead of depending on `:feature:cs-watch:api` — preserving the existing no-feature-to-feature-dep architecture; MainActivity builds the CsWatchKey. The engine's OkHttp client is injected via Koin (`cloudstreamPlayback` factory = the CS runtime's `app.baseClient`) so the feature layer never imports the plugin runtime either.
+- **Status:** ✅ Implemented (Task 52).
+- **Date:** 2026-08-30.
+
+### D-376 — Task 52: CS watch progress rides the provider-agnostic store — resume/history/continue-watching for free
+
+The CS watch screen saves progress through the SAME `WatchProgressStore` (`episodeKey = mainId|padded5`) with the same 10-s cadence, final-save-on-exit, and resume lookup as the aniyomi screen (the key-builder format is replicated in CsWatchViewModel — the two watch modules stay independent). Consequence: watch history, continue-watching cards, and episode resume work for CloudStream content with ZERO schema changes and zero history-feature edits; the continue-watching autoplay path was unified to fire the same hoisted `onEpisodeClick` (so CS episodes route to the CS player instead of the legacy resolver error).
+- **Files:** CsWatchViewModel.kt (progress), DetailsScreen.kt (autoplay unified).
+- **Status:** ✅ Implemented (Task 52).
+- **Date:** 2026-08-30.

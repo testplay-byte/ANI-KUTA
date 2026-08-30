@@ -276,6 +276,26 @@ class CsWatchViewModel(
         startResolution(currentKey!!)
     }
 
+    /** Re-loads the CURRENT link so late-arriving sidecar subtitles attach (the
+     *  upstream REQUIRES_RELOAD pattern): playRequestId++ with isResume=false
+     *  → the screen's switchLink keeps the position; the pending auto-select id
+     *  is consumed by the screen once the reloaded tracks expose it. */
+    fun reattachSubtitles(autoSelectSub: CsSubtitle?) {
+        val link = _uiState.value.currentLink ?: return
+        Logger.i(TAG) {
+            "reattachSubtitles: reloading '${link.displayLabel}' with " +
+                "${_uiState.value.subtitles.size} subtitle(s)" +
+                if (autoSelectSub != null) ", will select '${autoSelectSub.name}'" else ""
+        }
+        pendingSubSelectId = autoSelectSub?.id
+        requestPlay(link, 0L, isResume = false)
+    }
+
+    /** One-shot: the subtitle id to auto-select after a reattach (nulls when read). */
+    fun consumePendingSubSelectId(): String? = pendingSubSelectId.also { pendingSubSelectId = null }
+
+    private var pendingSubSelectId: String? = null
+
     /** Re-resolve from scratch (the error overlay's retry button). */
     fun retryResolution() {
         val key = currentKey ?: return
