@@ -1,6 +1,7 @@
 package com.confused.anikuta.core.csplayer
 
 import android.content.Context
+import android.graphics.Typeface
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -14,6 +15,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.SingleSampleMediaSource
+import androidx.media3.ui.CaptionStyleCompat
+import androidx.media3.ui.PlayerView
 import com.confused.anikuta.core.common.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -120,6 +123,13 @@ class CsPlayerEngine(
     context: Context,
     baseClient: OkHttpClient,
     private val defaultUserAgent: String = CsPlayerDefaults.USER_AGENT,
+    /**
+     * Task 55: preferred subtitle languages (comma-separated) — supplied by the
+     * screen from PlayerPreferences (the engine stays preference-free). On the
+     * first READY of each load, one matching sidecar/embedded track is
+     * auto-selected (the MPV `slang` behavior parity). Default: English.
+     */
+    private val preferredSubtitleLanguages: () -> String = { "en,eng,english" },
 ) {
     companion object {
         internal const val TAG = "Anikuta:CS:Player"
@@ -146,6 +156,9 @@ class CsPlayerEngine(
 
     /** True once the CURRENT load reached READY — mid-playback errors are NOT clean-retry candidates. */
     private var reachedReady = false
+
+    /** Task 55: one-shot gate for the first-READY preferred-subtitle auto-select. */
+    private var autoSubSelectAttempted = false
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context))
@@ -206,6 +219,9 @@ class CsPlayerEngine(
                         "READY: track groups video=$videoGroups audio=$audioGroups text=$textGroups " +
                             "(url=${_state.value.currentLinkUrl?.take(64)})"
                     }
+                    // Task 55: MPV `slang` parity — auto-select a preferred-language
+                    // subtitle track once per load (only when nothing is selected).
+                    maybeAutoSelectPreferredSubtitles()
                 }
                 if (mapped == CsBufferState.ENDED) {
                     Logger.i(TAG) { "playback ENDED (url=${_state.value.currentLinkUrl})" }
@@ -301,6 +317,7 @@ class CsPlayerEngine(
         current = CurrentPlayback(link, subtitles)
         cleanRetryUsed = clean
         reachedReady = false
+        autoSubSelectAttempted = false
 
         val headersOut = if (clean) {
             link.allHeaders.filterKeys { !it.equals("referer", ignoreCase = true) }
@@ -327,23 +344,27 @@ class CsPlayerEngine(
 
         // Sidecar subtitles — each with its OWN DataSource (per-sub headers),
         // exactly like upstream getSubSources (research R12-A §6).
+        // Task 55: the config now carries a human LABEL (the display name — the
+        // v0.4.2 round showed raw URLs because the sheet fell back to the id)
+        // and the content-sniffed mime when the resolver detected one.
         Logger.i(SUBS_TAG) {
             "attaching ${subtitles.size} sidecar subtitle(s): " +
-                subtitles.joinToString { "${it.name}(${it.mimeType.substringAfterLast('/')})" }
+                subtitles.joinToString { "${it.displayName}(${(it.sniffedMime ?: it.mimeType).substringAfterLast('/')})" }
         }
         val subSources: List<MediaSource> = subtitles.mapNotNull { sub ->
             runCatching {
                 val config: SubtitleConfiguration = SubtitleConfiguration.Builder(Uri.parse(sub.url))
-                    .setMimeType(sub.mimeType)
+                    .setMimeType(sub.sniffedMime ?: sub.mimeType)
                     // Upstream language trick: "_" prefix keeps custom names valid BCP-47-ish.
-                    .setLanguage(sub.languageTag ?: "_${sub.name}")
+                    .setLanguage(sub.languageTag ?: "_${sub.displayName}")
+                    .setLabel(sub.displayName)
                     .setId(sub.id)
                     .setSelectionFlags(0)
                     .build()
                 SingleSampleMediaSource.Factory(dataSourceFactory.forSubtitle(sub))
                     .createMediaSource(config, C.TIME_UNSET)
             }.onFailure {
-                Logger.w(SUBS_TAG, it) { "subtitle source dropped: ${sub.name} (${sub.url.take(64)})" }
+                Logger.w(SUBS_TAG, it) { "subtitle source dropped: ${sub.displayName} (${sub.url.take(64)})" }
             }.getOrNull()
         }
 
@@ -379,6 +400,7 @@ class CsPlayerEngine(
         Logger.i(TAG) { "reset: stopping + clearing (had=${current?.link?.displayLabel ?: "nothing"})" }
         cleanRetryUsed = false
         reachedReady = false
+        autoSubSelectAttempted = false
         current = null
         tickerJob?.cancel()
         player.stop()
@@ -447,6 +469,9 @@ class CsPlayerEngine(
     /**
      * Text tracks = sidecar subtitles (ours, keyed by [CsSubtitle.id]) + tracks
      * embedded in the container. `embedded` drives the sheet's section split.
+     * Task 55: the row NAME is the label (sidecar display names / embedded
+     * labels) or the language's display name — NEVER the format id (which is
+     * a URL for sidecars; that was the v0.4.2 "rows show URLs" bug).
      */
     fun textTracks(): List<CsTextTrack> {
         val sidecarIds = current?.subtitles?.map { it.id }?.toSet() ?: emptySet()
@@ -460,7 +485,9 @@ class CsPlayerEngine(
                     groupIndex = groupIndex,
                     trackIndex = trackIndex,
                     id = id,
-                    name = format.label ?: id ?: "Track ${groupIndex + 1}",
+                    name = format.label
+                        ?: format.language?.let { CsLanguageNames.display(it) }
+                        ?: "Track ${out.size + 1}",
                     language = format.language,
                     embedded = id == null || id !in sidecarIds,
                 )
@@ -528,7 +555,17 @@ class CsPlayerEngine(
         Logger.i(TAG) { "maxVideoHeight=$height" }
     }
 
-    /** Selects a text track (null = subtitles OFF). */
+    /**
+     * Selects a text track (null = subtitles OFF).
+     *
+     * Task 55 — STALE-INDEX FIX: the sheet snapshots [CsTextTrack] at open
+     * time; any re-prepare between that and the click shifts group/track
+     * indices, and an override built from the SNAPSHOT indices landed on the
+     * wrong (or non-text) group — the v0.4.2 "clicked a subtitle, nothing
+     * applied" bug. The indices are now re-resolved LIVE from
+     * `player.currentTracks` by matching `format.id` first; the snapshot
+     * indices are only the fallback when the track has no id.
+     */
     fun selectTextTrack(track: CsTextTrack?) {
         if (track == null) {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -537,12 +574,105 @@ class CsPlayerEngine(
             Logger.i(SUBS_TAG) { "subtitles OFF" }
             return
         }
-        val group = player.currentTracks.groups.getOrNull(track.groupIndex) ?: return
+        val live = resolveTextTrackIndices(track)
+        val group = player.currentTracks.groups.getOrNull(live?.first ?: track.groupIndex)
+        val trackIndex = live?.second ?: track.trackIndex
+        if (group == null || group.type != C.TRACK_TYPE_TEXT) {
+            Logger.w(SUBS_TAG) {
+                "track selection REJECTED: snapshot indices stale " +
+                    "(g${track.groupIndex}/t${track.trackIndex} id=${track.id?.take(32)} no longer a text group)"
+            }
+            return
+        }
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
             .build()
         Logger.i(SUBS_TAG) { "subtitle selected: ${track.name} (embedded=${track.embedded})" }
+    }
+
+    /**
+     * LIVE index resolution for a track: walks `player.currentTracks` and
+     * returns (groupIndex, trackIndex) of the text track whose format id
+     * matches — null when the id is null or no longer present.
+     */
+    private fun resolveTextTrackIndices(track: CsTextTrack): Pair<Int, Int>? {
+        val wanted = track.id ?: return null
+        player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+            if (group.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
+            for (trackIndex in 0 until group.length) {
+                if (group.getTrackFormat(trackIndex).id == wanted) return groupIndex to trackIndex
+            }
+        }
+        return null
+    }
+
+    /**
+     * Task 55 — MPV `slang` parity. On the FIRST READY of each load (and only
+     * when no text track is selected yet), auto-selects the first track whose
+     * language/name matches the preferred list. Sidecars win over embedded
+     * (provider subs are usually better timed than container subs). Never
+     * forces a selection when nothing matches.
+     */
+    private fun maybeAutoSelectPreferredSubtitles() {
+        if (autoSubSelectAttempted) return
+        autoSubSelectAttempted = true
+        if (selectedTextTrackId() != null) return // already selected (reattach/user)
+        val preferred = preferredSubtitleLanguages()
+        // 1) sidecar subs (ours — languageTag or the provider's lang name).
+        current?.subtitles?.firstOrNull { sub ->
+            CsLanguageNames.matchesPreferred(sub.languageTag ?: sub.name, preferred)
+        }?.let { sub ->
+            if (selectTextTrackById(sub.id)) {
+                Logger.i(SUBS_TAG) { "auto-selected preferred subtitle (sidecar): ${sub.displayName}" }
+                return
+            }
+        }
+        // 2) embedded tracks (language/label match).
+        textTracks().firstOrNull { it.embedded && CsLanguageNames.matchesPreferred(it.language, preferred) }?.let {
+            selectTextTrack(it)
+            Logger.i(SUBS_TAG) { "auto-selected preferred subtitle (embedded): ${it.name}" }
+        }
+    }
+
+    /**
+     * Task 55 — applies the user's subtitle STYLE (the PlayerPreferences values
+     * the aniyomi MPV stack uses, mapped onto Media3's [androidx.media3.ui.SubtitleView]).
+     * Call at surface creation + live whenever the settings sheet writes.
+     */
+    fun applySubtitleStyle(view: PlayerView, style: CsSubtitleStyle) {
+        val subtitleView = view.subtitleView ?: return
+        subtitleView.setApplyEmbeddedStyles(false)
+        subtitleView.setApplyEmbeddedFontSizes(false)
+        val typeface = Typeface.create(
+            Typeface.SANS_SERIF,
+            when {
+                style.bold && style.italic -> Typeface.BOLD_ITALIC
+                style.bold -> Typeface.BOLD
+                style.italic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            },
+        )
+        // Edge: the border setting wins (outline); a shadow offset alone → shadow.
+        val edgeType = when {
+            style.borderSize > 0 -> CaptionStyleCompat.EDGE_TYPE_OUTLINE
+            style.shadowOffset > 0 -> CaptionStyleCompat.EDGE_TYPE_DROP_SHADOW
+            else -> CaptionStyleCompat.EDGE_TYPE_NONE
+        }
+        val caption = CaptionStyleCompat(
+            style.textColor,
+            style.backgroundColor,
+            android.graphics.Color.TRANSPARENT, // windowColor — always transparent
+            edgeType,
+            style.borderColor,
+            typeface,
+        )
+        subtitleView.setStyle(caption)
+        // MPV's sub-font-size (20..100, default 55) → Media3's fractional text
+        // size (default 0.0533 of the viewport height).
+        subtitleView.setFractionalTextSize(0.0533f * (style.fontSize / 55f))
+        // MPV sub-pos (0..100, 100 = flush bottom) → bottom padding fraction.
+        subtitleView.setBottomPaddingFraction(((100 - style.position) / 100f) * 0.12f)
     }
 
     /** Selects a text track by its format id (sidecar subs carry [CsSubtitle.id]); true when found+selected. */

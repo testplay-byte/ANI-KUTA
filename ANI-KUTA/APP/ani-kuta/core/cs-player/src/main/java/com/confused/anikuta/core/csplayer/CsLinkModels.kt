@@ -48,6 +48,15 @@ data class CsVideoLink(
     val audioTracks: List<CsAudioTrack> = emptyList(),
     /** Optional per-link OkHttp interceptor (the provider `getVideoInterceptor` hook). */
     val requestInterceptor: Interceptor? = null,
+    /**
+     * Task 55 (round 15): explicit audio-version tag ("SUB"/"DUB"/…) — set when
+     * the link was resolved from a sub/dub-tagged episode handle (COMBINED
+     * display mode resolves both siblings and tags each stream). Null/blank =
+     * no explicit tag; the sheets then fall back to [CsAudioTag.parse] of
+     * [name] (the aniyomi ResolverSheet semantics). Presentation-only — the
+     * engine ignores it.
+     */
+    val audioTag: String? = null,
 ) {
     /** Headers + referer merged (upstream `ExtractorLink.getAllHeaders` semantics). */
     val allHeaders: Map<String, String>
@@ -70,6 +79,14 @@ data class CsVideoLink(
     /** Sheet row label: "Mirror 1080p" — the upstream sources-dialog format. */
     val displayLabel: String
         get() = "$name $qualityLabel".trim()
+
+    /**
+     * Task 55: this link's audio-version label for the sheets' SUB/DUB chips —
+     * the explicit [audioTag] when set (combined sub/dub resolution), else
+     * parsed from [name] (the aniyomi parseAudioVersion semantics).
+     */
+    val audioLabel: String
+        get() = audioTag?.takeIf { it.isNotBlank() } ?: CsAudioTag.parse(name)
 }
 
 /** One external subtitle file (sidecar). */
@@ -80,12 +97,24 @@ data class CsSubtitle(
     val url: String,
     /** Request headers for fetching the subtitle file (may differ from the video's). */
     val headers: Map<String, String> = emptyMap(),
-    /** Resolved mime (see [CsMediaTypes.subtitleMime]). */
+    /** Resolved mime (see [CsMediaTypes.subtitleMime] + the content-sniffed correction). */
     val mimeType: String,
     /** BCP-47-ish language tag when known (drives auto-selection later). */
     val languageTag: String? = null,
     /** Stable id used for ExoPlayer track bookkeeping. */
     val id: String = "$url|$name",
+    /**
+     * Task 55 (round 15): content-sniffed mime override — when the file bytes
+     * contradicted [mimeType] (a VTT served without a .vtt extension parses
+     * as SubRip → zero cues), the resolver sets the sniffed type here; the
+     * engine prefers it when building the SubtitleConfiguration.
+     */
+    val sniffedMime: String? = null,
+    /**
+     * Task 55: human display name ("English" from "en", a file name from a
+     * URL-shaped `lang`) — what every sheet row shows. Falls back to [name].
+     */
+    val displayName: String = CsLanguageNames.display(name),
 )
 
 /** One external audio track. */

@@ -34,6 +34,8 @@ class CsWatchViewModel(
     private val resolver: CloudstreamLinkResolver,
     private val watchProgressStore: WatchProgressStore,
     private val sourceMemory: com.confused.anikuta.data.cloudstream.playback.CsSourceMemory,
+    /** Task 55: the sub/dub display mode (episode switching resolves sibling handles in COMBINED). */
+    private val episodeListPreferences: com.confused.anikuta.core.preferences.EpisodeListPreferences,
 ) : ViewModel() {
 
     companion object {
@@ -307,56 +309,98 @@ class CsWatchViewModel(
             resolveGeneration = generation,
             engineResetTick = _uiState.value.engineResetTick + 1,
         )
+        // Task 55: COMBINED sub/dub — resolve the tapped handle + its
+        // opposite-flavor sibling (same episode number) and tag each stream
+        // so the links sheet's audio chips can separate them. SEPARATE (the
+        // default) resolves the one handle, tagged with its own flavor.
+        val handles = run {
+            val combined = episodeListPreferences.subDubMode.get() == "COMBINED"
+            com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
+                .handlesFor(key.parseEpisodeList(), key.episodeData, combined)
+        }
         Logger.i(TAG) {
             "resolve: generation=$generation episode=${key.episodeNumber} " +
-                "provider=${key.providerName} — engineResetTick=${_uiState.value.engineResetTick}"
+                "provider=${key.providerName} handles=${handles.size} " +
+                "tags=${handles.joinToString { it.audioTag ?: "-" }} — engineResetTick=${_uiState.value.engineResetTick}"
         }
         resolveJob = viewModelScope.launch {
             var firstLinkPlayed = false
             val initialResume = key.startPosition
-            resolver.resolve(key.providerName, key.episodeData).collect { event ->
-                when (event) {
-                    is CsResolveEvent.LinksSnapshot -> {
-                        val hadLinks = _uiState.value.links.isNotEmpty()
-                        _uiState.value = _uiState.value.copy(
-                            links = event.links,
-                            hiddenTorrentCount = event.hiddenTorrentCount,
-                            unsupportedDrmCount = event.unsupportedDrmCount,
-                        )
-                        // Upstream streaming-into-player: start on the FIRST link;
-                        // keep collecting for the sheet.
-                        if (!firstLinkPlayed && event.links.isNotEmpty()) {
-                            firstLinkPlayed = true
-                            val resumeMs = if (initialResume > 0) initialResume else lookupResumePositionMs()
-                            autoStart(event.links, resumeMs)
-                        } else if (hadLinks) {
-                            refreshCurrentLink(event.links)
+            // Per-handle snapshots — merged with url dedup (first wins).
+            val perHandle = mutableMapOf<Int, List<CsVideoLink>>()
+            val perHandleSubs = mutableMapOf<Int, List<com.confused.anikuta.core.csplayer.CsSubtitle>>()
+            val perHandleHidden = IntArray(handles.size)
+            val perHandleDrm = IntArray(handles.size)
+            val finishedHandles = mutableSetOf<Int>()
+            handles.forEachIndexed { index, handle ->
+                launch {
+                    resolver.resolve(key.providerName, handle.data).collect { event ->
+                        when (event) {
+                            is CsResolveEvent.LinksSnapshot -> {
+                                perHandle[index] = event.links.map { link ->
+                                    if (handle.audioTag != null) link.copy(audioTag = handle.audioTag) else link
+                                }
+                                perHandleHidden[index] = event.hiddenTorrentCount
+                                perHandleDrm[index] = event.unsupportedDrmCount
+                                val known = mutableSetOf<String>()
+                                val merged = handles.indices.flatMap { i -> perHandle[i].orEmpty() }
+                                    .filter { known.add(it.url) }
+                                val hadLinks = _uiState.value.links.isNotEmpty()
+                                _uiState.value = _uiState.value.copy(
+                                    links = merged,
+                                    hiddenTorrentCount = perHandleHidden.sum(),
+                                    unsupportedDrmCount = perHandleDrm.sum(),
+                                )
+                                // Upstream streaming-into-player: start on the FIRST link;
+                                // keep collecting for the sheet.
+                                if (!firstLinkPlayed && merged.isNotEmpty()) {
+                                    firstLinkPlayed = true
+                                    val resumeMs = if (initialResume > 0) initialResume else lookupResumePositionMs()
+                                    autoStart(merged, resumeMs)
+                                } else if (hadLinks) {
+                                    refreshCurrentLink(merged)
+                                }
+                            }
+                            is CsResolveEvent.SubtitlesSnapshot -> {
+                                perHandleSubs[index] = event.subtitles
+                                val knownIds = mutableSetOf<String>()
+                                _uiState.value = _uiState.value.copy(
+                                    subtitles = handles.indices.flatMap { i -> perHandleSubs[i].orEmpty() }
+                                        .filter { knownIds.add(it.id) },
+                                )
+                            }
+                            is CsResolveEvent.Completed -> {
+                                finishedHandles += index
+                                if (finishedHandles.size == handles.size) {
+                                    _uiState.value = _uiState.value.copy(resolveCompleted = true)
+                                    if (_uiState.value.links.isEmpty()) {
+                                        _uiState.value = _uiState.value.copy(
+                                            phase = Phase.NO_LINKS,
+                                            resolveError = buildNoLinksMessage(event),
+                                        )
+                                        Logger.w(TAG) { "resolution completed with ZERO links: ${buildNoLinksMessage(event)}" }
+                                    }
+                                }
+                            }
+                            is CsResolveEvent.Failed -> {
+                                finishedHandles += index
+                                Logger.w(TAG) {
+                                    "handle #${index + 1} resolution failed: ${event.message} " +
+                                        "(linksSoFar=${event.linksSoFar})"
+                                }
+                                if (finishedHandles.size == handles.size) {
+                                    _uiState.value = _uiState.value.copy(
+                                        resolveCompleted = true,
+                                        resolveError = event.message,
+                                    )
+                                    // Links that already arrived stay usable (upstream behavior:
+                                    // a late provider error after links = logged, not fatal).
+                                    if (_uiState.value.links.isEmpty()) {
+                                        _uiState.value = _uiState.value.copy(phase = Phase.FAILED)
+                                    }
+                                }
+                            }
                         }
-                    }
-                    is CsResolveEvent.SubtitlesSnapshot -> {
-                        _uiState.value = _uiState.value.copy(subtitles = event.subtitles)
-                    }
-                    is CsResolveEvent.Completed -> {
-                        _uiState.value = _uiState.value.copy(resolveCompleted = true)
-                        if (event.linkCount == 0) {
-                            _uiState.value = _uiState.value.copy(
-                                phase = Phase.NO_LINKS,
-                                resolveError = buildNoLinksMessage(event),
-                            )
-                            Logger.w(TAG) { "resolution completed with ZERO links: ${buildNoLinksMessage(event)}" }
-                        }
-                    }
-                    is CsResolveEvent.Failed -> {
-                        _uiState.value = _uiState.value.copy(
-                            resolveCompleted = true,
-                            resolveError = event.message,
-                        )
-                        // Links that already arrived stay usable (upstream behavior:
-                        // a late provider error after links = logged, not fatal).
-                        if (_uiState.value.links.isEmpty()) {
-                            _uiState.value = _uiState.value.copy(phase = Phase.FAILED)
-                        }
-                        Logger.w(TAG) { "resolution failed: ${event.message} (linksSoFar=${event.linksSoFar})" }
                     }
                 }
             }

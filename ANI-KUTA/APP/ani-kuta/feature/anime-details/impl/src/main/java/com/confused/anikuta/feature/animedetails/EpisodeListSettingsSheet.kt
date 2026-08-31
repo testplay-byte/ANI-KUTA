@@ -358,6 +358,8 @@ private fun DisplayTab(prefs: EpisodeListPreferences, seasonsDetected: Boolean) 
     val showNextEpisode by prefs.showNextEpisode.changes.collectAsState(initial = prefs.showNextEpisode.get())
     val organizeMode by prefs.organizeMode.changes.collectAsState(initial = prefs.organizeMode.get())
     val seasonTagInNumber by prefs.seasonTagInNumber.changes.collectAsState(initial = prefs.seasonTagInNumber.get())
+    // Task 55: the sub/dub display mode (series with "(Sub)"/"(Dub)" rows).
+    val subDubMode by prefs.subDubMode.changes.collectAsState(initial = prefs.subDubMode.get())
 
     // D-317: when no seasons are detected, SEASONS mode falls back to
     // number-group behavior — the grouping row must still be offered then.
@@ -437,6 +439,24 @@ private fun DisplayTab(prefs: EpisodeListPreferences, seasonsDetected: Boolean) 
             SectionHint("Only activates when the episode count exceeds the group size.")
         }
         Spacer(Modifier.height(4.dp))
+        // Task 55 (round 15): how sub and dub episodes are displayed — only
+        // matters for series whose rows carry "(Sub)"/"(Dub)" tags (some
+        // CloudStream extensions); other lists are unaffected.
+        SectionLabel("Sub/Dub episodes")
+        SegmentedSelector(
+            options = listOf(
+                "SEPARATE" to "Separate",
+                "COMBINED" to "Combined",
+            ),
+            selected = subDubMode,
+            onSelect = { prefs.subDubMode.set(it) },
+        )
+        SectionHint(
+            when (subDubMode) {
+                "COMBINED" -> "Sub + dub rows merge into one episode; tapping resolves both — pick the audio in the source sheet."
+                else -> "Sub and dub rows stay separate, with a Sub/Dub switcher above the list."
+            },
+        )
         SectionLabel("Next episode")
         ToggleRow(
             label = "Show next episode release",

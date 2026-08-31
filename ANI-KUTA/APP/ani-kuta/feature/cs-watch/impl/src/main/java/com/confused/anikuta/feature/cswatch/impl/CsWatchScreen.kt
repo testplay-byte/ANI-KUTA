@@ -29,7 +29,9 @@ import androidx.media3.ui.PlayerView
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.csplayer.CsEngineEvent
 import com.confused.anikuta.core.csplayer.CsPlayerEngine
+import com.confused.anikuta.core.csplayer.CsSubtitleStyle
 import com.confused.anikuta.core.csplayer.CsVideoTrack
+import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.feature.cswatch.api.CsWatchKey
 import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
@@ -77,7 +79,16 @@ fun CsWatchScreen(
     val playbackClient = koinInject<OkHttpClient>(named("cloudstreamPlayback"))
 
     // ── Engine lifecycle (main thread — ExoPlayer's threading rule) ──────────
-    val engine = remember { CsPlayerEngine(context.applicationContext, playbackClient) }
+    // Task 55: the preferred subtitle languages ride the engine constructor
+    // (MPV slang parity — the engine stays preference-free itself).
+    val playerPreferences = koinInject<PlayerPreferences>()
+    val engine = remember {
+        CsPlayerEngine(
+            context = context.applicationContext,
+            baseClient = playbackClient,
+            preferredSubtitleLanguages = { playerPreferences.preferredSubtitleLanguages },
+        )
+    }
     val engineState by engine.state.collectAsState()
 
     // The single PlayerView, re-parented between the minimized player box and
@@ -289,6 +300,7 @@ fun CsWatchScreen(
     // ── Sheets ────────────────────────────────────────────────────────────────
     var showLinksSheet by remember { mutableStateOf(false) }
     var showSubsSheet by remember { mutableStateOf(false) }
+    var showSubsSettingsSheet by remember { mutableStateOf(false) }
     var showEpisodesSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
     // Track snapshots for the sheets (refreshed when opened).
@@ -329,12 +341,17 @@ fun CsWatchScreen(
         engine.seekTo((engineState.positionMs + seconds * 1000L).coerceIn(0L, engineState.durationMs))
     }
 
-    // ── The shared player surface (re-parents between modes) ─────────────────
+    // The shared player surface (re-parents between modes). Task 55: the
+    // subtitle STYLE (the shared PlayerPreferences values) applies at creation
+    // so styled subs show from the first frame.
     val playerSurface: @Composable (Modifier) -> Unit = { modifier ->
         CsPlayerSurface(
             playerView = playerView,
             engine = engine,
-            onCreate = { playerView = it },
+            onCreate = { view ->
+                playerView = view
+                engine.applySubtitleStyle(view, currentSubtitleStyle(playerPreferences))
+            },
             modifier = modifier,
         )
     }
@@ -437,11 +454,6 @@ fun CsWatchScreen(
             links = uiState.links,
             currentLinkUrl = uiState.currentLink?.url,
             failedLinkUrls = uiState.failedLinkUrls,
-            failureReasons = uiState.failureReasons,
-            hiddenTorrentCount = uiState.hiddenTorrentCount,
-            unsupportedDrmCount = uiState.unsupportedDrmCount,
-            resolveCompleted = uiState.resolveCompleted,
-            subtitleCount = uiState.subtitles.size,
             videoTracks = videoTracks,
             selectedTrackLabel = selectedTrackLabel,
             onLinkSelect = { link ->
@@ -457,6 +469,7 @@ fun CsWatchScreen(
                 clipboard?.setPrimaryClip(ClipData.newPlainText("stream url", url))
             },
             onDismiss = { showLinksSheet = false },
+            playerPreferences = playerPreferences,
         )
     }
 
@@ -482,7 +495,26 @@ fun CsWatchScreen(
                 engine.selectAudioTrack(audio)
                 selectedAudioId = audio?.id
             },
+            onOpenSettings = {
+                showSubsSheet = false
+                showSubsSettingsSheet = true
+            },
             onDismiss = { showSubsSheet = false },
+        )
+    }
+
+    // Task 55: the CS subtitle STYLE settings sheet — writes the SAME
+    // PlayerPreferences values the aniyomi stack uses and re-applies them to
+    // the Media3 view live (no reload needed).
+    if (showSubsSettingsSheet) {
+        CsSubtitleSettingsSheet(
+            onApplySettings = {
+                playerView?.let { view ->
+                    engine.applySubtitleStyle(view, currentSubtitleStyle(playerPreferences))
+                }
+            },
+            onDismiss = { showSubsSettingsSheet = false },
+            playerPreferences = playerPreferences,
         )
     }
 
@@ -543,3 +575,19 @@ private fun CsPlayerSurface(
         modifier = modifier,
     )
 }
+
+/**
+ * Task 55: PlayerPreferences → the Media3 subtitle style snapshot (one mapper,
+ * used at surface creation + every settings change).
+ */
+private fun currentSubtitleStyle(prefs: PlayerPreferences): CsSubtitleStyle = CsSubtitleStyle(
+    fontSize = prefs.subtitleFontSize,
+    borderSize = prefs.subtitleBorderSize,
+    bold = prefs.boldSubtitles,
+    italic = prefs.italicSubtitles,
+    textColor = prefs.textColorSubtitles,
+    borderColor = prefs.borderColorSubtitles,
+    backgroundColor = prefs.backgroundColorSubtitles,
+    shadowOffset = prefs.subtitleShadowOffset,
+    position = prefs.subtitlePosition,
+)

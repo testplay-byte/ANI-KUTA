@@ -36,4 +36,32 @@ object CsMediaTypes {
      */
     fun fixSubtitleUrl(url: String): String =
         if (url.startsWith("//")) "https:$url" else url
+
+    /**
+     * Task 55 (round 15) — CONTENT-based mime detection.
+     *
+     * The extension guess above lies in the wild: providers serve VTT files
+     * from extension-less URLs ("/subtitle?id=3"), and a VTT parsed as SubRip
+     * yields ZERO cues — the v0.4.2 device round's "subtitles never attached"
+     * class. The resolver fetches the first bytes of each sub (tiny files) and
+     * this sniffs the actual format:
+     *  - "WEBVTT" magic (BOM-tolerant)            → text/vtt
+     *  - "<?xml" / "<tt" TTML root                → application/ttml+xml
+     *  - SRT shape: digit line, then "00:00:01,000 --> …" → application/x-subrip
+     *  - undetectable                             → null (keep the extension guess)
+     */
+    fun sniffSubtitleMime(firstBytes: String): String? {
+        val head = firstBytes.trimStart('\uFEFF', '﻿').trimStart()
+        return when {
+            head.startsWith("WEBVTT", ignoreCase = true) -> MimeTypes.TEXT_VTT
+            head.startsWith("<?xml", ignoreCase = true) ||
+                head.startsWith("<tt", ignoreCase = true) -> MimeTypes.APPLICATION_TTML
+            looksLikeSrt(firstBytes) -> MimeTypes.APPLICATION_SUBRIP
+            else -> null
+        }
+    }
+
+    /** SRT sniff: somewhere in the first bytes there is an "HH:MM:SS,mmm -->" arrow line. */
+    private fun looksLikeSrt(firstBytes: String): Boolean =
+        Regex("\\d{1,2}:\\d{2}:\\d{2},\\d{3}\\s*-->").containsMatchIn(firstBytes)
 }

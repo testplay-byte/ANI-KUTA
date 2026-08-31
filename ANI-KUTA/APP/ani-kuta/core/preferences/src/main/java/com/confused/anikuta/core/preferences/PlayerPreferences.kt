@@ -129,6 +129,32 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getInt(KEY_SUB_DELAY, 0)
         set(value) = store.putInt(KEY_SUB_DELAY, value)
 
+    // ── Task 55 (round 15): source-list formatting + CS subtitle language ────
+    //
+    // The shared "formatting" toggle for the source-picking sheets (resolve
+    // sheets at the details entry + the in-player Qualities-and-Servers
+    // sheets), used by BOTH stacks:
+    //  - ON  (default): the aniyomi ResolverSheet design — collapsible server
+    //    cards, audio-version chips, quality chips.
+    //  - OFF: a raw flat list — one row per resolved stream, unformatted
+    //    labels (server name + quality), tap = play directly. No expanding.
+    // Non-reactive by design: the sheets are recreated on every open, so a
+    // read-at-open + write-on-toggle is sufficient.
+    var resolveSheetFormatted: Boolean
+        get() = store.getBoolean(KEY_RESOLVE_SHEET_FORMATTED, true)
+        set(value) = store.putBoolean(KEY_RESOLVE_SHEET_FORMATTED, value)
+
+    /**
+     * Preferred subtitle languages (comma-separated codes/names). Task 55:
+     * the CS (Media3) player auto-selects a matching sidecar/embedded track
+     * on first READY — the behavioral mirror of MPV's `slang` default (which
+     * picks the OS-language track). NEW key: only the CS engine reads it; the
+     * MPV stack is untouched.
+     */
+    var preferredSubtitleLanguages: String
+        get() = store.getString(KEY_PREF_SUB_LANGS, "en,eng,english")
+        set(value) = store.putString(KEY_PREF_SUB_LANGS, value)
+
     // ── Phase 2: Auto-select video (mirror of DownloadPreferences) ───────────
     //
     // When autoSelectVideo is ON, the player auto-resolves the best video using
@@ -227,6 +253,8 @@ class PlayerPreferences(private val store: PreferenceStore) {
         private const val KEY_SUB_SHADOW_OFFSET = "pref_sub_shadow_offset"
         private const val KEY_OVERRIDE_ASS = "pref_override_subtitles_ass"
         private const val KEY_SUB_DELAY = "pref_subtitles_delay"
+        private const val KEY_RESOLVE_SHEET_FORMATTED = "pref_resolve_sheet_formatted"
+        private const val KEY_PREF_SUB_LANGS = "pref_preferred_subtitle_languages"
         private const val KEY_GESTURES = "player_gestures"
         private const val KEY_HW_DECODE = "player_hw_decode"
     }

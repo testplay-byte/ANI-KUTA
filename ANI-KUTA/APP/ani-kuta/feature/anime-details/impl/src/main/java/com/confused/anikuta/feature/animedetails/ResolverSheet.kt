@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -33,6 +34,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public  // D-210: resolver Error "Open in WebView" icon
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,11 +54,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.videoresolver.ResolvedVideo
 import com.confused.anikuta.core.videoresolver.ResolverServer
+import org.koin.compose.koinInject
 
 /**
  * Resolver bottom sheet — shows resolved videos in a collapsible accordion.
@@ -71,6 +77,13 @@ import com.confused.anikuta.core.videoresolver.ResolverServer
  * The user wants: "Instead of directly showing the entries outright, it probably
  * shows them in a properly formatted order with proper collapsible entries and
  * so forth. Only one server can be opened at a time and such."
+ *
+ * Task 55 (round 15 — ADDITIVE): the "Episode N" header is now tappable →
+ * a small popup menu ABOVE it with the source-FORMATTING toggle (shared
+ * PlayerPreferences.resolveSheetFormatted with the CloudStream sheets).
+ * OFF = a raw flat list: one row per resolved video (server · audio · quality,
+ * unformatted labels), tap = pick directly. Default ON. The formatted path is
+ * byte-identical to before.
  *
  * CORE_RULES §22: smooth animations (expand/collapse).
  * CORE_RULES §20: logged with tag "Anikuta:Feature:Details:ResolverSheet".
@@ -90,10 +103,14 @@ fun ResolverSheet(
     // so the user can solve Cloudflare / browse the source manually.
     onOpenInWebView: (() -> Unit)? = null,
     onDismiss: () -> Unit,
+    playerPreferences: PlayerPreferences = koinInject(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
+    // Task 55: the formatting toggle (read at open; shared pref with the CS
+    // sheets — both stacks respect the SAME user choice).
+    var formatted by remember { mutableStateOf(playerPreferences.resolveSheetFormatted) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -110,24 +127,63 @@ fun ResolverSheet(
                 .navigationBarsPadding(),
         ) {
             // ── Header: "Episode N" left, close button right ──
+            // Task 55: the title is tappable → the formatting popup (a small
+            // DropdownMenu ABOVE the anchor — user spec, not a bottom sheet).
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 16.dp, bottom = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = if (downloadMode) {
-                        "Download EP ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
-                    } else {
-                        "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
-                    },
-                    fontFamily = RobotoFamily,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
+                val headerText = if (downloadMode) {
+                    "Download EP ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
+                } else {
+                    "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
+                }
+                var menuOpen by remember { mutableStateOf(false) }
+                Box(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = headerText,
+                        fontFamily = RobotoFamily,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { menuOpen = true },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        offset = DpOffset(0.dp, (-72).dp),
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Formatted sources",
+                                    fontFamily = RobotoFamily,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            },
+                            leadingIcon = {
+                                if (formatted) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "On",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                menuOpen = false
+                                formatted = !formatted
+                                playerPreferences.resolveSheetFormatted = formatted
+                            },
+                        )
+                    }
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = CircleShape,
@@ -252,6 +308,14 @@ fun ResolverSheet(
                                 )
                             }
                         }
+                    } else if (!formatted) {
+                        // Task 55 (raw mode): a flat list — one row per resolved
+                        // video (server · audio · quality), tap = pick directly.
+                        // The SAME onPickVideo callback the accordion uses.
+                        RawVideoList(
+                            servers = servers,
+                            onPickVideo = onPickVideo,
+                        )
                     } else {
                         // Collapsible server accordion
                         ServerAccordion(
@@ -460,6 +524,72 @@ private fun QualityChip(
                 fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  RAW flat list (Task 55 / round 15 — formatting OFF)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The unformatted view: one row per resolved video — the raw resolver label
+ * (server · audio · quality), tap = pick directly (the SAME 3-arg
+ * onPickVideo the accordion uses, so the watch/download paths are identical).
+ * TrackRow styling to stay in the sheet's design language.
+ */
+@Composable
+private fun RawVideoList(
+    servers: List<ResolverServer>,
+    onPickVideo: (com.confused.anikuta.core.videoresolver.ResolverVideo, String, String) -> Unit,
+) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        servers.forEach { server ->
+            server.audioVersions.forEach { av ->
+                items(av.videos, key = { "${server.name}|${av.label}|${it.url}" }) { video ->
+                    val label = buildString {
+                        append(server.name)
+                        append(" · ")
+                        append(video.quality)
+                        if (av.label != "Default") append(" · ${av.label}")
+                    }
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPickVideo(video, server.name, av.label) },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = label,
+                                fontFamily = RobotoFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

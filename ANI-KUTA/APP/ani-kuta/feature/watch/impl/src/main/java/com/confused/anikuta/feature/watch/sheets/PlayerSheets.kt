@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -54,12 +56,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.VideoTrack
+import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.videoresolver.ResolverServer
 import com.confused.anikuta.core.videoresolver.ResolverVideo
+import org.koin.compose.koinInject
 
 /**
  * Subtitle tracks bottom sheet — shows available subtitle tracks + "Off" option
@@ -320,10 +325,14 @@ fun QualitySheet(
     onDismiss: () -> Unit,
     currentServerName: String = "",
     currentAudioVersion: String = "",
+    playerPreferences: PlayerPreferences = koinInject(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = screenHeight * 0.70f
+    // Task 55 (round 15 — ADDITIVE): the formatting toggle (shared pref with
+    // the CS sheets + the ResolverSheet; read at open).
+    var formatted by remember { mutableStateOf(playerPreferences.resolveSheetFormatted) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -339,21 +348,57 @@ fun QualitySheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: "Qualities and Servers" + close button ──
+            // ── Header: "Qualities and Servers" (tappable → formatting popup, Task 55) + close ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 16.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "Qualities and Servers",
-                    fontFamily = RobotoFamily,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
+                var menuOpen by remember { mutableStateOf(false) }
+                Box(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Qualities and Servers",
+                        fontFamily = RobotoFamily,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { menuOpen = true },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        offset = DpOffset(0.dp, (-72).dp),
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "Formatted sources",
+                                    fontFamily = RobotoFamily,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            },
+                            leadingIcon = {
+                                if (formatted) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "On",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                menuOpen = false
+                                formatted = !formatted
+                                playerPreferences.resolveSheetFormatted = formatted
+                            },
+                        )
+                    }
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = CircleShape,
@@ -380,7 +425,8 @@ fun QualitySheet(
                 modifier = Modifier.padding(bottom = 12.dp),
             )
 
-            // ── Server accordion (same design as ResolverSheet) ──
+            // ── Server accordion (same design as ResolverSheet) — or the RAW
+            //    flat list when formatting is OFF (Task 55) ──
             if (servers.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
@@ -394,6 +440,15 @@ fun QualitySheet(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
+            } else if (!formatted) {
+                // Task 55 (raw mode): flat rows — one per video, the raw
+                // label + the current highlight.
+                RawVideoRows(
+                    servers = servers,
+                    currentVideoTitle = currentVideoTitle,
+                    onQualitySelected = onQualitySelected,
+                    onDismiss = onDismiss,
+                )
             } else {
                 QualityServerAccordion(
                     servers = servers,
@@ -405,6 +460,88 @@ fun QualitySheet(
                 )
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  RAW flat list (Task 55 / round 15 — formatting OFF)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * The unformatted view: one row per resolved video — the raw resolver label
+ * (server · audio · quality) with the current-video highlight. Tap = pick.
+ */
+@Composable
+private fun RawVideoRows(
+    servers: List<ResolverServer>,
+    currentVideoTitle: String,
+    onQualitySelected: (ResolverVideo) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    LazyColumn(
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        servers.forEach { server ->
+            server.audioVersions.forEach { av ->
+                items(av.videos, key = { "${server.name}|${av.label}|${it.url}" }) { video ->
+                    val isCurrent = video.videoTitle == currentVideoTitle
+                    val label = buildString {
+                        append(server.name)
+                        append(" · ")
+                        append(video.quality)
+                        if (av.label != "Default") append(" · ${av.label}")
+                    }
+                    Surface(
+                        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = if (isCurrent) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onQualitySelected(video)
+                                onDismiss()
+                            },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = if (isCurrent) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = label,
+                                fontFamily = RobotoFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (isCurrent) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

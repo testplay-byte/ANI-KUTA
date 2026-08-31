@@ -198,7 +198,49 @@ tokens (RobotoFamily, MaterialTheme, identical paddings/typography/shapes):
   fullscreen surface (the aniyomi PlayerSurface pattern) — no surface
   teardown on mode switches.
 
-## 7. Test coverage (CI-gated, `:core:cs-player` + `:data:cloudstream`)
+## 7. Round-15 formatting/subtitle/sub-dub deltas (Task 55 — the v0.4.2 device feedback)
+
+The v0.4.2 round confirmed playback + the watch page work. This round fixed
+what the user flagged next (doc 06 has the full plan + as-built):
+
+- **Resolve sheet noise REMOVED**: the "via {provider} — tap a server to
+  expand…" line and the "N source(s) · N subtitle track(s)" footer are gone;
+  the links sheet matches the aniyomi QualitySheet exactly (one hint line).
+- **Audio-version formatting**: CS servers group by Server → AudioVersion →
+  Quality (the aniyomi 3-tier) — SUB/DUB chips in the card headers, a label
+  row per version, quality chips below (audio label = `audioTag` else the
+  aniyomi parseAudioVersion port over `link.name`).
+- **Formatting on/off (both stacks)**: tapping the sheet's "Episode N" /
+  "Qualities and Servers" title opens a small DropdownMenu ABOVE it with
+  "Formatted sources" (check = ON, the default). OFF = a raw flat list — one
+  row per stream, unformatted label, tap = play. Shared pref:
+  `PlayerPreferences.resolveSheetFormatted` (all four sheets respect it).
+- **Subtitles (the big fix)**:
+  - Track rows show LANGUAGE NAMES, never URLs — the sidecar
+    SubtitleConfiguration now carries a `label` (displayName) and the sheet
+    derives names from tags/labels (URL-shaped `lang`s fall back to the file
+    name).
+  - `selectTextTrack` re-resolves the group/track indices LIVE by `format.id`
+    (the v0.4.2 stale-snapshot-index bug: clicks landed on the wrong/absent
+    group after a re-prepare → "nothing applied").
+  - The resolver CONTENT-SNIFFS each sub's first 256 bytes (WEBVTT/TTML/SRT)
+    — extension-less VTT parsed as SubRip = the "reload, still no subs" class.
+  - First-READY auto-select of a preferred-language track
+    (`PlayerPreferences.preferredSubtitleLanguages`, MPV `slang` parity — new
+    key, the MPV stack does not read it).
+  - Subtitle STYLE settings on the CS side: `CsSubtitleSettingsSheet` (the
+    aniyomi sheet's replica, Media3-mapped options) writes the SAME
+    PlayerPreferences and applies them LIVE to the PlayerView's SubtitleView
+    (CaptionStyleCompat + fractional text size + bottom padding).
+- **Sub/Dub episode display modes** (bridged lists with "(Sub)"/"(Dub)" rows):
+  Episode list settings → Display → "Sub/Dub episodes" — Separate (default:
+  the rows stay apart + a Sub | Dub chip switcher) or Combined (sibling rows
+  merge; tapping resolves BOTH flavor handles — the resolve sheet's audio
+  chips let the user pick the stream). Applied on the details list, the CS
+  watch page, and the episodes sheet; the pairing helper is
+  `CsSubDubSiblings` (:feature:cs-watch:api, unit-tested).
+
+## 8. Test coverage (CI-gated, `:core:cs-player` + `:data:cloudstream`)
 
 - `CsMediaTypesTest` — the upstream mime maps (video + subtitle + URL fix).
 - `CsQualityTest` — quality int ↔ label formatting (the ABI `Qualities` semantics).
@@ -207,3 +249,14 @@ tokens (RobotoFamily, MaterialTheme, identical paddings/typography/shapes):
   registered into APIHolder: progressive snapshots, dedup, torrent hiding,
   subtitle unique-ifying, DASH first-class, missing provider, plugin crash →
   descriptive failure, first-link timeout, cache hit without provider.
+
+- `CsLanguageNamesTest` + `CsAudioTagTest` (Task 55) — the display-name
+  contract (URL→filename, tag→locale name) + the SUB/DUB parser port.
+- `CsSubDubSiblingsTest` (Task 55, :feature:cs-watch:api) — the sub/dub
+  pairing rules (tag detection, COMBINED both-handle resolution, row merging,
+  both-flavor detection).
+- `CsSourceListUiTest` (Task 55, :feature:cs-watch:impl) — the 3-tier
+  grouping (server → audio → quality-desc, tag-over-name, SUB-before-DUB
+  ordering, disambiguation flags).
+- `CsMediaTypesTest` — now also locks the CONTENT-sniffing (WEBVTT/TTML/SRT
+  magic detection; VTT dot-timestamps never sniff as SRT).

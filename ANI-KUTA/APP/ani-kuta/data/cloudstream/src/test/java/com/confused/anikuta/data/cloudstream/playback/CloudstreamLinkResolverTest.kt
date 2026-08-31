@@ -1,6 +1,7 @@
 package com.confused.anikuta.data.cloudstream.playback
 
 import com.confused.anikuta.core.csplayer.CsLinkType
+import java.io.IOException
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.SubtitleFile
@@ -24,6 +25,16 @@ import org.junit.Test
  * subtitle unique-ifying, cache, timeout) are asserted end-to-end.
  */
 class CloudstreamLinkResolverTest {
+
+    /**
+     * Task 55: the resolver now content-sniffs subtitles over HTTP; tests get
+     * a client whose every call fails IMMEDIATELY (no network, no latency) —
+     * the sniff's silent-failure path keeps the extension-based mime.
+     */
+    private fun noNetworkSniffClient(): okhttp3.OkHttpClient =
+        okhttp3.OkHttpClient.Builder()
+            .addInterceptor { _ -> throw IOException("no network in tests") }
+            .build()
 
     private class FakeProvider(
         override var name: String,
@@ -89,7 +100,7 @@ class CloudstreamLinkResolverTest {
             subs(SubtitleFile("Spanish", "https://fake.example/es.srt"))
             true
         }
-        val resolver = CloudstreamLinkResolver()
+        val resolver = CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient)
         val events = collectResolved(resolver, "data-1")
 
         val linkSnaps = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot>()
@@ -119,7 +130,7 @@ class CloudstreamLinkResolverTest {
             links(link("C", "https://fake.example/other.mp4", ExtractorLinkType.VIDEO))
             true
         }
-        val events = collectResolved(CloudstreamLinkResolver(), "data-2")
+        val events = collectResolved(CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient), "data-2")
         val final = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot>().last()
         assertEquals(2, final.links.size)
     }
@@ -132,7 +143,7 @@ class CloudstreamLinkResolverTest {
             links(link("OK", "https://fake.example/ok.mp4", ExtractorLinkType.VIDEO))
             true
         }
-        val events = collectResolved(CloudstreamLinkResolver(), "data-3")
+        val events = collectResolved(CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient), "data-3")
         val final = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot>().last()
         assertEquals(1, final.links.size)
         assertEquals(2, final.hiddenTorrentCount)
@@ -146,7 +157,7 @@ class CloudstreamLinkResolverTest {
             subs(SubtitleFile("English", "https://fake.example/c.vtt"))
             true
         }
-        val events = collectResolved(CloudstreamLinkResolver(), "data-4")
+        val events = collectResolved(CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient), "data-4")
         val final = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.SubtitlesSnapshot>().last()
         assertEquals(listOf("English", "English (2)", "English (3)"), final.subtitles.map { it.name })
         // Mime mapping on the way through.
@@ -159,7 +170,7 @@ class CloudstreamLinkResolverTest {
             links(link("DASH", "https://fake.example/s.mpd", ExtractorLinkType.DASH))
             true
         }
-        val events = collectResolved(CloudstreamLinkResolver(), "data-5")
+        val events = collectResolved(CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient), "data-5")
         val final = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.LinksSnapshot>().last()
         assertEquals(1, final.links.size)
         assertEquals(CsLinkType.DASH, final.links[0].type)
@@ -168,7 +179,7 @@ class CloudstreamLinkResolverTest {
     @Test
     fun `missing provider fails honestly`() {
         // No install — TEST_NAME resolves to nothing.
-        val events = collectResolved(CloudstreamLinkResolver(), "data-6")
+        val events = collectResolved(CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient), "data-6")
         val failed = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.Failed>()
         assertEquals(1, failed.size)
         assertTrue(failed[0].message.contains("is not loaded"))
@@ -177,7 +188,7 @@ class CloudstreamLinkResolverTest {
     @Test
     fun `provider crash becomes a descriptive failure`() {
         install { _, _, _ -> throw IllegalStateException("boom inside plugin") }
-        val events = collectResolved(CloudstreamLinkResolver(), "data-7")
+        val events = collectResolved(CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient), "data-7")
         val failed = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.Failed>()
         assertEquals(1, failed.size)
         assertTrue(failed[0].message.contains("IllegalStateException"))
@@ -190,7 +201,7 @@ class CloudstreamLinkResolverTest {
             kotlinx.coroutines.delay(60_000) // stalled beyond the test timeout
             true
         }
-        val resolver = CloudstreamLinkResolver(firstLinkTimeoutMs = 400)
+        val resolver = CloudstreamLinkResolver(firstLinkTimeoutMs = 400, subSniffClient = ::noNetworkSniffClient)
         val events = collectResolved(resolver, "data-8")
         val failed = events.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.Failed>()
         assertEquals(1, failed.size)
@@ -204,7 +215,7 @@ class CloudstreamLinkResolverTest {
             links(link("Mirror", "https://fake.example/v.mp4", ExtractorLinkType.VIDEO))
             true
         }
-        val resolver = CloudstreamLinkResolver()
+        val resolver = CloudstreamLinkResolver(subSniffClient = ::noNetworkSniffClient)
         val first = collectResolved(resolver, "data-9")
         assertEquals(1, first.filterIsInstance<CloudstreamLinkResolver.CsResolveEvent.Completed>().size)
 

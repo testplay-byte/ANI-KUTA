@@ -4,6 +4,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -55,7 +57,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.preferences.EpisodeListPreferences
 import com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode
+import com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
 import com.confused.anikuta.feature.cswatch.api.CsWatchEpisodeMeta
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -100,6 +104,20 @@ internal fun CsWatchPage(
     mainId: String,
 ) {
     val listState = rememberLazyListState()
+
+    // Task 55: the sub/dub display modes for the page's episode list (the
+    // SAME pref as the details page + the episodes sheet — one setting).
+    // COMBINED merges sibling rows; SEPARATE adds the Sub | Dub chip row.
+    val episodeListPreferences = koinInject<EpisodeListPreferences>()
+    val subDubMode = remember { episodeListPreferences.subDubMode.get() }
+    val displayEpisodes = remember(uiState.episodes, subDubMode) {
+        if (subDubMode == "COMBINED") CsSubDubSiblings.mergeSiblings(uiState.episodes) else uiState.episodes
+    }
+    val showSubDubSwitcher = subDubMode != "COMBINED" && CsSubDubSiblings.hasBothFlavors(displayEpisodes)
+    var subDubFlavor by rememberSaveable { mutableStateOf("SUB") }
+    val episodeRows = if (showSubDubSwitcher) {
+        displayEpisodes.filter { CsSubDubSiblings.tagOf(it.name) == subDubFlavor }
+    } else displayEpisodes
 
     // Per-episode rating (the aniyomi page's Phase-4 star bar — same store,
     // same keys, CS content rides it identically).
@@ -245,7 +263,7 @@ internal fun CsWatchPage(
                     )
                 }
 
-                if (uiState.episodes.isNotEmpty()) {
+                if (episodeRows.isNotEmpty()) {
                     item(key = "episodes-header") {
                         Surface(
                             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
@@ -268,7 +286,7 @@ internal fun CsWatchPage(
                                     shape = RoundedCornerShape(50),
                                 ) {
                                     Text(
-                                        text = "${uiState.episodes.size}",
+                                        text = "${episodeRows.size}",
                                         fontFamily = RobotoFamily,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.ExtraBold,
@@ -279,8 +297,41 @@ internal fun CsWatchPage(
                             }
                         }
                     }
+                    // Task 55: the Sub/Dub switcher chips (SEPARATE mode, both
+                    // flavors) — the SeasonSelectorRow chip language.
+                    if (showSubDubSwitcher) {
+                        item(key = "subdub-switcher") {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                            ) {
+                                listOf("SUB" to "Sub", "DUB" to "Dub").forEach { (value, label) ->
+                                    val isSelected = subDubFlavor == value
+                                    Surface(
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.primaryContainer,
+                                        shape = RoundedCornerShape(50),
+                                        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                                        modifier = Modifier.clickable { subDubFlavor = value },
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontFamily = RobotoFamily,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                                else MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Lazy episode rows — virtualized (D-230 pattern).
-                    items(uiState.episodes, key = { it.data }) { ep ->
+                    items(episodeRows, key = { it.data }) { ep ->
                         val isCurrent = ep.data == currentEpisodeData
                         val epNum = ep.episodeNumber.toInt()
                         val meta = uiState.episodeMetadata[epNum]

@@ -7,7 +7,9 @@ import org.koin.dsl.module
 /**
  * Koin wiring for the CloudStream watch screen (task 52 / round 12).
  * The resolver single comes from :data:cloudstream's cloudstreamModule;
- * the WatchProgressStore from core:watch-progress's watchProgressModule.
+ * the WatchProgressStore from core:watch-progress's watchProgressModule;
+ * the EpisodeListPreferences from core:preferences (Task 55: the sub/dub
+ * display mode drives the episode-switch resolution width).
  */
 val csWatchModule = module {
     viewModel {
@@ -15,6 +17,7 @@ val csWatchModule = module {
             resolver = get(),
             watchProgressStore = get(),
             sourceMemory = get(),
+            episodeListPreferences = get(),
         )
     }
 }

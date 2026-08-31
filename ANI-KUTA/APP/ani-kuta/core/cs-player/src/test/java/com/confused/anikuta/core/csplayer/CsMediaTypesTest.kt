@@ -142,3 +142,40 @@ class CsVideoLinkHeadersTest {
         assertEquals("Mirror 1080p", link.displayLabel)
     }
 }
+
+    // ── Task 55: content-based subtitle mime sniffing ───────────────────────
+    // (extension-less URLs serving VTT parsed as SubRip = the v0.4.2 "subs
+    // never attached" class; the resolver sniffs the first bytes now.)
+
+    @Test
+    fun `webvtt magic sniffs vtt`() {
+        assertEquals("text/vtt", CsMediaTypes.sniffSubtitleMime("WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHi"))
+    }
+
+    @Test
+    fun `bom-prefixed webvtt sniffs vtt`() {
+        assertEquals("text/vtt", CsMediaTypes.sniffSubtitleMime("﻿WEBVTT\n"))
+    }
+
+    @Test
+    fun `srt arrow line sniffs subrip`() {
+        assertEquals("application/x-subrip", CsMediaTypes.sniffSubtitleMime("1\n00:00:01,000 --> 00:00:02,000\nHi"))
+    }
+
+    @Test
+    fun `ttml root sniffs ttml`() {
+        assertEquals("application/ttml+xml", CsMediaTypes.sniffSubtitleMime("<?xml version=\"1.0\"?><tt>"))
+        assertEquals("application/ttml+xml", CsMediaTypes.sniffSubtitleMime("<tt xmlns=\"\">"))
+    }
+
+    @Test
+    fun `undetectable content returns null`() {
+        assertEquals(null, CsMediaTypes.sniffSubtitleMime("random garbage"))
+        assertEquals(null, CsMediaTypes.sniffSubtitleMime(""))
+    }
+
+    @Test
+    fun `vtt dot timestamps are not srt`() {
+        // A VTT file's dot-separated timestamps must NOT sniff as SRT.
+        assertEquals("text/vtt", CsMediaTypes.sniffSubtitleMime("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi"))
+    }

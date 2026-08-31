@@ -1562,3 +1562,23 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
 - RC-7 SHIPPED: Sheets reorganization — Sources (quality-desc sort, subtitle count, failed markers), Audio & Subtitles (embedded DASH audio tracks sectioned in when >1).
 - RC-8 SHIPPED: the diagnosability overhaul — request-profile logging on every engine load, m3u8 failure forensics (status + body preview), generation-lock verdicts, per-link failure reasons in the exhausted message, two new tags (Anikuta:CS:M3u8, Anikuta:CS:Sheet) in the one-filter recipe.
 - Aniyomi stack: byte-untouched (all changes inside the CS modules + the MainActivity CS seams).
+
+## v0.4.3 / 68 (2026-08-31, Task 55 / round 15, branch streaming/CLOUDSTREAM-V2)
+
+- **Resolve sheet cleanup** — the "via {provider}…" hint line and the
+  "N source(s) · N subtitle track(s)" footer removed (user request); the
+  in-player links sheet now matches the aniyomi QualitySheet exactly.
+- **Audio-version formatting** — CS sources render the aniyomi 3-tier
+  (Server → AudioVersion → Quality): SUB/DUB chips on the cards, per-version
+  label rows, quality chips; combined sub/dub resolution tags each stream.
+- **Source formatting on/off toggle (both stacks)** — tap the sheet title
+  ("Episode N" / "Qualities and Servers") → a small popup menu ABOVE it;
+  OFF = raw flat list, one row per stream, tap = play directly. Default ON.
+- **Subtitles fixed + customizable** — language names (never URLs), live-index
+  track selection, content-sniffed mimes, preferred-language auto-select,
+  and a full CS Subtitle Settings sheet styling the Media3 view live.
+- **Sub/Dub episode display modes** — Episode list settings → Display:
+  Separate (Sub | Dub chip switcher) or Combined (merged rows; tapping
+  resolves BOTH flavors and the sheet's audio chips let the user pick).
+- Aniyomi stack: strictly ADDITIVE changes (the toggle UI + the Display-tab
+  section); all existing behavior byte-identical.

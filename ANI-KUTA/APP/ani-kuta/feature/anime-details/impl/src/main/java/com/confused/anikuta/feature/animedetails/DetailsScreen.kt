@@ -277,6 +277,17 @@ fun DetailsScreen(
         initial = episodeListPrefs.seasonTagInNumber.get(),
     )
 
+    // Task 55 (round 15): the sub/dub display mode for series whose episode
+    // rows carry "(Sub)"/"(Dub)" tags (bridged CloudStream sources).
+    // SEPARATE (default) keeps the rows apart + a Sub | Dub switcher; COMBINED
+    // merges sibling rows (the resolve flow then resolves BOTH flavors).
+    val subDubMode by episodeListPrefs.subDubMode.changes.collectAsState(
+        initial = episodeListPrefs.subDubMode.get(),
+    )
+    var subDubFlavor by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf("SUB")
+    }
+
     // D-307/D-308/D-312/D-317: Season analysis on the RAW episode list — one
     // pass produces the groups (selector + settings sheet), the per-episode
     // assignments (S/E tag), and the per-season display numbers (slice tags).
@@ -910,6 +921,27 @@ fun DetailsScreen(
                             else -> processedEpisodes
                         }
 
+                        // Task 55 (round 15): the sub/dub display modes (bridged
+                        // CloudStream lists carrying "(Sub)"/"(Dub)" tags).
+                        //  - COMBINED: sibling rows merge into one (tag stripped;
+                        //    the primary Sub handle rides the row — the CS resolve
+                        //    flow re-finds the sibling + resolves BOTH flavors);
+                        //  - SEPARATE: the selected flavor's rows only (the Sub |
+                        //    Dub chip row renders above the list when both exist).
+                        val subDubTagged = episodesToShow.orEmpty().any {
+                            subDubEpisodeTag(it) != null
+                        }
+                        val subDubBothFlavors = subDubTagged && run {
+                            val tags = episodesToShow.orEmpty().mapNotNull { subDubEpisodeTag(it) }.toSet()
+                            "SUB" in tags && "DUB" in tags
+                        }
+                        val displayEpisodes = when {
+                            !subDubTagged -> episodesToShow
+                            subDubMode == "COMBINED" -> episodesToShow?.let(::mergeSubDubEpisodeRows)
+                            else -> episodesToShow?.filter { subDubEpisodeTag(it) == subDubFlavor || subDubEpisodeTag(it) == null }
+                        }
+                        val showSubDubSwitcher = subDubMode != "COMBINED" && subDubBothFlavors
+
                         item {
                             EpisodesSection(
                                 linkedSource = effectiveLinkedSource,
@@ -1021,7 +1053,17 @@ fun DetailsScreen(
                             }
                             // D-232: Group switcher is now INLINE in the EpisodesSection
                             // header (between "Episodes" text and source pill), not here.
-                            items(episodesToShow, key = { it.url }) { episode ->
+                            // Task 55: the Sub/Dub switcher chips (SEPARATE mode,
+                            // both flavors) — the SeasonSelectorRow chip language.
+                            if (showSubDubSwitcher) {
+                                item(key = "subdub-switcher") {
+                                    SubDubSelectorRow(
+                                        selected = subDubFlavor,
+                                        onSelect = { subDubFlavor = it },
+                                    )
+                                }
+                            }
+                            items(displayEpisodes.orEmpty(), key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
                                 // D-317: contextual episode tag.
@@ -3679,6 +3721,121 @@ private fun StarRatingBar(
                         if (i == currentStars) onRate(0) else onRate(i)
                     },
             )
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Task 55 (round 15): sub/dub episode display helpers
+//  (bridged CloudStream lists whose rows carry "(Sub)"/"(Dub)" tags)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The sub/dub tag of an episode row: the bridge appends " (Sub)"/" (Dub)" to
+ * the NAME and mirrors it in `scanlator`. Null = a neutral row (dual-audio
+ * shared handle — never merged).
+ */
+private fun subDubEpisodeTag(ep: eu.kanade.tachiyomi.animesource.model.SEpisode): String? {
+    val name = ep.name?.trim()?.uppercase() ?: ""
+    if (name.endsWith("(SUB)")) return "SUB"
+    if (name.endsWith("(DUB)")) return "DUB"
+    return when (ep.scanlator?.trim()?.uppercase()) {
+        "SUB", "SUBBED" -> "SUB"
+        "DUB", "DUBBED" -> "DUB"
+        else -> null
+    }
+}
+
+/**
+ * Strips the trailing tag from an episode name (COMBINED display).
+ */
+private fun stripSubDubTag(name: String?): String {
+    val n = name?.trim() ?: return ""
+    val upper = n.uppercase()
+    return if (upper.endsWith("(SUB)") || upper.endsWith("(DUB)")) n.dropLast(6).trim() else n
+}
+
+/**
+ * COMBINED display: merges sub/dub sibling rows (same episode number,
+ * opposite tags) into ONE row — the tag stripped, the Sub row's handle kept
+ * (the CS resolve flow re-finds the sibling and resolves BOTH flavors; the
+ * user picks via the sheet's audio chips).
+ */
+private fun mergeSubDubEpisodeRows(
+    episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
+): List<eu.kanade.tachiyomi.animesource.model.SEpisode> {
+    if (episodes.none { subDubEpisodeTag(it) != null }) return episodes
+    val out = mutableListOf<eu.kanade.tachiyomi.animesource.model.SEpisode>()
+    val usedUrls = mutableSetOf<String>()
+    episodes.forEach { ep ->
+        if (ep.url in usedUrls) return@forEach
+        val tag = subDubEpisodeTag(ep)
+        if (tag == null) {
+            out += ep
+            usedUrls += ep.url
+            return@forEach
+        }
+        val sibling = episodes.firstOrNull { other ->
+            other.url != ep.url &&
+                other.episode_number == ep.episode_number &&
+                subDubEpisodeTag(other)?.let { it != tag } == true
+        }
+        if (sibling == null) {
+            out += ep
+            usedUrls += ep.url
+        } else {
+            usedUrls += sibling.url
+            val primary = if (tag == "SUB") ep else sibling
+            usedUrls += primary.url
+            // Merge the metadata-bearing fields of the primary + strip the tag.
+            out += eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                url = primary.url
+                name = stripSubDubTag(primary.name)
+                episode_number = primary.episode_number
+                scanlator = null
+                date_upload = primary.date_upload
+                preview_url = primary.preview_url
+                summary = primary.summary
+            }
+        }
+    }
+    return out
+}
+
+/**
+ * The Sub | Dub chip row (SEPARATE mode) — the SeasonSelectorRow chip
+ * language, fixed two options.
+ */
+@Composable
+private fun SubDubSelectorRow(
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        listOf("SUB" to "Sub", "DUB" to "Dub").forEach { (value, label) ->
+            val isSelected = selected == value
+            Surface(
+                color = if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(50),
+                border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                modifier = Modifier.clickable { onSelect(value) },
+            ) {
+                Text(
+                    text = label,
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }

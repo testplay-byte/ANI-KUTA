@@ -23,7 +23,10 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -48,6 +51,12 @@ import java.util.concurrent.atomic.AtomicInteger
 class CloudstreamLinkResolver(
     /** Injectable for tests (the honest 30 s default stays in production). */
     private val firstLinkTimeoutMs: Long = FIRST_LINK_TIMEOUT_MS,
+    /**
+     * Task 55: HTTP client for subtitle content sniffing (the CS runtime's
+     * plugin client by default so provider interceptors/cookies stay active).
+     * Never blocks resolution: a failed sniff keeps the extension-based mime.
+     */
+    private val subSniffClient: () -> OkHttpClient = { com.lagradost.cloudstream3.app.baseClient },
 ) {
     companion object {
         internal const val TAG = "Anikuta:CS:Resolver"
@@ -242,6 +251,11 @@ class CloudstreamLinkResolver(
             val count = subNameCounts.getOrPut(file.lang) { AtomicInteger(0) }.incrementAndGet()
             val name = if (count > 1) "${file.lang} ($count)" else file.lang
             val langTag = runCatching { file.langTag }.getOrNull()
+            // Task 55: content-sniff the real format — extension-based guessing
+            // misses extension-less URLs (a VTT parsed as SubRip = zero cues).
+            // The callback already runs off the main thread; the sniff is a
+            // bounded (4 s, 256-byte) request that NEVER fails the resolution.
+            val sniffed = sniffSubtitleMime(fixedUrl, file.headers ?: emptyMap())
             val mapped = CsSubtitle(
                 name = name,
                 url = fixedUrl,
@@ -249,13 +263,41 @@ class CloudstreamLinkResolver(
                 mimeType = CsMediaTypes.subtitleMime(fixedUrl),
                 languageTag = langTag,
                 id = "$fixedUrl|$name",
+                sniffedMime = sniffed,
             )
             synchronized(subtitles) { subtitles += mapped }
             Logger.i(TAG) {
-                "subtitle #${subtitles.size}: ${mapped.name} mime=${mapped.mimeType} " +
-                    "headers=${formatHeaders(mapped.headers)} url=${mapped.url.take(80)}"
+                "subtitle #${subtitles.size}: ${mapped.displayName} mime=${mapped.mimeType}" +
+                    (sniffed?.let { " (sniffed: ${it.substringAfterLast('/')})" } ?: "") +
+                    " headers=${formatHeaders(mapped.headers)} url=${mapped.url.take(80)}"
             }
             trySend(CsResolveEvent.SubtitlesSnapshot(synchronized(subtitles) { subtitles.toList() }))
+        }
+
+        /**
+         * Task 55: fetches the first bytes of a subtitle file and returns the
+         * CONTENT-detected mime (null = undetectable / fetch failed → keep the
+         * extension guess). Bounded: 4 s timeout, 256 bytes read, silent fail.
+         */
+        private fun sniffSubtitleMime(url: String, headers: Map<String, String>): String? {
+            return runCatching {
+                val request = Request.Builder().url(url).apply {
+                    headers.forEach { (k, v) -> header(k, v) }
+                }.build()
+                val client = subSniffClient().newBuilder()
+                    .connectTimeout(4, TimeUnit.SECONDS)
+                    .readTimeout(4, TimeUnit.SECONDS)
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching null
+                    val body = response.body ?: return@runCatching null
+                    val source = body.source()
+                    val head = source.readUtf8(Math.min(256, body.contentLength().takeIf { it > 0 }?.toInt() ?: 256))
+                    CsMediaTypes.sniffSubtitleMime(head)
+                }
+            }.onFailure {
+                Logger.d(TAG) { "sub sniff failed (keeping extension guess): ${url.take(64)} — ${it::class.java.simpleName}" }
+            }.getOrNull()
         }
 
         val providerJob = launch(Dispatchers.IO) {
