@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Verified
@@ -40,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,8 +51,12 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.BackAction
 import com.confused.anikuta.core.designsystem.component.CollapsingHeader
 import com.confused.anikuta.core.designsystem.component.ScrollBlurOverlay
+import android.content.Intent
+import android.widget.Toast
+import androidx.core.content.FileProvider
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
+import com.confused.anikuta.data.cloudstream.installer.CsSharedPluginFormat
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
 import org.koin.compose.koinInject
 import java.io.File
@@ -111,6 +117,9 @@ fun CloudstreamPluginDetailScreen(
     val listState = rememberLazyListState()
     val collapsed = listState.firstVisibleItemIndex > 0 ||
         listState.firstVisibleItemScrollOffset > 20
+    // Task 58 (round 18 — plugin sharing): the export handler runs against the
+    // local context (cache-dir export copy + the system share sheet).
+    val shareContext = LocalContext.current
 
     // Common display metadata, resolved across the installed states (metadata
     // captured at install) or the catalog entry (available).
@@ -217,6 +226,18 @@ fun CloudstreamPluginDetailScreen(
                                     modifier = Modifier.padding(horizontal = 4.dp),
                                 )
                             }
+                            // Task 58 (round 18 — plugin sharing): the untrusted
+                            // state gets the SAME Share row (sharing needs only
+                            // the file on disk, not trust).
+                            if (diskFilePath != null) {
+                                item(key = "share-untrusted") {
+                                    SharePluginRow(
+                                        filePath = diskFilePath,
+                                        internalName = internalName,
+                                        context = shareContext,
+                                    )
+                                }
+                            }
                         }
 
                         // ── Info card ──
@@ -251,6 +272,13 @@ fun CloudstreamPluginDetailScreen(
                                     }
                                     recordRepoUrl?.let {
                                         Spacer(Modifier.height(8.dp)); InfoRow("Repository URL", it)
+                                    }
+                                    // Task 58 (round 18): repo-less records (shared-file
+                                    // imports with no matching added repository) say so
+                                    // instead of showing nothing.
+                                    if (recordRepoUrl == null && availableExt == null && diskFilePath != null) {
+                                        Spacer(Modifier.height(8.dp))
+                                        InfoRow("Source", "Shared file (no repository)")
                                     }
                                     trustedExt?.availableUpdateVersion?.let { updateVersion ->
                                         Spacer(Modifier.height(8.dp))
@@ -402,6 +430,18 @@ fun CloudstreamPluginDetailScreen(
                                         color = MaterialTheme.colorScheme.error,
                                         onClick = { showDeleteConfirm = true },
                                         modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            // Task 58 (round 18 — plugin sharing): the share export
+                            // for installed (trusted/errored) plugins — full width,
+                            // below the state actions.
+                            if (diskFilePath != null) {
+                                item(key = "share-installed") {
+                                    SharePluginRow(
+                                        filePath = diskFilePath,
+                                        internalName = internalName,
+                                        context = shareContext,
                                     )
                                 }
                             }
@@ -705,3 +745,75 @@ private fun formatBytes(diskBytes: Long?, catalogBytes: Long?): String {
         else -> String.format(Locale.US, "%.0f KB", kb)
     }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Task 58 (round 18): the plugin SHARE export (.moviebox.WHITECAT)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The full-width "Share" action (the user's spec: every plugin detail page —
+ * trusted OR untrusted — carries ONE share option). Exports the installed
+ * .cs3 bytes under our custom extension via the system share sheet.
+ */
+@Composable
+private fun SharePluginRow(
+    filePath: String,
+    internalName: String,
+    context: android.content.Context,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        DetailAction(
+            text = "Share",
+            icon = Icons.Filled.IosShare,
+            onClick = { sharePluginFile(context, filePath, internalName) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+    Text(
+        text = "Exports this plugin as a .${CsSharedPluginFormat.SHARED_EXTENSION} file — " +
+            "the receiver opens it with ANI-KUTA to install.",
+        fontFamily = RobotoFamily,
+        fontSize = 12.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 6.dp),
+    )
+}
+
+/**
+ * The export itself — the ConsoleLogsScreen.shareLogReport pattern: a fresh
+ * copy in cacheDir/exports/ (the FileProvider already exposes the whole
+ * cacheDir) named `<internalName>.moviebox.WHITECAT`, then the system share
+ * sheet with a granted read URI. The copy (not the installed original) is
+ * shared so the exported NAME is deterministic regardless of the install
+ * path's repo salt — and the .setReadOnly() original stays untouched.
+ */
+private fun sharePluginFile(context: android.content.Context, filePath: String, internalName: String) {
+    runCatching {
+        val exportDir = java.io.File(context.cacheDir, "exports").apply { mkdirs() }
+        val export = java.io.File(exportDir, CsSharedPluginFormat.sharedFileName(internalName))
+        java.io.File(filePath).copyTo(export, overwrite = true)
+        // The share target only READS it — make sure the export isn't read-only
+        // from a copied flag (copyTo copies the source's permissions).
+        export.setReadable(true, false)
+
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", export)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "ANI-KUTA plugin: $internalName")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newRawUri("plugin", uri)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share plugin"))
+        com.confused.anikuta.core.common.Logger.i("Anikuta:CS:PluginDetail") {
+            "shared plugin $internalName as ${export.name} (${export.length() / 1024} KB)"
+        }
+    }.onFailure { t ->
+        com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share failed" }
+        Toast.makeText(context, "Couldn't share the plugin file", Toast.LENGTH_SHORT).show()
+    }
+}
+

@@ -537,6 +537,34 @@ fun AppRoot() {
         }
     }
 
+    // ── Task 58 (round 18 — the plugin-share receiver's hand-off) ──────────
+    // A successful import in PluginImportActivity writes a pending-navigation
+    // note (SharedPreferences — survives process death). Consume it here on
+    // cold start AND on every ON_RESUME (the import activity runs OUTSIDE the
+    // main task — the user returns to whatever they were doing, and the note
+    // routes them to the freshly-added plugin's detail page when they next
+    // see the app).
+    fun checkPendingCsPluginNav() {
+        val pendingName = com.confused.anikuta.pluginimport.PendingCsPluginNav.consume(appContext)
+        if (pendingName != null) {
+            Logger.i("Anikuta:AppRoot") { "pending CS plugin import → detail page: $pendingName" }
+            if (currentKey !is CloudstreamPluginDetailKey) {
+                backstack.add(CloudstreamPluginDetailKey(pendingName))
+            }
+        }
+    }
+    LaunchedEffect(Unit) { checkPendingCsPluginNav() }
+    val csPluginNavLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(csPluginNavLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                checkPendingCsPluginNav()
+            }
+        }
+        csPluginNavLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { csPluginNavLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // D-193 Phase 7: Handle notification tap deep-link — if the app was opened
     // from a notification, navigate to the details page for the tapped anime.
     val context = androidx.compose.ui.platform.LocalContext.current

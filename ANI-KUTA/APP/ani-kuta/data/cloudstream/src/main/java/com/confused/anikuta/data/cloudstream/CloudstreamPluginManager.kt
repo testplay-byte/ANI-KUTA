@@ -5,6 +5,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.providerapi.InstallStep
 import com.confused.anikuta.data.cloudstream.installer.CloudstreamPluginInstaller
+import com.confused.anikuta.data.cloudstream.installer.CsSharedPluginFormat
 import com.confused.anikuta.data.cloudstream.loader.CloudstreamPluginLoader
 import com.confused.anikuta.data.cloudstream.loader.PluginLoadResult
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
@@ -493,6 +494,130 @@ class CloudstreamPluginManager(
                         _installStates.value - internalName // clear terminal state after a beat
                 }
             }
+        }
+    }
+
+    // ── Task 58 (round 18): the shared-file import (.moviebox.WHITECAT) ─────────
+
+    /**
+     * The result of [importSharedPlugin] — the import activity renders each
+     * case (added → success + trust hint; already installed → the existing
+     * record's state; invalid → the reason, no side effects).
+     */
+    sealed interface CsImportResult {
+        /** Placed + recorded (UNTRUSTED — the user trusts it from the detail page). */
+        data class Added(val record: CsPluginRecord, val linkedRepoUrl: String?) : CsImportResult
+
+        /** The same internalName is already installed (from a repo or an earlier share). */
+        data class AlreadyInstalled(val record: CsPluginRecord) : CsImportResult
+
+        /** The file isn't a valid CloudStream plugin (reason shown to the user). */
+        data class Invalid(val reason: String) : CsImportResult
+    }
+
+    /**
+     * Task 58 (round 18) — installs a plugin from a SHARED
+     * `<internalName>.moviebox.WHITECAT` file (the user's spec: plugins shared
+     * device-to-device, added REGARDLESS of repositories).
+     *
+     * The bytes are the untouched .cs3 zip; the file NAME carries the identity
+     * (the stem = internalName, mirroring the repo .cs3 naming). Works with or
+     * without repositories:
+     *  - a repo that catalogs the SAME internalName LINKS the record to it
+     *    (repoUrl set — update checks + repo updates then apply);
+     *  - otherwise the record is repo-less (repoUrl null, path salted by
+     *    [CsSharedPluginFormat.SHARED_PATH_SALT]) and shows as a shared file.
+     *
+     * The confirm dialog happened in the activity BEFORE this call — an
+     * [CsImportResult.Added] IS the user's consent. Like every fresh install,
+     * the record lands UNTRUSTED: the row appears in the Untrusted section and
+     * the user trusts it from the plugin's detail page (the session-3 trust
+     * model — the import consent adds the FILE, trust gates the CODE).
+     *
+     * File safety: the source is copied to a temp NEXT TO the target and moved
+     * atomically; the caller keeps ownership of [sourceFile] (it deletes it).
+     */
+    suspend fun importSharedPlugin(sourceFile: File, displayName: String): CsImportResult {
+        val manifest = CsSharedPluginFormat.readManifest(sourceFile)
+            ?: return CsImportResult.Invalid("Not a CloudStream plugin file (no manifest.json inside)")
+        val internalName = CsSharedPluginFormat.internalNameFor(displayName, manifest)
+            ?: return CsImportResult.Invalid("Could not determine the plugin's name from the file")
+        if (manifest.pluginClassName.isNullOrBlank()) {
+            return CsImportResult.Invalid("The plugin file has no pluginClassName (incomplete export)")
+        }
+
+        return installMutex.withLock {
+            // Already installed (same internalName — from a repo or an earlier
+            // share)? The shared file is redundant; report + no side effects.
+            val existing = pluginStore.loadAll().firstOrNull { it.internalName == internalName }
+            if (existing != null) {
+                Logger.i(TAG) {
+                    "importSharedPlugin — $internalName already installed " +
+                        "(repo=${existing.repoUrl ?: "none"}, trusted=${existing.isTrusted})"
+                }
+                return@withLock CsImportResult.AlreadyInstalled(existing)
+            }
+
+            // Repo linkage (the user's spec): an added repository that catalogs
+            // this plugin links the record to it — the plugin then behaves
+            // exactly like a repo install (update checks, repo updates).
+            val online = onlinePlugins.firstOrNull { it.first.internalName == internalName }
+            val linkedRepoUrl: String? = online?.second?.first
+            if (online != null) {
+                Logger.i(TAG) {
+                    "importSharedPlugin — linking $internalName to repository " +
+                        "${online.second.second} (${online.first.version}) for updates"
+                }
+            }
+
+            // Place the file: the repo-salted path when linked, the shared
+            // salt otherwise (repo-less installs coexist with repo installs).
+            val target = CloudstreamPluginInstaller.pluginPath(
+                context.filesDir,
+                internalName,
+                linkedRepoUrl ?: CsSharedPluginFormat.SHARED_PATH_SALT,
+            )
+            target.parentFile?.mkdirs()
+            // Stale-swap guard (idempotent — a no-op for a fresh name).
+            loader.unloadPlugin(target.absolutePath)
+            val tmp = File(target.parentFile, target.name + ".importing")
+            try {
+                sourceFile.copyTo(tmp, overwrite = true)
+                if (target.exists()) target.delete()
+                java.nio.file.Files.move(tmp.toPath(), target.toPath())
+            } finally {
+                tmp.delete()
+            }
+
+            val record = CsPluginRecord(
+                internalName = internalName,
+                name = manifest.name ?: internalName,
+                url = online?.first?.url,
+                filePath = target.absolutePath,
+                version = manifest.version ?: online?.first?.version ?: 1,
+                repoUrl = linkedRepoUrl,
+                fileHash = online?.first?.fileHash,
+                language = online?.first?.language,
+                iconUrl = online?.first?.iconUrl,
+                isNsfw = false,
+                authors = online?.first?.authors ?: emptyList(),
+                description = online?.first?.description,
+                tvTypes = online?.first?.tvTypes ?: emptyList(),
+                fileSizeBytes = sourceFile.length(),
+                // Fresh import = untrusted (the session-3 trust model; the
+                // activity's confirm dialog adds the FILE, trust gates CODE).
+                isTrusted = false,
+            )
+            pluginStore.upsert(record)
+            // NOT loaded: untrusted records never classload (loadAll's rule).
+            // The user trusts it from the detail page → trustPlugin loads it.
+            refreshLocked()
+            Logger.i(TAG) {
+                "importSharedPlugin — placed $internalName v${record.version} " +
+                    "(repo=${linkedRepoUrl ?: "shared file"}, untrusted, " +
+                    "${sourceFile.length() / 1024} KB)"
+            }
+            CsImportResult.Added(record, linkedRepoUrl)
         }
     }
 

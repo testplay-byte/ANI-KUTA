@@ -86,6 +86,42 @@
             android:theme="@style/Theme.ANIKUTA"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode" />
 
+        <!-- Task 58 (round 18 — the plugin-share receiver): exported so other
+             apps (file managers, chat apps) can hand us shared
+             .moviebox.WHITECAT plugin files. Android can't match intent
+             filters on FILE EXTENSIONS for content:// URIs, so the filters
+             are deliberately MIME-based: unknown-extension files resolve to
+             application/octet-stream (and .cs3/.moviebox.WHITECAT zips to
+             application/zip) — the ACTIVITY validates the display name's
+             custom extension + the zip's manifest.json and rejects anything
+             else gracefully ("not a plugin file"). Covers:
+             - ACTION_VIEW (open from a file manager / download) — content +
+               file schemes, octet-stream + zip;
+             - ACTION_SEND (shared directly into ANI-KUTA) — octet-stream. -->
+        <activity
+            android:name=".pluginimport.PluginImportActivity"
+            android:exported="true"
+            android:theme="@style/Theme.ANIKUTA"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" />
+                <data android:scheme="file" android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="application/zip" />
+                <data android:scheme="file" android:mimeType="application/zip" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+        </activity>
+
         <!-- Extension install foreground service (Phase 5a) -->
         <service
             android:name="com.confused.anikuta.data.extension.installer.ExtensionInstallService"
