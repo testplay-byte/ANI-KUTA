@@ -143,8 +143,10 @@ fun DetailsScreen(
     // CsWatchKey) to keep :feature:anime-details free of feature-to-feature
     // deps — MainActivity builds the key. Args: providerName, animeTitle,
     // episodeData (the CS data handle), episodeNumber, episodeTitle,
-    // episodeListSerialized, mainId, sourceId.
-    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long) -> Unit = { _, _, _, _, _, _, _, _ -> },
+    // episodeListSerialized, mainId, sourceId, episodeMetadataSerialized
+    // (task 54 / round 14 — the CS watch page's per-episode metadata, same
+    // wire format as the aniyomi watch key's field).
+    onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -641,6 +643,14 @@ fun DetailsScreen(
             val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
                 "${e.url}${delim}${e.episode_number}${delim}${e.name}"
             } ?: ""
+            // Task 54 (round 14): per-episode metadata for the CS watch page
+            // (title/thumbnail/air date/description/sub-dub). Same builder as
+            // the aniyomi hand-off — one format, both watch stacks consume it.
+            val csMetaStr = buildEpisodeMetadataSerialized(
+                episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                metadata = episodeMetadata,
+                currentScanlator = episode.scanlator,
+            )
             Logger.i("Anikuta:Feature:Details") {
                 "onEpisodeClick — CloudStream source: routing to the CS player " +
                     "(EP ${episode.episode_number}, provider=${effectiveLinkedSource?.sourceName})"
@@ -654,6 +664,7 @@ fun DetailsScreen(
                 epListStr,
                 viewModel.currentMainId ?: "",
                 effectiveLinkedSource?.sourceId ?: 0L,
+                csMetaStr,
             )
             return@onEpisodeClick
         }

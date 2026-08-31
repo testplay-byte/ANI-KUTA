@@ -157,7 +157,48 @@ Every delta is the fix of a root cause with a source/empirical proof chain
 - **All-links-exhausted messages** now aggregate the per-link failure reasons
   ("All 3 stream(s) failed — HTTP 428, HTTP 403").
 
-## 6. Test coverage (CI-gated, `:core:cs-player` + `:data:cloudstream`)
+## 6. Round-14 UI-parity deltas (Task 54 — the v0.4.1 device feedback)
+
+Streams resolved correctly on v0.4.1 (the round-13 fixes held); the gap was
+VISUAL. Round 14 makes the CS stack render in the aniyomi stack's exact
+design language (doc 05) with ZERO aniyomi code imports — replicated design
+tokens (RobotoFamily, MaterialTheme, identical paddings/typography/shapes):
+
+- **Resolve sheet = ResolverSheet parity**: server accordion (one open at a
+  time), quality chips with the PlayArrow prefix, "Episode N" 18sp ExtraBold
+  header + circle close, RobotoFamily throughout, the aniyomi
+  Loading/Error/Empty card wording. CS links group by `link.name` for the
+  server cards; grouping is presentation-only (the seed hand-off stays flat).
+- **The CS watch screen is now a real two-mode watch PAGE**:
+  - MINIMIZED (portrait, default) — pill top bar (collapses on scroll), 16:9
+    rounded player, "Currently playing episode N" + title + star-rating bar +
+    quality/sub-dub pills + synopsis (show more/less), Episodes header +
+    lazy episode rows (thumbnail w/ EP tag or ep-number box, current-row
+    highlight with primary border).
+  - FULLSCREEN (landscape, edge-to-edge) — lock, title + EP/quality pills,
+    frosted action row (subs/quality/audio/more), -10s/play/+10s, canvas
+    seekbar w/ buffer-ahead + scrub tooltip, speed sheet (presets + slider).
+  - Window choreography copies the aniyomi screen (portrait minimized /
+    sensor-landscape fullscreen / restore on dispose; minimized never flips
+    setDecorFitsSystemWindows — the double-top-padding lesson).
+  - RESOLVING/FAILED/NO_LINKS render INSIDE the 16:9 player box — the page
+    (description + episodes) stays visible while a new episode resolves.
+- **Per-episode metadata pipeline** (the "description and details show
+  properly" requirement): `CsWatchKey.episodeMetadataSerialized` (SAME wire
+  format as the aniyomi WatchKey field) built at the DetailsScreen CS
+  click-site — the bridge already maps CS `Episode.description/posterUrl`
+  onto SEpisode `summary/preview_url`, so CS rows get real titles, thumbs,
+  air dates, descriptions, and sub/dub labels.
+- **Player sheets in the aniyomi sheet language**: Qualities-and-Servers
+  accordion (selected chip highlighted, failed chips struck + reason footer,
+  long-press copy), Subtitles TrackRows (Off-first, check marks, provider/
+  embedded/needs-reload sections + embedded-audio section), Episodes sheet
+  with current highlight, Speed sheet (presets + custom slider).
+- **The single PlayerView re-parents** between the minimized box and the
+  fullscreen surface (the aniyomi PlayerSurface pattern) — no surface
+  teardown on mode switches.
+
+## 7. Test coverage (CI-gated, `:core:cs-player` + `:data:cloudstream`)
 
 - `CsMediaTypesTest` — the upstream mime maps (video + subtitle + URL fix).
 - `CsQualityTest` — quality int ↔ label formatting (the ABI `Qualities` semantics).

@@ -3,6 +3,8 @@ package com.confused.anikuta.feature.cswatch.impl
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.ActivityInfo
+import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -19,7 +21,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -36,8 +37,13 @@ import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.qualifier.named
 
+private const val TAG = "Anikuta:CS:Watch"
+
+/** The watch page's display mode (the aniyomi screen's PlayerMode, replicated). */
+private enum class CsPlayerMode { MINIMIZED, FULLSCREEN }
+
 /**
- * The CloudStream watch screen (task 52 / round 12).
+ * The CloudStream watch screen (task 52 / round 12; task 54 / round 14).
  *
  * Architecture (doc cloudstream-v2/02-PLAYBACK-PLAN.md §1): the screen
  * composable owns the Media3 engine + player view + lifecycle effects (the
@@ -45,6 +51,16 @@ import org.koin.core.qualifier.named
  * [CsWatchViewModel] owns resolution state, link selection and watch progress.
  * It shares ZERO code with the aniyomi :feature:watch — visual parity via the
  * same design tokens, behavioral parity via the same WatchProgressStore.
+ *
+ * Task 54 (round 14 — watch-page parity): the screen is now a real two-mode
+ * watch PAGE like the aniyomi WatchScreen:
+ *  - MINIMIZED (portrait, default): [CsWatchPage] — pill top bar + 16:9
+ *    rounded player + "Currently playing" description + episode list below;
+ *  - FULLSCREEN (landscape, edge-to-edge): [CsFullscreenControls] in the
+ *    aniyomi player's visual language (lock, frosted action row, canvas
+ *    seekbar, speed sheet).
+ * The RESOLVING / FAILED / NO_LINKS phases render INSIDE the 16:9 player box
+ * in minimized mode (the page content stays reachable underneath).
  */
 @Composable
 fun CsWatchScreen(
@@ -53,7 +69,7 @@ fun CsWatchScreen(
     viewModel: CsWatchViewModel = koinViewModel(),
 ) {
     val context = LocalContext.current
-    val view = LocalView.current
+
     val uiState by viewModel.uiState.collectAsState()
 
     // The playback OkHttp client = the CS runtime's plugin client (registered
@@ -63,6 +79,10 @@ fun CsWatchScreen(
     // ── Engine lifecycle (main thread — ExoPlayer's threading rule) ──────────
     val engine = remember { CsPlayerEngine(context.applicationContext, playbackClient) }
     val engineState by engine.state.collectAsState()
+
+    // The single PlayerView, re-parented between the minimized player box and
+    // the fullscreen surface (the aniyomi screen's PlayerSurface pattern).
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
 
     /** F3: engine position belongs to the CURRENT episode only when the loaded
      *  URL matches the state's current link — otherwise a switch is in flight
@@ -86,20 +106,56 @@ fun CsWatchScreen(
 
     LaunchedEffect(key) { viewModel.initialize(key) }
 
-    // ── Lifecycle scaffolding (CORE_RULES §5: load-bearing, not boilerplate) ─
-    // Keep-screen-on while the screen is alive + immersive sticky mode.
-    DisposableEffect(view) {
-        val window = (view.context as? android.app.Activity)?.window
+    // ── Display mode + window choreography (the aniyomi screen's pattern) ────
+    var playerMode by remember { mutableStateOf(CsPlayerMode.MINIMIZED) }
+    var controlsLocked by remember { mutableStateOf(false) }
+
+    // Keep-screen-on while the screen is alive.
+    DisposableEffect(Unit) {
+        val window = (context as? android.app.Activity)?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
-        controller?.hide(WindowInsetsCompat.Type.systemBars())
-        controller?.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            window?.let { WindowCompat.getInsetsController(it, it.decorView) }
-                ?.show(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    // Immersive/orientation per mode. Only fullscreen flips
+    // setDecorFitsSystemWindows (the aniyomi screen's double-top-padding
+    // lesson — minimized NEVER sets it back to true). Dispose restores the
+    // app-wide edge-to-edge defaults (no leaked orientation, no hidden bars).
+    DisposableEffect(playerMode) {
+        val window = (context as? android.app.Activity)?.window
+        if (window != null) {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            if (playerMode == CsPlayerMode.FULLSCREEN) {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                (context as? android.app.Activity)?.requestedOrientation =
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                // MINIMIZED: show the bars; do NOT flip DecorFitsSystemWindows.
+                controller.show(WindowInsetsCompat.Type.systemBars())
+                (context as? android.app.Activity)?.requestedOrientation =
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            }
+        }
+        onDispose {
+            val w = (context as? android.app.Activity)?.window ?: return@onDispose
+            WindowCompat.setDecorFitsSystemWindows(w, false)
+            WindowInsetsControllerCompat(w, w.decorView).show(WindowInsetsCompat.Type.systemBars())
+            (context as? android.app.Activity)?.requestedOrientation =
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // Back: fullscreen → minimized; minimized → leave the screen.
+    BackHandler(enabled = playerMode == CsPlayerMode.FULLSCREEN) {
+        playerMode = CsPlayerMode.MINIMIZED
+    }
+    BackHandler(enabled = playerMode == CsPlayerMode.MINIMIZED) {
+        onBack()
     }
 
     // Task 53 / RC-3 + R13-REVIEW F3: a NEW episode's resolution start
@@ -127,18 +183,18 @@ fun CsWatchScreen(
         val live = viewModel.uiState.value
         val link = live.playLink
         if (live.playRequestId <= 0 || link == null) {
-            Logger.d("Anikuta:CS:Watch") { "play trigger: no active request (id=${live.playRequestId}) — idle" }
+            Logger.d(TAG) { "play trigger: no active request (id=${live.playRequestId}) — idle" }
             return@LaunchedEffect
         }
         if (live.playGeneration != live.resolveGeneration) {
-            Logger.w("Anikuta:CS:Watch") {
+            Logger.w(TAG) {
                 "play trigger: REJECTED stale request id=${live.playRequestId} " +
                     "gen=${live.playGeneration} != current=${live.resolveGeneration} " +
                     "link=${link.displayLabel.take(40)}"
             }
             return@LaunchedEffect
         }
-        Logger.i("Anikuta:CS:Watch") {
+        Logger.i(TAG) {
             "play trigger: ACCEPT id=${live.playRequestId} gen=${live.playGeneration} " +
                 "resume=${live.playIsResume} keepPosition=${live.playKeepPosition} " +
                 "link=${link.displayLabel}"
@@ -177,7 +233,7 @@ fun CsWatchScreen(
                     // F5: the event carries the URL it belongs to — stale errors
                     // (a link already switched away from) are rejected by the VM.
                     val reason = event.error.httpCode?.let { "HTTP $it" } ?: event.error.kind.name.lowercase()
-                    Logger.w("Anikuta:CS:Watch") {
+                    Logger.w(TAG) {
                         "engine error → fallback (url=${event.linkUrl?.take(64)}, reason=$reason)"
                     }
                     viewModel.onEngineError(event.linkUrl, reason)
@@ -186,7 +242,7 @@ fun CsWatchScreen(
                     val st = engine.state.value
                     viewModel.saveProgress(st.positionMs, st.durationMs)
                     if (!viewModel.onEpisodeEnded()) {
-                        Logger.i("Anikuta:CS:Watch") { "episode ended — no next episode" }
+                        Logger.i(TAG) { "episode ended — no next episode" }
                     }
                 }
             }
@@ -215,19 +271,26 @@ fun CsWatchScreen(
         }
     }
 
-    // ── Controls auto-hide ────────────────────────────────────────────────────
+    // ── Controls auto-hide (5s minimized / 4s fullscreen — the aniyomi timing) ─
     var controlsVisible by remember { mutableStateOf(true) }
-    LaunchedEffect(controlsVisible, engineState.isPlaying) {
+    LaunchedEffect(controlsVisible, engineState.isPlaying, playerMode) {
         if (controlsVisible && engineState.isPlaying) {
-            delay(3_500)
+            delay(if (playerMode == CsPlayerMode.FULLSCREEN) 4_000L else 5_000L)
             controlsVisible = false
         }
+    }
+    // Mode switches always reveal the controls (fresh reveal in fullscreen;
+    // the minimized page re-shows its player controls).
+    LaunchedEffect(playerMode) {
+        controlsVisible = true
+        controlsLocked = false
     }
 
     // ── Sheets ────────────────────────────────────────────────────────────────
     var showLinksSheet by remember { mutableStateOf(false) }
     var showSubsSheet by remember { mutableStateOf(false) }
     var showEpisodesSheet by remember { mutableStateOf(false) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
     // Track snapshots for the sheets (refreshed when opened).
     var videoTracks by remember { mutableStateOf<List<CsVideoTrack>>(emptyList()) }
     var selectedTrackLabel by remember { mutableStateOf<String?>(null) }
@@ -262,27 +325,23 @@ fun CsWatchScreen(
         }
     }
 
-    BackHandler { onBack() }
+    fun seekRelative(seconds: Int) {
+        engine.seekTo((engineState.positionMs + seconds * 1000L).coerceIn(0L, engineState.durationMs))
+    }
 
-    // ── UI ────────────────────────────────────────────────────────────────────
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-    ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    player = engine.player
-                    // The glass Compose layer draws the chrome; PlayerView only
-                    // renders video + subtitle cues.
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
+    // ── The shared player surface (re-parents between modes) ─────────────────
+    val playerSurface: @Composable (Modifier) -> Unit = { modifier ->
+        CsPlayerSurface(
+            playerView = playerView,
+            engine = engine,
+            onCreate = { playerView = it },
+            modifier = modifier,
         )
+    }
 
+    // The phase overlays + controls — one content slot for whichever box the
+    // player currently lives in (the 16:9 page box or the fullscreen surface).
+    val playerOverlay: @Composable () -> Unit = {
         when (uiState.phase) {
             CsWatchViewModel.Phase.RESOLVING -> CsResolvingOverlay(
                 animeTitle = uiState.animeTitle,
@@ -304,97 +363,183 @@ fun CsWatchScreen(
                 onBack = onBack,
             )
 
-            CsWatchViewModel.Phase.PLAYING -> CsControlsOverlay(
-                engineState = engineState,
-                visible = controlsVisible,
-                animeTitle = uiState.animeTitle,
-                episodeTitle = uiState.episodeTitle,
-                episodeNumber = uiState.episodeNumber,
-                providerName = uiState.providerName,
-                hasNext = viewModel.nextEpisode() != null,
-                hasPrev = viewModel.prevEpisode() != null,
-                playbackSpeed = engineState.playbackSpeed,
-                onToggleControls = {
-                    controlsVisible = !controlsVisible
-                },
-                onBack = onBack,
-                onPlayPause = {
-                    engine.playPause()
-                    controlsVisible = true
-                },
-                onSeekTo = { engine.seekTo(it) },
-                onOpenLinks = { showLinksSheet = true },
-                onOpenSubtitles = { showSubsSheet = true },
-                onOpenEpisodes = { showEpisodesSheet = true },
-                onNextEpisode = { viewModel.nextEpisode()?.let(viewModel::selectEpisode) },
-                onPrevEpisode = { viewModel.prevEpisode()?.let(viewModel::selectEpisode) },
-                onSpeedChange = { engine.setPlaybackSpeed(it) },
-            )
-        }
-
-        if (showLinksSheet) {
-            CsLinksSheet(
-                links = uiState.links,
-                currentLinkUrl = uiState.currentLink?.url,
-                failedLinkUrls = uiState.failedLinkUrls,
-                hiddenTorrentCount = uiState.hiddenTorrentCount,
-                unsupportedDrmCount = uiState.unsupportedDrmCount,
-                resolveCompleted = uiState.resolveCompleted,
-                subtitleCount = uiState.subtitles.size,
-                videoTracks = videoTracks,
-                selectedTrackLabel = selectedTrackLabel,
-                onLinkSelect = { link ->
-                    viewModel.selectLink(link)
-                    showLinksSheet = false
-                },
-                onTrackSelect = { track ->
-                    engine.selectVideoTrack(track)
-                    selectedTrackLabel = track?.label
-                },
-                onCopyUrl = { url ->
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                    clipboard?.setPrimaryClip(ClipData.newPlainText("stream url", url))
-                },
-                onDismiss = { showLinksSheet = false },
-            )
-        }
-
-        if (showSubsSheet) {
-            val engineTrackIds = textTracks.mapNotNull { it.id }.toSet()
-            val pendingSubs = uiState.subtitles.filter { it.id !in engineTrackIds }
-            CsSubtitlesSheet(
-                tracks = textTracks,
-                selectedTrackId = selectedSubId,
-                onSelect = { track ->
-                    engine.selectTextTrack(track)
-                    selectedSubId = track?.id
-                    showSubsSheet = false
-                },
-                pendingSubs = pendingSubs,
-                onPendingSubSelect = { sub ->
-                    viewModel.reattachSubtitles(sub)
-                    showSubsSheet = false
-                },
-                audioTracks = audioTracks,
-                selectedAudioId = selectedAudioId,
-                onAudioSelect = { audio ->
-                    engine.selectAudioTrack(audio)
-                    selectedAudioId = audio?.id
-                },
-                onDismiss = { showSubsSheet = false },
-            )
-        }
-
-        if (showEpisodesSheet) {
-            CsEpisodesSheet(
-                episodes = uiState.episodes,
-                currentData = viewModel.currentEpisodeData(),
-                onSelect = { episode ->
-                    viewModel.selectEpisode(episode)
-                    showEpisodesSheet = false
-                },
-                onDismiss = { showEpisodesSheet = false },
-            )
+            CsWatchViewModel.Phase.PLAYING -> if (playerMode == CsPlayerMode.MINIMIZED) {
+                CsMinimizedControls(
+                    state = engineState,
+                    visible = controlsVisible,
+                    onToggleControls = { controlsVisible = !controlsVisible },
+                    onTogglePlay = {
+                        engine.playPause()
+                        controlsVisible = true
+                    },
+                    onSeekRelative = ::seekRelative,
+                    onSeekTo = { engine.seekTo(it) },
+                    onMaximize = { playerMode = CsPlayerMode.FULLSCREEN },
+                    onQualityClick = { showLinksSheet = true },
+                    onSubtitleClick = { showSubsSheet = true },
+                )
+            } else {
+                CsFullscreenControls(
+                    state = engineState,
+                    visible = controlsVisible,
+                    locked = controlsLocked,
+                    animeTitle = uiState.animeTitle,
+                    episodeInfo = "EP " + com.confused.anikuta.core.common.EpisodeTitleParser
+                        .formatEpisodeNumber(uiState.episodeNumber),
+                    qualityInfo = uiState.currentLink?.qualityLabel ?: "",
+                    currentSpeed = engineState.playbackSpeed,
+                    onToggleControls = { controlsVisible = !controlsVisible },
+                    onLockToggle = { controlsLocked = !controlsLocked },
+                    onMinimize = { playerMode = CsPlayerMode.MINIMIZED },
+                    onTogglePlay = {
+                        engine.playPause()
+                        controlsVisible = true
+                    },
+                    onSeekRelative = ::seekRelative,
+                    onSeekTo = { engine.seekTo(it) },
+                    onQualityClick = { showLinksSheet = true },
+                    onSubtitleClick = { showSubsSheet = true },
+                    onAudioClick = { showSubsSheet = true },
+                    onMoreClick = { showEpisodesSheet = true },
+                    onSpeedClick = { showSpeedSheet = true },
+                    onSkipForward = { viewModel.nextEpisode()?.let(viewModel::selectEpisode) },
+                )
+            }
         }
     }
+
+    // ── UI ────────────────────────────────────────────────────────────────────
+    when (playerMode) {
+        CsPlayerMode.MINIMIZED -> CsWatchPage(
+            uiState = uiState,
+            playerContent = {
+                playerSurface(Modifier.fillMaxSize())
+                playerOverlay()
+            },
+            onBack = onBack,
+            onEpisodeSwitch = { viewModel.selectEpisode(it) },
+            currentEpisodeData = viewModel.currentEpisodeData(),
+            mainId = key.mainId,
+        )
+
+        CsPlayerMode.FULLSCREEN -> Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            playerSurface(Modifier.fillMaxSize())
+            playerOverlay()
+        }
+    }
+
+    if (showLinksSheet) {
+        CsLinksSheet(
+            links = uiState.links,
+            currentLinkUrl = uiState.currentLink?.url,
+            failedLinkUrls = uiState.failedLinkUrls,
+            failureReasons = uiState.failureReasons,
+            hiddenTorrentCount = uiState.hiddenTorrentCount,
+            unsupportedDrmCount = uiState.unsupportedDrmCount,
+            resolveCompleted = uiState.resolveCompleted,
+            subtitleCount = uiState.subtitles.size,
+            videoTracks = videoTracks,
+            selectedTrackLabel = selectedTrackLabel,
+            onLinkSelect = { link ->
+                viewModel.selectLink(link)
+                showLinksSheet = false
+            },
+            onTrackSelect = { track ->
+                engine.selectVideoTrack(track)
+                selectedTrackLabel = track?.label
+            },
+            onCopyUrl = { url ->
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clipboard?.setPrimaryClip(ClipData.newPlainText("stream url", url))
+            },
+            onDismiss = { showLinksSheet = false },
+        )
+    }
+
+    if (showSubsSheet) {
+        val engineTrackIds = textTracks.mapNotNull { it.id }.toSet()
+        val pendingSubs = uiState.subtitles.filter { it.id !in engineTrackIds }
+        CsSubtitlesSheet(
+            tracks = textTracks,
+            selectedTrackId = selectedSubId,
+            onSelect = { track ->
+                engine.selectTextTrack(track)
+                selectedSubId = track?.id
+                showSubsSheet = false
+            },
+            pendingSubs = pendingSubs,
+            onPendingSubSelect = { sub ->
+                viewModel.reattachSubtitles(sub)
+                showSubsSheet = false
+            },
+            audioTracks = audioTracks,
+            selectedAudioId = selectedAudioId,
+            onAudioSelect = { audio ->
+                engine.selectAudioTrack(audio)
+                selectedAudioId = audio?.id
+            },
+            onDismiss = { showSubsSheet = false },
+        )
+    }
+
+    if (showEpisodesSheet) {
+        CsEpisodesSheet(
+            episodes = uiState.episodes,
+            currentData = viewModel.currentEpisodeData(),
+            onSelect = { episode ->
+                viewModel.selectEpisode(episode)
+                showEpisodesSheet = false
+            },
+            onDismiss = { showEpisodesSheet = false },
+        )
+    }
+
+    if (showSpeedSheet) {
+        CsSpeedSheet(
+            currentSpeed = engineState.playbackSpeed,
+            onSpeedSelected = { engine.setPlaybackSpeed(it) },
+            onDismiss = { showSpeedSheet = false },
+        )
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Player surface (shared AndroidView — re-parented, never recreated)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The single [PlayerView], moved between the minimized player box and the
+ * fullscreen surface. The factory re-uses the remembered instance (detaching
+ * it from any previous parent first — the aniyomi PlayerSurface pattern) so
+ * the video surface is never torn down on mode switches.
+ */
+@Composable
+private fun CsPlayerSurface(
+    playerView: PlayerView?,
+    engine: CsPlayerEngine,
+    onCreate: (PlayerView) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AndroidView(
+        factory = { ctx ->
+            val view = (playerView ?: PlayerView(ctx).apply {
+                useController = false
+                // The Compose layer draws the chrome; PlayerView only
+                // renders video + subtitle cues.
+                setShutterBackgroundColor(android.graphics.Color.BLACK)
+            }).also { v ->
+                if (playerView == null) {
+                    v.player = engine.player
+                    onCreate(v)
+                }
+                (v.parent as? ViewGroup)?.removeView(v)
+            }
+            view
+        },
+        modifier = modifier,
+    )
 }

@@ -689,7 +689,7 @@ fun AppRoot() {
                         // an AnymeX-style bottom sheet; the selected stream + the
                         // full pre-resolved list hand off to the CS watch screen.
                         // The aniyomi watch stack is untouched by this branch.
-                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId ->
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
                             csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                 providerName = providerName,
                                 animeTitle = animeTitle,
@@ -699,6 +699,7 @@ fun AppRoot() {
                                 episodeListSerialized = epList,
                                 mainId = mainId,
                                 sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
                             )
                         },
                         onDownloadEpisode = { episode ->
@@ -738,7 +739,7 @@ fun AppRoot() {
                         },
                         // Task 52: CloudStream episodes → the resolve sheet
                         // (Task 53 / RC-6, AnymeX entry pattern).
-                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId ->
+                        onNavigateToCsWatch = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
                             csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
                                 providerName = providerName,
                                 animeTitle = animeTitle,
@@ -748,6 +749,7 @@ fun AppRoot() {
                                 episodeListSerialized = epList,
                                 mainId = mainId,
                                 sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
                             )
                         },
                         onDownloadEpisode = { episode ->

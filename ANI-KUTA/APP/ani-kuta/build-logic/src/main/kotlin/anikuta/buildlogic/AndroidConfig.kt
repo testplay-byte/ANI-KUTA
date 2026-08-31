@@ -30,8 +30,17 @@ object AndroidConfig {
     // lock + engine hard-reset), RC-4 upstream's 120 s loadLinks timeout,
     // RC-6/7 the AnymeX-pattern resolve sheet + Sources/Audio&Subs sheets,
     // RC-8 the diagnosability overhaul (request-profile logging, one filter).
-    const val versionCode = 66
-    const val versionName = "0.4.1"
+    // ── Task 54 (round 14) — the watch-page UI-parity release ───────────────
+    // 0.4.2 makes the CloudStream stack LOOK like the aniyomi stack (doc
+    // cloudstream-v2/05): the resolve sheet renders in the aniyomi
+    // ResolverSheet's design (server accordion + quality chips + RobotoFamily),
+    // the CS watch screen becomes a real two-mode watch PAGE (pill bar + 16:9
+    // player + currently-playing description + episode rows + fullscreen
+    // controls with lock/canvas-seekbar/speed sheet), and the player sheets
+    // adopt the Qualities-and-Servers / Subtitles / Speed sheet languages.
+    // Aniyomi remains byte-untouched — parity via replicated design tokens.
+    const val versionCode = 67
+    const val versionName = "0.4.2"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

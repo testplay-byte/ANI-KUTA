@@ -29,6 +29,16 @@ data class CsWatchKey(
     val mainId: String = "",
     /** The bridged source's synthetic id (CsSourceIds) — parity with WatchKey + future lookups. */
     val sourceId: Long = 0L,
+    /**
+     * Task 54 (round 14 — watch-page parity): serialized per-episode metadata
+     * for the CS watch PAGE's currently-playing section + episode rows.
+     * SAME wire format as the aniyomi WatchKey's field (the details screen
+     * already knows how to build it — one builder, both consumers):
+     * "epNum␟title␟thumbnailUrl␟airDateMillis␟description␟scanlator" per line.
+     * The bridge maps CS Episode.description/posterUrl onto SEpisode
+     * summary/preview_url, so CS content gets real descriptions + thumbs.
+     */
+    val episodeMetadataSerialized: String = "",
     /** Resume hint in ms; 0 = fresh (the screen still self-checks the progress store). */
     val startPosition: Long = 0L,
 ) : NavKey {
@@ -48,6 +58,31 @@ data class CsWatchKey(
             } else null
         }
     }
+
+    /**
+     * Parses [episodeMetadataSerialized] into a map keyed by episode number.
+     * Format: "epNum␟title␟thumbnailUrl␟airDateMillis␟description␟scanlator"
+     * per line (mirrors the aniyomi WatchKey parser — same format, same
+     * lenient rules; blank fields become null).
+     */
+    fun parseEpisodeMetadata(): Map<Int, CsWatchEpisodeMeta> {
+        if (episodeMetadataSerialized.isBlank()) return emptyMap()
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+        return episodeMetadataSerialized.split("\n").mapNotNull { line ->
+            val parts = line.split(delim, limit = 6)
+            if (parts.size >= 5) {
+                val epNum = parts[0].toIntOrNull() ?: return@mapNotNull null
+                CsWatchEpisodeMeta(
+                    episodeNumber = epNum,
+                    title = parts[1].ifBlank { null },
+                    thumbnailUrl = parts[2].ifBlank { null },
+                    airDateMillis = parts[3].toLongOrNull() ?: 0L,
+                    description = parts[4].ifBlank { null },
+                    scanlator = if (parts.size > 5) parts[5] else "",
+                )
+            } else null
+        }.associateBy { it.episodeNumber }
+    }
 }
 
 /** Lightweight episode row for the CS episodes sheet. */
@@ -55,4 +90,18 @@ data class CsSimpleEpisode(
     val data: String,
     val episodeNumber: Float,
     val name: String,
+)
+
+/**
+ * Task 54 (round 14): per-episode metadata for the CS watch page (title /
+ * thumbnail / air date / description / sub-dub label). Mirrors the aniyomi
+ * WatchEpisodeMeta SHAPE — the two watch stacks stay code-independent.
+ */
+data class CsWatchEpisodeMeta(
+    val episodeNumber: Int,
+    val title: String?,
+    val thumbnailUrl: String?,
+    val airDateMillis: Long,
+    val description: String?,
+    val scanlator: String,
 )

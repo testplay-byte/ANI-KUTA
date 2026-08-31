@@ -55,8 +55,12 @@ class CsWatchViewModel(
         val providerName: String = "",
         val episodeNumber: Float = 0f,
         val episodeTitle: String = "",
-        /** The full episode list (rows for the episodes sheet). */
+        /** The full episode list (rows for the episodes sheet + the watch page). */
         val episodes: List<com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode> = emptyList(),
+        /** Task 54 (round 14): per-episode metadata for the watch PAGE's
+         *  currently-playing section + episode rows (title/thumb/air date/
+         *  description/sub-dub). Keyed by episode number like the aniyomi map. */
+        val episodeMetadata: Map<Int, com.confused.anikuta.feature.cswatch.api.CsWatchEpisodeMeta> = emptyMap(),
         val links: List<CsVideoLink> = emptyList(),
         val subtitles: List<CsSubtitle> = emptyList(),
         val hiddenTorrentCount: Int = 0,
@@ -207,6 +211,7 @@ class CsWatchViewModel(
             episodeNumber = key.episodeNumber,
             episodeTitle = key.episodeTitle,
             episodes = key.parseEpisodeList(),
+            episodeMetadata = key.parseEpisodeMetadata(),
             links = seed.links,
             subtitles = seed.subtitles,
             hiddenTorrentCount = seed.hiddenTorrentCount,
@@ -278,6 +283,7 @@ class CsWatchViewModel(
             episodeNumber = key.episodeNumber,
             episodeTitle = key.episodeTitle,
             episodes = key.parseEpisodeList(),
+            episodeMetadata = key.parseEpisodeMetadata(),
         )
         startResolution(key)
     }

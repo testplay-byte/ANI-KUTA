@@ -16,4 +16,7 @@ dependencies {
     implementation(project(":core:navigation-api"))
     implementation(project(":core:common"))
     implementation(libs.kotlinx.serialization.json)
+
+    // Task 54 (round 14): the episode-metadata parser parity locks.
+    testImplementation(libs.junit)
 }

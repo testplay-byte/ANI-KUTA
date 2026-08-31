@@ -2588,3 +2588,10 @@ Two root-cause families from the v0.4.0 device round: (1) **Vendored-API drift**
 - **Files:** M3u8Helper.kt, WebViewResolver.kt, CloudstreamLinkResolver.kt, CsHttpDataSourceFactory.kt, CsPlayerEngine.kt, CsWatchViewModel.kt, CsWatchScreen.kt, CsResolveSheet.kt (NEW), CsSourceMemory.kt (NEW), MainActivity.kt (CS seams only), docs 03/04.
 - **Status:** ✅ Implemented (Task 53).
 - **Date:** 2026-08-31.
+
+### D-378 — Task 54: UI parity is REPLICATION, not reuse — visual parity via copied design tokens, metadata parity via one wire format
+
+The v0.4.1 device round confirmed CS playback works but LOOKS wrong next to the aniyomi extensions. The parity rule that shaped round 14: replicate the aniyomi SCREEN/SHEET designs inside :feature:cs-watch with the shared design-system tokens (RobotoFamily, MaterialTheme, ScrollBlurOverlay — infra, allowed) but NEVER import :feature:watch or :core:player code (the MPV stack stays isolated) — every composable (controls, seekbars, sheets, page layout) is an engine-state-driven replica. The second half: per-episode metadata (title/thumb/date/description/sub-dub) rides the SAME serialized wire format as the aniyomi WatchKey field ("epNum␟title␟thumb␟date␟desc␟scanlator") — ONE builder at the DetailsScreen click-site feeds BOTH watch stacks (the bridge already mapped CS Episode.description/posterUrl onto SEpisode summary/preview_url), so the CS watch page shows real descriptions + thumbnails with zero new plumbing on the aniyomi side. Also: the single PlayerView re-parents between the minimized 16:9 box and the fullscreen surface (the aniyomi PlayerSurface pattern) so mode switches never tear the video surface down.
+- **Files:** CsWatchPage.kt (NEW), CsPlayerControls.kt (NEW), CsResolveSheet.kt, CsPlayerSheets.kt, CsWatchScreen.kt, CsOverlays.kt, CsWatchKey.kt, CsWatchViewModel.kt, DetailsScreen.kt (CS branch only), MainActivity.kt (CS lambdas only), docs 03/05.
+- **Status:** ✅ Implemented (Task 54).
+- **Date:** 2026-08-31.
