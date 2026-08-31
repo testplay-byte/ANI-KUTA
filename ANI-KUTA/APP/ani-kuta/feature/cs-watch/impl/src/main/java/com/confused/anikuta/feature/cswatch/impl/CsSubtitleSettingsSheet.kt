@@ -98,11 +98,11 @@ import org.koin.compose.koinInject
  *    bare typography styles on body text.
  *
  * All writes go to the SAME [PlayerPreferences] the aniyomi sheet writes and
- * call [onApplySettings] after every change — the caller re-applies the
- * snapshot to the Media3 view ([CsPlayerEngine.applySubtitleStyle]); the
- * Compose overlay (CsSubtitleOverlay) re-reads the style every
- * recomposition, so provider cues restyle live. The signature is unchanged
- * from the Task-55 sheet (CsWatchScreen's call site needs no edits).
+ * call [onApplySettings] after every change — the caller refreshes its hoisted
+ * live-style Compose state FIRST (Task 58: the overlay recomposes immediately,
+ * PAUSED or playing) and re-applies the snapshot to the Media3 view
+ * ([CsPlayerEngine.applySubtitleStyle]). The signature is unchanged from the
+ * Task-55 sheet (CsWatchScreen's call site needs no edits).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

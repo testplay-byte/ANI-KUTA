@@ -13,8 +13,13 @@ package com.confused.anikuta.core.csplayer
  * Task 57 (round 17): the OVERLAY renderer (provider sidecar subs) consumes
  * the same snapshot — including the three new fields that now have REAL CS
  * effects: [fontScale] (overlay text multiplier), [fontFamilyName] (Android
- * typeface mapping) and [delayMs] (cue timing shift). The Media3 view ignores
- * the overlay-only fields (embedded cues keep the engine mapping).
+ * typeface mapping) and [delayMs] (cue timing shift).
+ *
+ * Task 58 (round 18): [fontScale] now ALSO scales the Media3 view (embedded
+ * cues) — [CsPlayerEngine.applySubtitleStyle] rides [CsSubtitleGeometry]'s
+ * fraction for both renderers, so embedded + overlay cues scale identically.
+ * The Media3 view still ignores [fontFamilyName] + [delayMs] (overlay-only
+ * effects the engine has no mapping for).
  *
  * Defaults mirror PlayerPreferences' own defaults (MPV scale, ARGB ints).
  */

@@ -375,6 +375,33 @@ fun CsWatchScreen(
     var showSubsSettingsSheet by remember { mutableStateOf(false) }
     var showEpisodesSheet by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
+
+    // ── Task 58 (round 18): the LIVE subtitle style snapshot ─────────────────
+    // The v0.4.5 device round's finding: while PAUSED, slider changes did not
+    // re-render the overlay — the style was read NON-reactively inside the
+    // overlay slot (a plain SharedPreferences read), and the overlay only
+    // recomposed when engineState emitted a DISTINCT value (the 100 ms ticker's
+    // positionMs stops changing while paused → StateFlow equality-dedup → no
+    // emission → no recomposition → no fresh style read). While PLAYING the
+    // position ticks re-read the prefs every 100 ms, which is why it "worked
+    // while playing only".
+    //
+    // The fix: hoist the style into Compose state. The settings sheet writes
+    // the prefs on EVERY change and fires onApplySettings — that callback now
+    // refreshes this state FIRST, so the overlay recomposes IMMEDIATELY,
+    // paused or not. Opening the sheet also re-syncs (any external pref
+    // changes, e.g. the aniyomi player's sheet, get picked up).
+    var liveSubtitleStyle by remember {
+        mutableStateOf(currentSubtitleStyle(playerPreferences))
+    }
+    // Task 58: opening the sheet re-syncs the snapshot — external pref
+    // writers (e.g. the aniyomi player's sheet) get picked up even when no
+    // CS-side change fires onApplySettings.
+    LaunchedEffect(showSubsSettingsSheet) {
+        if (showSubsSettingsSheet) {
+            liveSubtitleStyle = currentSubtitleStyle(playerPreferences)
+        }
+    }
     // Track snapshots for the sheets (refreshed when opened).
     var videoTracks by remember { mutableStateOf<List<CsVideoTrack>>(emptyList()) }
     var selectedTrackLabel by remember { mutableStateOf<String?>(null) }
@@ -434,11 +461,13 @@ fun CsWatchScreen(
 
     // Task 57: OUR subtitle overlay — the fetched provider cues rendered in
     // Compose on top of the video, UNDER the controls (both display modes).
+    // Task 58: the style rides the hoisted [liveSubtitleStyle] state — live
+    // restyling while paused AND while playing (see its declaration block).
     val subtitleOverlay: @Composable () -> Unit = {
         CsSubtitleOverlay(
             cues = overlayCues,
             positionMs = engineState.positionMs,
-            style = currentSubtitleStyle(playerPreferences),
+            style = liveSubtitleStyle,
         )
     }
 
@@ -604,13 +633,17 @@ fun CsWatchScreen(
 
     // Task 55/57: the CS subtitle STYLE settings sheet — writes the SAME
     // PlayerPreferences values the aniyomi stack uses and re-applies them to
-    // the Media3 view live (embedded cues) — the overlay re-reads the style
-    // every recomposition, so provider cues restyle with no action at all.
+    // the Media3 view live (embedded cues). Task 58: onApplySettings FIRST
+    // refreshes the hoisted [liveSubtitleStyle] — the Compose overlay
+    // recomposes immediately, PAUSED or playing (the v0.4.5 finding: paused
+    // slider changes never re-rendered the overlay because the style read
+    // was non-reactive and the 100 ms ticker emits nothing new while paused).
     if (showSubsSettingsSheet) {
         CsSubtitleSettingsSheet(
             onApplySettings = {
+                liveSubtitleStyle = currentSubtitleStyle(playerPreferences)
                 playerView?.let { view ->
-                    engine.applySubtitleStyle(view, currentSubtitleStyle(playerPreferences))
+                    engine.applySubtitleStyle(view, liveSubtitleStyle)
                 }
             },
             onDismiss = { showSubsSettingsSheet = false },

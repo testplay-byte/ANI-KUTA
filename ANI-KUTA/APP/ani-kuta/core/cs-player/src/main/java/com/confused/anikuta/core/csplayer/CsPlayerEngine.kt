@@ -693,6 +693,9 @@ class CsPlayerEngine(
      * Task 55 — applies the user's subtitle STYLE (the PlayerPreferences values
      * the aniyomi MPV stack uses, mapped onto Media3's [androidx.media3.ui.SubtitleView]).
      * Call at surface creation + live whenever the settings sheet writes.
+     * Task 58: the fraction mappings come from [CsSubtitleGeometry] (the SAME
+     * pure math the Compose overlay uses — byte-identical scaling for embedded
+     * + overlay cues, fontScale included).
      */
     fun applySubtitleStyle(view: PlayerView, style: CsSubtitleStyle) {
         val subtitleView = view.subtitleView ?: return
@@ -723,10 +726,18 @@ class CsPlayerEngine(
         )
         subtitleView.setStyle(caption)
         // MPV's sub-font-size (20..100, default 55) → Media3's fractional text
-        // size (default 0.0533 of the viewport height).
-        subtitleView.setFractionalTextSize(0.0533f * (style.fontSize / 55f))
+        // size (default 0.0533 of the viewport height). Task 58 (round 18): the
+        // user's fontScale now applies here too — the embedded (Media3-rendered)
+        // cues and the Compose overlay scale IDENTICALLY (v0.4.5's embedded view
+        // ignored the scale — a parity gap: the sheet's "Scale" row changed only
+        // overlay-rendered provider subs).
+        subtitleView.setFractionalTextSize(
+            CsSubtitleGeometry.fontFraction(style.fontSize, style.fontScale),
+        )
         // MPV sub-pos (0..100, 100 = flush bottom) → bottom padding fraction.
-        subtitleView.setBottomPaddingFraction(((100 - style.position) / 100f) * 0.12f)
+        subtitleView.setBottomPaddingFraction(
+            CsSubtitleGeometry.bottomPaddingFraction(style.position),
+        )
     }
 
     /** The id of the currently selected text track (for the sheet's highlight), or null when OFF. */

@@ -4,6 +4,7 @@ import android.graphics.Typeface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -20,10 +21,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.csplayer.CsCue
+import com.confused.anikuta.core.csplayer.CsSubtitleGeometry
 import com.confused.anikuta.core.csplayer.CsSubtitleStyle
 
 /**
@@ -37,21 +40,36 @@ import com.confused.anikuta.core.csplayer.CsSubtitleStyle
  * surface) so the text fraction matches the Media3 view's semantics:
  *
  *  - font size = box height × 0.0533 × (fontSize / 55) × fontScale
- *    (the Media3 fractional default is 0.0533 of the viewport height — byte
- *    parity with [CsPlayerEngine.applySubtitleStyle]'s mapping);
+ *    (byte parity with [CsPlayerEngine.applySubtitleStyle]'s mapping — see
+ *    [CsSubtitleGeometry.fontFraction]);
  *  - position = MPV sub-pos (0..100, 100 = flush bottom) → the same
  *    ((100 - pos) / 100) × 0.12 bottom-padding fraction the engine uses;
- *  - border > 0 → the outline edge (a stroke pass stacked UNDER the fill
- *    pass — the Compose outline technique); shadow > 0 (no border) → a
- *    drop-shadow pass (the same stacked-stroke technique, offset downward —
- *    NOT TextStyle.textShadow: that API has no precedent in this repo's
- *    pinned Compose and CI is the only compiler; the stroke pass is the
- *    proven AvatarCropScreen/NetworkTab pattern); background ARGB ≠ 0 →
- *    the cue's backdrop box;
  *  - delay shifts cue visibility (positive = later — MPV sub-delay).
+ *
+ * Task 58 (round 18 — the formatting/accuracy round, the v0.4.5 device
+ * findings "border size is not shown properly" + "the background, like
+ * borders, does not show in the correct positions"):
+ *
+ *  - BORDER: MPV unit parity — the width is `borderSize / 55` of the font
+ *    height (the v0.4.5 0.035f-per-unit was ≈1.9× MPV and its 0.15 fraction
+ *    cap saturated every setting ≥ 5). LINEAR across the sheet's 0..10 range
+ *    now (see [CsSubtitleGeometry.borderWidthFraction]).
+ *  - BACKGROUND: ASS BorderStyle=3 / MPV sub-back-color semantics — the box
+ *    is drawn PER LINE, hugs the line's glyph bounds, and is padded by the
+ *    BORDER width in the same scaled units (the v0.4.5 fixed 6.dp/2.dp
+ *    padding didn't scale with the font and let the outline poke outside).
+ *    No fixed dp anywhere; no 1.25× lineHeight half-leading padding artifacts.
+ *  - SHADOW: drawn IN ADDITION to the border (MPV behavior — v0.4.5
+ *    suppressed the shadow whenever a border was set), stacked UNDER the
+ *    border + fill passes.
+ *  - No maxLines=4 truncation (MPV never truncates; long cues wrap).
  *
  * The active cue lookup is O(n) over sorted cues at the 100 ms ticker cadence
  * (episode files carry hundreds, not millions, of cues).
+ *
+ * Style reactivity: the style rides the caller's Compose state (the watch
+ * screen's hoisted live snapshot) — every slider change recomposes this
+ * overlay immediately, PAUSED or playing.
  */
 @Composable
 internal fun CsSubtitleOverlay(
@@ -72,16 +90,14 @@ internal fun CsSubtitleOverlay(
         val density = LocalDensity.current
         // Font size: fractional of the overlay height — the Media3 parity math.
         val fontSizePx = constraints.maxHeight *
-            0.0533f * (style.fontSize / 55f) * style.fontScale.coerceIn(0.25f, 4f)
+            CsSubtitleGeometry.fontFraction(style.fontSize, style.fontScale)
         val fontSizeSp = with(density) { fontSizePx.coerceAtLeast(8f).toSp() }
-        // Border: ~3.5% of the font height per MPV border unit (≈10% at the
-        // default 3), capped so extreme settings stay readable.
-        val borderWidthPx = fontSizePx *
-            (0.035f * style.borderSize).coerceIn(0.02f, 0.15f)
-        // Shadow: ~3% of the font height per unit, drawn downward.
-        val shadowPx = fontSizePx * (0.03f * style.shadowOffset).coerceIn(0f, 0.15f)
+        // Task 58: MPV unit parity (linear, generous ceiling) — see the object KDoc.
+        val borderWidthPx = fontSizePx * CsSubtitleGeometry.borderWidthFraction(style.borderSize)
+        // Task 58: the shadow follows the border's MPV units, drawn IN ADDITION.
+        val shadowPx = fontSizePx * CsSubtitleGeometry.shadowFraction(style.shadowOffset)
         // Position: MPV sub-pos → bottom padding fraction (the engine mapping).
-        val bottomFraction = ((100 - style.position.coerceIn(0, 100)) / 100f) * 0.12f
+        val bottomFraction = CsSubtitleGeometry.bottomPaddingFraction(style.position)
         val bottomPadding = with(density) { (constraints.maxHeight * bottomFraction).toDp() }
 
         val typeface = Typeface.create(
@@ -98,7 +114,12 @@ internal fun CsSubtitleOverlay(
         val bgColor = Color(style.backgroundColor)
         val hasBg = style.backgroundColor ushr 24 != 0
         val hasBorder = style.borderSize > 0
-        val hasShadow = style.shadowOffset > 0 && !hasBorder
+        // Task 58: MPV draws sub-shadow-offset IN ADDITION to the border.
+        val hasShadow = style.shadowOffset > 0
+
+        // The ASS border-width box padding (in Dp for Modifier.padding).
+        val boxPaddingDp = with(density) { borderWidthPx.toDp() }
+        val shadowDp = with(density) { shadowPx.toDp() }
 
         Box(
             modifier = Modifier
@@ -106,70 +127,123 @@ internal fun CsSubtitleOverlay(
                 .padding(bottom = bottomPadding),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            Box(
-                modifier = Modifier
-                    .then(
-                        if (hasBg) Modifier.background(bgColor) else Modifier,
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            ) {
-                // The stroke pass UNDER the fill pass (stacked in a Box — a
-                // Column would stack them vertically). The fill pass sizes the
-                // box; the stroke pass overlays the exact same text.
-                if (hasBorder) {
-                    Text(
-                        text = active.text,
-                        color = borderColor,
-                        fontSize = fontSizeSp,
-                        lineHeight = fontSizeSp * 1.25f,
-                        fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
-                        fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
-                        fontFamily = FontFamily(typeface),
-                        textAlign = TextAlign.Center,
-                        style = TextStyle(drawStyle = Stroke(width = borderWidthPx)),
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.matchParentSize(),
-                    )
-                }
-                // The SHADOW pass (no-border mode): the same stacked-stroke
-                // technique shifted downward + slightly translucent — the
-                // repo-proven replacement for TextStyle.textShadow (see the
-                // class KDoc: zero TextShadow precedent under the pinned
-                // Compose; CI is the only real compiler).
-                if (hasShadow) {
-                    val shadowDp = with(density) { shadowPx.toDp() }
-                    Text(
-                        text = active.text,
-                        color = borderColor.copy(alpha = 0.75f),
-                        fontSize = fontSizeSp,
-                        lineHeight = fontSizeSp * 1.25f,
-                        fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
-                        fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
-                        fontFamily = FontFamily(typeface),
-                        textAlign = TextAlign.Center,
-                        style = TextStyle(drawStyle = Stroke(width = shadowPx * 1.5f)),
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .matchParentSize()
-                            .offset(y = shadowDp),
+            // Task 58: PER-LINE rendering — one box per cue line (ASS draws the
+            // back-color box per line, hugging that line's glyphs). Lines are
+            // centered relative to the widest line (a centered multi-line Text
+            // behaves the same); each line's box sizes to ITS OWN glyphs, so
+            // short lines get short boxes — no full-width slab.
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                active.text.split('\n').forEach { line ->
+                    SubtitleLineBox(
+                        line = line,
+                        hasBg = hasBg,
+                        bgColor = bgColor,
+                        hasBorder = hasBorder,
+                        borderColor = borderColor,
+                        borderWidthPx = borderWidthPx,
+                        hasShadow = hasShadow,
+                        shadowPx = shadowPx,
+                        shadowDp = shadowDp,
+                        textColor = textColor,
+                        fontSizeSp = fontSizeSp,
+                        typeface = typeface,
+                        bold = style.bold,
+                        italic = style.italic,
+                        boxPaddingDp = boxPaddingDp,
                     )
                 }
-                Text(
-                    text = active.text,
-                    color = textColor,
-                    fontSize = fontSizeSp,
-                    lineHeight = fontSizeSp * 1.25f,
-                    fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
-                    fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
-                    fontFamily = FontFamily(typeface),
-                    textAlign = TextAlign.Center,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
+    }
+}
+
+/**
+ * ONE cue line: the stacked passes (shadow → border → fill) inside a box that
+ * hugs the line's glyph bounds and — when the background is on — is padded by
+ * the border width (ASS BorderStyle=3 / MPV sub-back-color semantics).
+ *
+ * The fill pass sizes the box; the stroke/shadow passes overlay the exact same
+ * text (`matchParentSize` — the stacked-Box technique; a Column would stack
+ * them vertically). No fixed dp padding anywhere; no maxLines truncation.
+ */
+@Composable
+private fun SubtitleLineBox(
+    line: String,
+    hasBg: Boolean,
+    bgColor: Color,
+    hasBorder: Boolean,
+    borderColor: Color,
+    borderWidthPx: Float,
+    hasShadow: Boolean,
+    shadowPx: Float,
+    shadowDp: Dp,
+    textColor: Color,
+    fontSizeSp: TextUnit,
+    typeface: Typeface,
+    bold: Boolean,
+    italic: Boolean,
+    boxPaddingDp: Dp,
+) {
+    Box(
+        modifier = Modifier
+            .then(
+                if (hasBg) {
+                    // ASS: the box padding IS the border width (same scaled
+                    // units) — it scales with the font and always covers the
+                    // outline's outer half (the v0.4.5 2.dp vertical padding
+                    // let thick outlines poke outside the box).
+                    Modifier
+                        .background(bgColor)
+                        .padding(horizontal = boxPaddingDp, vertical = boxPaddingDp)
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        // The SHADOW pass — stacked UNDER everything (MPV draws the shadow in
+        // addition to the border; v0.4.5 suppressed it when a border was set).
+        // The same stacked-stroke technique shifted downward + slightly
+        // translucent (NOT TextStyle.textShadow: that API has no precedent in
+        // this repo's pinned Compose and CI is the only compiler).
+        if (hasShadow) {
+            Text(
+                text = line,
+                color = borderColor.copy(alpha = 0.75f),
+                fontSize = fontSizeSp,
+                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+                fontFamily = FontFamily(typeface),
+                textAlign = TextAlign.Center,
+                style = TextStyle(drawStyle = Stroke(width = shadowPx * 1.5f)),
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset(y = shadowDp),
+            )
+        }
+        // The BORDER stroke pass UNDER the fill pass.
+        if (hasBorder) {
+            Text(
+                text = line,
+                color = borderColor,
+                fontSize = fontSizeSp,
+                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+                fontFamily = FontFamily(typeface),
+                textAlign = TextAlign.Center,
+                style = TextStyle(drawStyle = Stroke(width = borderWidthPx)),
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+        // The fill pass — sizes the box.
+        Text(
+            text = line,
+            color = textColor,
+            fontSize = fontSizeSp,
+            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+            fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+            fontFamily = FontFamily(typeface),
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
