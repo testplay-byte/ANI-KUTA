@@ -593,6 +593,11 @@ fun AppRoot() {
     // the watch screen on selection (the AnymeX entry pattern).
     var csResolveRequest by remember { androidx.compose.runtime.mutableStateOf<com.confused.anikuta.feature.cswatch.api.CsWatchKey?>(null) }
 
+    // Task 58 (round 18 — downloads): the SAME sheet, in DOWNLOAD mode — set
+    // by the details page's download button on a CS-bridged episode; a pick
+    // enqueues through the CS-aware download path instead of playing.
+    var csResolveDownloadMode by remember { androidx.compose.runtime.mutableStateOf(false) }
+
     androidx.compose.runtime.CompositionLocalProvider(
         LocalLibrarySelectionMode provides librarySelectionMode,
         com.confused.anikuta.core.debugapi.LocalDebugContext provides debugContext,
@@ -708,6 +713,24 @@ fun AppRoot() {
                                 episodeMetadataSerialized = epMeta,
                             )
                         },
+                        // Task 58 (round 18 — downloads): the details page's
+                        // download button on a CS-bridged episode — the SAME
+                        // sheet in DOWNLOAD mode; a pick enqueues via
+                        // handleCsDownloadPick (no player, no navigation).
+                        onDownloadCsEpisode = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
+                            )
+                            csResolveDownloadMode = true
+                        },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
                                 detailsKey = currentKey,
@@ -757,6 +780,24 @@ fun AppRoot() {
                                 sourceId = sourceId,
                                 episodeMetadataSerialized = epMeta,
                             )
+                        },
+                        // Task 58 (round 18 — downloads): the details page's
+                        // download button on a CS-bridged episode — the SAME
+                        // sheet in DOWNLOAD mode; a pick enqueues via
+                        // handleCsDownloadPick (no player, no navigation).
+                        onDownloadCsEpisode = { providerName, animeTitle, episodeData, epNum, epTitle, epList, mainId, sourceId, epMeta ->
+                            csResolveRequest = com.confused.anikuta.feature.cswatch.api.CsWatchKey(
+                                providerName = providerName,
+                                animeTitle = animeTitle,
+                                episodeData = episodeData,
+                                episodeNumber = epNum,
+                                episodeTitle = epTitle,
+                                episodeListSerialized = epList,
+                                mainId = mainId,
+                                sourceId = sourceId,
+                                episodeMetadataSerialized = epMeta,
+                            )
+                            csResolveDownloadMode = true
                         },
                         onDownloadEpisode = { episode ->
                             handleDownloadEpisode(
@@ -1193,14 +1234,32 @@ fun AppRoot() {
         // underneath while streams resolve in this bottom sheet; a selection
         // seeds the CS watch ViewModel + pushes the watch screen (instant
         // playback, no re-resolve). Dismissal cancels the resolution.
+        // Task 58 (round 18): in DOWNLOAD mode a pick hands the resolved link
+        // to the CS download enqueue path instead (no seeding, no navigation).
         csResolveRequest?.let { csKey ->
             com.confused.anikuta.feature.cswatch.impl.CsResolveSheet(
                 key = csKey,
-                onDismiss = { csResolveRequest = null },
+                onDismiss = {
+                    csResolveRequest = null
+                    csResolveDownloadMode = false
+                },
                 onPlay = { playedKey ->
                     backstack.add(playedKey)
                     csResolveRequest = null
                 },
+                onDownload = if (csResolveDownloadMode) {
+                    { key, link, subtitles ->
+                        handleCsDownloadPick(
+                            key = key,
+                            link = link,
+                            subtitles = subtitles,
+                            contentRepository = contentRepository,
+                            downloadManager = downloadManager,
+                        )
+                        csResolveRequest = null
+                        csResolveDownloadMode = false
+                    }
+                } else null,
             )
         }
 
@@ -1327,6 +1386,20 @@ private fun handleDownloadEpisode(
                 org.koin.core.context.GlobalContext.get()
                     .get<com.confused.anikuta.data.extension.manager.ExtensionManager>()
                     .getSource(it) as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+            }
+
+            // Task 58 (round 18 — downloads): CS-bridged sources can't go
+            // through the classic auto path (VideoResolver.resolve → the
+            // bridge's getVideoList throws by design). The details page
+            // routes CS episode downloads to the CS resolve sheet; this guard
+            // is defense in depth for any other caller.
+            if (source != null && source.isCloudStreamBridged) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleDownloadEpisode — CS-bridged source ${source.name} hit the classic " +
+                        "auto path; redirecting to the picker guidance"
+                }
+                showDownloadToast("CloudStream downloads pick the stream first — use the episode's download button")
+                return@launch
             }
 
             // 4. Enqueue.
@@ -1533,6 +1606,104 @@ private fun handleDownloadSpecificVideo(
         } catch (e: Exception) {
             com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
                 "handleDownloadSpecificVideo — exception"
+            }
+            showDownloadToast("Download failed: ${e.message}")
+        }
+    }
+}
+
+/**
+ * Task 58 (round 18 — the CS downloads port): enqueues a download for an
+ * ALREADY-RESOLVED CloudStream link picked in the CS resolve sheet's download
+ * mode. The engine is source-agnostic — this handler only builds the
+ * content/episode identity (mirroring [handleDownloadSpecificVideo]'s lookup,
+ * but keyed on the CsWatchKey's OWN mainId — no detailsKey round-trip) and
+ * hands [com.confused.anikuta.download.CsDownloadRequestBuilder]'s request to
+ * the SAME [com.confused.anikuta.core.download.DownloadManager] the aniyomi
+ * path uses: queue, foreground service, HTTP/HLS fetchers, SAF storage,
+ * notifications + the downloads screen all just work, and the episode row's
+ * download-state chips ride the (mainId | episodeKey) identity for free.
+ */
+private fun handleCsDownloadPick(
+    key: com.confused.anikuta.feature.cswatch.api.CsWatchKey,
+    link: com.confused.anikuta.core.csplayer.CsVideoLink,
+    subtitles: List<com.confused.anikuta.core.csplayer.CsSubtitle>,
+    contentRepository: com.confused.anikuta.core.content.ContentRepository,
+    downloadManager: com.confused.anikuta.core.download.DownloadManager,
+) {
+    com.confused.anikuta.core.common.Logger.i("MainActivity") {
+        "handleCsDownloadPick — START: episode=${key.episodeData.take(48)}, " +
+            "link=${link.displayLabel}, audio=${link.audioLabel}, subs=${subtitles.size}"
+    }
+    val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
+    scope.launch {
+        try {
+            // The CS watch key carries the content identity directly (the
+            // details page built it from its own state) — no AnimeDetailsKey
+            // round-trip needed.
+            if (key.mainId.isBlank()) {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleCsDownloadPick — blank mainId (content not saved?)"
+                }
+                showDownloadToast("Save the anime to your library first, then download")
+                return@launch
+            }
+            val content = contentRepository.getMainEntryByMainId(key.mainId) ?: run {
+                com.confused.anikuta.core.common.Logger.w("MainActivity") {
+                    "handleCsDownloadPick — no content for mainId=${key.mainId.take(8)}"
+                }
+                showDownloadToast("Download failed: content entry missing")
+                return@launch
+            }
+            val details = contentRepository.getContentDetails(key.mainId)
+            val coverUrl = details?.dataCoverUrl ?: details?.extThumbnailUrl
+            val contentInfo = com.confused.anikuta.core.download.DownloadContentInfo(
+                mainId = content.mainId,
+                contentId = content.contentId,
+                title = content.title,
+                coverUrl = coverUrl,
+                coverColor = null,
+                contentFormat = content.contentFormat,
+                contentType = content.contentType,
+                description = details?.dataSynopsis ?: details?.extDescription,
+                dataSourceId = content.dataSourceId,
+                systemId = content.systemId,
+                extensionRepoId = content.extensionRepoId,
+                extensionId = content.extensionId ?: details?.extensionIdLong,
+                // key.sourceId is the CS bridge's synthetic id — authoritative
+                // (same D-210 logic as the aniyomi path's sourceIdStr).
+                sourceId = key.sourceId.takeIf { it != 0L } ?: content.sourceId ?: details?.sourceId,
+                animeUrl = content.animeUrl ?: details?.animeUrl,
+                displaySource = content.displaySource,
+                anilistId = details?.anilistId,
+            )
+            val episodeInfo = com.confused.anikuta.core.download.DownloadEpisodeInfo(
+                // episodeKey = the CS data handle = SEpisode.url — the SAME key
+                // the details page's download-state chips + the downloaded-
+                // episode playback lookup use (byte-identical identity).
+                episodeKey = key.episodeData,
+                episodeNumber = key.episodeNumber,
+                name = key.episodeTitle.ifBlank { "Episode ${key.episodeNumber.toInt()}" },
+                description = null,
+            )
+            val request = com.confused.anikuta.download.CsDownloadRequestBuilder.build(
+                content = contentInfo,
+                episode = episodeInfo,
+                link = link,
+                subtitles = subtitles,
+                sourceId = key.sourceId.takeIf { it != 0L },
+            )
+            val taskId = downloadManager.enqueueDownload(request)
+            com.confused.anikuta.core.common.Logger.i("MainActivity") {
+                "handleCsDownloadPick — enqueued taskId=$taskId " +
+                    "(${link.qualityLabel}, ${link.name}, ${link.audioLabel})"
+            }
+            showDownloadToast("Download queued: ${link.qualityLabel} · ${link.name}")
+        } catch (e: Exception) {
+            com.confused.anikuta.core.common.Logger.e("MainActivity", e) {
+                "handleCsDownloadPick — exception"
             }
             showDownloadToast("Download failed: ${e.message}")
         }

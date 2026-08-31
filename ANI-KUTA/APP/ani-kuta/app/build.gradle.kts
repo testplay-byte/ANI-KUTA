@@ -78,6 +78,11 @@ dependencies {
     // Media3 engine (:core:cs-player), never touches the MPV watch stack.
     implementation(project(":feature:cs-watch:api"))
     implementation(project(":feature:cs-watch:impl"))
+    // Task 58 (round 18 — downloads): the CS link models (CsVideoLink/
+    // CsSubtitle) for the download-request builder + the resolve sheet's
+    // download-mode callback (:feature:cs-watch:impl declares cs-player as
+    // `implementation`, so it isn't transitively visible here).
+    implementation(project(":core:cs-player"))
     implementation(project(":feature:anime-history:api"))
     implementation(project(":feature:anime-history:impl"))
     implementation(project(":feature:updates:api"))

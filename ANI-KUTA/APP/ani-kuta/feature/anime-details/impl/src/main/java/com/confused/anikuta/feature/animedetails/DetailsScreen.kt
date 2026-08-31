@@ -147,6 +147,11 @@ fun DetailsScreen(
     // (task 54 / round 14 — the CS watch page's per-episode metadata, same
     // wire format as the aniyomi watch key's field).
     onNavigateToCsWatch: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    // Task 58 (round 18 — downloads): the CS download entry. SAME 9-arg
+    // context as [onNavigateToCsWatch] (provider/title/handle/number/name/
+    // list/mainId/sourceId/metadata) — the host opens the CS resolve sheet in
+    // DOWNLOAD mode; a pick enqueues through the CS-aware download path.
+    onDownloadCsEpisode: (String, String, String, Float, String, String, String, Long, String) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
     onDownloadEpisode: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = {},
     onDownloadSpecificVideo: (eu.kanade.tachiyomi.animesource.model.SEpisode, com.confused.anikuta.core.videoresolver.ResolvedVideo, String, String, String) -> Unit = { _, _, _, _, _ -> },
     // D-209: Cloudflare manual solver — launched from the episode error card.
@@ -697,6 +702,47 @@ fun DetailsScreen(
         }
     }
 
+    // Task 58 (round 18 — the downloads port): the CS download entry —
+    // builds the SAME 9-arg context the play path hands to
+    // [onNavigateToCsWatch] (one format, both consumers) and routes it to
+    // [onDownloadCsEpisode]: the host opens the CS resolve sheet in DOWNLOAD
+    // mode and the picked link enqueues through the source-agnostic engine.
+    val routeToCsDownload: (eu.kanade.tachiyomi.animesource.model.SEpisode) -> Unit = { episode ->
+        val anime = (state as? DetailsState.Success)?.anime
+        val delim = com.confused.anikuta.core.common.EpisodeTitleParser.EPISODE_FIELD_DELIMITER
+        val epListStr = (episodeState as? EpisodeState.Loaded)?.episodes?.joinToString("\n") { e ->
+            "${e.url}${delim}${e.episode_number}${delim}${e.name}"
+        } ?: ""
+        // Same tag-stripped metadata the play path builds (F3a) — the pill
+        // carries the flavor, the title never repeats it.
+        val csMetaStr = buildEpisodeMetadataSerialized(
+            episodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                ?.map { e ->
+                    eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                        copyFrom(e)
+                        name = stripSubDubTag(e.name)
+                    }
+                } ?: emptyList(),
+            metadata = episodeMetadata,
+            currentScanlator = episode.scanlator,
+        )
+        Logger.i("Anikuta:Feature:Details") {
+            "onDownloadEpisode — CloudStream source: routing to the CS download " +
+                "picker (EP ${episode.episode_number}, provider=${effectiveLinkedSource?.sourceName})"
+        }
+        onDownloadCsEpisode(
+            effectiveLinkedSource?.sourceName ?: "",
+            anime?.displayName ?: "",
+            episode.url, // the CS data handle
+            episode.episode_number,
+            stripSubDubTag(episode.name),
+            epListStr,
+            viewModel.currentMainId ?: "",
+            effectiveLinkedSource?.sourceId ?: 0L,
+            csMetaStr,
+        )
+    }
+
     // Phase 3: Auto-play from Continue Watching — if autoPlayEpisode is set on
     // the key, fire the hoisted click handler once episodes load (declared
     // AFTER onEpisodeClick so the effect can reference it; declaration order in
@@ -998,9 +1044,20 @@ fun DetailsScreen(
                                 downloadStates = downloadStates,
                                 onDownloadEpisode = { episode ->
                                     currentEpisode = episode
-                                    resolverDownloadMode = true
-                                    viewModel.resolveEpisode(episode)
-                                    showResolverSheet = true
+                                    // Task 58 (round 18 — downloads): CS-bridged
+                                    // episodes route to the CS resolve sheet in
+                                    // DOWNLOAD mode — the classic resolver path
+                                    // can't resolve bridge sources (getVideoList
+                                    // throws by design). Aniyomi sources keep the
+                                    // resolver-sheet download flow unchanged.
+                                    if (viewModel.isLinkedSourceCloudStream()) {
+                                        resolverDownloadMode = false
+                                        routeToCsDownload(episode)
+                                    } else {
+                                        resolverDownloadMode = true
+                                        viewModel.resolveEpisode(episode)
+                                        showResolverSheet = true
+                                    }
                                 },
                                 onPauseEpisodeDownload = { episode ->
                                     viewModel.pauseEpisodeDownload(episode)

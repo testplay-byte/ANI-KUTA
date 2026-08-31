@@ -3584,16 +3584,19 @@ class DetailsViewModel(
 
         // CloudStream V2 (task 52 — the playback port): the details screen now
         // ROUTES CS episode taps to the dedicated CS watch screen BEFORE this
-        // resolver path (see DetailsScreen.onEpisodeClick). This short-circuit
-        // remains as defense in depth: if a CS episode still reaches the
-        // classic resolver (today: the episode-download path; tomorrow: the CS
-        // downloads port), it gets an honest message instead of the classic
-        // resolver swallowing the bridge boundary into "No videos available"
-        // (main's VideoResolver catches every Throwable from getVideoList).
+        // resolver path (see DetailsScreen.onEpisodeClick), and since Task 58
+        // the episode-DOWNLOAD path routes CS episodes to the CS resolve sheet
+        // in download mode too (DetailsScreen.onDownloadEpisode). This
+        // short-circuit remains as defense in depth: if a CS episode still
+        // reaches the classic resolver, it gets an honest message instead of
+        // the classic resolver swallowing the bridge boundary into "No videos
+        // available" (main's VideoResolver catches every Throwable from
+        // getVideoList).
         if (source.isCloudStreamBridged) {
             Logger.i(TAG) { "CS playback boundary: episode tap for ${source.name} — streaming opens in the CloudStream player" }
             _resolverState.value = ResolverState.Error(
-                "CloudStream episodes stream in the CloudStream player (tap the episode) — downloads arrive with the downloads port",
+                "CloudStream episodes play in the CloudStream player (tap the episode) — " +
+                    "downloads open the CloudStream source picker",
             )
             return
         }

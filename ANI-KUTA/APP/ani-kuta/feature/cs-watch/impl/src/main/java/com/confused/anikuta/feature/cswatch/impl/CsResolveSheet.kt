@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.csplayer.CsLinkType
 import com.confused.anikuta.core.csplayer.CsSubtitle
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -103,6 +104,15 @@ private const val SHEET_TAG = "Anikuta:CS:Sheet"
  * and with Settings → Debug options' "Copy button" flag ON, the header
  * carries a copy-the-whole-report action (per-row copies live in
  * [CsSourceListUi]) — default OFF, zero visual change otherwise.
+ *
+ * Task 58 (round 18 — the DOWNLOADS PORT): `downloadMode = true` turns the
+ * sheet into the CS download picker — the title reads "Download EP N" (the
+ * aniyomi ResolverSheet's download-mode wording), DASH links are filtered
+ * out of the pickable list (the download engine supports HTTP + HLS only;
+ * they're counted + surfaced like the hidden torrents), and a pick hands
+ * the RESOLVED [CsVideoLink] (+ the episode's provider subtitles) to
+ * [onDownload] instead of seeding the watch ViewModel — no player, no
+ * navigation. The resolve/progressive/dedup/debug behavior is identical.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,6 +120,9 @@ fun CsResolveSheet(
     key: CsWatchKey,
     onDismiss: () -> Unit,
     onPlay: (CsWatchKey) -> Unit,
+    // Task 58 (round 18 — downloads): when non-null the sheet is a DOWNLOAD
+    // picker — picks hand off to this instead of the play path.
+    onDownload: ((CsWatchKey, CsVideoLink, List<CsSubtitle>) -> Unit)? = null,
     resolver: CloudstreamLinkResolver = koinInject(),
     sourceMemory: CsSourceMemory = koinInject(),
     viewModel: CsWatchViewModel = koinViewModel(),
@@ -117,6 +130,7 @@ fun CsResolveSheet(
     episodeListPreferences: EpisodeListPreferences = koinInject(),
     debugPreferences: DebugPreferences = koinInject(),
 ) {
+    val downloadMode = onDownload != null
     var links by remember { mutableStateOf<List<CsVideoLink>>(emptyList()) }
     var subtitles by remember { mutableStateOf<List<CsSubtitle>>(emptyList()) }
     var hiddenCount by remember { mutableIntStateOf(0) }
@@ -151,8 +165,21 @@ fun CsResolveSheet(
         }
     }
 
-    /** Select + remember + seed + hand off to the watch screen. */
+    /**
+     * Select + hand off. PLAY mode: remember + seed + push the watch screen.
+     * DOWNLOAD mode (Task 58): hand the resolved link + subtitles to the
+     * caller's enqueue path — no seeding, no navigation, the sheet closes.
+     */
     fun pick(link: CsVideoLink) {
+        if (downloadMode) {
+            Logger.i(SHEET_TAG) {
+                "download pick: ${link.displayLabel}" +
+                    (link.audioLabel.takeIf { it != "Default" }?.let { " ($it)" } ?: "")
+            }
+            onDownload?.invoke(key, link, subtitles)
+            onDismiss()
+            return
+        }
         sourceMemory.remember(key.mainId, link.name)
         Logger.i(SHEET_TAG) {
             "picked: ${link.displayLabel}" +
@@ -290,7 +317,7 @@ fun CsResolveSheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: "Episode N" (tappable → formatting popup) + close ──
+            // ── Header: "Episode N" / "Download EP N" (tappable → formatting popup) + close ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -298,7 +325,12 @@ fun CsResolveSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CsFormattingHeader(
-                    title = "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(key.episodeNumber)}",
+                    title = if (downloadMode) {
+                        // Task 58: the aniyomi ResolverSheet's download-mode wording.
+                        "Download EP ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(key.episodeNumber)}"
+                    } else {
+                        "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(key.episodeNumber)}"
+                    },
                     formatted = formatted,
                     onToggleFormatting = {
                         formatted = it
@@ -358,16 +390,24 @@ fun CsResolveSheet(
             }
 
             // ── Content states (ResolverSheet parity wording) ──
+            // Task 58 (round 18 — downloads): DASH manifests are NOT
+            // downloadable (the engine supports HTTP + HLS; VideoTypeDetector
+            // has no DASH path) — filtered out of the PICKABLE list BEFORE the
+            // state checks, so an all-DASH resolve lands in the empty card
+            // instead of a silent blank accordion. Play mode: pickable == links.
+            val pickableLinks = if (downloadMode) {
+                links.filter { it.type != CsLinkType.DASH }
+            } else links
             when {
                 // Error, nothing to show — the aniyomi ResolverSheet Error card.
-                failure != null && links.isEmpty() -> CsSheetErrorCard(
+                failure != null && pickableLinks.isEmpty() -> CsSheetErrorCard(
                     title = "Failed to resolve streams",
                     detail = failure ?: "",
                     onRetry = ::resetAndRetry,
                 )
 
                 // Still scanning, nothing yet — the aniyomi Loading card.
-                links.isEmpty() && !completed -> Box(
+                pickableLinks.isEmpty() && !completed -> Box(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -388,12 +428,13 @@ fun CsResolveSheet(
                 }
 
                 // Completed with nothing playable — the aniyomi empty card.
-                links.isEmpty() && completed -> Column(
+                pickableLinks.isEmpty() && completed -> Column(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    val dashOnlyCount = if (downloadMode) links.count { it.type == CsLinkType.DASH } else 0
                     Text(
-                        text = "No video sources available",
+                        text = if (downloadMode) "No downloadable sources" else "No video sources available",
                         fontFamily = RobotoFamily,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -403,10 +444,21 @@ fun CsResolveSheet(
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = buildString {
-                            append("The provider returned no playable links")
+                            append(
+                                if (downloadMode && dashOnlyCount > 0) {
+                                    "Only DASH streams were found for this episode"
+                                } else if (downloadMode) {
+                                    "The provider returned no downloadable links"
+                                } else {
+                                    "The provider returned no playable links"
+                                },
+                            )
                             failure?.let { append("\n$it") }
                             if (hiddenCount > 0) append("\n$hiddenCount torrent link(s) hidden")
                             if (drmCount > 0) append("\n$drmCount DRM link(s) unsupported")
+                            if (downloadMode && dashOnlyCount > 0) {
+                                append("\n${dashOnlyCount} DASH stream(s) — stream them instead")
+                            }
                         },
                         fontFamily = RobotoFamily,
                         fontSize = 12.sp,
@@ -423,9 +475,10 @@ fun CsResolveSheet(
 
                 // ── The source list (live-updating) ──
                 else -> {
+                    val dashCount = links.size - pickableLinks.size
                     if (formatted) {
                         // Server → AudioVersion → Quality (the aniyomi 3-tier).
-                        val servers = remember(links) { groupServers(links) }
+                        val servers = remember(pickableLinks) { groupServers(pickableLinks) }
                         // sourceMemory stores the RAW link name (the auto-select
                         // matches raw names); the accordion auto-expansion matches
                         // GROUP names — derive the server part of the memory value.
@@ -439,8 +492,17 @@ fun CsResolveSheet(
                         // Task 55: RAW mode — one row per stream, unformatted
                         // labels, tap = play directly. No collapsing, no chips.
                         CsRawLinkList(
-                            links = links,
+                            links = pickableLinks,
                             onPickVideo = { link -> pick(link) },
+                        )
+                    }
+                    if (dashCount > 0) {
+                        Text(
+                            text = "$dashCount DASH stream(s) can't be downloaded (stream them instead)",
+                            fontFamily = RobotoFamily,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                         )
                     }
                     if (!completed) {
