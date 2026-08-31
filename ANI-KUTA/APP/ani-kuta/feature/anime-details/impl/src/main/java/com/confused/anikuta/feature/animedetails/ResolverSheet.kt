@@ -543,11 +543,12 @@ private fun QualityChip(
  * The quality label → sort key: "1080p" → 1080, "4K" → 2160, "8K" → 4320;
  * anything non-numeric ("Default") → -1 (sorts LAST — the user's "then any
  * other options" tail). Highest key renders leftmost in the FlowRow.
+ * FIRST-number matching keeps "1080p60" at 1080 (digit concat = 108060).
  */
 private fun qualitySortKey(label: String): Int {
     if (label.contains("4K", ignoreCase = true)) return 2160
     if (label.contains("8K", ignoreCase = true)) return 4320
-    val digits = label.filter { it.isDigit() }.toIntOrNull() ?: return -1
+    val digits = Regex("\\d+").find(label)?.value?.toIntOrNull() ?: return -1
     return if (digits in 100..4320) digits else -1
 }
 

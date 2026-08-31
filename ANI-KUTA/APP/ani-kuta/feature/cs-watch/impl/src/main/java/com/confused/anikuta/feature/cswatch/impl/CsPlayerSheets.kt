@@ -642,7 +642,10 @@ internal fun CsEpisodesSheet(
                 // render copies keep it; ordinals only change the EP label.
                 items(renderRows, key = { "${it.episodeNumber}-${it.data}" }) { episode ->
                     val isCurrent = episode.data == currentData
-                    val displayNumber = flavorOrdinals[episode.data] ?: episode.episodeNumber
+                    // .toFloat(): the elvis of Int? and Float infers Number —
+                    // the % 1f operator below needs a Float (no widening).
+                    val displayNumber = flavorOrdinals[episode.data]?.toFloat()
+                        ?: episode.episodeNumber
                     val epNumText = if (displayNumber % 1f == 0f) {
                         "${displayNumber.toInt()}"
                     } else {

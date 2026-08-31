@@ -261,7 +261,9 @@ internal fun CsWatchPage(
                         uiState = uiState,
                         // Task 56: the current episode's per-flavor ordinal
                         // (falls back to the raw number for untagged rows).
-                        currentDisplayNumber = flavorOrdinals[currentEpisodeData]
+                        // NOTE: .toFloat() — Int? ?: Float infers Number, which
+                        // a Float param rejects (Kotlin never widens numerics).
+                        currentDisplayNumber = flavorOrdinals[currentEpisodeData]?.toFloat()
                             ?: uiState.episodeNumber,
                         episodeRating = episodeRating,
                         onRate = { stars ->
@@ -357,7 +359,10 @@ internal fun CsWatchPage(
                     // lookup below still use the raw number).
                     items(renderRows, key = { it.data }) { ep ->
                         val isCurrent = ep.data == currentEpisodeData
-                        val displayNumber = flavorOrdinals[ep.data] ?: ep.episodeNumber
+                        // .toFloat(): the elvis of Int? and Float infers Number —
+                        // the displayNumber param is Float (no numeric widening).
+                        val displayNumber = flavorOrdinals[ep.data]?.toFloat()
+                            ?: ep.episodeNumber
                         val meta = uiState.episodeMetadata[ep.episodeNumber.toInt()]
                         CsEpisodeListRow(
                             episode = ep,
