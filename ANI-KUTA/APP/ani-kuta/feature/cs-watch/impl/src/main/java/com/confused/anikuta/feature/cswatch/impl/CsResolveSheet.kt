@@ -379,10 +379,13 @@ fun CsResolveSheet(
                     if (formatted) {
                         // Server → AudioVersion → Quality (the aniyomi 3-tier).
                         val servers = remember(links) { groupServers(links) }
+                        // sourceMemory stores the RAW link name (the auto-select
+                        // matches raw names); the accordion auto-expansion matches
+                        // GROUP names — derive the server part of the memory value.
                         val remembered = remember(key) { sourceMemory.recall(key.mainId) }
                         CsServerAccordion(
                             servers = servers,
-                            preferredServer = remembered,
+                            preferredServer = remembered?.let(::serverNameOf),
                             onPickVideo = { link -> pick(link) },
                         )
                     } else {

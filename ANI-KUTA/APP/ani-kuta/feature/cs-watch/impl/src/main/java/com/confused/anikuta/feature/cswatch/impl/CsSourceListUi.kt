@@ -71,13 +71,13 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 /**
  * Groups the flat link list into the aniyomi 3-tier hierarchy:
- * server (link.name) → audio version (link.audioLabel) → links
+ * server ([serverNameOf]) → audio version (link.audioLabel) → links
  * (quality-desc). Chip labels disambiguate duplicate quality labels within a
  * version with the stream type (HLS/DASH).
  */
 internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
     links
-        .groupBy { it.name }
+        .groupBy { serverNameOf(it.name) }
         .map { (name, serverLinks) ->
             val versions = serverLinks
                 .groupBy { it.audioLabel }
@@ -99,6 +99,33 @@ internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
             CsServerGroup(name = name, audioVersions = versions)
         }
         .sortedBy { it.name }
+
+/**
+ * The SERVER part of a link name — the aniyomi derivation: audio-version
+ * tokens and quality tokens are stripped when they appear as separate
+ * " - " segments ("HD-1 - Sub - 1080p" → "HD-1"; "Vidstream-2 - Dub - 720p"
+ * → "Vidstream-2"). A name that is ONLY tokens ("HSUB - 360p") keeps its
+ * full original form (blank guard); names without separators pass through
+ * unchanged (no over-stripping of hyphenated server names like "HD-1").
+ */
+internal fun serverNameOf(name: String): String {
+    val kept = name.split(SEPARATOR).filter { seg ->
+        val s = seg.trim().lowercase()
+        s !in AUDIO_SEGMENT_WORDS && !QUALITY_TOKEN.matches(s)
+    }
+    return kept.joinToString(" - ").trim().ifBlank { name.trim() }
+}
+
+/** Segment separator: " - " with flexible spacing. */
+private val SEPARATOR = Regex("\\s+-\\s+")
+
+/** Audio-version words (the [CsAudioTag.parse] vocabulary, whole-segment). */
+private val AUDIO_SEGMENT_WORDS = setOf(
+    "sub", "subbed", "dubbed", "dub", "hsub", "hardsub", "h-hardsub", "mix", "raw",
+)
+
+/** A standalone quality token: 240p–2160p/i, 4K, 8K. */
+private val QUALITY_TOKEN = Regex("^[1-9]\\d{2,3}[pi]?$|^[48]k$")
 
 /** One accordion server: the label + its audio versions (each w/ links). */
 internal data class CsServerGroup(

@@ -98,6 +98,25 @@ class CsSourceListUiTest {
     }
 
     @Test
+    fun `server names strip audio and quality segments`() {
+        assertEquals("HD-1", serverNameOf("HD-1 - Sub - 1080p"))
+        assertEquals("Vidstream-2", serverNameOf("Vidstream-2 - Dub - 720p"))
+        assertEquals("Mirror", serverNameOf("Mirror - 1080p"))
+        assertEquals("Mirror", serverNameOf("Mirror"))
+    }
+
+    @Test
+    fun `token-only names keep their full form`() {
+        assertEquals("HSUB - 360p", serverNameOf("HSUB - 360p"))
+    }
+
+    @Test
+    fun `hyphenated words are not over-stripped`() {
+        // "SUB-ish" is ONE word — the segment stripper must not touch it.
+        assertEquals("SUB-ish", serverNameOf("SUB-ish"))
+    }
+
+    @Test
     fun `servers sort by name`() {
         val servers = groupServers(
             listOf(
