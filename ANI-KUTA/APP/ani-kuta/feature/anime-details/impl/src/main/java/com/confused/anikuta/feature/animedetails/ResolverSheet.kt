@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -480,15 +481,20 @@ private fun ServerCard(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            av.videos.forEach { video ->
-                                QualityChip(
-                                    quality = video.quality,
-                                    // D-151-fix: pass server.name + av.label so the
-                                    // download path stores the real resolver server +
-                                    // audio version the user picked.
-                                    onClick = { onPickVideo(video, server.name, av.label) },
-                                )
-                            }
+                            // Task 56 (round 16 — F2): highest quality LEFTMOST —
+                            // parsed height descending, non-numeric labels
+                            // ("Default") last. The extension's emission order
+                            // is arbitrary; the display layer sorts.
+                            av.videos.sortedByDescending { qualitySortKey(it.quality) }
+                                .forEach { video ->
+                                    QualityChip(
+                                        quality = video.quality,
+                                        // D-151-fix: pass server.name + av.label so the
+                                        // download path stores the real resolver server +
+                                        // audio version the user picked.
+                                        onClick = { onPickVideo(video, server.name, av.label) },
+                                    )
+                                }
                         }
                     }
                 }
@@ -530,6 +536,22 @@ private fun QualityChip(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+//  Task 56 (round 16): the chip-order sort key (F2 — aniyomi side)
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The quality label → sort key: "1080p" → 1080, "4K" → 2160, "8K" → 4320;
+ * anything non-numeric ("Default") → -1 (sorts LAST — the user's "then any
+ * other options" tail). Highest key renders leftmost in the FlowRow.
+ */
+private fun qualitySortKey(label: String): Int {
+    if (label.contains("4K", ignoreCase = true)) return 2160
+    if (label.contains("8K", ignoreCase = true)) return 4320
+    val digits = label.filter { it.isDigit() }.toIntOrNull() ?: return -1
+    return if (digits in 100..4320) digits else -1
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 //  RAW flat list (Task 55 / round 15 — formatting OFF)
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -550,7 +572,14 @@ private fun RawVideoList(
     ) {
         servers.forEach { server ->
             server.audioVersions.forEach { av ->
-                items(av.videos, key = { "${server.name}|${av.label}|${it.url}" }) { video ->
+                // Task 56 (F5): the key carries the row INDEX — an extension that
+                // emits the same URL twice (multi-quality DASH manifests) must
+                // never crash with duplicate LazyColumn keys (the round-16
+                // device crash: Key "Default|Default|https://…mpd").
+                itemsIndexed(
+                    av.videos,
+                    key = { index, video -> "${server.name}|${av.label}|${video.url}|$index" },
+                ) { _, video ->
                     val label = buildString {
                         append(server.name)
                         append(" · ")

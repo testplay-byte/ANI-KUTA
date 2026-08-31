@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -71,9 +72,15 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 
 /**
  * Groups the flat link list into the aniyomi 3-tier hierarchy:
- * server ([serverNameOf]) → audio version (link.audioLabel) → links
- * (quality-desc). Chip labels disambiguate duplicate quality labels within a
- * version with the stream type (HLS/DASH).
+ * server ([serverNameOf]) → audio version (link.audioLabel) → links.
+ * Chip labels disambiguate duplicate quality labels within a version with the
+ * stream type (HLS/DASH).
+ *
+ * Task 56 (round 16 — device feedback F2): the quality chips sort by RANK,
+ * highest on the LEFT: real pixel heights descending (2160 → 144), then
+ * Unknown(400), then Auto(0) at the far right ("any other options"). A raw
+ * value sort would seat Unknown left of 144p — the rank pushes it past every
+ * real height.
  */
 internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
     links
@@ -88,7 +95,7 @@ internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
                     compareBy({ entry -> entry.key == CsAudioTag.DEFAULT }, { entry -> entry.key == "DUB" }),
                 )
                 .map { (label, versionLinks) ->
-                    val sorted = versionLinks.sortedByDescending { it.quality }
+                    val sorted = versionLinks.sortedByDescending { qualityRank(it.quality) }
                     val labels = sorted.map { it.qualityLabel }
                     CsAudioGroup(
                         label = label,
@@ -99,6 +106,17 @@ internal fun groupServers(links: List<CsVideoLink>): List<CsServerGroup> =
             CsServerGroup(name = name, audioVersions = versions)
         }
         .sortedBy { it.name }
+
+/**
+ * The chip-order rank: real heights sort by their pixel value (descending in
+ * [groupServers]); Unknown (400) ranks BELOW every real height; Auto (0)
+ * ranks below Unknown — the user's "then any other options" tail.
+ */
+internal fun qualityRank(quality: Int): Int = when (quality) {
+    0 -> -2 // Auto
+    400 -> -1 // Unknown
+    else -> quality
+}
 
 /**
  * The SERVER part of a link name — the aniyomi derivation: audio-version
@@ -432,6 +450,10 @@ private fun CsQualityChip(
  * produced ("Mirror 1080p") plus the audio tag when one exists. TrackRow
  * styling; tap = pick directly. Current/failed states ride the row when the
  * in-player sheet provides them.
+ *
+ * Task 56 (F5): keys carry the row INDEX — a provider that emits the same
+ * URL twice (multi-quality DASH manifests) must never crash the LazyColumn
+ * with duplicate keys (the resolver dedups by URL; this is defense in depth).
  */
 @Composable
 internal fun CsRawLinkList(
@@ -444,7 +466,7 @@ internal fun CsRawLinkList(
         verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        items(links, key = { it.url }) { link ->
+        itemsIndexed(links, key = { index, link -> "${link.url}#$index" }) { _, link ->
             val label = link.displayLabel +
                 (link.audioLabel.takeIf { it != CsAudioTag.DEFAULT }?.let { " · $it" } ?: "")
             val isCurrent = link.url == currentLinkUrl

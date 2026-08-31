@@ -21,6 +21,19 @@ object AndroidConfig {
     // Minor-bump precedent: headline features get the minor (0.2.63 → 0.3.0).
     // versionCode continues the monotonic line from 0.3.0's 64.
     //
+    // ── Task 56 (round 16) — the device-feedback-fixes release ─────────────
+    // 0.4.4 fixes the five v0.4.3 device findings (doc cloudstream-v2/07):
+    // F1 the resolve sheet NEVER auto-opens playback (remembered-server +
+    // single-link auto-selects removed — the user always picks), F2 quality
+    // chips sort highest-LEFTMOST with Unknown/Auto at the far right (both
+    // stacks — the aniyomi accordion had NO sort at all), F3 sub/dub episode
+    // lists show per-flavor ordinals (Dub restarts at "EP 1") + tag-stripped
+    // names, F4 COMBINED mode merges sibling rows pairwise by ORDINAL (the
+    // global-numbering reality broke the round-15 number-equality pairing —
+    // 12+12 shows now render 12 rows and a tap resolves BOTH flavors), F5 the
+    // LazyColumn duplicate-key crash on multi-quality DASH manifests (all raw
+    // lists key by row index). Auto-advance stays within the current flavor.
+    //
     // ── Task 53 (round 13) — the playback-fixes release ─────────────────────
     // 0.4.1 root-causes every v0.4.0 device finding (doc cloudstream-v2/04):
     // RC-1 vendored M3u8Helper's invented referer param (AniKoto's 0-links,
@@ -39,8 +52,8 @@ object AndroidConfig {
     // controls with lock/canvas-seekbar/speed sheet), and the player sheets
     // adopt the Qualities-and-Servers / Subtitles / Speed sheet languages.
     // Aniyomi remains byte-untouched — parity via replicated design tokens.
-    const val versionCode = 68
-    const val versionName = "0.4.3"
+    const val versionCode = 69
+    const val versionName = "0.4.4"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

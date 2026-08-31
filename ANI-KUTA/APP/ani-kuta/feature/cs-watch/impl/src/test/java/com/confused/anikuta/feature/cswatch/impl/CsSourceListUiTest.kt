@@ -86,6 +86,34 @@ class CsSourceListUiTest {
         assertEquals(listOf(1080, 720, 480), servers[0].audioVersions[0].links.map { it.quality })
     }
 
+    // ── Task 56 (round 16 — device feedback F2): highest quality LEFTMOST,
+    //    "any other options" (Unknown/Auto) at the far RIGHT. ────────────────
+
+    @Test
+    fun `unknown and auto rank after every real height`() {
+        val servers = groupServers(
+            listOf(
+                link("A", 0, "u-auto"), // Auto
+                link("A", 144, "u-144"),
+                link("A", 400, "u-unknown"), // Unknown
+                link("A", 1080, "u-1080"),
+                link("A", 480, "u-480"),
+            ),
+        )
+        assertEquals(
+            listOf(1080, 480, 144, 400, 0),
+            servers[0].audioVersions[0].links.map { it.quality },
+        )
+    }
+
+    @Test
+    fun `quality rank mapping`() {
+        assertEquals(-2, qualityRank(0)) // Auto
+        assertEquals(-1, qualityRank(400)) // Unknown
+        assertEquals(2160, qualityRank(2160))
+        assertEquals(144, qualityRank(144))
+    }
+
     @Test
     fun `duplicate quality labels set disambiguateType`() {
         val servers = groupServers(

@@ -1612,3 +1612,40 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
      `fillermark` on merged rows (copied now). Also 11 unused imports
      cleaned from CsPlayerSheets.
 - Version stays 0.4.3/68 (no user-visible behavior change beyond the fixes).
+
+### v0.4.4 (2026-08-31, Task 56 — the device-feedback-fixes release)
+
+- **F1 — no more auto-open from the resolve sheet.** The remembered-server
+  auto-select (fired the moment a remembered server's link streamed in) and
+  the single-link auto-select (fired on Completed with exactly 1 link) are
+  GONE from `CsResolveSheet` — "for some plugins/extensions" was exactly
+  those two conditions. The sheet now always presents the list; the user
+  picks; the remembered server still auto-EXPANDS its accordion (a hint,
+  not a decision). The in-player `autoStart` (episode-switch continuity)
+  stays by design.
+- **F2 — quality chips sort highest-leftmost.** CS `groupServers` ranks by
+  pixel height descending with Unknown(400) then Auto(0) at the far right
+  ("then any other options"); the ANIYOMI accordion (ResolverSheet +
+  watch QualitySheet) had NO sort at all — both now sort by a parsed-height
+  key ("4K"→2160, "1080p"→1080, non-numeric last) at the display layer.
+- **F3 — sub/dub lists renumber + de-tag.** Root cause: EpisodeListNormalizer
+  guarantees globally-UNIQUE numbers (its identity contract), so the second
+  flavor ALWAYS continues (dub 13–24 for a 12+12 show) — and the round-15
+  rows showed it. Fix: per-flavor DISPLAY ordinals (1..N per flavor) +
+  tag-stripped names at every CS episode surface (details rows, CS watch
+  page, episodes sheet, "currently playing"); identity numbers untouched
+  (progress/cache/metadata keys byte-identical).
+- **F4 — COMBINED mode actually merges.** The round-15 pairing keyed on
+  episode_number equality — dead under global numbering. All three pairing
+  sites (CsSubDubSiblings.mergeSiblings/handlesFor + the DetailsScreen
+  SEpisode twin) pair by flavor ORDINAL: 12+12 → 12 rows, a tap resolves
+  BOTH flavor handles (the round-15 dual-resolve flow finally engages).
+- **F5 — the LazyColumn duplicate-key crash.** `IllegalArgumentException:
+  Key "Default|Default|https://…mpd" was already used` — the aniyomi RAW
+  lists keyed rows by `"$server|$label|$url"` and an extension emitted the
+  same multi-quality DASH URL twice. All raw lists (both aniyomi sheets +
+  CS CsRawLinkList) now key by `"…|$index"` / `"…#$index"`.
+- Auto-advance stays within the current flavor (next/prev walk the row's
+  flavor; auto-start prefers the target row's flavor pool), and the CS
+  hand-off strips the flavor tag from titles (the pills carry the flavor).
+- v0.4.4/69. Plan: DOCUMENTATION/cloudstream-v2/07-DEVICE-ROUND-FIXES-PLAN.md.

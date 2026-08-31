@@ -657,8 +657,17 @@ fun DetailsScreen(
             // Task 54 (round 14): per-episode metadata for the CS watch page
             // (title/thumbnail/air date/description/sub-dub). Same builder as
             // the aniyomi hand-off — one format, both watch stacks consume it.
+            // Task 56 (F3a): the TITLE fields are tag-stripped — the CS watch
+            // page's pill carries the flavor, the title never repeats it. The
+            // scanlator field rides the raw episodes (the flavor signal).
             val csMetaStr = buildEpisodeMetadataSerialized(
-                episodes = (episodeState as? EpisodeState.Loaded)?.episodes ?: emptyList(),
+                episodes = (episodeState as? EpisodeState.Loaded)?.episodes
+                    ?.map { e ->
+                        eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                            copyFrom(e)
+                            name = stripSubDubTag(e.name)
+                        }
+                    } ?: emptyList(),
                 metadata = episodeMetadata,
                 currentScanlator = episode.scanlator,
             )
@@ -671,7 +680,7 @@ fun DetailsScreen(
                 anime?.displayName ?: "",
                 episode.url, // the CS data handle
                 episode.episode_number,
-                episode.name,
+                stripSubDubTag(episode.name),
                 epListStr,
                 viewModel.currentMainId ?: "",
                 effectiveLinkedSource?.sourceId ?: 0L,
@@ -952,6 +961,28 @@ fun DetailsScreen(
                         }
                         val showSubDubSwitcher = subDubMode != "COMBINED" && subDubBothFlavors
 
+                        // Task 56 (round 16 — F3): the RENDERED rows for CS
+                        // sub/dub lists carry per-flavor ORDINALS + tag-stripped
+                        // names. The Dub list restarts at "EP 1" (the raw numbers
+                        // globally continue — the normalizer's uniqueness contract
+                        // — and they keep their identity roles: progress, cache,
+                        // metadata, the CS hand-off). The name never repeats the
+                        // flavor the switcher + audio pill already show. Identity
+                        // fields (url/episode_number/scanlator) ride the copies
+                        // untouched, so clicks, downloads and watched-state keys
+                        // are byte-identical to the pre-display rows.
+                        val subDubOrdinals = if (subDubTagged) {
+                            subDubFlavorOrdinals(episodesToShow.orEmpty())
+                        } else emptyMap()
+                        val subDubDisplayEpisodes = if (subDubTagged) {
+                            displayEpisodes.orEmpty().map { ep ->
+                                eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
+                                    copyFrom(ep)
+                                    name = stripSubDubTag(ep.name)
+                                }
+                            }
+                        } else displayEpisodes.orEmpty()
+
                         item {
                             EpisodesSection(
                                 linkedSource = effectiveLinkedSource,
@@ -1073,7 +1104,7 @@ fun DetailsScreen(
                                     )
                                 }
                             }
-                            items(displayEpisodes.orEmpty(), key = { it.url }) { episode ->
+                            items(subDubDisplayEpisodes, key = { it.url }) { episode ->
                                 val epNum = episode.episode_number.toInt()
                                 val metadata = episodeMetadata[epNum]
                                 // D-317: contextual episode tag.
@@ -1107,6 +1138,14 @@ fun DetailsScreen(
                                     }
                                     else -> null
                                 }
+                                // Task 56 (F3b): CS sub/dub rows with no season tag
+                                // show the per-flavor ORDINAL — "EP 1" on the Dub
+                                // list's first row instead of the continuing raw
+                                // number. Season tags (when active) stay authoritative.
+                                val effectiveEpisodeTag = episodeTag
+                                    ?: subDubOrdinals[episode.url]?.let {
+                                        EpisodeTag(season = null, number = it.toString())
+                                    }
                                 val stateKey = viewModel.episodeDownloadStateKey(episode)
                                 val downloadState = stateKey?.let { downloadStates[it] }
                                     ?: EpisodeDownloadState.NotDownloaded
@@ -1118,7 +1157,7 @@ fun DetailsScreen(
                                     EpisodeRow(
                                         episode = episode,
                                         metadata = metadata,
-                                        episodeTag = episodeTag,
+                                        episodeTag = effectiveEpisodeTag,
                                         onClick = { onEpisodeClick(episode, false) },
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
@@ -3173,8 +3212,10 @@ private fun EpisodeRow(
                         modifier = Modifier.size(40.dp),
                     ) {
                         Box(contentAlignment = Alignment.Center) {
+                            // Task 56: the disc shows the same number the EP tag
+                            // would — the per-flavor ordinal for CS sub/dub rows.
                             Text(
-                                text = epNumText,
+                                text = episodeTag?.number ?: epNumText,
                                 fontFamily = RobotoFamily,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -3769,15 +3810,47 @@ private fun stripSubDubTag(name: String?): String {
 }
 
 /**
- * COMBINED display: merges sub/dub sibling rows (same episode number,
+ * Task 56 (round 16 — F3b): per-flavor display ordinals, the SEpisode twin
+ * of CsSubDubSiblings.flavorOrdinals (anime-details cannot import
+ * feature:cs-watch:api — the replication rule). Keyed by the row's url.
+ *
+ * WHY: the details pipeline guarantees globally-unique episode numbers
+ * (EpisodeListNormalizer renumbers duplicates 1..N in list order — sub
+ * first), so the second flavor's rows always CONTINUE (dub 13–24 for a
+ * 12+12 show) and number-equality pairing never matches. Ordinals renumber
+ * each flavor 1..N by (episode_number, list position) — display + pairing
+ * ONLY; the raw numbers keep their identity roles (watch progress, the
+ * episode cache, metadata maps, the CS hand-off).
+ */
+private fun subDubFlavorOrdinals(
+    episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
+): Map<String, Int> {
+    val ordinals = HashMap<String, Int>()
+    listOf("SUB", "DUB").forEach { flavor ->
+        val rows = episodes.withIndex()
+            .filter { subDubEpisodeTag(it.value) == flavor }
+            .sortedWith(compareBy({ (i, ep) -> ep.episode_number }, { (i, _) -> i }))
+        rows.forEachIndexed { ordinal, (_, ep) ->
+            ordinals[ep.url] = ordinal + 1
+        }
+    }
+    return ordinals
+}
+
+/**
+ * COMBINED display: merges sub/dub sibling rows (same flavor ORDINAL,
  * opposite tags) into ONE row — the tag stripped, the Sub row's handle kept
  * (the CS resolve flow re-finds the sibling and resolves BOTH flavors; the
  * user picks via the sheet's audio chips).
+ *
+ * Task 56: pairing runs on ordinals (F4) — a 12+12 show merges into 12 rows
+ * even though the dub rows carry continuing numbers (13–24).
  */
 private fun mergeSubDubEpisodeRows(
     episodes: List<eu.kanade.tachiyomi.animesource.model.SEpisode>,
 ): List<eu.kanade.tachiyomi.animesource.model.SEpisode> {
     if (episodes.none { subDubEpisodeTag(it) != null }) return episodes
+    val ordinals = subDubFlavorOrdinals(episodes)
     val out = mutableListOf<eu.kanade.tachiyomi.animesource.model.SEpisode>()
     val usedUrls = mutableSetOf<String>()
     episodes.forEach { ep ->
@@ -3788,10 +3861,11 @@ private fun mergeSubDubEpisodeRows(
             usedUrls += ep.url
             return@forEach
         }
+        val ordinal = ordinals[ep.url]
         val sibling = episodes.firstOrNull { other ->
             other.url != ep.url &&
-                other.episode_number == ep.episode_number &&
-                subDubEpisodeTag(other)?.let { it != tag } == true
+                subDubEpisodeTag(other)?.let { it != tag } == true &&
+                ordinals[other.url] == ordinal
         }
         if (sibling == null) {
             out += ep

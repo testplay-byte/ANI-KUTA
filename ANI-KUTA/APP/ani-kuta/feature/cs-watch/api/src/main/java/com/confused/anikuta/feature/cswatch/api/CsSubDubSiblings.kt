@@ -13,8 +13,18 @@ package com.confused.anikuta.feature.cswatch.api
  *    the aniyomi ResolverSheet; the user picks the stream there.
  *  - **SEPARATE** (default) — the tapped row resolves its own handle only.
  *
- * This pure helper finds the counterpart. It lives in :api so the resolve
- * sheet (entry) AND the watch ViewModel (episode switching) share ONE
+ * Task 56 (round 16 — the numbering fix): sibling pairing and per-flavor
+ * display numbering now run on **flavor ordinals**, NOT the raw
+ * `episodeNumber`. The details pipeline guarantees globally-unique numbers
+ * (`EpisodeListNormalizer` renumbers duplicates 1..N in list order — sub
+ * first), so the second flavor always CONTINUES (dub rows show 13–24 for a
+ * 12+12 show) and number-equality pairing never matches. Ordinals renumber
+ * each flavor 1..N by (episodeNumber, list position): sub-5 ↔ dub-5 pair,
+ * the Dub list restarts at "Episode 1", and the underlying identity numbers
+ * (watch progress / cache / metadata keys) stay byte-identical.
+ *
+ * This pure helper lives in :api so the resolve sheet (entry), the watch
+ * ViewModel (episode switching) and every episode-list surface share ONE
  * definition — and so it is unit-testable without Compose.
  */
 object CsSubDubSiblings {
@@ -38,11 +48,32 @@ object CsSubDubSiblings {
     }
 
     /**
+     * Task 56: per-flavor display ordinals — each tagged flavor renumbered
+     * 1..N by (episodeNumber, list position). Keyed by the row's data handle;
+     * untagged rows are ABSENT (callers fall back to the raw episode number).
+     *
+     * The raw numbers stay the rows' identity everywhere else (progress,
+     * cache, metadata) — this map is for DISPLAY + pairing only.
+     */
+    fun flavorOrdinals(episodes: List<CsSimpleEpisode>): Map<String, Int> {
+        val ordinals = HashMap<String, Int>()
+        listOf("SUB", "DUB").forEach { flavor ->
+            val rows = episodes.withIndex()
+                .filter { tagOf(it.value.name) == flavor }
+                .sortedWith(compareBy({ (i, ep) -> ep.episodeNumber }, { (i, _) -> i }))
+            rows.forEachIndexed { ordinal, (_, ep) ->
+                ordinals[ep.data] = ordinal + 1
+            }
+        }
+        return ordinals
+    }
+
+    /**
      * The handles to resolve for a tap on [clickedData]:
      *  - neutral row → itself, untagged (COMBINED or SEPARATE);
      *  - tagged row + SEPARATE → itself, tagged;
      *  - tagged row + COMBINED → itself + the opposite-flavor row with the
-     *    same episode number (first match), both tagged. No counterpart →
+     *    same flavor ORDINAL (first match), both tagged. No counterpart →
      *    itself only.
      */
     fun handlesFor(
@@ -56,10 +87,12 @@ object CsSubDubSiblings {
             ?: return listOf(CsHandle(clicked.data, null))
         if (!combined) return listOf(CsHandle(clicked.data, tag))
 
+        val ordinals = flavorOrdinals(episodes)
+        val clickedOrdinal = ordinals[clicked.data] ?: return listOf(CsHandle(clicked.data, tag))
         val counterpart = episodes.firstOrNull { ep ->
             ep.data != clicked.data &&
-                ep.episodeNumber == clicked.episodeNumber &&
-                tagOf(ep.name)?.let { it != tag } == true
+                tagOf(ep.name)?.let { it != tag } == true &&
+                ordinals[ep.data] == clickedOrdinal
         } ?: return listOf(CsHandle(clicked.data, tag))
 
         return listOf(
@@ -70,8 +103,8 @@ object CsSubDubSiblings {
 
     /**
      * Strips the trailing "(Sub)"/"(Dub)" tag from an episode name — the
-     * COMBINED display mode's merged rows must not carry the flavor tag
-     * (both flavors are represented by the resolved streams' chips).
+     * flavor is carried by the switcher chips / audio pills / stream chips,
+     * so the rendered name never repeats it (round 16 device feedback F3a).
      */
     fun stripTag(name: String): String {
         val n = name.trim()
@@ -83,14 +116,15 @@ object CsSubDubSiblings {
     }
 
     /**
-     * COMBINED display mode: merges sub/dub sibling rows (same episode number,
-     * opposite tags) into ONE row — the tag stripped from the name, the Sub
-     * row's data handle kept (the resolve flow re-finds the sibling from the
-     * full list). Untagged lists pass through unchanged. Shared by the details
-     * episode list, the CS watch page and the episodes sheet.
+     * COMBINED display mode: merges sub/dub sibling rows (same flavor
+     * ordinal, opposite tags) into ONE row — the tag stripped from the name,
+     * the Sub row's data handle kept (the resolve flow re-finds the sibling
+     * from the full list). Untagged lists pass through unchanged. Shared by
+     * the CS watch page and the episodes sheet.
      */
     fun mergeSiblings(episodes: List<CsSimpleEpisode>): List<CsSimpleEpisode> {
         if (episodes.none { tagOf(it.name) != null }) return episodes
+        val ordinals = flavorOrdinals(episodes)
         val out = mutableListOf<CsSimpleEpisode>()
         val usedData = mutableSetOf<String>()
         episodes.forEach { ep ->
@@ -101,11 +135,12 @@ object CsSubDubSiblings {
                 usedData += ep.data
                 return@forEach
             }
-            // Find the opposite-flavor sibling with the same episode number.
+            // Find the opposite-flavor sibling with the same ordinal.
+            val ordinal = ordinals[ep.data]
             val sibling = episodes.firstOrNull { other ->
                 other.data != ep.data &&
-                    other.episodeNumber == ep.episodeNumber &&
-                    tagOf(other.name)?.let { it != tag } == true
+                    tagOf(other.name)?.let { it != tag } == true &&
+                    ordinals[other.data] == ordinal
             }
             if (sibling == null) {
                 out += ep

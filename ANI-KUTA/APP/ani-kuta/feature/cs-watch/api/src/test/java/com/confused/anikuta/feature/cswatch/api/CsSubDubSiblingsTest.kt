@@ -11,6 +11,11 @@ import org.junit.Test
  * The bridge appends " (Sub)" / " (Dub)" to bridged CloudStream episode
  * names (each flavor has its own loadLinks data handle). These tests pin the
  * pairing rules behind the COMBINED/SEPARATE display modes.
+ *
+ * Task 56 (round 16): pairing now runs on per-flavor ORDINALS — the details
+ * pipeline guarantees globally-unique numbers (the normalizer renumbers
+ * duplicates 1..N, sub first), so dub rows carry CONTINUING numbers
+ * (13–24 for a 12+12 show). The ordinal tests pin the new pairing key.
  */
 class CsSubDubSiblingsTest {
 
@@ -137,5 +142,90 @@ class CsSubDubSiblingsTest {
             ),
         )
         assertFalse(CsSubDubSiblings.hasBothFlavors(eps(Triple("a", 1f, "E1"))))
+    }
+
+    // ── Task 56: flavor ordinals (the global-numbering reality) ─────────────
+
+    @Test
+    fun `ordinals renumber each flavor from one`() {
+        // The pipeline's real shape: dub rows CONTINUE (13, 14) after sub 1..12.
+        val list = eps(
+            Triple("sub-1", 1f, "Episode 1 (Sub)"),
+            Triple("sub-2", 2f, "Episode 2 (Sub)"),
+            Triple("dub-1", 13f, "Episode 13 (Dub)"),
+            Triple("dub-2", 14f, "Episode 14 (Dub)"),
+        )
+        val ordinals = CsSubDubSiblings.flavorOrdinals(list)
+        assertEquals(1, ordinals["sub-1"])
+        assertEquals(2, ordinals["sub-2"])
+        assertEquals(1, ordinals["dub-1"])
+        assertEquals(2, ordinals["dub-2"])
+        // Untagged rows are absent — callers fall back to the raw number.
+        val neutral = eps(Triple("only", 7f, "Episode 7"))
+        assertTrue(CsSubDubSiblings.flavorOrdinals(neutral).isEmpty())
+    }
+
+    @Test
+    fun `combined mode pairs siblings under continuing numbers`() {
+        val list = eps(
+            Triple("sub-5", 5f, "Episode 5 (Sub)"),
+            Triple("dub-5", 17f, "Episode 17 (Dub)"), // dub continues — same real episode
+            Triple("dub-6", 18f, "Episode 18 (Dub)"),
+        )
+        val handles = CsSubDubSiblings.handlesFor(list, "sub-5", combined = true)
+        assertEquals(2, handles.size)
+        assertEquals("sub-5" to "SUB", handles[0].data to handles[0].audioTag)
+        assertEquals("dub-5" to "DUB", handles[1].data to handles[1].audioTag)
+    }
+
+    @Test
+    fun `combined mode from the dub side pairs back to sub`() {
+        val list = eps(
+            Triple("sub-1", 1f, "Episode 1 (Sub)"),
+            Triple("sub-2", 2f, "Episode 2 (Sub)"),
+            Triple("dub-1", 13f, "Episode 13 (Dub)"),
+            Triple("dub-2", 14f, "Episode 14 (Dub)"),
+        )
+        val handles = CsSubDubSiblings.handlesFor(list, "dub-2", combined = true)
+        assertEquals(2, handles.size)
+        assertEquals("dub-2" to "DUB", handles[0].data to handles[0].audioTag)
+        assertEquals("sub-2" to "SUB", handles[1].data to handles[1].audioTag)
+    }
+
+    @Test
+    fun `merge collapses sub+dub pairs under continuing numbers`() {
+        // 12+12 shows must render 12 merged rows — not 24 (device feedback F4).
+        val list = eps(
+            Triple("sub-1", 1f, "Episode 1 (Sub)"),
+            Triple("sub-2", 2f, "Episode 2 (Sub)"),
+            Triple("dub-1", 13f, "Episode 13 (Dub)"),
+            Triple("dub-2", 14f, "Episode 14 (Dub)"),
+            Triple("dub-3", 15f, "Episode 15 (Dub)"), // no sub-3 — stays alone
+        )
+        val merged = CsSubDubSiblings.mergeSiblings(list)
+        assertEquals(3, merged.size)
+        assertEquals("sub-1", merged[0].data)
+        assertEquals("Episode 1", merged[0].name)
+        assertEquals("sub-2", merged[1].data)
+        assertEquals("Episode 2", merged[1].name)
+        // The unpaired dub row survives (tag intact — nothing merged into it).
+        assertEquals("dub-3", merged[2].data)
+    }
+
+    @Test
+    fun `unequal flavor sizes merge pairwise by ordinal`() {
+        // Sub 1..3, dub only 1 (ordinal 1) — pairs collapse, the rest stay.
+        val list = eps(
+            Triple("sub-1", 1f, "Episode 1 (Sub)"),
+            Triple("sub-2", 2f, "Episode 2 (Sub)"),
+            Triple("sub-3", 3f, "Episode 3 (Sub)"),
+            Triple("dub-1", 4f, "Episode 4 (Dub)"),
+        )
+        val merged = CsSubDubSiblings.mergeSiblings(list)
+        assertEquals(3, merged.size)
+        assertEquals("sub-1", merged[0].data)
+        assertEquals("Episode 1", merged[0].name)
+        assertEquals("sub-2", merged[1].data)
+        assertEquals("sub-3", merged[2].data)
     }
 }

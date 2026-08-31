@@ -529,15 +529,26 @@ internal fun CsEpisodesSheet(
     //  - SEPARATE: Sub | Dub chips at the top switch between the two lists
     //    (only when both flavors exist);
     //  - COMBINED: sibling rows merge into one (tag stripped).
+    //
+    // Task 56 (round 16 — F3/F4): rows render with per-flavor ORDINALS +
+    // tag-stripped names — the Dub list restarts at "EP 1" and no name
+    // repeats the flavor the switcher already shows. Raw numbers stay the
+    // identity (progress/cache keys); the tapped row hands its ORIGINAL data
+    // handle + number to the VM.
     val subDubMode by remember { mutableStateOf(episodeListPreferences.subDubMode.get()) }
     val subDubEpisodes = remember(episodes, subDubMode) {
         if (subDubMode == "COMBINED") CsSubDubSiblings.mergeSiblings(episodes) else episodes
     }
+    val flavorOrdinals = remember(episodes) { CsSubDubSiblings.flavorOrdinals(episodes) }
     val showSwitcher = subDubMode != "COMBINED" && CsSubDubSiblings.hasBothFlavors(subDubEpisodes)
     var selectedFlavor by rememberSaveable { mutableStateOf("SUB") }
-    val rows = if (showSwitcher) {
+    val episodeRows = if (showSwitcher) {
         subDubEpisodes.filter { CsSubDubSiblings.tagOf(it.name) == selectedFlavor }
     } else subDubEpisodes
+    // Render copies: names stripped; numbers swapped for ordinals at display.
+    val renderRows = remember(episodeRows) {
+        episodeRows.map { it.copy(name = CsSubDubSiblings.stripTag(it.name)) }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -573,7 +584,7 @@ internal fun CsEpisodesSheet(
                     shape = RoundedCornerShape(50),
                 ) {
                     Text(
-                        text = "${rows.size}",
+                        text = "${renderRows.size}",
                         fontFamily = RobotoFamily,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -627,16 +638,19 @@ internal fun CsEpisodesSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(rows, key = { "${it.episodeNumber}-${it.data}" }) { episode ->
+                // Task 56: keys stay the data handle (unique) — the stripped
+                // render copies keep it; ordinals only change the EP label.
+                items(renderRows, key = { "${it.episodeNumber}-${it.data}" }) { episode ->
                     val isCurrent = episode.data == currentData
-                    val epNumText = if (episode.episodeNumber % 1f == 0f) {
-                        "${episode.episodeNumber.toInt()}"
+                    val displayNumber = flavorOrdinals[episode.data] ?: episode.episodeNumber
+                    val epNumText = if (displayNumber % 1f == 0f) {
+                        "${displayNumber.toInt()}"
                     } else {
-                        "${episode.episodeNumber}"
+                        "$displayNumber"
                     }
                     CsTrackRow(
                         label = "EP $epNumText · " +
-                            (episode.name.ifBlank { "Episode ${episode.episodeNumber.toInt()}" }),
+                            (episode.name.ifBlank { "Episode ${displayNumber.toInt()}" }),
                         isSelected = isCurrent,
                         onClick = { onSelect(episode) },
                     )

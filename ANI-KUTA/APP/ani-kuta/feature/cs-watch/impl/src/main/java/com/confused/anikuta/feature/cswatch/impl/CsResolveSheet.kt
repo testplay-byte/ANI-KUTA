@@ -84,8 +84,16 @@ private const val SHEET_TAG = "Anikuta:CS:Sheet"
  *    Combined and the tapped episode has an opposite-flavor sibling, BOTH
  *    handles resolve in parallel and each stream carries its flavor tag —
  *    the SUB/DUB chips in the cards let the user pick, exactly like aniyomi.
- * CS keeps its own behaviors underneath: progressive rows, remembered-server
- * auto-select, single-link auto-select, cancel-on-dismiss.
+ * CS keeps its own behaviors underneath: progressive rows, the remembered
+ * server's accordion auto-EXPANSION (a hint, never an auto-pick), and
+ * cancel-on-dismiss.
+ *
+ * Task 56 (round 16 — device feedback F1): the remembered-server and
+ * single-link AUTO-SELECT paths are GONE. Tapping an episode resolves and
+ * presents the list — the user always picks the stream; playback never
+ * starts on its own from the entry sheet. ("For some plugins" was exactly
+ * those two conditions: a remembered server streaming in, or a provider
+ * that resolves to a single link.)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,7 +113,6 @@ fun CsResolveSheet(
     var drmCount by remember { mutableIntStateOf(0) }
     var completed by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<String?>(null) }
-    var autoPicked by remember { mutableStateOf(false) }
     var retryTick by remember { mutableIntStateOf(0) }
     var resolveJob by remember { mutableStateOf<Job?>(null) }
     // Task 55: the formatting toggle (read at open; shared with the aniyomi
@@ -177,23 +184,10 @@ fun CsResolveSheet(
                                 val known = mutableSetOf<String>()
                                 links = handles.indices.flatMap { i -> perHandle[i].orEmpty() }
                                     .filter { known.add(it.url) }
-                                // Remembered-server auto-select — fires the moment the
-                                // match streams in (the AnymeX instant feel).
-                                if (!autoPicked && links.isNotEmpty()) {
-                                    val remembered = sourceMemory.recall(key.mainId)
-                                    if (remembered != null) {
-                                        val match = links
-                                            .filter { it.name == remembered }
-                                            .maxByOrNull { it.quality }
-                                        if (match != null) {
-                                            autoPicked = true
-                                            Logger.i(SHEET_TAG) {
-                                                "auto-select (remembered '$remembered'): ${match.displayLabel}"
-                                            }
-                                            pick(match)
-                                        }
-                                    }
-                                }
+                                // Task 56: NO remembered-server auto-select here — the
+                                // list renders and the user picks (device feedback F1).
+                                // The remembered server still auto-EXPANDS its accordion
+                                // below (preferredServer) — a hint, not a decision.
                             }
                             is CsResolveEvent.SubtitlesSnapshot -> {
                                 perHandleSubs[index] = event.subtitles
@@ -209,12 +203,8 @@ fun CsResolveSheet(
                                         "resolve done: links=${links.size} subs=${subtitles.size} " +
                                             "handles=${handles.size} in ${event.durationMs}ms"
                                     }
-                                    // Single-link result → no decision to make.
-                                    if (!autoPicked && links.size == 1) {
-                                        autoPicked = true
-                                        Logger.i(SHEET_TAG) { "auto-select (single link): ${links.first().displayLabel}" }
-                                        pick(links.first())
-                                    }
+                                    // Task 56: NO single-link auto-select — even a
+                                    // one-link result waits for the user's tap (F1).
                                 }
                             }
                             is CsResolveEvent.Failed -> {
@@ -257,7 +247,6 @@ fun CsResolveSheet(
         drmCount = 0
         failure = null
         completed = false
-        autoPicked = false
         retryTick++
     }
 

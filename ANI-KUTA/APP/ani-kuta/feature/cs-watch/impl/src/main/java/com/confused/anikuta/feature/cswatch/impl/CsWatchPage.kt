@@ -108,16 +108,32 @@ internal fun CsWatchPage(
     // Task 55: the sub/dub display modes for the page's episode list (the
     // SAME pref as the details page + the episodes sheet — one setting).
     // COMBINED merges sibling rows; SEPARATE adds the Sub | Dub chip row.
+    //
+    // Task 56 (round 16 — device feedback F3): the RENDERED rows carry
+    // per-flavor ordinals + tag-stripped names. The raw episode numbers stay
+    // the rows' identity (watch-progress / cache / metadata keys) — the
+    // second flavor's numbers globally CONTINUE (the details pipeline
+    // normalizes to unique 1..N), so the display layer renumbers per flavor:
+    // the Dub list starts at "Episode 1" and the names never repeat the
+    // flavor the switcher already shows.
     val episodeListPreferences = koinInject<EpisodeListPreferences>()
     val subDubMode = remember { episodeListPreferences.subDubMode.get() }
     val displayEpisodes = remember(uiState.episodes, subDubMode) {
         if (subDubMode == "COMBINED") CsSubDubSiblings.mergeSiblings(uiState.episodes) else uiState.episodes
+    }
+    val flavorOrdinals = remember(uiState.episodes) {
+        CsSubDubSiblings.flavorOrdinals(uiState.episodes)
     }
     val showSubDubSwitcher = subDubMode != "COMBINED" && CsSubDubSiblings.hasBothFlavors(displayEpisodes)
     var subDubFlavor by rememberSaveable { mutableStateOf("SUB") }
     val episodeRows = if (showSubDubSwitcher) {
         displayEpisodes.filter { CsSubDubSiblings.tagOf(it.name) == subDubFlavor }
     } else displayEpisodes
+    // Task 56: render copies — tag stripped from every name (the switcher /
+    // pills / stream chips carry the flavor; stripTag is a no-op untagged).
+    val renderRows = remember(episodeRows) {
+        episodeRows.map { it.copy(name = CsSubDubSiblings.stripTag(it.name)) }
+    }
 
     // Per-episode rating (the aniyomi page's Phase-4 star bar — same store,
     // same keys, CS content rides it identically).
@@ -243,6 +259,10 @@ internal fun CsWatchPage(
                 item(key = "current") {
                     CsCurrentlyPlayingSection(
                         uiState = uiState,
+                        // Task 56: the current episode's per-flavor ordinal
+                        // (falls back to the raw number for untagged rows).
+                        currentDisplayNumber = flavorOrdinals[currentEpisodeData]
+                            ?: uiState.episodeNumber,
                         episodeRating = episodeRating,
                         onRate = { stars ->
                             // Same blank-mainId guard as the read above — CS-only
@@ -331,12 +351,17 @@ internal fun CsWatchPage(
                         }
                     }
                     // Lazy episode rows — virtualized (D-230 pattern).
-                    items(episodeRows, key = { it.data }) { ep ->
+                    // Task 56: renderRows — tag-stripped names + the row's EP
+                    // tag shows the per-flavor ORDINAL (the raw number is the
+                    // identity: progress/cache/metadata keys + the metadata
+                    // lookup below still use the raw number).
+                    items(renderRows, key = { it.data }) { ep ->
                         val isCurrent = ep.data == currentEpisodeData
-                        val epNum = ep.episodeNumber.toInt()
-                        val meta = uiState.episodeMetadata[epNum]
+                        val displayNumber = flavorOrdinals[ep.data] ?: ep.episodeNumber
+                        val meta = uiState.episodeMetadata[ep.episodeNumber.toInt()]
                         CsEpisodeListRow(
                             episode = ep,
+                            displayNumber = displayNumber,
                             metadata = meta,
                             isCurrent = isCurrent,
                             onClick = {
@@ -370,12 +395,17 @@ private fun CsCurrentlyPlayingSection(
     uiState: CsWatchViewModel.CsWatchUiState,
     episodeRating: Int?,
     onRate: (Int) -> Unit,
+    // Task 56: the per-flavor ordinal for the current episode (null = the
+    // raw number) — "Currently playing episode 1" on a Dub row, not 13.
+    currentDisplayNumber: Float = uiState.episodeNumber,
 ) {
     val currentEpNum = uiState.episodeNumber.toInt()
     val currentMeta = uiState.episodeMetadata[currentEpNum]
+    // Task 56: strip the flavor tag from the fallback title (the pills below
+    // already show Sub/Dub — the title never repeats it).
     val currentDisplayTitle = currentMeta?.title
         ?: com.confused.anikuta.core.common.EpisodeTitleParser
-            .getDisplayTitle(uiState.episodeTitle, uiState.episodeNumber)
+            .getDisplayTitle(CsSubDubSiblings.stripTag(uiState.episodeTitle), currentDisplayNumber)
     val currentDescription = currentMeta?.description
 
     Surface(
@@ -388,7 +418,7 @@ private fun CsCurrentlyPlayingSection(
         ) {
             Text(
                 text = "Currently playing episode " +
-                    com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(uiState.episodeNumber),
+                    com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(currentDisplayNumber),
                 fontFamily = RobotoFamily,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -507,12 +537,18 @@ private fun CsEpisodeListRow(
     metadata: CsWatchEpisodeMeta?,
     isCurrent: Boolean,
     onClick: () -> Unit,
+    /**
+     * Task 56: the EP tag + title-fallback number — the per-flavor ORDINAL
+     * for sub/dub-tagged rows (Dub restarts at 1), else the raw number.
+     * Identity (data/episodeNumber) is untouched.
+     */
+    displayNumber: Float = episode.episodeNumber,
 ) {
     val displayTitle = metadata?.title
         ?: com.confused.anikuta.core.common.EpisodeTitleParser
-            .getDisplayTitle(episode.name, episode.episodeNumber)
+            .getDisplayTitle(episode.name, displayNumber)
     val epNumText = com.confused.anikuta.core.common.EpisodeTitleParser
-        .formatEpisodeNumber(episode.episodeNumber)
+        .formatEpisodeNumber(displayNumber)
     val thumbnailUrl = metadata?.thumbnailUrl
     val description = metadata?.description
     val dateText = if (metadata != null && metadata.airDateMillis > 0) {

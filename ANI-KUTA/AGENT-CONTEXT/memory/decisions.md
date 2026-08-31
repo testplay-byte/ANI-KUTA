@@ -2609,3 +2609,24 @@ The round-15 push (7b108be8) failed CI in 2 tasks: `:data:cloudstream:compileDeb
 - **Files:** CloudstreamLinkResolver.kt, CsMediaTypesTest.kt, ResolverSheet.kt, DetailsScreen.kt, CsPlayerSheets.kt, docs (changelog/lessons/progress + worklog).
 - **Status:** ✅ Implemented (Task 55 tail / v0.4.3 completion).
 - **Date:** 2026-08-31.
+
+### D-381 — Task 56: sub/dub display numbering is ORDINAL-based at the display layer; the global-number uniqueness contract is NEVER traded away
+
+The v0.4.3 device round exposed the structural conflict: EpisodeListNormalizer deliberately guarantees globally-unique episode numbers (duplicates renumber 1..N in list order — sub first), because the episode cache (UNIQUE(main_id, episode_number)), the metadata maps and the watch-progress keys all ride those numbers. For a 12+12 sub/dub show that means the Dub rows ALWAYS continue (13–24) — the exact "numbering continues from the other one" complaint — AND the round-15 COMBINED pairing (episode_number equality) could never match. The rejected alternative (renumber per flavor at the bridge/normalizer) would collide every identity key (sub-5/dub-5 share cache rows, progress keys, metadata lookups). Decision: per-flavor ORDINALS derived at the DISPLAY layer (`CsSubDubSiblings.flavorOrdinals` for the CS stack + a SEpisode twin in DetailsScreen — the replication rule), used for (a) the rendered "EP n" badge, (b) title fallbacks, (c) sibling pairing/merging, (d) `handlesFor`'s counterpart lookup. Identity fields (url/episode_number/scanlator) ride the display copies untouched; raw numbers keep every key byte-identical.
+- **Files:** CsSubDubSiblings.kt, CsSubDubSiblingsTest.kt, DetailsScreen.kt, CsWatchPage.kt, CsPlayerSheets.kt, CsWatchViewModel.kt.
+- **Status:** ✅ Implemented (Task 56 / round 16, v0.4.4/69).
+- **Date:** 2026-08-31.
+
+### D-382 — Task 56: entry-point resolution NEVER auto-plays; in-player continuity auto-start STAYS (and now respects flavor)
+
+The "automatically opens the video for some plugins" complaint mapped to exactly two conditions in CsResolveSheet: a remembered server's link streaming in (fires after the user has watched once via that server) and a single-link resolution completing. Both auto-select paths called pick()→onPlay() — the sheet closed itself and the watch screen started. Decision: entry-point sheets NEVER pick for the user (both paths removed; the remembered server still auto-EXPANDS its accordion — a hint, not a decision). The distinction that keeps the in-player `CsWatchViewModel.autoStart` ("streaming-into-player" on unseeded entry / episode switch): that path serves CONTINUITY (next/prev/auto-advance/retry) inside a session the user already started — and the sheet is the only unseeded entry point, so entry auto-open is dead by construction. Auto-advance + auto-start additionally stay within the current flavor now: next/prev walk the current link's flavor (COMBINED dub pick) or the row's flavor (SEPARATE), and auto-start prefers the target row's flavor pool before falling back to best-quality.
+- **Files:** CsResolveSheet.kt, CsWatchViewModel.kt.
+- **Status:** ✅ Implemented (Task 56 / round 16, v0.4.4/69).
+- **Date:** 2026-08-31.
+
+### D-383 — Task 56: LazyColumn keys must be STRUCTURALLY unique (row index), never data-derived (URL/name)
+
+The device crash `Key "Default|Default|https://…mpd" was already used` — an extension emitted the same multi-quality DASH manifest URL twice under one server+audio group, and the aniyomi raw lists keyed rows by `"$server|$label|$url"`. Data-derived keys are ALWAYS one buggy extension away from a crash (the CS resolver dedups by URL, but the aniyomi resolver does NOT, and the merged COMBINED lists dedup by URL only by convention). Decision: every raw-list row key carries its positional index (`"$server|$label|$url|$index"` / `"$url#$index"`); server-card/episode-row keys stay data-keyed only where the grouping CONSTRUCTION guarantees uniqueness (groupBy produces unique names; distinctBy produces unique data handles).
+- **Files:** ResolverSheet.kt, PlayerSheets.kt, CsSourceListUi.kt.
+- **Status:** ✅ Implemented (Task 56 / round 16, v0.4.4/69).
+- **Date:** 2026-08-31.

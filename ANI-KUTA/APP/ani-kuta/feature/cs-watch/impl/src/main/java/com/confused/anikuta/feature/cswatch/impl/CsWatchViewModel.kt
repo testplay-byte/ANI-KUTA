@@ -410,15 +410,24 @@ class CsWatchViewModel(
     /** Picks the best link (remembered server first, then quality desc, skipping failed) and requests playback. */
     private fun autoStart(links: List<CsVideoLink>, resumeMs: Long) {
         val candidates = links.filterNot { it.url in _uiState.value.failedLinkUrls }
+        // Task 56: keep the user's FLAVOR across episode switches — auto-start
+        // prefers the target row's flavor pool (a dub watcher auto-advancing
+        // stays on dub streams) and falls back to the full pool when the
+        // flavor has no streams (dual-audio / untagged links).
+        val flavorPool = preferredFlavor
+            ?.let { f -> candidates.filter { it.audioLabel == f } }
+            ?.takeIf { it.isNotEmpty() }
+            ?: candidates
         // Task 53 / RC-6: the remembered server for this anime wins (AnymeX
         // dub/server-consistency scoring, simplified) — auto-advance keeps the
         // same server across episodes; quality within it stays max-first.
         val remembered = currentKey?.let { sourceMemory.recall(it.mainId) }
         val best = remembered
-            ?.let { r -> candidates.filter { it.name == r }.maxByOrNull { it.quality } }
-            ?: candidates.maxByOrNull { it.quality }
+            ?.let { r -> flavorPool.filter { it.name == r }.maxByOrNull { it.quality } }
+            ?: flavorPool.maxByOrNull { it.quality }
             ?: links.firstOrNull()
             ?: return
+        preferredFlavor = null
         Logger.i(TAG) {
             "autoStart: ${best.displayLabel}" +
                 (if (remembered != null && best.name == remembered) " (remembered server)" else "")
@@ -427,6 +436,9 @@ class CsWatchViewModel(
         // position-keeping (R12-REVIEW F2).
         requestPlay(best, resumeMs, isResume = resumeMs > 0, keepPosition = false)
     }
+
+    /** Task 56: the target episode row's flavor (see [selectEpisode] / [autoStart]). */
+    private var preferredFlavor: String? = null
 
     /** Keeps currentLink valid when a snapshot replaces the list objects. */
     private fun refreshCurrentLink(links: List<CsVideoLink>) {
@@ -533,19 +545,56 @@ class CsWatchViewModel(
     fun nextEpisode(): com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode? {
         val s = _uiState.value
         val idx = s.episodes.indexOfFirst { it.data == currentKey?.episodeData }
-        return s.episodes.getOrNull(idx + 1)
+        if (idx < 0) return null
+        return nextInFlavor(s, idx, +1)
     }
 
     fun prevEpisode(): com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode? {
         val s = _uiState.value
         val idx = s.episodes.indexOfFirst { it.data == currentKey?.episodeData }
-        return if (idx > 0) s.episodes.getOrNull(idx - 1) else null
+        if (idx < 0) return null
+        return nextInFlavor(s, idx, -1)
+    }
+
+    /**
+     * Task 56 (round 16): next/prev STAY WITHIN the current episode's flavor —
+     * auto-advance from sub-12 no longer jumps into dub-13 (a mid-show language
+     * switch the user never asked for). The current LINK's explicit audioTag
+     * wins (a COMBINED-mode dub pick — the merged row is always the Sub
+     * handle, so the row tag would lie about what the user is watching); a
+     * tagged row is the fallback (SEPARATE mode — the handle IS the flavor);
+     * anything else walks the raw order.
+     */
+    private fun nextInFlavor(
+        s: CsWatchUiState,
+        currentIndex: Int,
+        direction: Int,
+    ): com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode? {
+        val current = s.episodes[currentIndex]
+        val flavor = s.currentLink?.audioTag?.takeIf { it == "SUB" || it == "DUB" }
+            ?: com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings.tagOf(current.name)
+        val candidates = if (flavor == null) {
+            s.episodes
+        } else {
+            s.episodes.filter {
+                com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings.tagOf(it.name) == flavor
+            }
+        }
+        val position = candidates.indexOfFirst { it.data == current.data }
+        return candidates.getOrNull(position + direction)
     }
 
     /** Switches the whole screen to another episode (sheet tap / next / prev). */
     fun selectEpisode(episode: com.confused.anikuta.feature.cswatch.api.CsSimpleEpisode) {
         val key = currentKey ?: return
         Logger.i(TAG) { "switching to EP ${episode.episodeNumber} (data=${episode.data.take(60)})" }
+        // Task 56: carry the TARGET row's flavor into auto-start — the sheet's
+        // render rows are tag-stripped, so the flavor comes from the RAW list
+        // (SEPARATE: the tapped row's own flavor; auto-advance: the next row in
+        // the same flavor — see nextInFlavor).
+        preferredFlavor = _uiState.value.episodes
+            .firstOrNull { it.data == episode.data }
+            ?.let { com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings.tagOf(it.name) }
         currentKey = key.copy(
             episodeData = episode.data,
             episodeNumber = episode.episodeNumber,
