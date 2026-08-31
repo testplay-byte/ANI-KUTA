@@ -1272,6 +1272,10 @@ fun DetailsScreen(
             resolverState = resolverState,
             episodeNumber = currentEpisode?.episode_number ?: 0f,
             downloadMode = resolverDownloadMode,
+            // Task 58 (round 18): the debug report's context (Settings → Debug
+            // options → Copy button ON → the sheet header's report action).
+            sourceName = effectiveLinkedSource?.sourceName ?: "",
+            animeTitle = (state as? DetailsState.Success)?.anime?.displayName ?: "",
             // D-210: "Open in WebView" on the resolver Error state — opens the
             // source's episode page in a WebView so the user can solve Cloudflare
             // or browse the source manually. Null if no source is linked.

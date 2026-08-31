@@ -1283,6 +1283,10 @@ fun WatchScreen(
             onDismiss = { showQualitySheet = false },
             currentServerName = currentServerName,
             currentAudioVersion = currentAudioVersion,
+            // Task 58 (round 18): the debug report's context (Settings → Debug
+            // options → Copy button ON → the sheet header's report action).
+            animeTitle = watchKey.animeTitle,
+            episodeNumber = watchKey.episodeNumber,
         )
     }
 

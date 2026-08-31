@@ -44,8 +44,10 @@ import org.koin.compose.koinInject
  * toggle in `app/src/debug` and a no-op in `app/src/release`).
  *
  * Contents:
- * - CloudStream resolve lists: "Show sources" + "Copy button" toggles, both
- *   default OFF (opt-in diagnostics — raw resolve data only when asked for).
+ * - Resolve lists (BOTH extension stacks — Task 58): "Show sources" +
+ *   "Copy button" toggles, both default OFF (opt-in diagnostics — raw resolve
+ *   data only when asked for). The SAME flags gate the CloudStream resolve
+ *   lists AND the aniyomi entry sheet (ResolverSheet) + in-player QualitySheet.
  * - Developer tools: the debug-bubble visibility toggle. The section is gated
  *   on BuildConfig.DEBUG so release shows no dangling empty header; the
  *   toggle call sits in a plain Column with no extra chrome so even the row
@@ -81,14 +83,17 @@ fun DebugSettingsScreen(
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 110.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // ── CloudStream resolve lists (release-available) ──
+                    // ── Resolve lists — BOTH stacks (release-available) ──
+                    // Task 58 (round 18): the flags now gate the CloudStream
+                    // resolve lists AND the aniyomi ResolverSheet/QualitySheet
+                    // (the both-stacks debug toolkit).
                     item {
-                        SettingsSectionLabel("CloudStream resolve lists")
+                        SettingsSectionLabel("Resolve lists (all extensions)")
                     }
                     item {
                         DebugSwitchCard(
                             title = "Show sources",
-                            subtitle = "Reveal the raw stream URL and type under each resolved row",
+                            subtitle = "Reveal the raw stream URL under each resolved row (CloudStream + aniyomi lists)",
                             checked = showSources,
                             onCheckedChange = { debugPreferences.showResolveSources = it },
                         )
@@ -96,7 +101,7 @@ fun DebugSettingsScreen(
                     item {
                         DebugSwitchCard(
                             title = "Copy button",
-                            subtitle = "Add a copy button to resolved rows — copies full stream details for reports",
+                            subtitle = "Add a copy button to resolved rows — copies full stream details for reports (CloudStream + aniyomi lists)",
                             checked = copyButton,
                             onCheckedChange = { debugPreferences.resolveCopyButton = it },
                         )
