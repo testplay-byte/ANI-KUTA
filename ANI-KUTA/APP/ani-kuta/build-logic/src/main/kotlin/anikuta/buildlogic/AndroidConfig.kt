@@ -54,6 +54,30 @@ object AndroidConfig {
     // player hardening (30 s retained back-buffer so backward seeks serve
     // from memory, live-state seekRelative, safe clamps, 100 ms ticker).
     //
+    // ── Task 58 (round 18) — the both-stacks-debug + downloads + share ────
+    // 0.4.6 fixes the v0.4.5 device findings + lands the two requested
+    // features (doc cloudstream-v2/09): (1) the debug toolkit now covers BOTH
+    // extension stacks — the aniyomi ResolverSheet + in-player QualitySheet
+    // gain the same gated copy-report/row-copy/raw-URL affordances (shared
+    // DebugPreferences flags, default OFF, live-collected), (2) the CS
+    // subtitle live-view + accuracy fixes — settings apply while PAUSED
+    // (hoisted live-style state; the non-reactive prefs read + ticker
+    // equality-dedup were the root cause), MPV-unit-parity border math
+    // (linear borderSize/55, no 0.15 saturation), per-line ASS BorderStyle=3
+    // background boxes hugging glyph bounds (padding = border width, no fixed
+    // dp), shadow drawn IN ADDITION to the border, no maxLines truncation,
+    // fontScale now scales the Media3 view too, (3) the CloudStream
+    // DOWNLOADS port — the details page's download button opens the CS
+    // resolve sheet in DOWNLOAD mode, a pick enqueues through the SAME
+    // source-agnostic engine (queue/service/SAF/notifications/downloads
+    // screen/download-state chips + MPV offline playback ride the
+    // mainId|episodeKey identity), DASH links filtered + counted, and (4) the
+    // .moviebox.WHITECAT plugin share/import — Share action on every plugin
+    // detail page (FileProvider ACTION_SEND), the exported
+    // PluginImportActivity (VIEW/SEND filters, ONE confirm dialog, repo
+    // linkage when a catalog match exists, untrusted record) + the
+    // pending-nav hand-off to the plugin's detail page.
+    //
     // ── Task 53 (round 13) — the playback-fixes release ─────────────────────
     // 0.4.1 root-causes every v0.4.0 device finding (doc cloudstream-v2/04):
     // RC-1 vendored M3u8Helper's invented referer param (AniKoto's 0-links,
@@ -72,8 +96,8 @@ object AndroidConfig {
     // controls with lock/canvas-seekbar/speed sheet), and the player sheets
     // adopt the Qualities-and-Servers / Subtitles / Speed sheet languages.
     // Aniyomi remains byte-untouched — parity via replicated design tokens.
-    const val versionCode = 70
-    const val versionName = "0.4.5"
+    const val versionCode = 71
+    const val versionName = "0.4.6"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

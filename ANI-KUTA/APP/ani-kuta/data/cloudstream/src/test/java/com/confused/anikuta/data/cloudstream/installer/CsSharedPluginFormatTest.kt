@@ -21,8 +21,11 @@ class CsSharedPluginFormatTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
+    /** Unique counter — newFile() rejects duplicate names within one test. */
+    private var zipCounter = 0
+
     private fun writePluginZip(manifestJson: String?): File {
-        val file = tmp.newFile("plugin.zip")
+        val file = tmp.newFile("plugin-${zipCounter++}.zip")
         ZipOutputStream(file.outputStream()).use { zip ->
             if (manifestJson != null) {
                 zip.putNextEntry(java.util.zip.ZipEntry("manifest.json"))
