@@ -143,6 +143,16 @@ class CsVideoLinkHeadersTest {
     }
 }
 
+/**
+ * Task 55: content-based subtitle mime sniffing (extension-less URLs serving
+ * VTT parsed as SubRip = the v0.4.2 "subs never attached" class; the resolver
+ * sniffs the first bytes now).
+ *
+ * MUST be a class: top-level @Test functions compile into the file facade
+ * (CsMediaTypesTestKt), which JUnit4 rejects with InvalidTestClassError —
+ * the round-15 CI break was exactly that.
+ */
+class CsSubtitleSniffTest {
     // ── Task 55: content-based subtitle mime sniffing ───────────────────────
     // (extension-less URLs serving VTT parsed as SubRip = the v0.4.2 "subs
     // never attached" class; the resolver sniffs the first bytes now.)
@@ -179,3 +189,4 @@ class CsVideoLinkHeadersTest {
         // A VTT file's dot-separated timestamps must NOT sniff as SRT.
         assertEquals("text/vtt", CsMediaTypes.sniffSubtitleMime("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi"))
     }
+}

@@ -74,6 +74,9 @@ class CloudstreamLinkResolver(
         /** Fresh link-cache window (upstream RepoLinkGenerator's 20 minutes). */
         internal const val CACHE_TTL_MS = 20 * 60 * 1000L
 
+        /** Task 55: subtitle content-sniff budget — bytes read from the response head. */
+        private const val SNIFF_HEAD_BYTES = 256L
+
         /** Header values are logged truncated — enough to diagnose, not a URL dump. */
         internal fun formatHeaders(headers: Map<String, String>): String =
             headers.entries.joinToString(",", "\u007b", "\u007d") { "${it.key}=${it.value.take(32)}" }
@@ -274,32 +277,6 @@ class CloudstreamLinkResolver(
             trySend(CsResolveEvent.SubtitlesSnapshot(synchronized(subtitles) { subtitles.toList() }))
         }
 
-        /**
-         * Task 55: fetches the first bytes of a subtitle file and returns the
-         * CONTENT-detected mime (null = undetectable / fetch failed → keep the
-         * extension guess). Bounded: 4 s timeout, 256 bytes read, silent fail.
-         */
-        private fun sniffSubtitleMime(url: String, headers: Map<String, String>): String? {
-            return runCatching {
-                val request = Request.Builder().url(url).apply {
-                    headers.forEach { (k, v) -> header(k, v) }
-                }.build()
-                val client = subSniffClient().newBuilder()
-                    .connectTimeout(4, TimeUnit.SECONDS)
-                    .readTimeout(4, TimeUnit.SECONDS)
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@runCatching null
-                    val body = response.body ?: return@runCatching null
-                    val source = body.source()
-                    val head = source.readUtf8(Math.min(256, body.contentLength().takeIf { it > 0 }?.toInt() ?: 256))
-                    CsMediaTypes.sniffSubtitleMime(head)
-                }
-            }.onFailure {
-                Logger.d(TAG) { "sub sniff failed (keeping extension guess): ${url.take(64)} — ${it::class.java.simpleName}" }
-            }.getOrNull()
-        }
-
         val providerJob = launch(Dispatchers.IO) {
             val timeoutMs = totalTimeoutMs(provider)
             val returned = try {
@@ -411,5 +388,35 @@ class CloudstreamLinkResolver(
     fun invalidate(providerName: String, data: String) {
         cache.remove("$providerName\u0000$data")
         Logger.i(TAG) { "cache invalidated for '$providerName'" }
+    }
+
+    /**
+     * Task 55: fetches the first bytes of a subtitle file and returns the
+     * CONTENT-detected mime (null = undetectable / fetch failed → keep the
+     * extension guess). Bounded: 4 s timeout, 256 bytes read, silent fail.
+     *
+     * Class member (NOT a channelFlow local): local functions cannot carry
+     * visibility modifiers, and forward references from the onSubtitle local
+     * fail to resolve — the round-15 CI break was exactly that.
+     */
+    private fun sniffSubtitleMime(url: String, headers: Map<String, String>): String? {
+        return runCatching {
+            val request = Request.Builder().url(url).apply {
+                headers.forEach { (k, v) -> header(k, v) }
+            }.build()
+            val client = subSniffClient().newBuilder()
+                .connectTimeout(4, TimeUnit.SECONDS)
+                .readTimeout(4, TimeUnit.SECONDS)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@runCatching null
+                val body = response.body ?: return@runCatching null
+                val byteCount = body.contentLength().takeIf { it in 1..SNIFF_HEAD_BYTES } ?: SNIFF_HEAD_BYTES
+                val head = body.source().readUtf8(byteCount)
+                CsMediaTypes.sniffSubtitleMime(head)
+            }
+        }.onFailure {
+            Logger.d(TAG) { "sub sniff failed (keeping extension guess): ${url.take(64)} — ${it::class.java.simpleName}" }
+        }.getOrNull()
     }
 }

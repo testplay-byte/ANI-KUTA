@@ -61,6 +61,7 @@ import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.core.videoresolver.ResolvedVideo
 import com.confused.anikuta.core.videoresolver.ResolverServer
+import com.confused.anikuta.core.videoresolver.ResolverVideo
 import org.koin.compose.koinInject
 
 /**
@@ -284,6 +285,31 @@ fun ResolverSheet(
 
                 is ResolverState.Success -> {
                     val servers = resolverState.servers
+                    // Task 55: shared pick adapter — BOTH the raw flat list and the
+                    // accordion emit ResolverVideo (structured) but onPickVideo
+                    // expects the flat ResolvedVideo (carries subtitleTracks for
+                    // WatchKey serialization + the D-151-fix server/audio args).
+                    // Find the flat twin by URL; fall back to a converted copy.
+                    val pickVideo: (ResolverVideo, String, String) -> Unit =
+                        { resolverVideo, serverName, audioLabel ->
+                            val flatVideo = resolverState.videos.firstOrNull { it.url == resolverVideo.url }
+                            if (flatVideo != null) {
+                                onPickVideo(flatVideo, serverName, audioLabel)
+                            } else {
+                                onPickVideo(
+                                    ResolvedVideo(
+                                        url = resolverVideo.url,
+                                        quality = resolverVideo.quality,
+                                        directUrl = resolverVideo.url,
+                                        headers = resolverVideo.videoHeaders ?: "",
+                                        subtitleTracks = resolverVideo.subtitleTracks,
+                                        audioTracks = resolverVideo.audioTracks,
+                                    ),
+                                    serverName,
+                                    audioLabel,
+                                )
+                            }
+                        }
                     if (servers.isEmpty()) {
                         // No servers — show "No video sources available"
                         Box(
@@ -311,41 +337,16 @@ fun ResolverSheet(
                     } else if (!formatted) {
                         // Task 55 (raw mode): a flat list — one row per resolved
                         // video (server · audio · quality), tap = pick directly.
-                        // The SAME onPickVideo callback the accordion uses.
+                        // The SAME pickVideo adapter the accordion uses.
                         RawVideoList(
                             servers = servers,
-                            onPickVideo = onPickVideo,
+                            onPickVideo = pickVideo,
                         )
                     } else {
                         // Collapsible server accordion
                         ServerAccordion(
                             servers = servers,
-                            onPickVideo = { resolverVideo, serverName, audioLabel ->
-                                // Find the matching flat ResolvedVideo by URL.
-                                // The accordion uses ResolverVideo (structured) but
-                                // onPickVideo expects ResolvedVideo (flat, carries
-                                // subtitleTracks for WatchKey serialization).
-                                // D-151-fix: serverName + audioLabel thread through
-                                // so the download path stores the real resolver server.
-                                val flatVideo = resolverState.videos.firstOrNull { it.url == resolverVideo.url }
-                                if (flatVideo != null) {
-                                    onPickVideo(flatVideo, serverName, audioLabel)
-                                } else {
-                                    // Fallback: create a ResolvedVideo from the ResolverVideo.
-                                    onPickVideo(
-                                        ResolvedVideo(
-                                            url = resolverVideo.url,
-                                            quality = resolverVideo.quality,
-                                            directUrl = resolverVideo.url,
-                                            headers = resolverVideo.videoHeaders ?: "",
-                                            subtitleTracks = resolverVideo.subtitleTracks,
-                                            audioTracks = resolverVideo.audioTracks,
-                                        ),
-                                        serverName,
-                                        audioLabel,
-                                    )
-                                }
-                            },
+                            onPickVideo = pickVideo,
                         )
                     }
                 }

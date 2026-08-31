@@ -928,9 +928,13 @@ fun DetailsScreen(
                         //    flow re-finds the sibling + resolves BOTH flavors);
                         //  - SEPARATE: the selected flavor's rows only (the Sub |
                         //    Dub chip row renders above the list when both exist).
-                        val subDubTagged = episodesToShow.orEmpty().any {
-                            subDubEpisodeTag(it) != null
-                        }
+                        // GATED on a CloudStream-bridged source: the feature is
+                        // CS-scoped by spec, so aniyomi extension lists are a
+                        // GUARANTEED no-op (ADDITIVE-ONLY invariant — some aniyomi
+                        // exts use scanlator/name conventions that would otherwise
+                        // trigger the filter chips on the legacy stack).
+                        val subDubTagged = viewModel.isLinkedSourceCloudStream() &&
+                            episodesToShow.orEmpty().any { subDubEpisodeTag(it) != null }
                         val subDubBothFlavors = subDubTagged && run {
                             val tags = episodesToShow.orEmpty().mapNotNull { subDubEpisodeTag(it) }.toSet()
                             "SUB" in tags && "DUB" in tags
@@ -938,7 +942,13 @@ fun DetailsScreen(
                         val displayEpisodes = when {
                             !subDubTagged -> episodesToShow
                             subDubMode == "COMBINED" -> episodesToShow?.let(::mergeSubDubEpisodeRows)
-                            else -> episodesToShow?.filter { subDubEpisodeTag(it) == subDubFlavor || subDubEpisodeTag(it) == null }
+                            // Single-flavor lists (DUB-only etc.) render unfiltered —
+                            // no switcher exists to change the flavor, and filtering
+                            // would blank the list (review finding round-15 R2).
+                            subDubBothFlavors -> episodesToShow?.filter {
+                                subDubEpisodeTag(it) == subDubFlavor || subDubEpisodeTag(it) == null
+                            }
+                            else -> episodesToShow
                         }
                         val showSubDubSwitcher = subDubMode != "COMBINED" && subDubBothFlavors
 
@@ -3739,9 +3749,12 @@ private fun subDubEpisodeTag(ep: eu.kanade.tachiyomi.animesource.model.SEpisode)
     val name = ep.name?.trim()?.uppercase() ?: ""
     if (name.endsWith("(SUB)")) return "SUB"
     if (name.endsWith("(DUB)")) return "DUB"
+    // The bridge mirrors its exact label ("Sub"/"Dub") into scanlator —
+    // matching ONLY those keeps aniyomi scanlator conventions (SUBBED/
+    // DUBBED group tags etc.) out of the CS-scoped feature (review R3).
     return when (ep.scanlator?.trim()?.uppercase()) {
-        "SUB", "SUBBED" -> "SUB"
-        "DUB", "DUBBED" -> "DUB"
+        "SUB" -> "SUB"
+        "DUB" -> "DUB"
         else -> null
     }
 }
@@ -3796,6 +3809,7 @@ private fun mergeSubDubEpisodeRows(
                 date_upload = primary.date_upload
                 preview_url = primary.preview_url
                 summary = primary.summary
+                fillermark = primary.fillermark
             }
         }
     }

@@ -187,3 +187,29 @@
   raw list branch), `PlayerSheets.kt` QualitySheet (same), and
   `EpisodeListSettingsSheet.kt` (Display tab section). The formatted paths are
   behaviorally identical to v0.4.2.
+
+## As-built addendum — the CI-failure completion round (2026-08-31, D-380)
+
+The first v0.4.3 push failed CI before any downstream module compiled. The
+completion round (see D-380 + the changelog entry) fixed:
+
+1. `CloudstreamLinkResolver.sniffSubtitleMime` — moved from a channelFlow
+   LOCAL (illegal `private` modifier, 139 cascade errors) to a private CLASS
+   member; `SNIFF_HEAD_BYTES` (256L) in the companion.
+2. `CsMediaTypesTest.kt` — the sniff tests now live in
+   `class CsSubtitleSniffTest` (top-level @Test functions = JUnit4 runs the
+   file-facade class → InvalidTestClassError).
+3. Aniyomi `ResolverSheet` — the raw branch shares ONE extracted `pickVideo`
+   adapter with the accordion branch (the raw branch previously passed the
+   `(ResolvedVideo, …) -> Unit` callback into `RawVideoList`'s
+   `(ResolverVideo, …) -> Unit` slot — a function-type contravariance
+   compile error the aborted CI never reached).
+4. `DetailsScreen` — single-flavor sub/dub lists render UNFILTERED (DUB-only
+   + default SUB + no switcher was a blank list); the sub/dub display is
+   GATED on `viewModel.isLinkedSourceCloudStream()` and the scanlator match
+   narrowed to the bridge's exact "Sub"/"Dub" mirror (the aniyomi
+   ADDITIVE-ONLY invariant is now structural, not conventional); merged
+   rows copy `fillermark`.
+5. `CsPlayerSheets` — 11 extraction-leftover unused imports removed.
+
+Everything else in this plan shipped as described in the as-built above.

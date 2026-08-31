@@ -1582,3 +1582,33 @@ The user scrapped the streaming/CLOUDSTREAM line (kept as reference) and directe
   resolves BOTH flavors and the sheet's audio chips let the user pick).
 - Aniyomi stack: strictly ADDITIVE changes (the toggle UI + the Display-tab
   section); all existing behavior byte-identical.
+
+### v0.4.3 completion round (2026-08-31, Task 55 tail — the CI-failure fixes)
+
+- The round-15 push's CI run FAILED (2 tasks) before ANY downstream module
+  compiled. Root causes + fixes (all in this round):
+  1. `CloudstreamLinkResolver.sniffSubtitleMime` was declared as a LOCAL
+     function inside the `channelFlow` block WITH a `private` modifier —
+     illegal on locals (139 cascade errors, incl. the `?:` inference
+     breakdowns). Hoisted to a proper private CLASS member;
+     `SNIFF_HEAD_BYTES` (256L) extracted to the companion; the byte count
+     now `contentLength().takeIf { it in 1..256 } ?: 256` (Long-clean).
+  2. `CsMediaTypesTest.kt`: the Task-55 sniff tests were pasted at FILE
+     top level (outside any class) → JUnit4 discovered the file-facade
+     class `CsMediaTypesTestKt` → `InvalidTestClassError` (no public
+     zero-arg ctor). Wrapped in `class CsSubtitleSniffTest`.
+  3. Review round (3 parallel static reviewers over the NEVER-compiled
+     modules — CI aborted at :data:cloudstream so :feature:cs-watch:impl,
+     :feature:anime-details:impl and :app were unverified) caught:
+     a BLOCKER in the aniyomi `ResolverSheet` raw branch (function-type
+     mismatch: `onPickVideo` is `(ResolvedVideo, …)` but `RawVideoList`
+     emits `ResolverVideo` — contravariance can't bridge unrelated final
+     classes; fixed by sharing ONE pick adapter with the accordion
+     branch), a DUB-only-list blank-filter bug in DetailsScreen (single-
+     flavor lists now render unfiltered), a scanlator over-match that
+     could trigger the sub/dub chips on ANIYOMI lists (feature now gated
+     on `isLinkedSourceCloudStream()` + exact "Sub"/"Dub" scanlator match
+     only — the ADDITIVE-ONLY invariant is now structural), and a dropped
+     `fillermark` on merged rows (copied now). Also 11 unused imports
+     cleaned from CsPlayerSheets.
+- Version stays 0.4.3/68 (no user-visible behavior change beyond the fixes).
