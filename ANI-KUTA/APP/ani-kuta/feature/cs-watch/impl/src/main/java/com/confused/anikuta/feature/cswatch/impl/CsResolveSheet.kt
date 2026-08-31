@@ -133,7 +133,7 @@ fun CsResolveSheet(
     // unless enabled in Settings → Debug options; live-collected (reactive
     // flow) so toggling the setting while the sheet is open applies immediately.
     val copyEnabled by debugPreferences.resolveCopyButtonFlow()
-        .collectAsState(initialValue = false)
+        .collectAsState(initial = false)
     val copyFeedback = rememberCopyFeedback()
 
     // Task 55: the data handles to resolve — 1, or 2 in COMBINED sub/dub mode

@@ -371,9 +371,9 @@ internal fun CsServerAccordion(
     // options while a sheet is open applies immediately; both default false,
     // so the default path renders byte-identical to the pre-Task-57 accordion.
     val copyEnabled by debugPreferences.resolveCopyButtonFlow()
-        .collectAsState(initialValue = false)
+        .collectAsState(initial = false)
     val showSources by debugPreferences.showResolveSourcesFlow()
-        .collectAsState(initialValue = false)
+        .collectAsState(initial = false)
 
     // Track which server is expanded (only one at a time). null = all collapsed.
     // The CURRENT link's server (in-player) or the remembered server (entry)
@@ -653,9 +653,9 @@ internal fun CsRawLinkList(
     // Task 57 (P4): LIVE-collected debug flags — default false, so the
     // default path renders byte-identical to the pre-Task-57 rows.
     val copyEnabled by debugPreferences.resolveCopyButtonFlow()
-        .collectAsState(initialValue = false)
+        .collectAsState(initial = false)
     val showSources by debugPreferences.showResolveSourcesFlow()
-        .collectAsState(initialValue = false)
+        .collectAsState(initial = false)
     val copyFeedback = rememberCopyFeedback()
 
     LazyColumn(
