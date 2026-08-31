@@ -1150,7 +1150,17 @@ fun DetailsScreen(
                                 val downloadState = stateKey?.let { downloadStates[it] }
                                     ?: EpisodeDownloadState.NotDownloaded
                                 val mainId = viewModel.currentMainId
-                                val epKey = if (mainId != null) "$mainId|${String.format("%05d", epNum)}" else null
+                                // Task 57 (round 17 — P1): the watched-progress
+                                // key is the flavor ORDINAL for tagged CS lists
+                                // (sub-5 ↔ dub-5 = ONE episode → ONE row → ONE
+                                // toggle — watching sub 80% shows on the dub
+                                // row). Untagged lists keep the raw number
+                                // (byte-identical aniyomi behavior). The key
+                                // FORMAT is unchanged — only the number source.
+                                val identityNum = if (subDubTagged) {
+                                    subDubOrdinals[episode.url] ?: epNum
+                                } else epNum
+                                val epKey = if (mainId != null) "$mainId|${String.format("%05d", identityNum)}" else null
                                 val progress = epKey?.let { watchProgress[it] }
                                 val isWatched = progress?.isWatched ?: false
                                 Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
@@ -3875,11 +3885,18 @@ private fun mergeSubDubEpisodeRows(
             val primary = if (tag == "SUB") ep else sibling
             usedUrls += primary.url
             // Merge the metadata-bearing fields of the primary + strip the tag.
+            // Task 57 (round 17 — P2): scanlator = "Sub/Dub" — the merged row's
+            // flavor signal. EpisodeRow consumes scanlator ONLY through
+            // parseAudioAvailability (it never renders the raw string), and
+            // "Sub/Dub" contains both words → the existing SUB·DUB audio pill
+            // renders. Round 16 nulled it and the pill vanished. The value is
+            // tag-neutral for subDubEpisodeTag ("SUB/DUB" ≠ the exact "SUB"/
+            // "DUB" labels), so the merged row never re-merges or re-filters.
             out += eu.kanade.tachiyomi.animesource.model.SEpisode.create().apply {
                 url = primary.url
                 name = stripSubDubTag(primary.name)
                 episode_number = primary.episode_number
-                scanlator = null
+                scanlator = "Sub/Dub"
                 date_upload = primary.date_upload
                 preview_url = primary.preview_url
                 summary = primary.summary

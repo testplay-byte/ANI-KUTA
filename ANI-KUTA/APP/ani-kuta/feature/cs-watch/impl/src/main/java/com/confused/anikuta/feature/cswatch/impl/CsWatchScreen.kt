@@ -17,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,13 +28,17 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.ui.PlayerView
 import com.confused.anikuta.core.common.Logger
+import com.confused.anikuta.core.csplayer.CsCue
 import com.confused.anikuta.core.csplayer.CsEngineEvent
+import com.confused.anikuta.core.csplayer.CsLanguageNames
 import com.confused.anikuta.core.csplayer.CsPlayerEngine
+import com.confused.anikuta.core.csplayer.CsSubtitle
 import com.confused.anikuta.core.csplayer.CsSubtitleStyle
 import com.confused.anikuta.core.csplayer.CsVideoTrack
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.feature.cswatch.api.CsWatchKey
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
@@ -90,6 +95,86 @@ fun CsWatchScreen(
         )
     }
     val engineState by engine.state.collectAsState()
+
+    // Task 57 (P1): the linked sub/dub progress map — the watch page's rows
+    // dim watched episodes + draw the thin resume bar from this (sub-5 and
+    // dub-5 hit the SAME entry — the ordinal identity).
+    val progressByEpisodeKey by viewModel.episodeProgress.collectAsState()
+
+    // ── Task 57 (round 17): the OVERLAY subtitle system ─────────────────────
+    // Provider (sidecar) subtitles render through OUR fetcher + parser +
+    // Compose overlay — the engine never re-prepares for a subtitle (the
+    // v0.4.4 round's "needs reload" + reload-crash findings). Embedded
+    // container tracks stay on the engine's live track selection.
+    val subtitleFetcher = remember { CsSubtitleFetcher(playbackClient) }
+    val fetchScope = rememberCoroutineScope()
+    var overlaySub by remember { mutableStateOf<CsSubtitle?>(null) }
+    var overlayCues by remember { mutableStateOf<List<CsCue>>(emptyList()) }
+    var overlayLoadingId by remember { mutableStateOf<String?>(null) }
+    var overlayFailedId by remember { mutableStateOf<String?>(null) }
+    var overlayFailedReason by remember { mutableStateOf<String?>(null) }
+    /** The engine's selected EMBEDDED text-track id (sheet highlight; declared
+     *  here — the auto-select effect below reads it before the sheet block). */
+    var selectedSubId by remember { mutableStateOf<String?>(null) }
+
+    /** Selects (or clears) the overlay provider subtitle — fetch + parse, NO reload. */
+    fun selectOverlaySub(sub: CsSubtitle?) {
+        if (sub == null) {
+            overlaySub = null
+            overlayCues = emptyList()
+            overlayLoadingId = null
+            overlayFailedId = null
+            overlayFailedReason = null
+            return
+        }
+        if (overlaySub?.id == sub.id && overlayFailedId != sub.id) return // already selected (a FAILED pick re-taps to retry)
+        overlaySub = sub
+        overlayCues = emptyList()
+        overlayFailedId = null
+        overlayFailedReason = null
+        overlayLoadingId = sub.id
+        fetchScope.launch {
+            when (val outcome = subtitleFetcher.fetch(sub)) {
+                is CsSubtitleFetcher.FetchOutcome.Ready -> {
+                    if (overlaySub?.id == sub.id) {
+                        overlayCues = outcome.cues
+                        overlayLoadingId = null
+                    }
+                }
+                is CsSubtitleFetcher.FetchOutcome.Failed -> {
+                    if (overlaySub?.id == sub.id) {
+                        overlayCues = emptyList()
+                        overlayLoadingId = null
+                        overlayFailedId = sub.id
+                        overlayFailedReason = outcome.reason
+                    }
+                }
+            }
+        }
+    }
+
+    // A new episode's resolution resets the overlay selection (the resolver's
+    // subtitle list belongs to the episode).
+    LaunchedEffect(uiState.engineResetTick) {
+        if (uiState.engineResetTick > 0) selectOverlaySub(null)
+    }
+
+    // Task 57: MPV `slang` parity — once per resolved episode, when nothing is
+    // selected yet, auto-select the preferred-language provider subtitle.
+    // Provider subs WIN over embedded (round-15 rule: better timed) — the
+    // engine's text tracks are disabled so its own auto-select (fired at
+    // READY) can't stack an embedded track on top of the overlay.
+    LaunchedEffect(uiState.currentLink?.url, uiState.resolveCompleted) {
+        if (!uiState.resolveCompleted) return@LaunchedEffect
+        if (overlaySub != null || selectedSubId != null) return@LaunchedEffect
+        val preferred = playerPreferences.preferredSubtitleLanguages
+        val match = uiState.subtitles.firstOrNull { sub ->
+            CsLanguageNames.matchesPreferred(sub.languageTag ?: sub.name, preferred)
+        } ?: return@LaunchedEffect
+        Logger.i(TAG) { "auto-selecting preferred provider subtitle: ${match.displayName}" }
+        engine.selectTextTrack(null) // the overlay owns subtitles now (also stops the engine's auto-select)
+        selectOverlaySub(match)
+    }
 
     // The single PlayerView, re-parented between the minimized player box and
     // the fullscreen surface (the aniyomi screen's PlayerSurface pattern).
@@ -212,27 +297,14 @@ fun CsWatchScreen(
         }
         when {
             // Resume (fresh episode with progress, or same-key re-entry): seek.
-            live.playIsResume -> engine.start(link, live.playSubtitles, live.playStartPositionMs)
-            // Same-episode link switch (quality/source change, error fallback,
-            // subtitle reattach): keep the position (R12-REVIEW F2).
-            live.playKeepPosition -> engine.switchLink(link, live.playSubtitles)
+            live.playIsResume -> engine.start(link, live.playStartPositionMs)
+            // Same-episode link switch (quality/source change, error fallback):
+            // keep the position (R12-REVIEW F2). Task 57: no subtitle reattach —
+            // provider subs render through the overlay (no reloads, ever).
+            live.playKeepPosition -> engine.switchLink(link)
             // A NEW episode's first link: FRESH start — never inherit the
             // previous episode's position (F2: auto-advance cascade).
-            else -> engine.start(link, live.playSubtitles, 0L)
-        }
-        // Subtitle reattach flow: after a reload, auto-select the picked sub
-        // once its track appears (bounded poll — tracks land post-prepare).
-        val pendingSubId = viewModel.consumePendingSubSelectId() ?: return@LaunchedEffect
-        var selected = false
-        repeat(40) {
-            if (engine.selectTextTrackById(pendingSubId)) {
-                selected = true
-                return@LaunchedEffect
-            }
-            delay(250)
-        }
-        if (!selected) {
-            Logger.w("Anikuta:CS:Subs") { "reattached sub never exposed its track (id=$pendingSubId)" }
+            else -> engine.start(link, 0L)
         }
     }
 
@@ -307,7 +379,6 @@ fun CsWatchScreen(
     var videoTracks by remember { mutableStateOf<List<CsVideoTrack>>(emptyList()) }
     var selectedTrackLabel by remember { mutableStateOf<String?>(null) }
     var textTracks by remember { mutableStateOf<List<com.confused.anikuta.core.csplayer.CsTextTrack>>(emptyList()) }
-    var selectedSubId by remember { mutableStateOf<String?>(null) }
     // Task 53 / RC-7: embedded audio tracks (DASH multi-audio) for the subs sheet.
     var audioTracks by remember { mutableStateOf<List<com.confused.anikuta.core.csplayer.CsAudioTrackInfo>>(emptyList()) }
     var selectedAudioId by remember { mutableStateOf<String?>(null) }
@@ -338,7 +409,12 @@ fun CsWatchScreen(
     }
 
     fun seekRelative(seconds: Int) {
-        engine.seekTo((engineState.positionMs + seconds * 1000L).coerceIn(0L, engineState.durationMs))
+        // Task 57 (P7): reads the LIVE engine state (the composed snapshot lags
+        // up to 100 ms — double-tap back used to compound the lag); a live
+        // stream (duration unset) never clamps (0..0 would pin the needle).
+        val st = engine.state.value
+        val target = st.positionMs + seconds * 1000L
+        engine.seekTo(if (st.durationMs > 0) target.coerceIn(0L, st.durationMs) else target)
     }
 
     // The shared player surface (re-parents between modes). Task 55: the
@@ -353,6 +429,16 @@ fun CsWatchScreen(
                 engine.applySubtitleStyle(view, currentSubtitleStyle(playerPreferences))
             },
             modifier = modifier,
+        )
+    }
+
+    // Task 57: OUR subtitle overlay — the fetched provider cues rendered in
+    // Compose on top of the video, UNDER the controls (both display modes).
+    val subtitleOverlay: @Composable () -> Unit = {
+        CsSubtitleOverlay(
+            cues = overlayCues,
+            positionMs = engineState.positionMs,
+            style = currentSubtitleStyle(playerPreferences),
         )
     }
 
@@ -429,8 +515,10 @@ fun CsWatchScreen(
     when (playerMode) {
         CsPlayerMode.MINIMIZED -> CsWatchPage(
             uiState = uiState,
+            progressByEpisodeKey = progressByEpisodeKey,
             playerContent = {
                 playerSurface(Modifier.fillMaxSize())
+                subtitleOverlay()
                 playerOverlay()
             },
             onBack = onBack,
@@ -445,6 +533,7 @@ fun CsWatchScreen(
                 .background(Color.Black),
         ) {
             playerSurface(Modifier.fillMaxSize())
+            subtitleOverlay()
             playerOverlay()
         }
     }
@@ -474,19 +563,29 @@ fun CsWatchScreen(
     }
 
     if (showSubsSheet) {
-        val engineTrackIds = textTracks.mapNotNull { it.id }.toSet()
-        val pendingSubs = uiState.subtitles.filter { it.id !in engineTrackIds }
+        // Task 57: provider subs select through the OVERLAY (fetch + render —
+        // no reload); embedded tracks stay on the engine's live selection.
+        // "Off" clears BOTH domains.
         CsSubtitlesSheet(
             tracks = textTracks,
             selectedTrackId = selectedSubId,
             onSelect = { track ->
                 engine.selectTextTrack(track)
                 selectedSubId = track?.id
-                showSubsSheet = false
+                // An embedded pick (or OFF) replaces the overlay subtitle.
+                if (track == null || track.embedded) selectOverlaySub(null)
+                if (track != null) showSubsSheet = false
             },
-            pendingSubs = pendingSubs,
-            onPendingSubSelect = { sub ->
-                viewModel.reattachSubtitles(sub)
+            providerSubs = uiState.subtitles,
+            selectedProviderSubId = overlaySub?.id,
+            providerLoadingId = overlayLoadingId,
+            providerFailedId = overlayFailedId,
+            providerFailedReason = overlayFailedReason,
+            onProviderSubSelect = { sub ->
+                // A provider pick replaces the embedded selection.
+                engine.selectTextTrack(null)
+                selectedSubId = null
+                selectOverlaySub(sub)
                 showSubsSheet = false
             },
             audioTracks = audioTracks,
@@ -503,9 +602,10 @@ fun CsWatchScreen(
         )
     }
 
-    // Task 55: the CS subtitle STYLE settings sheet — writes the SAME
+    // Task 55/57: the CS subtitle STYLE settings sheet — writes the SAME
     // PlayerPreferences values the aniyomi stack uses and re-applies them to
-    // the Media3 view live (no reload needed).
+    // the Media3 view live (embedded cues) — the overlay re-reads the style
+    // every recomposition, so provider cues restyle with no action at all.
     if (showSubsSettingsSheet) {
         CsSubtitleSettingsSheet(
             onApplySettings = {
@@ -577,8 +677,10 @@ private fun CsPlayerSurface(
 }
 
 /**
- * Task 55: PlayerPreferences → the Media3 subtitle style snapshot (one mapper,
- * used at surface creation + every settings change).
+ * Task 55/57: PlayerPreferences → the subtitle style snapshot (one mapper,
+ * used at surface creation + every settings change + the overlay renderer).
+ * Task 57: fontScale / font family / delay now have REAL CS effects — the
+ * overlay honors all three (the MPV-parity fields the sheet exposes).
  */
 private fun currentSubtitleStyle(prefs: PlayerPreferences): CsSubtitleStyle = CsSubtitleStyle(
     fontSize = prefs.subtitleFontSize,
@@ -590,4 +692,7 @@ private fun currentSubtitleStyle(prefs: PlayerPreferences): CsSubtitleStyle = Cs
     backgroundColor = prefs.backgroundColorSubtitles,
     shadowOffset = prefs.subtitleShadowOffset,
     position = prefs.subtitlePosition,
+    fontScale = prefs.subtitleFontScale,
+    fontFamilyName = prefs.subtitleFont,
+    delayMs = prefs.subtitlesDelay,
 )

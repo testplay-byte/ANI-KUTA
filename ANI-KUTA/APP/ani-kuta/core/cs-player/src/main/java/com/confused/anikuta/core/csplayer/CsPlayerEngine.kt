@@ -2,19 +2,18 @@ package com.confused.anikuta.core.csplayer
 
 import android.content.Context
 import android.graphics.Typeface
-import android.net.Uri
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaItem.SubtitleConfiguration
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.exoplayer.source.SingleSampleMediaSource
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.confused.anikuta.core.common.Logger
@@ -111,8 +110,20 @@ sealed interface CsEngineEvent {
  * host that ports the upstream CS3IPlayer pattern (research R12-A §5):
  *
  *  link → MediaItem(url + mime) → DefaultMediaSourceFactory(per-link OkHttp
- *  DataSource) → sidecar subs as SingleSampleMediaSource → external audio
- *  merged → setMediaSource(position-aware) → prepare.
+ *  DataSource) → external audio merged → setMediaSource(position-aware) →
+ *  prepare.
+ *
+ *  Task 57 (round 17 — the overlay subtitle system): provider (sidecar)
+ *  subtitles are NO LONGER merged into the media sources. Every subtitle
+ *  attach used to require a full re-prepare (the upstream REQUIRES_RELOAD
+ *  dance the device round rejected: reload → error → “embedded subs: 0”);
+ *  the screen now FETCHES provider subs itself and renders them through its
+ *  own Compose overlay ([CsSubtitleParser] → cues → style). The engine's text
+ *  tracks are EMBEDDED (container) tracks only — selected live, no reload.
+ *
+ *  Task 57 (P7): a 30 s retained BACK-BUFFER keeps backward seeks serving from
+ *  memory (ExoPlayer's default is 0 — every back-seek refetched, which the
+ *  device round saw as “the back data was not loaded”).
  *
  * Threading: the engine is created, called and released on the MAIN thread
  * (ExoPlayer's threading rule); the resolver produces its inputs on IO before
@@ -137,6 +148,10 @@ class CsPlayerEngine(
         /** Subtitle-specific events get their own tag — the one-filter recipe
          *  (doc cloudstream-v2/02) covers the whole pipeline via Anikuta:CS:*. */
         internal const val SUBS_TAG = "Anikuta:CS:Subs"
+
+        /** Task 57 (P6b): how long after an embedded text-track pick an error is
+         *  still attributed to that pick (the guard window). */
+        internal const val TEXT_OVERRIDE_GUARD_MS = 8_000L
     }
 
     private val dataSourceFactory = CsHttpDataSourceFactory(baseClient, defaultUserAgent)
@@ -145,7 +160,6 @@ class CsPlayerEngine(
     /** What's loaded right now (for link switching + error diagnostics). */
     private data class CurrentPlayback(
         val link: CsVideoLink,
-        val subtitles: List<CsSubtitle>,
     )
 
     private var current: CurrentPlayback? = null
@@ -160,8 +174,19 @@ class CsPlayerEngine(
     /** Task 55: one-shot gate for the first-READY preferred-subtitle auto-select. */
     private var autoSubSelectAttempted = false
 
+    /**
+     * Task 57 (P6b — the embedded-click crash guard): when a playback error
+     * lands within [TEXT_OVERRIDE_GUARD_MS] of an EMBEDDED text-track pick,
+     * the override is reverted + playback retried ONCE — the device round's
+     * “tapped an embedded sub → Couldn't play the video”. Track overrides are
+     * presentation-only; a video must never die for one.
+     */
+    private var textOverrideAtMs: Long = 0L
+    private var textOverrideRetryUsed = false
+
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setTrackSelector(androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context))
+        .setLoadControl(buildLoadControl())
         .build()
         .apply {
             // Audio focus: pause competing apps, duck on notifications — the
@@ -243,6 +268,29 @@ class CsPlayerEngine(
             override fun onPlayerError(error: PlaybackException) {
                 val playback = current
                 val csError = classify(error)
+                // Task 57 (P6b — the embedded-click crash guard): an error landing
+                // soon AFTER an embedded text-track pick reverts the override
+                // and retries ONCE — track picks are presentation-only; the
+                // video must never die for one (the device round's "tapped an
+                // embedded sub → Couldn't play the video → retry → 0 embedded").
+                val sinceTextOverride = SystemClock.elapsedRealtime() - textOverrideAtMs
+                if (playback != null && !textOverrideRetryUsed && textOverrideAtMs > 0L &&
+                    sinceTextOverride in 0..TEXT_OVERRIDE_GUARD_MS
+                ) {
+                    textOverrideRetryUsed = true
+                    Logger.w(TAG) {
+                        "playerError ${sinceTextOverride}ms after a text-track override → " +
+                            "reverting override + retrying once (code=${csError.errorCodeName})"
+                    }
+                    runCatching {
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                            .build()
+                    }
+                    val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
+                    startInternal(playback.link, keepAt, clean = false)
+                    return
+                }
                 // Task 53 / RC-2: a 4xx at OPEN time (never reached READY) on the
                 // upstream profile → one automatic CLEAN retry (no UA override,
                 // referer dropped). Empirically resurrects CDNs like hcdn3
@@ -258,7 +306,7 @@ class CsPlayerEngine(
                             "(client-default UA, referer dropped) '${playback.link.displayLabel}' " +
                             "keeping position=${keepAt}ms"
                     }
-                    startInternal(playback.link, playback.subtitles, keepAt, clean = true)
+                    startInternal(playback.link, keepAt, clean = true)
                     return
                 }
                 // The upstream diagnostic gold standard (GeneratorPlayer.playerError):
@@ -286,38 +334,65 @@ class CsPlayerEngine(
     // ── Playback control ──────────────────────────────────────────────────────
 
     /**
-     * Loads [link] with its [subtitles] and starts playback (upstream header profile).
+     * Task 57 (P7): the buffer policy — a 30 s RETAINED BACK-BUFFER (the
+     * default is 0: every backward seek refetched from the CDN — the device
+     * round's “seeked back a bit, the back data was not loaded”), 50–90 s
+     * forward buffer, small playback start/rebuffer thresholds so streams
+     * start fast on slow CDNs.
+     */
+    private fun buildLoadControl(): DefaultLoadControl =
+        DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 50_000,
+                /* maxBufferMs = */ 90_000,
+                /* bufferForPlaybackMs = */ 2_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 5_000,
+            )
+            .setBackBuffer(
+                /* backBufferDurationMs = */ 30_000,
+                /* retainBackBufferFromReset = */ true,
+            )
+            .build()
+
+    /**
+     * Loads [link] and starts playback (upstream header profile). Task 57:
+     * provider subtitles render through the screen's overlay pipeline — the
+     * engine plays the bare video (+ any external audio tracks).
      *
      * @param startPositionMs resume position; 0 = let ExoPlayer pick the default
      *   position (for live M3U8/DASH that is the live edge — the upstream
      *   `playbackPosition = TIME_UNSET` nuance, research R12-A §5).
      */
-    fun start(link: CsVideoLink, subtitles: List<CsSubtitle>, startPositionMs: Long = 0L) {
-        startInternal(link, subtitles, startPositionMs, clean = false)
+    fun start(link: CsVideoLink, startPositionMs: Long = 0L) {
+        startInternal(link, startPositionMs, clean = false)
     }
 
     /** Re-loads [link] keeping the current position (quality/source switch UX). */
-    fun switchLink(link: CsVideoLink, subtitles: List<CsSubtitle>) {
+    fun switchLink(link: CsVideoLink) {
         val keepAt = if (_state.value.durationMs > 0) player.currentPosition else 0L
         Logger.i(TAG) { "switchLink → ${link.displayLabel} keeping position=${keepAt}ms" }
-        startInternal(link, subtitles, keepAt, clean = false)
+        startInternal(link, keepAt, clean = false)
     }
 
     /**
      * The one real loader. [clean] selects the retry request profile (RC-2):
      * no User-Agent override + referer dropped — see CsHttpDataSourceFactory.
      * Every load logs its full outgoing request profile (diagnosability).
+     * Task 57: NO sidecar subtitle sources — provider subs render through the
+     * screen's overlay pipeline (see the class doc); only external AUDIO
+     * tracks still merge.
      */
     private fun startInternal(
         link: CsVideoLink,
-        subtitles: List<CsSubtitle>,
         startPositionMs: Long,
         clean: Boolean,
     ) {
-        current = CurrentPlayback(link, subtitles)
+        current = CurrentPlayback(link)
         cleanRetryUsed = clean
         reachedReady = false
         autoSubSelectAttempted = false
+        textOverrideAtMs = 0L
+        textOverrideRetryUsed = false
 
         val headersOut = if (clean) {
             link.allHeaders.filterKeys { !it.equals("referer", ignoreCase = true) }
@@ -332,7 +407,7 @@ class CsPlayerEngine(
         Logger.i(TAG) {
             "start[profile=${if (clean) "clean" else "upstream"}]: ${link.displayLabel} type=${link.type} " +
                 "ua=$uaOut headers=${headersOut.entries.joinToString(",") { "${it.key}=${it.value.take(24)}" }} " +
-                "url=${link.url.take(96)} subs=${subtitles.size} audio=${link.audioTracks.size} resumeMs=$startPositionMs"
+                "url=${link.url.take(96)} audio=${link.audioTracks.size} resumeMs=$startPositionMs"
         }
 
         val mime = CsMediaTypes.mimeFor(link.type)
@@ -341,32 +416,6 @@ class CsPlayerEngine(
             DefaultMediaSourceFactory(
                 if (clean) dataSourceFactory.forLinkClean(link) else dataSourceFactory.forLink(link),
             ).createMediaSource(mediaItem)
-
-        // Sidecar subtitles — each with its OWN DataSource (per-sub headers),
-        // exactly like upstream getSubSources (research R12-A §6).
-        // Task 55: the config now carries a human LABEL (the display name — the
-        // v0.4.2 round showed raw URLs because the sheet fell back to the id)
-        // and the content-sniffed mime when the resolver detected one.
-        Logger.i(SUBS_TAG) {
-            "attaching ${subtitles.size} sidecar subtitle(s): " +
-                subtitles.joinToString { "${it.displayName}(${(it.sniffedMime ?: it.mimeType).substringAfterLast('/')})" }
-        }
-        val subSources: List<MediaSource> = subtitles.mapNotNull { sub ->
-            runCatching {
-                val config: SubtitleConfiguration = SubtitleConfiguration.Builder(Uri.parse(sub.url))
-                    .setMimeType(sub.sniffedMime ?: sub.mimeType)
-                    // Upstream language trick: "_" prefix keeps custom names valid BCP-47-ish.
-                    .setLanguage(sub.languageTag ?: "_${sub.displayName}")
-                    .setLabel(sub.displayName)
-                    .setId(sub.id)
-                    .setSelectionFlags(0)
-                    .build()
-                SingleSampleMediaSource.Factory(dataSourceFactory.forSubtitle(sub))
-                    .createMediaSource(config, C.TIME_UNSET)
-            }.onFailure {
-                Logger.w(SUBS_TAG, it) { "subtitle source dropped: ${sub.displayName} (${sub.url.take(64)})" }
-            }.getOrNull()
-        }
 
         // External audio tracks (upstream getAudioSources pattern).
         val audioSources: List<MediaSource> = link.audioTracks.mapNotNull { audio ->
@@ -379,8 +428,8 @@ class CsPlayerEngine(
         }
 
         val merged: MediaSource = when {
-            subSources.isEmpty() && audioSources.isEmpty() -> videoSource
-            else -> MergingMediaSource(videoSource, *(subSources + audioSources).toTypedArray())
+            audioSources.isEmpty() -> videoSource
+            else -> MergingMediaSource(videoSource, *audioSources.toTypedArray())
         }
 
         _state.value = _state.value.copy(currentLinkUrl = link.url)
@@ -388,7 +437,7 @@ class CsPlayerEngine(
         player.prepare()
         player.playWhenReady = true
         startTicker()
-        Logger.d(TAG) { "prepared: mime=$mime subSources=${subSources.size} audioSources=${audioSources.size} merged=${subSources.isNotEmpty() || audioSources.isNotEmpty()}" }
+        Logger.d(TAG) { "prepared: mime=$mime audioSources=${audioSources.size} merged=${audioSources.isNotEmpty()}" }
     }
 
     /**
@@ -401,6 +450,8 @@ class CsPlayerEngine(
         cleanRetryUsed = false
         reachedReady = false
         autoSubSelectAttempted = false
+        textOverrideAtMs = 0L
+        textOverrideRetryUsed = false
         current = null
         tickerJob?.cancel()
         player.stop()
@@ -427,6 +478,9 @@ class CsPlayerEngine(
     }
 
     fun seekTo(positionMs: Long) {
+        // Task 57 (P8): safe checks — negative positions are dropped, live
+        // streams (duration unset) clamp at 0 only, finite ones clamp both ends.
+        if (positionMs < 0L) return
         if (_state.value.durationMs > 0) {
             player.seekTo(positionMs.coerceIn(0L, _state.value.durationMs))
         } else {
@@ -467,29 +521,27 @@ class CsPlayerEngine(
     }
 
     /**
-     * Text tracks = sidecar subtitles (ours, keyed by [CsSubtitle.id]) + tracks
-     * embedded in the container. `embedded` drives the sheet's section split.
-     * Task 55: the row NAME is the label (sidecar display names / embedded
-     * labels) or the language's display name — NEVER the format id (which is
-     * a URL for sidecars; that was the v0.4.2 "rows show URLs" bug).
+     * Text tracks EMBEDDED in the current container (Task 57: provider
+     * sidecar subtitles no longer ride the engine — they render through the
+     * screen's overlay; these are the container's own tracks). Task 55 keeps:
+     * the row NAME is the label or the language's display name — NEVER the
+     * format id (which was the v0.4.2 "rows show URLs" bug).
      */
     fun textTracks(): List<CsTextTrack> {
-        val sidecarIds = current?.subtitles?.map { it.id }?.toSet() ?: emptySet()
         val out = mutableListOf<CsTextTrack>()
         player.currentTracks.groups.forEachIndexed { groupIndex, group ->
             if (group.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
-                val id = format.id
                 out += CsTextTrack(
                     groupIndex = groupIndex,
                     trackIndex = trackIndex,
-                    id = id,
+                    id = format.id,
                     name = format.label
                         ?: format.language?.let { CsLanguageNames.display(it) }
                         ?: "Track ${out.size + 1}",
                     language = format.language,
-                    embedded = id == null || id !in sidecarIds,
+                    embedded = true,
                 )
             }
         }
@@ -565,6 +617,8 @@ class CsPlayerEngine(
      * applied" bug. The indices are now re-resolved LIVE from
      * `player.currentTracks` by matching `format.id` first; the snapshot
      * indices are only the fallback when the track has no id.
+     *
+     * Task 57 (P6b): an embedded pick arms the crash guard — see onPlayerError.
      */
     fun selectTextTrack(track: CsTextTrack?) {
         if (track == null) {
@@ -588,6 +642,8 @@ class CsPlayerEngine(
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
             .build()
+        textOverrideAtMs = SystemClock.elapsedRealtime()
+        textOverrideRetryUsed = false
         Logger.i(SUBS_TAG) { "subtitle selected: ${track.name} (embedded=${track.embedded})" }
     }
 
@@ -608,28 +664,26 @@ class CsPlayerEngine(
     }
 
     /**
-     * Task 55 — MPV `slang` parity. On the FIRST READY of each load (and only
-     * when no text track is selected yet), auto-selects the first track whose
-     * language/name matches the preferred list. Sidecars win over embedded
-     * (provider subs are usually better timed than container subs). Never
-     * forces a selection when nothing matches.
+     * Task 55 — MPV `slang` parity, Task 57 scope: embedded container tracks
+     * only (the provider sidecar auto-select moved to the screen's overlay
+     * pipeline). On the FIRST READY of each load (and only when no text track
+     * is selected yet), auto-selects the first embedded track whose
+     * language/name matches the preferred list. Never forces a selection
+     * when nothing matches.
      */
     private fun maybeAutoSelectPreferredSubtitles() {
         if (autoSubSelectAttempted) return
         autoSubSelectAttempted = true
-        if (selectedTextTrackId() != null) return // already selected (reattach/user)
-        val preferred = preferredSubtitleLanguages()
-        // 1) sidecar subs (ours — languageTag or the provider's lang name).
-        current?.subtitles?.firstOrNull { sub ->
-            CsLanguageNames.matchesPreferred(sub.languageTag ?: sub.name, preferred)
-        }?.let { sub ->
-            if (selectTextTrackById(sub.id)) {
-                Logger.i(SUBS_TAG) { "auto-selected preferred subtitle (sidecar): ${sub.displayName}" }
-                return
-            }
+        if (selectedTextTrackId() != null) return // already selected (user)
+        // Task 57: text tracks explicitly DISABLED = the user (or the screen's
+        // overlay pipeline, which owns provider subs now) chose another domain
+        // or OFF — auto-select must never re-enable what was turned off.
+        if (C.TRACK_TYPE_TEXT in player.trackSelectionParameters.disabledTrackTypes) {
+            Logger.i(SUBS_TAG) { "auto-select skipped: text tracks disabled (overlay/off)" }
+            return
         }
-        // 2) embedded tracks (language/label match).
-        textTracks().firstOrNull { it.embedded && CsLanguageNames.matchesPreferred(it.language, preferred) }?.let {
+        val preferred = preferredSubtitleLanguages()
+        textTracks().firstOrNull { CsLanguageNames.matchesPreferred(it.language, preferred) }?.let {
             selectTextTrack(it)
             Logger.i(SUBS_TAG) { "auto-selected preferred subtitle (embedded): ${it.name}" }
         }
@@ -675,13 +729,6 @@ class CsPlayerEngine(
         subtitleView.setBottomPaddingFraction(((100 - style.position) / 100f) * 0.12f)
     }
 
-    /** Selects a text track by its format id (sidecar subs carry [CsSubtitle.id]); true when found+selected. */
-    fun selectTextTrackById(id: String): Boolean {
-        val track = textTracks().firstOrNull { it.id == id } ?: return false
-        selectTextTrack(track)
-        return true
-    }
-
     /** The id of the currently selected text track (for the sheet's highlight), or null when OFF. */
     fun selectedTextTrackId(): String? {
         player.currentTracks.groups.forEach { group ->
@@ -708,7 +755,9 @@ class CsPlayerEngine(
                     durationMs = safeDuration(),
                     bufferedMs = player.bufferedPosition.coerceAtLeast(0L),
                 )
-                delay(200)
+                // Task 57: 100 ms cadence — smooth cue flips for the overlay
+                // subtitle renderer (the old 200 ms made text visibly late).
+                delay(100)
             }
         }
     }

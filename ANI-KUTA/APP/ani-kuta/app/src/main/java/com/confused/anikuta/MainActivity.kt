@@ -330,6 +330,11 @@ object VideoCachingKey : NavKey
 @Serializable
 object ConsoleLogsKey : NavKey
 
+// Task 57 (round 17): dedicated Debug page — debug-bubble toggle (debug builds
+// only) + CloudStream resolve-list source details / copy button (release too).
+@Serializable
+object DebugSettingsKey : NavKey
+
 // About & Updates screen — hosts the app-update UI (version, auto-check toggle,
 // manual check, downloaded APK list). The UpdateBottomSheet overlay is rendered
 // from AppRoot (below) gated on AppUpdateManager.shouldShowUpdateSheet.
@@ -384,6 +389,7 @@ private val allowedUpdateSheetKeys = setOf(
     AppearanceGeneralKey::class,
     DetailsPageSettingsKey::class,
     ConsoleLogsKey::class,
+    DebugSettingsKey::class,
     EpisodeSettingsKey::class,
     PlayerSettingsKey::class,
     VideoCachingKey::class,
@@ -934,12 +940,19 @@ fun AppRoot() {
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
                 onOpenVideoCaching = { backstack.add(VideoCachingKey) },
                 onOpenConsoleLogs = { backstack.add(ConsoleLogsKey) },
+                onOpenDebug = { backstack.add(DebugSettingsKey) },
                 onOpenAbout = { backstack.add(AboutKey) },
                 onBack = pop,
             )
             // CloudStream V2: console logs — the release-available diagnostics
             // console (ring buffer + logcat export via the share sheet).
             is ConsoleLogsKey -> com.confused.anikuta.settings.ConsoleLogsScreen(
+                onBack = pop,
+            )
+            // Task 57 (round 17): the dedicated Debug page — bubble toggle
+            // (debug builds) + resolve-list source details / copy button
+            // (release-available, defaults OFF).
+            is DebugSettingsKey -> com.confused.anikuta.settings.DebugSettingsScreen(
                 onBack = pop,
             )
             // CloudStream V2: the plugin detail page — resolves the plugin across

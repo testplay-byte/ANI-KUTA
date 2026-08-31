@@ -341,6 +341,8 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single { com.confused.anikuta.core.preferences.SettingsRepository(get()) }
             // D-193 Phase 3: UpdatePreferences for the updates settings
             single { com.confused.anikuta.core.preferences.UpdatePreferences(get()) }
+            // Task 57 (round 17): Debug page prefs (resolve-list source details + copy button).
+            single { com.confused.anikuta.core.preferences.DebugPreferences(get()) }
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)

@@ -1,6 +1,5 @@
 package com.confused.anikuta.feature.cswatch.impl
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,19 +11,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FormatBold
-import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,28 +51,58 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.component.ColorPickerSheet
 import com.confused.anikuta.core.designsystem.component.DefaultColorPickerSwatches
+import com.confused.anikuta.core.designsystem.component.NumericEntrySheet
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import org.koin.compose.koinInject
 
 /**
- * Task 55 (round 15) — the CS subtitle STYLE settings sheet.
+ * Task 57 (round 17 — P6d) — the CS subtitle settings sheet, reworked to the
+ * aniyomi sheet's structure.
  *
- * The v0.4.2 round's complaint: "with the cloud stream I did not get that
- * much customizability over the subtitles." The aniyomi stack styles subs
- * through [SubtitleSettingsSheet] + PlayerPreferences (MPV); this is the CS
- * replica — same sections in the same visual language (the replication rule:
- * no imports from :core:player), writing the SAME PlayerPreferences values
- * (one setting set, both players react) and applying them LIVE to the Media3
- * [androidx.media3.ui.SubtitleView] through [onApplySettings].
+ * The round-17 device finding: "the CloudStream extension's subtitle settings
+ * … not consistent with the Aniyomi extension's subtitle settings." The old
+ * Task-55 sheet was a 3-section slider card stack with a scrolling header;
+ * this is now a structural replica of
+ * [com.confused.anikuta.core.player.controls.SubtitleSettingsSheet] (the
+ * aniyomi/MPV sheet — structure copied, NEVER imported; the replication rule):
  *
- * Sections (the honest Media3 mapping of the MPV options):
- *  1. Typography — font size (20..100), border size (0..10), bold, italic.
- *  2. Colors — text / border / background (the shared ColorPickerSheet).
- *  3. Position — vertical position (0..100, 100 = bottom), shadow offset.
+ *  - STICKY header (title + close) that does NOT scroll, pinned above a
+ *    HorizontalDivider, with the settings body scrolling under it;
+ *  - Typography — Font (typeface dropdown), Font size (20..100), Scale
+ *    (0.5..3×, the overlay's text multiplier), Border size (0..10), Bold,
+ *    Italic;
+ *  - Colors — text / border / background (the shared ColorPickerSheet);
+ *  - Position & Misc — Position (0..100), Shadow offset (0..10), and the
+ *    Delay stepper (− value +, ±100 ms steps, tap the value for the keypad);
+ *  - tap-to-edit numeric keypads: every numeric row's value chip opens the
+ *    shared [NumericEntrySheet] for exact, range-clamped input (fontSize,
+ *    fontScale ×10, borderSize, position, shadow, delay — the same set the
+ *    aniyomi sheet offers).
  *
- * (Font family, scale, override-ASS and delay are MPV-specific — no Media3
- * equivalent — and are intentionally NOT offered here.)
+ * Font row value mapping: the options are the exact strings the CS overlay's
+ * private familyOf() mapper understands — it lowercases the stored value and
+ * matches "serif" / "monospace", anything else (incl. the default "Sans
+ * Serif") renders sans. "Sans Serif" / "Serif" / "Monospace" therefore map
+ * 1:1 to Sans/Serif/Monospace typefaces AND are the same display strings the
+ * aniyomi sheet writes (one setting set — both players react). The aniyomi
+ * dropdown's 4th option ("Roboto") is dropped: familyOf has no roboto branch
+ * (it would silently render sans — which on Android IS Roboto, a no-op).
+ *
+ * Deviations from the aniyomi reference (all deliberate):
+ *  - "Override ASS styling" is not offered — it is MPV-specific (the CS
+ *    parser always normalizes ASS styling anyway);
+ *  - the color rows keep the shared DefaultColorPickerSwatches (the task's
+ *    directive) instead of the MPV stack's subtitle-specific swatch list;
+ *  - every Text carries RobotoFamily (repo rule) where the reference uses
+ *    bare typography styles on body text.
+ *
+ * All writes go to the SAME [PlayerPreferences] the aniyomi sheet writes and
+ * call [onApplySettings] after every change — the caller re-applies the
+ * snapshot to the Media3 view ([CsPlayerEngine.applySubtitleStyle]); the
+ * Compose overlay (CsSubtitleOverlay) re-reads the style every
+ * recomposition, so provider cues restyle live. The signature is unchanged
+ * from the Task-55 sheet (CsWatchScreen's call site needs no edits).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,32 +115,6 @@ internal fun CsSubtitleSettingsSheet(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxHeight = screenHeight * 0.65f
 
-    // Local state — initialized from the shared preferences, written back on
-    // every change (live-apply through onApplySettings).
-    var fontSize by remember { mutableIntStateOf(playerPreferences.subtitleFontSize) }
-    var borderSize by remember { mutableIntStateOf(playerPreferences.subtitleBorderSize) }
-    var bold by remember { mutableStateOf(playerPreferences.boldSubtitles) }
-    var italic by remember { mutableStateOf(playerPreferences.italicSubtitles) }
-    var textColor by remember { mutableIntStateOf(playerPreferences.textColorSubtitles) }
-    var borderColor by remember { mutableIntStateOf(playerPreferences.borderColorSubtitles) }
-    var bgColor by remember { mutableIntStateOf(playerPreferences.backgroundColorSubtitles) }
-    var position by remember { mutableIntStateOf(playerPreferences.subtitlePosition) }
-    var shadowOffset by remember { mutableIntStateOf(playerPreferences.subtitleShadowOffset) }
-    var colorDialog by remember { mutableStateOf<String?>(null) }
-
-    fun changed() {
-        playerPreferences.subtitleFontSize = fontSize
-        playerPreferences.subtitleBorderSize = borderSize
-        playerPreferences.boldSubtitles = bold
-        playerPreferences.italicSubtitles = italic
-        playerPreferences.textColorSubtitles = textColor
-        playerPreferences.borderColorSubtitles = borderColor
-        playerPreferences.backgroundColorSubtitles = bgColor
-        playerPreferences.subtitlePosition = position
-        playerPreferences.subtitleShadowOffset = shadowOffset
-        onApplySettings()
-    }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -122,11 +125,9 @@ internal fun CsSubtitleSettingsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = maxHeight)
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding(),
+                .heightIn(max = maxHeight),
         ) {
-            // ── Sticky header ──
+            // ── STICKY HEADER (does NOT scroll) ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -137,7 +138,7 @@ internal fun CsSubtitleSettingsSheet(
                 Text(
                     text = "Subtitle Settings",
                     fontFamily = RobotoFamily,
-                    fontSize = 22.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -158,123 +159,304 @@ internal fun CsSubtitleSettingsSheet(
                     }
                 }
             }
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
 
+            // ── SCROLLABLE BODY (settings panel) ──
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
             ) {
-                // ═══ Section: Typography ═══
-                CsSettingsSectionHeader("Typography")
-                CsSettingsSliderRow(
-                    label = "Font size",
-                    valueText = fontSize.toString(),
-                    value = fontSize.toFloat(),
-                    range = 20f..100f,
-                    onChange = { fontSize = it.toInt(); changed() },
-                )
-                CsSettingsSliderRow(
-                    label = "Border size",
-                    valueText = borderSize.toString(),
-                    value = borderSize.toFloat(),
-                    range = 0f..10f,
-                    onChange = { borderSize = it.toInt(); changed() },
-                )
-                CsSettingsSwitchRow(
-                    label = "Bold",
-                    icon = Icons.Default.FormatBold,
-                    checked = bold,
-                    onChange = { bold = it; changed() },
-                )
-                CsSettingsSwitchRow(
-                    label = "Italic",
-                    icon = Icons.Default.FormatItalic,
-                    checked = italic,
-                    onChange = { italic = it; changed() },
-                )
-
-                Spacer(Modifier.height(10.dp))
-                // ═══ Section: Colors ═══
-                CsSettingsSectionHeader("Colors")
-                CsSettingsColorRow(
-                    label = "Text color",
-                    color = textColor,
-                    onTap = { colorDialog = "text" },
-                )
-                CsSettingsColorRow(
-                    label = "Border color",
-                    color = borderColor,
-                    onTap = { colorDialog = "border" },
-                )
-                CsSettingsColorRow(
-                    label = "Background color",
-                    color = bgColor,
-                    onTap = { colorDialog = "background" },
-                )
-
-                Spacer(Modifier.height(10.dp))
-                // ═══ Section: Position & Shadow ═══
-                CsSettingsSectionHeader("Position")
-                CsSettingsSliderRow(
-                    label = "Vertical position",
-                    valueText = if (position >= 100) "Bottom" else "$position",
-                    value = position.toFloat(),
-                    range = 0f..100f,
-                    onChange = { position = it.toInt(); changed() },
-                )
-                CsSettingsSliderRow(
-                    label = "Shadow offset",
-                    valueText = shadowOffset.toString(),
-                    value = shadowOffset.toFloat(),
-                    range = 0f..10f,
-                    onChange = { shadowOffset = it.toInt(); changed() },
+                CsSubtitleSettingsPanel(
+                    playerPreferences = playerPreferences,
+                    onSettingsChanged = onApplySettings,
                 )
             }
         }
     }
+}
 
-    // ── Color pickers (the shared designsystem sheet) ──
-    when (colorDialog) {
-        "text" -> ColorPickerSheet(
-            title = "Text color",
-            initialColor = textColor,
-            swatches = DefaultColorPickerSwatches,
-            onLiveChange = { textColor = it; changed() },
-            onDismiss = { colorDialog = null },
+@Composable
+private fun CsSubtitleSettingsPanel(
+    playerPreferences: PlayerPreferences,
+    onSettingsChanged: () -> Unit,
+) {
+    // Local state — initialized from the shared preferences, written back on
+    // every change (live-apply through onSettingsChanged).
+    var font by remember { mutableStateOf(playerPreferences.subtitleFont) }
+    var fontSize by remember { mutableIntStateOf(playerPreferences.subtitleFontSize) }
+    var fontScale by remember { mutableStateOf(playerPreferences.subtitleFontScale) }
+    var borderSize by remember { mutableIntStateOf(playerPreferences.subtitleBorderSize) }
+    var bold by remember { mutableStateOf(playerPreferences.boldSubtitles) }
+    var italic by remember { mutableStateOf(playerPreferences.italicSubtitles) }
+    var textColor by remember { mutableIntStateOf(playerPreferences.textColorSubtitles) }
+    var borderColor by remember { mutableIntStateOf(playerPreferences.borderColorSubtitles) }
+    var bgColor by remember { mutableIntStateOf(playerPreferences.backgroundColorSubtitles) }
+    var position by remember { mutableIntStateOf(playerPreferences.subtitlePosition) }
+    var shadowOffset by remember { mutableIntStateOf(playerPreferences.subtitleShadowOffset) }
+    var delay by remember { mutableIntStateOf(playerPreferences.subtitlesDelay) }
+
+    // Dialog state — which setting is being edited via keypad / color picker.
+    var editingDialog by remember { mutableStateOf<String?>(null) }
+    var colorDialog by remember { mutableStateOf<String?>(null) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // ═══════ Section: Typography ═══════
+        CsSettingsSectionHeader("Typography")
+        CsFontSelectorRow(
+            value = font,
+            onChange = {
+                font = it
+                playerPreferences.subtitleFont = it
+                onSettingsChanged()
+            },
         )
-        "border" -> ColorPickerSheet(
-            title = "Border color",
-            initialColor = borderColor,
-            swatches = DefaultColorPickerSwatches,
-            onLiveChange = { borderColor = it; changed() },
-            onDismiss = { colorDialog = null },
+        CsSettingsSectionDivider()
+
+        CsSettingsSliderRow(
+            label = "Font size",
+            valueText = fontSize.toString(),
+            value = fontSize.toFloat(),
+            range = 20f..100f,
+            onChange = {
+                fontSize = it.toInt()
+                playerPreferences.subtitleFontSize = it.toInt()
+                onSettingsChanged()
+            },
+            onTapValue = { editingDialog = "fontSize" },
         )
-        "background" -> ColorPickerSheet(
-            title = "Background color",
-            initialColor = bgColor,
+        CsSettingsSectionDivider()
+
+        CsSettingsSliderRow(
+            label = "Scale",
+            valueText = "%.1fx".format(fontScale),
+            value = fontScale,
+            range = 0.5f..3f,
+            onChange = {
+                fontScale = it
+                playerPreferences.subtitleFontScale = it
+                onSettingsChanged()
+            },
+            onTapValue = { editingDialog = "fontScale" },
+        )
+        CsSettingsSectionDivider()
+
+        CsSettingsSliderRow(
+            label = "Border size",
+            valueText = borderSize.toString(),
+            value = borderSize.toFloat(),
+            range = 0f..10f,
+            onChange = {
+                borderSize = it.toInt()
+                playerPreferences.subtitleBorderSize = it.toInt()
+                onSettingsChanged()
+            },
+            onTapValue = { editingDialog = "borderSize" },
+        )
+        CsSettingsSectionDivider()
+
+        CsSettingsSwitchRow(
+            label = "Bold",
+            checked = bold,
+            onChange = {
+                bold = it
+                playerPreferences.boldSubtitles = it
+                onSettingsChanged()
+            },
+        )
+        CsSettingsSwitchRow(
+            label = "Italic",
+            checked = italic,
+            onChange = {
+                italic = it
+                playerPreferences.italicSubtitles = it
+                onSettingsChanged()
+            },
+        )
+
+        CsSettingsSectionSpacer()
+
+        // ═══════ Section: Colors ═══════
+        CsSettingsSectionHeader("Colors")
+        CsSettingsColorRow(
+            label = "Text color",
+            color = textColor,
+            onTap = { colorDialog = "text" },
+        )
+        CsSettingsSectionDivider()
+        CsSettingsColorRow(
+            label = "Border color",
+            color = borderColor,
+            onTap = { colorDialog = "border" },
+        )
+        CsSettingsSectionDivider()
+        CsSettingsColorRow(
+            label = "Background color",
+            color = bgColor,
+            onTap = { colorDialog = "bg" },
+        )
+
+        CsSettingsSectionSpacer()
+
+        // ═══════ Section: Position & Misc ═══════
+        CsSettingsSectionHeader("Position & Misc")
+        CsSettingsSliderRow(
+            label = "Position",
+            valueText = "$position%",
+            value = position.toFloat(),
+            range = 0f..100f,
+            onChange = {
+                position = it.toInt()
+                playerPreferences.subtitlePosition = it.toInt()
+                onSettingsChanged()
+            },
+            onTapValue = { editingDialog = "position" },
+        )
+        CsSettingsSectionDivider()
+
+        CsSettingsSliderRow(
+            label = "Shadow offset",
+            valueText = shadowOffset.toString(),
+            value = shadowOffset.toFloat(),
+            range = 0f..10f,
+            onChange = {
+                shadowOffset = it.toInt()
+                playerPreferences.subtitleShadowOffset = it.toInt()
+                onSettingsChanged()
+            },
+            onTapValue = { editingDialog = "shadow" },
+        )
+        CsSettingsSectionDivider()
+
+        // Delay: positive = show cues later (the overlay shifts cue
+        // visibility by delayMs; Media3 ignores it — overlay-only field).
+        CsDelayStepperRow(
+            delay = delay,
+            onChange = {
+                delay = it
+                playerPreferences.subtitlesDelay = it
+                onSettingsChanged()
+            },
+            onTapValue = { editingDialog = "delay" },
+        )
+    }
+
+    // ── Keypad sheets (bottom sheet, not popup) ──
+    editingDialog?.let { dialogKey ->
+        val (title, initial, suffix, min, max) = when (dialogKey) {
+            "fontSize" -> CsSubtitleSettingConfig("Font size", fontSize, "", 20, 100)
+            "fontScale" -> CsSubtitleSettingConfig("Scale (×10)", (fontScale * 10).toInt(), "", 5, 30)
+            "borderSize" -> CsSubtitleSettingConfig("Border size", borderSize, "", 0, 10)
+            "position" -> CsSubtitleSettingConfig("Position", position, "%", 0, 100)
+            "shadow" -> CsSubtitleSettingConfig("Shadow offset", shadowOffset, "", 0, 10)
+            "delay" -> CsSubtitleSettingConfig("Delay", delay, "ms", -5000, 5000)
+            else -> return@let
+        }
+        NumericEntrySheet(
+            title = title,
+            initial = initial,
+            suffix = suffix,
+            min = min,
+            max = max,
+            onLiveChange = { v ->
+                val clamped = v.coerceIn(min, max)
+                when (dialogKey) {
+                    "fontSize" -> { fontSize = clamped; playerPreferences.subtitleFontSize = clamped }
+                    "fontScale" -> { fontScale = clamped / 10f; playerPreferences.subtitleFontScale = clamped / 10f }
+                    "borderSize" -> { borderSize = clamped; playerPreferences.subtitleBorderSize = clamped }
+                    "position" -> { position = clamped; playerPreferences.subtitlePosition = clamped }
+                    "shadow" -> { shadowOffset = clamped; playerPreferences.subtitleShadowOffset = clamped }
+                    "delay" -> { delay = clamped; playerPreferences.subtitlesDelay = clamped }
+                }
+                onSettingsChanged()
+            },
+            onConfirm = { v ->
+                when (dialogKey) {
+                    "fontSize" -> { fontSize = v; playerPreferences.subtitleFontSize = v }
+                    "fontScale" -> { fontScale = v / 10f; playerPreferences.subtitleFontScale = v / 10f }
+                    "borderSize" -> { borderSize = v; playerPreferences.subtitleBorderSize = v }
+                    "position" -> { position = v; playerPreferences.subtitlePosition = v }
+                    "shadow" -> { shadowOffset = v; playerPreferences.subtitleShadowOffset = v }
+                    "delay" -> { delay = v; playerPreferences.subtitlesDelay = v }
+                }
+                onSettingsChanged()
+                editingDialog = null
+            },
+            onDismiss = { editingDialog = null },
+        )
+    }
+
+    // ── Color picker sheet (the shared designsystem sheet) ──
+    colorDialog?.let { dialogKey ->
+        val (title, current, setter) = when (dialogKey) {
+            "text" -> Triple("Text color", textColor) { v: Int ->
+                textColor = v
+                playerPreferences.textColorSubtitles = v
+            }
+            "border" -> Triple("Border color", borderColor) { v: Int ->
+                borderColor = v
+                playerPreferences.borderColorSubtitles = v
+            }
+            "bg" -> Triple("Background color", bgColor) { v: Int ->
+                bgColor = v
+                playerPreferences.backgroundColorSubtitles = v
+            }
+            else -> return@let
+        }
+        ColorPickerSheet(
+            title = title,
+            initialColor = current,
             swatches = DefaultColorPickerSwatches,
-            onLiveChange = { bgColor = it; changed() },
+            onLiveChange = { v ->
+                setter(v)
+                onSettingsChanged()
+            },
             onDismiss = { colorDialog = null },
         )
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  Rows (the aniyomi SubtitleSettingsSheet's row language, replicated)
-// ════════════════════════════════════════════════════════════════════════════
+/**
+ * The keypad config for one numeric setting (title, starting value, unit
+ * suffix, clamp range) — the aniyomi sheet's SubtitleSettingConfig replica.
+ */
+private data class CsSubtitleSettingConfig(
+    val title: String,
+    val initial: Int,
+    val suffix: String,
+    val min: Int,
+    val max: Int,
+)
+
+// ── Row helpers (the aniyomi sheet's row language, replicated) ──────────────
 
 @Composable
-private fun CsSettingsSectionHeader(text: String) {
+private fun CsSettingsSectionHeader(title: String) {
     Text(
-        text = text,
+        text = title,
+        style = MaterialTheme.typography.titleSmall,
         fontFamily = RobotoFamily,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.ExtraBold,
+        fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(vertical = 6.dp),
+        modifier = Modifier.padding(bottom = 8.dp, top = 4.dp),
     )
+}
+
+@Composable
+private fun CsSettingsSectionDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 6.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+    )
+}
+
+@Composable
+private fun CsSettingsSectionSpacer() {
+    Spacer(modifier = Modifier.height(20.dp))
 }
 
 @Composable
@@ -284,85 +466,142 @@ private fun CsSettingsSliderRow(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
+    onTapValue: () -> Unit,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = RobotoFamily,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            // Tappable value chip → the exact-value keypad.
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                modifier = Modifier.clickable(onClick = onTapValue),
             ) {
                 Text(
-                    text = label,
+                    text = valueText,
+                    style = MaterialTheme.typography.bodySmall,
                     fontFamily = RobotoFamily,
-                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 )
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(6.dp),
-                ) {
-                    Text(
-                        text = valueText,
-                        fontFamily = RobotoFamily,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
             }
-            Slider(
-                value = value,
-                onValueChange = onChange,
-                valueRange = range,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            modifier = Modifier.fillMaxWidth(),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ),
+        )
     }
 }
 
 @Composable
 private fun CsSettingsSwitchRow(
     label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth(),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = label,
-                fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            Switch(checked = checked, onCheckedChange = onChange)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = RobotoFamily,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun CsFontSelectorRow(
+    value: String,
+    onChange: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    // Exactly the values the CS overlay's familyOf() mapper understands
+    // (lowercased match: "serif" / "monospace", anything else → sans) — and
+    // the same display strings the aniyomi sheet stores, so the shared
+    // preference renders identically in both players.
+    val options = listOf("Sans Serif", "Serif", "Monospace")
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(
+            text = "Font",
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = RobotoFamily,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+        Box {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = true },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = option,
+                                fontFamily = RobotoFamily,
+                                fontWeight = if (option == value) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        },
+                        onClick = {
+                            onChange(option)
+                            expanded = false
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -373,41 +612,114 @@ private fun CsSettingsColorRow(
     color: Int,
     onTap: () -> Unit,
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        shape = RoundedCornerShape(10.dp),
+    val colorObj = Color(color)
+    val hex = String.format("#%08X", color)
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onTap),
+            .clickable(onClick = onTap)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = RobotoFamily,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // The swatch: the color itself + a hairline outline so light or
             // transparent colors stay visible on light themes.
             Box(
                 modifier = Modifier
                     .size(24.dp)
-                    .clip(CircleShape)
-                    .background(Color(color))
-                    .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), CircleShape),
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(colorObj)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)),
             )
-            Spacer(Modifier.width(10.dp))
             Text(
-                text = label,
+                text = hex,
+                style = MaterialTheme.typography.bodySmall,
                 fontFamily = RobotoFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
+        }
+    }
+}
+
+@Composable
+private fun CsDelayStepperRow(
+    delay: Int,
+    onChange: (Int) -> Unit,
+    onTapValue: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Delay",
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = RobotoFamily,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clickable { onChange((delay - 100).coerceIn(-5000, 5000)) },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "−100ms",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            // Tappable value chip → the exact-value keypad.
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                modifier = Modifier.clickable(onClick = onTapValue),
+            ) {
+                Text(
+                    text = "${delay}ms",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clickable { onChange((delay + 100).coerceIn(-5000, 5000)) },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "+100ms",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
         }
     }
 }

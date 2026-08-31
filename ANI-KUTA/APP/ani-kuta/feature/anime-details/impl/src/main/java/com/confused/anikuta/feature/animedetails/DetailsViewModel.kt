@@ -279,6 +279,71 @@ class DetailsViewModel(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    // ── Task 57 (round 17 — P1): linked sub/dub progress identity ──────────
+
+    /**
+     * (identity number → key) per episode — the SHARED progress identity of
+     * CS sub/dub lists: when the linked source is CloudStream-bridged AND the
+     * list carries sub/dub tags, the identity is the per-flavor ORDINAL
+     * (sub-5 ↔ dub-5 are ONE episode — one progress row, one toggle, Task 57
+     * P1); every other list (all aniyomi lists) keeps the raw episode_number.
+     * The key format is the app-wide builder: "$mid|%05d" (byte-identical to
+     * the other builders).
+     */
+    private fun csEpisodeIdentities(mid: String, episodes: List<SEpisode>): List<Pair<Int, String>> {
+        val ordinals = if (isLinkedSourceCloudStream() && episodes.any { csSubDubEpisodeTag(it) != null }) {
+            csSubDubFlavorOrdinals(episodes)
+        } else emptyMap()
+        return episodes.map { ep ->
+            val n = ordinals[ep.url] ?: ep.episode_number.toInt()
+            n to "$mid|${String.format("%05d", n)}"
+        }
+    }
+
+    /**
+     * The DISTINCT progress keys of [csEpisodeIdentities] — a sub+dub pair
+     * collapses to ONE key; untagged rows keep their raw-number keys.
+     */
+    private fun csProgressKeys(mid: String, episodes: List<SEpisode>): List<String> =
+        csEpisodeIdentities(mid, episodes).map { it.second }.distinct()
+
+    /**
+     * Task 57 (P1): the sub/dub tag of an episode row — DetailsScreen's
+     * subDubEpisodeTag replicated (BOTH faces of the details feature must key
+     * the identity the SAME way, or the rows and the series ops diverge):
+     * the trailing " (Sub)"/" (Dub)" NAME tag, else the bridge's exact
+     * "Sub"/"Dub" scanlator label. Null = a neutral row.
+     */
+    private fun csSubDubEpisodeTag(ep: SEpisode): String? {
+        val name = ep.name?.trim()?.uppercase() ?: ""
+        if (name.endsWith("(SUB)")) return "SUB"
+        if (name.endsWith("(DUB)")) return "DUB"
+        return when (ep.scanlator?.trim()?.uppercase()) {
+            "SUB" -> "SUB"
+            "DUB" -> "DUB"
+            else -> null
+        }
+    }
+
+    /**
+     * Task 57 (P1): per-flavor ordinals — each tagged flavor renumbered 1..N
+     * by (episode_number, list position), keyed by ep.url. DetailsScreen's
+     * subDubFlavorOrdinals replicated for the VM's key builders (the ordinal
+     * identity must match the screen's row keys byte-for-byte).
+     */
+    private fun csSubDubFlavorOrdinals(episodes: List<SEpisode>): Map<String, Int> {
+        val ordinals = HashMap<String, Int>()
+        listOf("SUB", "DUB").forEach { flavor ->
+            val rows = episodes.withIndex()
+                .filter { csSubDubEpisodeTag(it.value) == flavor }
+                .sortedWith(compareBy({ (i, ep) -> ep.episode_number }, { (i, _) -> i }))
+            rows.forEachIndexed { ordinal, (_, ep) ->
+                ordinals[ep.url] = ordinal + 1
+            }
+        }
+        return ordinals
+    }
+
     /** Phase WP: Toggle the watched state of an episode (swipe-to-toggle). */
     fun toggleWatched(episodeKey: String) {
         viewModelScope.launch {
@@ -613,23 +678,26 @@ class DetailsViewModel(
             runCatching {
                 val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes
                 if (!episodes.isNullOrEmpty()) {
+                    // Task 57 (P1): the unmark/mark ranges run on the IDENTITY
+                    // number — CS sub/dub lists collapse sub+dub rows to the
+                    // shared ordinal (ONE key per episode).
+                    val identities = csEpisodeIdentities(mid, episodes)
                     val oldProgress = current.progress
                     if (clampedProgress < oldProgress) {
                         // Progress decreased — unmark episodes (clampedProgress+1)..oldProgress.
                         // We do this by deleting watch progress for those episodes.
-                        for (ep in episodes) {
-                            val n = ep.episode_number.toInt()
-                            if (n in (clampedProgress + 1)..oldProgress) {
-                                val key = "$mid|${String.format("%05d", n)}"
-                                watchProgressStore.delete(key)
-                            }
-                        }
+                        identities
+                            .filter { it.first in (clampedProgress + 1)..oldProgress }
+                            .map { it.second }
+                            .distinct()
+                            .forEach { key -> watchProgressStore.delete(key) }
                         Logger.i(TAG) { "updateTrackProgress — unmarked episodes ${clampedProgress + 1}..$oldProgress" }
                     } else if (clampedProgress > oldProgress) {
                         // Progress increased — mark episodes (oldProgress+1)..clampedProgress as watched.
-                        val keysToMark = episodes
-                            .filter { it.episode_number.toInt() in (oldProgress + 1)..clampedProgress }
-                            .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                        val keysToMark = identities
+                            .filter { it.first in (oldProgress + 1)..clampedProgress }
+                            .map { it.second }
+                            .distinct()
                         if (keysToMark.isNotEmpty()) {
                             watchProgressStore.markAllWatched(mid, keysToMark)
                             Logger.i(TAG) { "updateTrackProgress — marked episodes ${oldProgress + 1}..$clampedProgress" }
@@ -783,9 +851,12 @@ class DetailsViewModel(
         viewModelScope.launch {
             runCatching {
                 val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return@runCatching
-                val keysToMark = episodes
-                    .filter { it.episode_number.toInt() <= upToEpisode }
-                    .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                // Task 57 (P1): the filter runs on the IDENTITY number — the
+                // CS sub/dub ordinal (sub-5/dub-5 count ONCE).
+                val keysToMark = csEpisodeIdentities(mid, episodes)
+                    .filter { it.first <= upToEpisode }
+                    .map { it.second }
+                    .distinct()
                 watchProgressStore.markAllWatched(mid, keysToMark)
                 Logger.i(TAG) { "markAllPreviousWatched — marked ${keysToMark.size} episodes (1..$upToEpisode)" }
 
@@ -821,7 +892,8 @@ class DetailsViewModel(
         viewModelScope.launch {
             runCatching {
                 val episodes = (episodeState.value as? EpisodeState.Loaded)?.episodes ?: return@runCatching
-                val keysToMark = episodes.map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+                // Task 57 (P1): ALL identity keys — sub+dub pairs collapse to one.
+                val keysToMark = csProgressKeys(mid, episodes)
                 watchProgressStore.markAllWatched(mid, keysToMark)
                 Logger.i(TAG) { "markSeriesAsWatched — marked all ${keysToMark.size} episodes" }
 
@@ -1668,12 +1740,16 @@ class DetailsViewModel(
         val isCompleted = entry.status == com.confused.anikuta.core.trackerapi.TrackStatus.COMPLETED
         val remoteProgress = entry.progress
 
+        // Task 57 (P1): the ranges run on the IDENTITY number (the CS sub/dub
+        // ordinal — sub-5/dub-5 count once); the key format is unchanged.
+        val identities = csEpisodeIdentities(mid, episodes)
         val keysToMark: List<String> = if (isCompleted) {
-            episodes.map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+            identities.map { it.second }.distinct()
         } else if (remoteProgress > 0) {
-            episodes
-                .filter { it.episode_number.toInt() in 1..remoteProgress }
-                .map { ep -> "$mid|${String.format("%05d", ep.episode_number.toInt())}" }
+            identities
+                .filter { it.first in 1..remoteProgress }
+                .map { it.second }
+                .distinct()
         } else {
             emptyList()
         }

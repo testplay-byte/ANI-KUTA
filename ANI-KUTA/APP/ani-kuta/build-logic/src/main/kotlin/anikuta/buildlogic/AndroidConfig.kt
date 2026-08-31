@@ -34,6 +34,26 @@ object AndroidConfig {
     // LazyColumn duplicate-key crash on multi-quality DASH manifests (all raw
     // lists key by row index). Auto-advance stays within the current flavor.
     //
+    // ── Task 57 (round 17) — the linked-progress + overlay-subs release ────
+    // 0.4.5 fixes the six v0.4.4 device findings (doc cloudstream-v2/08):
+    // P1 sub/dub share ONE progress identity (the flavor ORDINAL — sub-5 at
+    // 80% shows 80% on dub-5; watched toggles, ratings, mark-series and
+    // tracker sync all run on the ordinal keys for CS-bridged tagged lists),
+    // P2 COMBINED rows show their SUB·DUB variant pills again (details audio
+    // pill via scanlator, watch page + episodes sheet via structured flavors),
+    // P3 the COMBINED dual-resolve dedup keys on (url + audio) so a shared
+    // encode URL no longer erases one flavor's whole section (both merge
+    // sites), P4 the debug toolkit (Settings → Debug options page: bubble /
+    // resolve-list sources / copy button, all default-OFF; when ON the
+    // resolve lists gain per-row copy icons + a header report action), P5
+    // smarter server-name/audio/resolution parsing (bracket vocabulary), P6
+    // the OVERLAY subtitle system (provider subs fetch+parse+render in OUR
+    // Compose overlay — no more REQUIRES_RELOAD re-prepares, no crash, no
+    // zero-subs; sheet 0.55 height; embedded-track picks guarded with
+    // revert+retry; settings sheet at aniyomi structural parity), P7/P8 the
+    // player hardening (30 s retained back-buffer so backward seeks serve
+    // from memory, live-state seekRelative, safe clamps, 100 ms ticker).
+    //
     // ── Task 53 (round 13) — the playback-fixes release ─────────────────────
     // 0.4.1 root-causes every v0.4.0 device finding (doc cloudstream-v2/04):
     // RC-1 vendored M3u8Helper's invented referer param (AniKoto's 0-links,
@@ -52,8 +72,8 @@ object AndroidConfig {
     // controls with lock/canvas-seekbar/speed sheet), and the player sheets
     // adopt the Qualities-and-Servers / Subtitles / Speed sheet languages.
     // Aniyomi remains byte-untouched — parity via replicated design tokens.
-    const val versionCode = 69
-    const val versionName = "0.4.4"
+    const val versionCode = 70
+    const val versionName = "0.4.5"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

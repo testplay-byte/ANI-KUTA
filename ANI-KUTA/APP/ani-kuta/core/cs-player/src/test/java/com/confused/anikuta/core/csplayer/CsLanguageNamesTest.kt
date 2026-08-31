@@ -107,4 +107,54 @@ class CsAudioTagTest {
         assertFalse(CsAudioTag.isAudio("Default"))
         assertFalse(CsAudioTag.isAudio(null))
     }
+
+    // ── Task 57 (round 17) — expanded vocabulary + decoration pass ──────────
+
+    @Test
+    fun `round 17 sub vocabulary`() {
+        assertEquals("SUB", CsAudioTag.parse("Mirror [SUB] 1080p"))
+        assertEquals("SUB", CsAudioTag.parse("English Subtitles 1080"))
+        assertEquals("SUB", CsAudioTag.parse("Softsub 480p"))
+        assertEquals("SUB", CsAudioTag.parse("HD-2 - Subs - 720p"))
+        assertEquals("SUB", CsAudioTag.parse("Soft-sub 540p"))
+        assertEquals("SUB", CsAudioTag.parse("Eng Sub 480p"))
+        assertEquals("SUB", CsAudioTag.parse("English Sub 1080p"))
+    }
+
+    @Test
+    fun `round 17 dub vocabulary`() {
+        assertEquals("DUB", CsAudioTag.parse("Streamtape (Dub)"))
+        assertEquals("DUB", CsAudioTag.parse("Vidstream-3 - Dubs - 1080p"))
+    }
+
+    @Test
+    fun `round 17 hsub vocabulary keeps priority`() {
+        assertEquals("HSUB", CsAudioTag.parse("HSUB - 360p"))
+        assertEquals("HSUB", CsAudioTag.parse("Hard-sub 480p"))
+        assertEquals("HSUB", CsAudioTag.parse("Hard sub 720p"))
+        assertEquals("HSUB", CsAudioTag.parse("H-Hardsub 1080p"))
+        assertEquals("HSUB", CsAudioTag.parse("HSub 480p"))
+    }
+
+    @Test
+    fun `underscore decorations hit the second signal`() {
+        assertEquals("SUB", CsAudioTag.parse("SomeName_Sub"))
+        assertEquals("DUB", CsAudioTag.parse("Name_Dub"))
+        assertEquals("HSUB", CsAudioTag.parse("Mirror_HSub"))
+        assertEquals("DUB", CsAudioTag.parse("Source_Dubbed"))
+    }
+
+    @Test
+    fun `bracketed standalone tokens map by token`() {
+        assertEquals("SUB", CsAudioTag.parse("Mirror [ Sub ] 1080p"))
+        assertEquals("DUB", CsAudioTag.parse("[Dubbed] 720p"))
+    }
+
+    @Test
+    fun `round 17 regressions stay default`() {
+        assertEquals("Default", CsAudioTag.parse("Mirror 1080p"))
+        assertEquals("Default", CsAudioTag.parse("Vidstream 720p"))
+        assertEquals("Default", CsAudioTag.parse(null))
+        assertEquals("Default", CsAudioTag.parse("   "))
+    }
 }

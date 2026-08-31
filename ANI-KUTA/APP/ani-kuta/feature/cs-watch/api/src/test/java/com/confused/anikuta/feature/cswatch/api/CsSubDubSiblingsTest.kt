@@ -228,4 +228,80 @@ class CsSubDubSiblingsTest {
         assertEquals("sub-2", merged[1].data)
         assertEquals("sub-3", merged[2].data)
     }
+
+    // ── Task 57 (round 17 — P2): merged rows carry their flavor pills ──────
+
+    @Test
+    fun `merged rows carry the pair's actual flavor tags`() {
+        val list = eps(
+            Triple("sub-1", 1f, "Episode 1 (Sub)"),
+            Triple("dub-1", 1f, "Episode 1 (Dub)"),
+            Triple("sub-2", 2f, "Episode 2 (Sub)"),
+            Triple("dub-2", 2f, "Episode 2 (Dub)"),
+        )
+        val merged = CsSubDubSiblings.mergeSiblings(list)
+        assertEquals(2, merged.size)
+        assertEquals(listOf("SUB", "DUB"), merged[0].flavors)
+        assertEquals(listOf("SUB", "DUB"), merged[1].flavors)
+        // Primary row's data + ordinal identity unchanged — flavors is
+        // render-only, never an identity field.
+        assertEquals("sub-1", merged[0].data)
+        assertEquals(1f, merged[0].episodeNumber)
+    }
+
+    @Test
+    fun `untagged pass-through rows keep flavors empty`() {
+        val list = eps(Triple("a", 1f, "Episode 1"), Triple("b", 2f, "Episode 2"))
+        val merged = CsSubDubSiblings.mergeSiblings(list)
+        assertEquals(2, merged.size)
+        assertEquals(emptyList<String>(), merged[0].flavors)
+        assertEquals(emptyList<String>(), merged[1].flavors)
+    }
+
+    @Test
+    fun `unpaired tagged row keeps flavors empty and tag intact`() {
+        // A tagged row with no sibling is NOT merged — it passes through with
+        // its tag (round-16 contract: only MERGED rows lose the name tag; the
+        // display layer strips the rest) and gets NO flavor pills (nothing
+        // merged, so there is no variant set to advertise).
+        val list = eps(
+            Triple("sub-1", 1f, "Episode 1 (Sub)"),
+            Triple("dub-1", 1f, "Episode 1 (Dub)"),
+            Triple("dub-3", 15f, "Episode 15 (Dub)"), // no sub-3 sibling
+        )
+        val merged = CsSubDubSiblings.mergeSiblings(list)
+        assertEquals(2, merged.size)
+        assertEquals(listOf("SUB", "DUB"), merged[0].flavors)
+        assertEquals("Episode 15 (Dub)", merged[1].name)
+        assertEquals(emptyList<String>(), merged[1].flavors)
+    }
+
+    // ── Task 57 (round 17 — P1): ordinals are the progress identity ─────────
+
+    @Test
+    fun `flavor ordinals are the shared progress identity`() {
+        // P1's "one episode" contract: sub-5 and dub-5 are the SAME episode —
+        // their flavor ordinals MATCH (5 == 5) even though the raw numbers
+        // differ (5 vs 17, the normalizer's continuing numbers). The ordinal
+        // is what the progress/rating keys embed.
+        val list = eps(
+            Triple("sub-1", 1f, "Episode 1 (Sub)"),
+            Triple("sub-2", 2f, "Episode 2 (Sub)"),
+            Triple("sub-3", 3f, "Episode 3 (Sub)"),
+            Triple("sub-4", 4f, "Episode 4 (Sub)"),
+            Triple("sub-5", 5f, "Episode 5 (Sub)"),
+            Triple("dub-1", 13f, "Episode 13 (Dub)"),
+            Triple("dub-2", 14f, "Episode 14 (Dub)"),
+            Triple("dub-3", 15f, "Episode 15 (Dub)"),
+            Triple("dub-4", 16f, "Episode 16 (Dub)"),
+            Triple("dub-5", 17f, "Episode 17 (Dub)"),
+        )
+        val ordinals = CsSubDubSiblings.flavorOrdinals(list)
+        assertEquals(5, ordinals["sub-5"])
+        assertEquals(5, ordinals["dub-5"])
+        assertEquals(ordinals["sub-5"], ordinals["dub-5"])
+        // The raw numbers genuinely differ — the ordinal is the ONLY linker.
+        assertEquals(5f, list[4].episodeNumber)
+        assertEquals(17f, list[9].episodeNumber)
+    }
 }

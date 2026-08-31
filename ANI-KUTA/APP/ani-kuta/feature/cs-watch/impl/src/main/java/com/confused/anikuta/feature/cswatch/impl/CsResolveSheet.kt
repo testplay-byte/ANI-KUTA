@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,6 +30,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +46,7 @@ import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.csplayer.CsSubtitle
 import com.confused.anikuta.core.csplayer.CsVideoLink
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.core.preferences.DebugPreferences
 import com.confused.anikuta.core.preferences.EpisodeListPreferences
 import com.confused.anikuta.core.preferences.PlayerPreferences
 import com.confused.anikuta.data.cloudstream.playback.CloudstreamLinkResolver
@@ -94,6 +97,12 @@ private const val SHEET_TAG = "Anikuta:CS:Sheet"
  * starts on its own from the entry sheet. ("For some plugins" was exactly
  * those two conditions: a remembered server streaming in, or a provider
  * that resolves to a single link.)
+ *
+ * Task 57 (round 17 — P3 + P4): the dual-handle merge dedups by
+ * (url + audio label) so same-URL dual-audio encodes keep BOTH flavors;
+ * and with Settings → Debug options' "Copy button" flag ON, the header
+ * carries a copy-the-whole-report action (per-row copies live in
+ * [CsSourceListUi]) — default OFF, zero visual change otherwise.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +115,7 @@ fun CsResolveSheet(
     viewModel: CsWatchViewModel = koinViewModel(),
     playerPreferences: PlayerPreferences = koinInject(),
     episodeListPreferences: EpisodeListPreferences = koinInject(),
+    debugPreferences: DebugPreferences = koinInject(),
 ) {
     var links by remember { mutableStateOf<List<CsVideoLink>>(emptyList()) }
     var subtitles by remember { mutableStateOf<List<CsSubtitle>>(emptyList()) }
@@ -118,6 +128,13 @@ fun CsResolveSheet(
     // Task 55: the formatting toggle (read at open; shared with the aniyomi
     // sheets through PlayerPreferences — sheets are recreated per open).
     var formatted by remember { mutableStateOf(playerPreferences.resolveSheetFormatted) }
+
+    // Task 57 (P4): the header-level "copy the whole report" action — OFF
+    // unless enabled in Settings → Debug options; live-collected (reactive
+    // flow) so toggling the setting while the sheet is open applies immediately.
+    val copyEnabled by debugPreferences.resolveCopyButtonFlow()
+        .collectAsState(initialValue = false)
+    val copyFeedback = rememberCopyFeedback()
 
     // Task 55: the data handles to resolve — 1, or 2 in COMBINED sub/dub mode
     // (the tapped episode + its opposite-flavor sibling). Frozen per key.
@@ -160,8 +177,9 @@ fun CsResolveSheet(
             "resolve: '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
                 "handles=${handles.size} data=${key.episodeData.take(64)}"
         }
-        // Per-handle latest snapshots — merged into `links` with url dedup
-        // (first handle wins; same URL under both flavors = one encode).
+        // Per-handle latest snapshots — merged into `links` with
+        // (url + audio label) dedup (first handle wins; see the Task 57
+        // note at the merge below).
         val perHandle = mutableMapOf<Int, List<CsVideoLink>>()
         val perHandleSubs = mutableMapOf<Int, List<CsSubtitle>>()
         val perHandleHidden = IntArray(handles.size)
@@ -181,9 +199,17 @@ fun CsResolveSheet(
                                 perHandleDrm[index] = event.unsupportedDrmCount
                                 hiddenCount = perHandleHidden.sum()
                                 drmCount = perHandleDrm.sum()
+                                // Task 57 (P3 — combined reliability): the merge
+                                // dedup key is (url + audio label), NOT the bare
+                                // URL. Providers that serve the SAME encode URL
+                                // under both the sub and the dub handle used to
+                                // lose the ENTIRE second flavor here (url-dedup
+                                // dropped its links) — "sometimes the dub
+                                // episodes don't resolve". Both flavors now
+                                // survive and land in their own accordion groups.
                                 val known = mutableSetOf<String>()
                                 links = handles.indices.flatMap { i -> perHandle[i].orEmpty() }
-                                    .filter { known.add(it.url) }
+                                    .filter { known.add(it.url + "\u0000" + it.audioLabel) }
                                 // Task 56: NO remembered-server auto-select here — the
                                 // list renders and the user picks (device feedback F1).
                                 // The remembered server still auto-EXPANDS its accordion
@@ -281,6 +307,38 @@ fun CsResolveSheet(
                     },
                     modifier = Modifier.weight(1f),
                 )
+                if (copyEnabled) {
+                    // Task 57 (P4): copies the WHOLE resolve report (header +
+                    // every link's detail block) for bug reports.
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(32.dp)
+                            .clickable {
+                                copyFeedback(
+                                    buildResolveDebugReport(
+                                        key.providerName,
+                                        key.animeTitle,
+                                        key.episodeNumber,
+                                        links,
+                                    ),
+                                    "Report copied",
+                                )
+                                Logger.i(SHEET_TAG) { "debug report copied: links=${links.size}" }
+                            },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy resolve report",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = CircleShape,

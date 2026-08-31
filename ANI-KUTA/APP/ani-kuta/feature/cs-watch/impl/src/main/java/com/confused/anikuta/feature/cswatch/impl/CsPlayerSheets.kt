@@ -82,8 +82,14 @@ import org.koin.compose.koinInject
 //  Shared sheet scaffolding (the aniyomi sheets' chrome, replicated)
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * The sheet-height cap. Task 57 (P6a): the SUBTITLES sheet caps at 0.55 (the
+ * v0.4.4 device round found 0.70 too tall — it swallowed the player); the
+ * other sheets keep the 0.70 default.
+ */
 @Composable
-private fun csSheetMaxHeight() = LocalConfiguration.current.screenHeightDp.dp * 0.70f
+private fun csSheetMaxHeight(fraction: Float = 0.70f) =
+    LocalConfiguration.current.screenHeightDp.dp * fraction
 
 @Composable
 private fun CsSheetCloseButton(onDismiss: () -> Unit) {
@@ -105,7 +111,12 @@ private fun CsSheetCloseButton(onDismiss: () -> Unit) {
     }
 }
 
-/** The aniyomi TrackRow: 10dp rounded card, selected = primary tint + border + check. */
+/**
+ * The aniyomi TrackRow: 10dp rounded card, selected = primary tint + border + check.
+ * Task 57 (P2): [flavors] renders the merged-row variant pills (SUB/DUB) —
+ * compact 9sp chips after the label, the episodes-sheet counterpart of the
+ * watch page's row pills.
+ */
 @Composable
 private fun CsTrackRow(
     label: String,
@@ -113,6 +124,7 @@ private fun CsTrackRow(
     enabled: Boolean = true,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    flavors: List<String> = emptyList(),
 ) {
     Surface(
         color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
@@ -139,6 +151,27 @@ private fun CsTrackRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Task 57 (P2): the merged row's variant pills — compact chips in
+            // the sheet-row scale (the switcher carries the flavor in SEPARATE
+            // mode, so only COMBINED rows arrive with flavors).
+            flavors.forEach { flavor ->
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                ) {
+                    Text(
+                        text = flavor,
+                        fontFamily = RobotoFamily,
+                        fontSize = 9.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
             if (isSelected) {
                 Icon(
                     imageVector = Icons.Default.Check,
@@ -315,10 +348,22 @@ internal fun CsSubtitlesSheet(
     tracks: List<CsTextTrack>,
     selectedTrackId: String?,
     onSelect: (CsTextTrack?) -> Unit,
-    /** Sidecar subs NOT yet attached to the player (arrived after playback started) —
-     *  selecting one reloads the stream so they attach (upstream REQUIRES_RELOAD). */
-    pendingSubs: List<com.confused.anikuta.core.csplayer.CsSubtitle> = emptyList(),
-    onPendingSubSelect: (com.confused.anikuta.core.csplayer.CsSubtitle) -> Unit = {},
+    /**
+     * Task 57 (round 17 — the overlay subtitle system): provider (sidecar)
+     * subtitles — fetched + parsed + rendered by the SCREEN's Compose overlay
+     * ([CsSubtitleFetcher] → [CsSubtitleParser] → cues). Selecting one NEVER
+     * reloads the player (the old upstream REQUIRES_RELOAD dance was the
+     * v0.4.4 round's crash-then-zero-subs finding); tapping hands the sub to
+     * [onProviderSubSelect].
+     */
+    providerSubs: List<com.confused.anikuta.core.csplayer.CsSubtitle> = emptyList(),
+    selectedProviderSubId: String? = null,
+    /** The provider sub currently fetching (its row renders the loading state). */
+    providerLoadingId: String? = null,
+    /** The provider sub whose fetch FAILED (its row shows the typed reason; tapping retries). */
+    providerFailedId: String? = null,
+    providerFailedReason: String? = null,
+    onProviderSubSelect: (com.confused.anikuta.core.csplayer.CsSubtitle) -> Unit = {},
     /** Embedded audio tracks (Task 53 / RC-7) — sectioned in when there is a real choice. */
     audioTracks: List<com.confused.anikuta.core.csplayer.CsAudioTrackInfo> = emptyList(),
     selectedAudioId: String? = null,
@@ -337,7 +382,9 @@ internal fun CsSubtitlesSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = csSheetMaxHeight())
+                // Task 57 (P6a): 0.55 — the device round's "sheet too tall"
+                // (0.70 swallowed the player behind it).
+                .heightIn(max = csSheetMaxHeight(0.55f))
                 .padding(top = 20.dp)
                 .navigationBarsPadding(),
         ) {
@@ -445,57 +492,57 @@ internal fun CsSubtitlesSheet(
                     }
                 }
 
-                // ── "Off" — ALWAYS the first subtitle entry ──
+                // ── "Off" — ALWAYS the first subtitle entry. Task 57: OFF means
+                //    BOTH domains dark (no engine text track + no overlay sub). ──
                 item(key = "off") {
                     CsTrackRow(
                         label = "Off",
-                        isSelected = selectedTrackId == null,
+                        isSelected = selectedTrackId == null && selectedProviderSubId == null,
                         onClick = {
                             onSelect(null)
                         },
                     )
                 }
 
-                // ── Subtitle sections ──
-                val sidecar = tracks.filter { !it.embedded }
-                val embedded = tracks.filter { it.embedded }
-                if (sidecar.isNotEmpty()) {
-                    item(key = "sec-sidecar") { CsSheetSectionLabel("From provider") }
-                    items(sidecar, key = { "s-${it.groupIndex}-${it.trackIndex}" }) { track ->
+                // ── Provider subtitles (Task 57: OUR overlay — fetch + parse +
+                //    render, NO reload, ever). The row states ride the screen's
+                //    fetch state: loading (dimmed, disabled), failed (typed
+                //    reason on the label; tapping RETRIES), selected (tint). ──
+                if (providerSubs.isNotEmpty()) {
+                    item(key = "sec-provider") { CsSheetSectionLabel("From provider") }
+                    items(providerSubs, key = { "p-${it.id}" }) { sub ->
+                        val isLoading = sub.id == providerLoadingId
+                        val isFailed = sub.id == providerFailedId
+                        val suffix = when {
+                            isLoading -> " · loading…"
+                            isFailed -> providerFailedReason?.let { " · $it" } ?: " · failed"
+                            else -> ""
+                        }
                         CsTrackRow(
-                            label = track.name,
-                            isSelected = track.id == selectedTrackId,
-                            onClick = { onSelect(track) },
+                            label = sub.displayName + suffix,
+                            isSelected = sub.id == selectedProviderSubId,
+                            enabled = !isLoading,
+                            onClick = { onProviderSubSelect(sub) },
                         )
                     }
                 }
-                if (embedded.isNotEmpty()) {
+
+                // ── Embedded container text tracks (the engine's live track
+                //    selection — Task 57: textTracks() reports embedded-only
+                //    now; provider subs above render through the overlay). ──
+                if (tracks.isNotEmpty()) {
                     item(key = "sec-embedded") { CsSheetSectionLabel("Embedded in video") }
-                    items(embedded, key = { "e-${it.groupIndex}-${it.trackIndex}" }) { track ->
+                    items(tracks, key = { "e-${it.groupIndex}-${it.trackIndex}" }) { track ->
                         CsTrackRow(
                             label = track.name,
                             isSelected = track.id == selectedTrackId,
                             onClick = { onSelect(track) },
-                        )
-                    }
-                }
-                if (pendingSubs.isNotEmpty()) {
-                    // Task 55: friendlier label + language display names (the
-                    // v0.4.2 round saw URLs here — never again).
-                    item(key = "sec-pending") {
-                        CsSheetSectionLabel("From provider (needs reload)")
-                    }
-                    items(pendingSubs, key = { "p-${it.id}" }) { sub ->
-                        CsTrackRow(
-                            label = "${sub.displayName}  ↻",
-                            isSelected = false,
-                            onClick = { onPendingSubSelect(sub) },
                         )
                     }
                 }
 
                 // Empty message (below "Off" — the aniyomi pattern).
-                if (tracks.isEmpty() && pendingSubs.isEmpty()) {
+                if (tracks.isEmpty() && providerSubs.isEmpty()) {
                     item(key = "empty-msg") {
                         Text(
                             text = "No subtitles found in this stream.\nThe provider may not provide external subtitles.",
@@ -656,6 +703,10 @@ internal fun CsEpisodesSheet(
                             (episode.name.ifBlank { "Episode ${displayNumber.toInt()}" }),
                         isSelected = isCurrent,
                         onClick = { onSelect(episode) },
+                        // Task 57 (P2): merged COMBINED rows carry their variant
+                        // pills — the compact-sheet counterpart of the watch
+                        // page's row pills (SEPARATE rows are always empty).
+                        flavors = episode.flavors,
                     )
                 }
             }

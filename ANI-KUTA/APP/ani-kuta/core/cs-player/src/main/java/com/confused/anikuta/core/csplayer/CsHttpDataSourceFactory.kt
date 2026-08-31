@@ -56,13 +56,9 @@ class CsHttpDataSourceFactory(
             .setDefaultRequestProperties(cleanedHeaders)
     }
 
-    /** Factory for one sidecar subtitle file (its headers may differ from the video's). */
-    fun forSubtitle(sub: CsSubtitle): HttpDataSource.Factory =
-        OkHttpDataSource.Factory(baseClient)
-            .setUserAgent(defaultUserAgent)
-            .setDefaultRequestProperties(sub.headers)
-
-    /** Factory for one external audio track. */
+    /** Factory for one external audio track.
+     *  (Task 57: sidecar subtitles left the engine — they render through the
+     *  screen's overlay pipeline now, so there is no subtitle DataSource here.) */
     fun forAudioTrack(audio: CsAudioTrack): HttpDataSource.Factory =
         OkHttpDataSource.Factory(baseClient)
             .setUserAgent(defaultUserAgent)

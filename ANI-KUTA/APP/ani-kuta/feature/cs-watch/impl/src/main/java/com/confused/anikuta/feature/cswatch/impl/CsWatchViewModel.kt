@@ -26,9 +26,11 @@ import kotlinx.coroutines.launch
  *
  * Screen ↔ ViewModel contract: the screen observes [uiState]; whenever
  * [CsWatchUiState.playRequestId] changes it drives the engine
- * (start/switchLink with [CsWatchUiState.playLink] + [CsWatchUiState.playSubtitles]
- * + [CsWatchUiState.playStartPositionMs]). Engine events flow the other way
- * through [onEngineError] / [onEpisodeEnded].
+ * (start/switchLink with [CsWatchUiState.playLink] +
+ * [CsWatchUiState.playStartPositionMs] — Task 57: provider subtitles now
+ * render through the screen's overlay pipeline, so the engine plays the bare
+ * video+audio sources). Engine events flow the other way through
+ * [onEngineError] / [onEpisodeEnded].
  */
 class CsWatchViewModel(
     private val resolver: CloudstreamLinkResolver,
@@ -88,7 +90,6 @@ class CsWatchViewModel(
         /** Bumped whenever the engine should (re)load — the screen's play trigger. */
         val playRequestId: Int = 0,
         val playLink: CsVideoLink? = null,
-        val playSubtitles: List<CsSubtitle> = emptyList(),
         val playStartPositionMs: Long = 0L,
         /** Whether this play request should SEEK to playStartPositionMs (resume) or reset (link switch). */
         val playIsResume: Boolean = false,
@@ -123,6 +124,70 @@ class CsWatchViewModel(
         val hiddenTorrentCount: Int,
         val unsupportedDrmCount: Int,
     )
+
+    // ── Task 57 (round 17): linked sub/dub progress identity ──────────────────
+
+    /**
+     * Task 57 (P1): per-flavor ordinals for the CURRENT episode list, keyed by
+     * the row's data handle (see [CsSubDubSiblings.flavorOrdinals]). Recomputed
+     * on every [seedAndResolve]/[adoptSeed]/[selectEpisode] — the list rides
+     * the key, so it is immutable between those points.
+     *
+     * The PROGRESS/RATING identity of a sub/dub-tagged episode is its flavor
+     * ORDINAL: sub-5 ↔ dub-5 are ONE episode (same cover, thumbnail, title,
+     * description, release date — the user's "linked together" contract), so
+     * they share one watch-progress row, one watched state and one rating.
+     * Untagged lists have an empty map → the raw episode number stays the
+     * identity (and sub-only tagged lists already have ordinal == raw).
+     */
+    private var flavorOrdinals: Map<String, Int> = emptyMap()
+
+    /** The progress-map observed for the current content (Task 57 — watch page rows). */
+    private val _episodeProgress = MutableStateFlow<Map<String, com.confused.anikuta.core.watchprogress.WatchProgress>>(emptyMap())
+
+    /**
+     * Task 57 (P1): the current content's watch-progress rows (keyed by
+     * episodeKey) — the watch page's episode rows render watched dimming +
+     * progress fractions from this. Sub and dub rows of the same episode
+     * resolve to the SAME entry (the ordinal identity above).
+     */
+    val episodeProgress: StateFlow<Map<String, com.confused.anikuta.core.watchprogress.WatchProgress>> =
+        _episodeProgress.asStateFlow()
+
+    private var progressJob: Job? = null
+
+    /** Observes (or resets) the progress map for [mainId]. */
+    private fun observeProgress(mainId: String) {
+        progressJob?.cancel()
+        if (mainId.isBlank()) {
+            _episodeProgress.value = emptyMap()
+            return
+        }
+        progressJob = viewModelScope.launch {
+            runCatching {
+                watchProgressStore.observeByMainId(mainId).collect { list ->
+                    _episodeProgress.value = list.associateBy { it.episodeKey }
+                }
+            }.onFailure {
+                Logger.w(TAG) { "progress observe failed: ${it.message}" }
+            }
+        }
+    }
+
+    /**
+     * Task 57 (P1): the CURRENT episode's progress identity number — the flavor
+     * ordinal for tagged lists (shared with the sibling), else the raw number.
+     */
+    fun progressEpisodeNumber(): Int {
+        val key = currentKey ?: return 0
+        return flavorOrdinals[key.episodeData] ?: key.episodeNumber.toInt()
+    }
+
+    /** The CURRENT episode's standardized progress/rating key (ordinal-aware). */
+    fun progressEpisodeKey(): String {
+        val key = currentKey ?: return ""
+        return episodeKey(key.mainId, progressEpisodeNumber().toFloat())
+    }
 
     /** The resolve sheet calls this right before navigating to the watch screen. */
     fun seedResolution(seed: PreResolvedSeed) {
@@ -197,10 +262,12 @@ class CsWatchViewModel(
         // this seed.
         resolveJob?.cancel()
         resolveJob = null
-        pendingSubSelectId = null
 
         val key = seed.key
         currentKey = key
+        flavorOrdinals = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
+            .flavorOrdinals(key.parseEpisodeList())
+        observeProgress(key.mainId)
         val generation = _uiState.value.resolveGeneration + 1
         Logger.i(TAG) {
             "open: SEEDED '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
@@ -275,6 +342,9 @@ class CsWatchViewModel(
 
     private fun seedAndResolve(key: CsWatchKey) {
         currentKey = key
+        flavorOrdinals = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
+            .flavorOrdinals(key.parseEpisodeList())
+        observeProgress(key.mainId)
         Logger.i(TAG) {
             "open: '${key.animeTitle}' EP ${key.episodeNumber} provider=${key.providerName} " +
                 "mainId=${key.mainId.take(8)}… episodes=${key.parseEpisodeList().size} resumeHint=${key.startPosition}ms"
@@ -342,9 +412,17 @@ class CsWatchViewModel(
                                 }
                                 perHandleHidden[index] = event.hiddenTorrentCount
                                 perHandleDrm[index] = event.unsupportedDrmCount
+                                // Task 57 (P3 — combined reliability): the merge
+                                // dedup key is (url + audio label), NOT the bare
+                                // URL. Providers that serve the SAME encode URL
+                                // under both the sub and the dub handle used to
+                                // lose the ENTIRE second flavor here (url-dedup
+                                // dropped its links) — "sometimes the dub
+                                // episodes don't resolve". Both flavors now
+                                // survive and land in their own accordion groups.
                                 val known = mutableSetOf<String>()
                                 val merged = handles.indices.flatMap { i -> perHandle[i].orEmpty() }
-                                    .filter { known.add(it.url) }
+                                    .filter { known.add(it.url + "\u0000" + it.audioLabel) }
                                 val hadLinks = _uiState.value.links.isNotEmpty()
                                 _uiState.value = _uiState.value.copy(
                                     links = merged,
@@ -478,7 +556,6 @@ class CsWatchViewModel(
             playRequestId = state.playRequestId + 1,
             playGeneration = state.resolveGeneration,
             playLink = link,
-            playSubtitles = state.subtitles,
             playStartPositionMs = startPositionMs,
             playIsResume = isResume,
             playKeepPosition = keepPosition,
@@ -607,31 +684,17 @@ class CsWatchViewModel(
         startResolution(currentKey!!)
     }
 
-    /** Re-loads the CURRENT link so late-arriving sidecar subtitles attach (the
-     *  upstream REQUIRES_RELOAD pattern): playRequestId++ with isResume=false
-     *  → the screen's switchLink keeps the position; the pending auto-select id
-     *  is consumed by the screen once the reloaded tracks expose it. */
-    fun reattachSubtitles(autoSelectSub: CsSubtitle?) {
-        val link = _uiState.value.currentLink ?: return
-        Logger.i(TAG) {
-            "reattachSubtitles: reloading '${link.displayLabel}' with " +
-                "${_uiState.value.subtitles.size} subtitle(s)" +
-                if (autoSelectSub != null) ", will select '${autoSelectSub.name}'" else ""
-        }
-        pendingSubSelectId = autoSelectSub?.id
-        requestPlay(link, 0L, isResume = false, keepPosition = true)
-    }
-
-    /** One-shot: the subtitle id to auto-select after a reattach (nulls when read). */
-    fun consumePendingSubSelectId(): String? = pendingSubSelectId.also { pendingSubSelectId = null }
-
-    private var pendingSubSelectId: String? = null
-
     /** Re-resolve from scratch (the error overlay's retry button). */
     fun retryResolution() {
         val key = currentKey ?: return
-        resolver.invalidate(key.providerName, key.episodeData)
-        Logger.i(TAG) { "retry resolution requested" }
+        // Task 57 (P3): invalidate BOTH handles' caches — COMBINED resolves the
+        // tapped handle + its sibling; a stale sibling cache would resurrect
+        // the same failed resolution inside the next dual-resolve.
+        val combined = episodeListPreferences.subDubMode.get() == "COMBINED"
+        val handles = com.confused.anikuta.feature.cswatch.api.CsSubDubSiblings
+            .handlesFor(key.parseEpisodeList(), key.episodeData, combined)
+        handles.forEach { resolver.invalidate(key.providerName, it.data) }
+        Logger.i(TAG) { "retry resolution requested (${handles.size} handle cache(s) invalidated)" }
         startResolution(key)
     }
 
@@ -640,8 +703,11 @@ class CsWatchViewModel(
     /** The saved resume position for the CURRENT episode (milliseconds), 0 when fresh. Suspend — DB read. */
     private suspend fun lookupResumePositionMs(): Long {
         val key = currentKey ?: return 0L
+        // Task 57 (P1): ordinal-aware — the sub and dub rows of one episode
+        // share the stored position, so a flavor switch resumes where the
+        // other flavor left off (the "linked together" contract).
         val stored = runCatching {
-            watchProgressStore.get(episodeKey(key.mainId, key.episodeNumber))
+            watchProgressStore.get(progressEpisodeKey())
         }.getOrNull()
         return stored?.takeIf { it.position > 0 && !it.isWatched }?.position?.times(1000L) ?: 0L
     }
@@ -650,7 +716,9 @@ class CsWatchViewModel(
     fun saveProgress(positionMs: Long, durationMs: Long) {
         val key = currentKey ?: return
         if (durationMs <= 0) return
-        val epKey = episodeKey(key.mainId, key.episodeNumber)
+        // Task 57 (P1): the ordinal-aware key — sub and dub rows of the SAME
+        // episode write to one row (watching sub 80% shows 80% on the dub too).
+        val epKey = progressEpisodeKey()
         viewModelScope.launch {
             val previous = runCatching { watchProgressStore.get(epKey) }.getOrNull()
             val progress = WatchProgress(

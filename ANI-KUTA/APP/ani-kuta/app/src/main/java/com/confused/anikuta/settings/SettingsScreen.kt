@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
@@ -49,6 +50,7 @@ fun SettingsScreen(
     onOpenPlayerSettings: () -> Unit,
     onOpenVideoCaching: () -> Unit,
     onOpenConsoleLogs: () -> Unit,
+    onOpenDebug: () -> Unit,
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -160,10 +162,16 @@ fun SettingsScreen(
                         )
                     }
 
-                    // ── Debug (Phase DB) — debug builds only; no-op in release ──
+                    // ── Debug (Task 57 / round 17) — dedicated page: bubble (debug builds),
+                    // resolve-list source details + copy button (release too). ──
                     item {
                         SettingsSectionLabel("Debug")
-                        com.confused.anikuta.DebugBubbleToggle()
+                        MoreListRow(
+                            icon = Icons.Filled.BugReport,
+                            title = "Debug options",
+                            subtitle = "Debug bubble, source details, resolve-list copy button",
+                            onClick = onOpenDebug,
+                        )
                     }
                 }
 

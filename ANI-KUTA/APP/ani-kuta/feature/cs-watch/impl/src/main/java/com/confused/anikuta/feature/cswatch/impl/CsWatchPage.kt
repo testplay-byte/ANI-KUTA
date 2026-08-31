@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -102,6 +103,15 @@ internal fun CsWatchPage(
     currentEpisodeData: String,
     ratingStore: com.confused.anikuta.core.ratings.RatingStore = koinInject(),
     mainId: String,
+    /**
+     * Task 57 (round 17 — P1): the current content's watch-progress rows,
+     * keyed by [CsWatchViewModel.episodeKey] — the episode rows below render
+     * watched dimming + a thin progress bar from this. Sub and dub rows of
+     * the SAME episode resolve to the SAME entry (the ordinal identity),
+     * so watching sub-EP-5 shows on the dub-EP-5 row too. Default empty —
+     * the caller (CsWatchScreen) wires the VM's episodeProgress map.
+     */
+    progressByEpisodeKey: Map<String, com.confused.anikuta.core.watchprogress.WatchProgress> = emptyMap(),
 ) {
     val listState = rememberLazyListState()
 
@@ -135,14 +145,24 @@ internal fun CsWatchPage(
         episodeRows.map { it.copy(name = CsSubDubSiblings.stripTag(it.name)) }
     }
 
+    // Task 57 (P1): the CURRENT episode's rating/progress identity — the
+    // flavor ORDINAL for tagged lists (sub-5 ↔ dub-5 share ONE key: one
+    // rating, one progress row — the "linked together" contract), else the
+    // raw number. .toFloat() — Int? ?: Float infers Number, which a Float
+    // param rejects (Kotlin never widens numerics).
+    val identityNumber = flavorOrdinals[currentEpisodeData]?.toFloat()
+        ?: uiState.episodeNumber
+    val ratingEpisodeKey = if (mainId.isNotBlank()) {
+        CsWatchViewModel.episodeKey(mainId, identityNumber)
+    } else null
+
     // Per-episode rating (the aniyomi page's Phase-4 star bar — same store,
     // same keys, CS content rides it identically).
     val ratingScope = rememberCoroutineScope()
     var episodeRating by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(mainId, uiState.episodeNumber) {
-        if (mainId.isNotBlank()) {
-            val epKey = CsWatchViewModel.episodeKey(mainId, uiState.episodeNumber)
-            episodeRating = runCatching { ratingStore.getEpisodeRating(mainId, epKey) }.getOrNull()
+        if (ratingEpisodeKey != null) {
+            episodeRating = runCatching { ratingStore.getEpisodeRating(mainId, ratingEpisodeKey) }.getOrNull()
         }
     }
 
@@ -270,8 +290,8 @@ internal fun CsWatchPage(
                             // Same blank-mainId guard as the read above — CS-only
                             // content with no mainId must not write ratings under
                             // the shared "" namespace.
-                            if (mainId.isNotBlank()) {
-                                val epKey = CsWatchViewModel.episodeKey(mainId, uiState.episodeNumber)
+                            if (ratingEpisodeKey != null) {
+                                val epKey = ratingEpisodeKey
                                 ratingScope.launch {
                                     if (stars <= 0) {
                                         ratingStore.deleteEpisodeRating(mainId, epKey)
@@ -357,18 +377,29 @@ internal fun CsWatchPage(
                     // tag shows the per-flavor ORDINAL (the raw number is the
                     // identity: progress/cache/metadata keys + the metadata
                     // lookup below still use the raw number).
+                    // Task 57 (P1): the ordinal-aware number is also the row's
+                    // PROGRESS identity — sub-5 / dub-5 / their COMBINED merge
+                    // read ONE progress row; (P2) merged rows carry their
+                    // flavor tags as render-only pills.
                     items(renderRows, key = { it.data }) { ep ->
                         val isCurrent = ep.data == currentEpisodeData
                         // .toFloat(): the elvis of Int? and Float infers Number —
                         // the displayNumber param is Float (no numeric widening).
                         val displayNumber = flavorOrdinals[ep.data]?.toFloat()
                             ?: ep.episodeNumber
+                        val rowKey = if (mainId.isNotBlank()) {
+                            CsWatchViewModel.episodeKey(mainId, displayNumber)
+                        } else null
+                        val rowProgress = rowKey?.let { progressByEpisodeKey[it] }
                         val meta = uiState.episodeMetadata[ep.episodeNumber.toInt()]
                         CsEpisodeListRow(
                             episode = ep,
                             displayNumber = displayNumber,
                             metadata = meta,
                             isCurrent = isCurrent,
+                            flavors = ep.flavors,
+                            isWatched = rowProgress?.isWatched ?: false,
+                            progressFraction = rowProgress?.progressFraction ?: 0f,
                             onClick = {
                                 if (!isCurrent) onEpisodeSwitch(ep)
                             },
@@ -545,9 +576,19 @@ private fun CsEpisodeListRow(
     /**
      * Task 56: the EP tag + title-fallback number — the per-flavor ORDINAL
      * for sub/dub-tagged rows (Dub restarts at 1), else the raw number.
-     * Identity (data/episodeNumber) is untouched.
+     * Identity (data/episodeNumber) is untouched. Task 57 (P1): the SAME
+     * number is the row's progress/rating identity key.
      */
     displayNumber: Float = episode.episodeNumber,
+    /**
+     * Task 57 (round 17 — P2): the row's audio-version pills (COMBINED merged
+     * rows carry ["SUB", "DUB"]); empty = no pills. Render-only data.
+     */
+    flavors: List<String> = emptyList(),
+    /** Task 57 (P1): watched rows dim (aniyomi EpisodeRow language). */
+    isWatched: Boolean = false,
+    /** Task 57 (P1): 0..1 watch fraction — renders the thin bar below. */
+    progressFraction: Float = 0f,
 ) {
     val displayTitle = metadata?.title
         ?: com.confused.anikuta.core.common.EpisodeTitleParser
@@ -562,8 +603,13 @@ private fun CsEpisodeListRow(
     val subDub = metadata?.scanlator?.takeIf { it.isNotBlank() }
 
     Surface(
-        color = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = when {
+            isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+            // Task 57 (P1): watched rows dim (the aniyomi EpisodeRow language —
+            // current-row tint always wins).
+            isWatched -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        },
         shape = RoundedCornerShape(12.dp),
         border = if (isCurrent) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier
@@ -652,7 +698,7 @@ private fun CsEpisodeListRow(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
-                    if (dateText != null || subDub != null) {
+                    if (dateText != null || subDub != null || flavors.isNotEmpty()) {
                         Spacer(Modifier.height(6.dp))
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -695,6 +741,27 @@ private fun CsEpisodeListRow(
                                     )
                                 }
                             }
+                            // Task 57 (P2): flavor pills — one per merged variant,
+                            // the row's existing pill language (the COMBINED
+                            // merge's restored flavor signal).
+                            flavors.forEach { flavor ->
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                ) {
+                                    Text(
+                                        text = flavor,
+                                        fontFamily = RobotoFamily,
+                                        fontSize = 10.sp,
+                                        lineHeight = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -717,6 +784,27 @@ private fun CsEpisodeListRow(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                }
+            }
+            // ── Task 57 (P1): thin watch-progress bar at the row's bottom —
+            // partial watches ONLY (fully-watched rows dim instead; the
+            // aniyomi details row's YouTube-style signal, flattened to the
+            // row width here). Width = the fraction of the row.
+            if (progressFraction > 0f && !isWatched) {
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progressFraction.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary),
                     )
                 }
             }

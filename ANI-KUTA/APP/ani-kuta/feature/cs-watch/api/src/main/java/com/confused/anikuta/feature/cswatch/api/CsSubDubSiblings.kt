@@ -121,6 +121,13 @@ object CsSubDubSiblings {
      * the Sub row's data handle kept (the resolve flow re-finds the sibling
      * from the full list). Untagged lists pass through unchanged. Shared by
      * the CS watch page and the episodes sheet.
+     *
+     * Task 57 (round 17 — P2): a merged row SHOWS its variants — it carries
+     * [CsSimpleEpisode.flavors] = the pair's ACTUAL two tags (e.g.
+     * ["SUB", "DUB"]), so the row renders small flavor pills. Round 16
+     * removed the tags from names (device feedback F3a); round 17 restores
+     * the signal as structured data instead of name text. Untagged and
+     * unmerged rows keep `flavors` empty.
      */
     fun mergeSiblings(episodes: List<CsSimpleEpisode>): List<CsSimpleEpisode> {
         if (episodes.none { tagOf(it.name) != null }) return episodes
@@ -148,10 +155,16 @@ object CsSubDubSiblings {
             } else {
                 usedData += sibling.data
                 // The primary row keeps its data (Sub wins — the resolve flow
-                // resolves both anyway); the name loses the tag.
+                // resolves both anyway); the name loses the tag, the flavors
+                // pill pair rides the merge (Task 57 P2 — the pair's actual
+                // two tags, primary's first).
                 val primary = if (tag == "SUB") ep else sibling
+                val counterpart = if (tag == "SUB") sibling else ep
                 usedData += primary.data
-                out += primary.copy(name = stripTag(primary.name))
+                out += primary.copy(
+                    name = stripTag(primary.name),
+                    flavors = listOf(tagOf(primary.name)!!, tagOf(counterpart.name)!!),
+                )
             }
         }
         return out

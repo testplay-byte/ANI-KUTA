@@ -90,6 +90,14 @@ data class CsSimpleEpisode(
     val data: String,
     val episodeNumber: Float,
     val name: String,
+    /**
+     * Task 57 (round 17 — P2): the row's audio-version tags, render-only.
+     * COMBINED merged rows carry their variant tags ("SUB", "DUB") so the
+     * watch page's episode list can draw the flavor pills round 16 removed
+     * from names; SEPARATE/untagged rows stay empty. Never serialized, never
+     * an identity field (data/episodeNumber remain the row's identity).
+     */
+    val flavors: List<String> = emptyList(),
 )
 
 /**
