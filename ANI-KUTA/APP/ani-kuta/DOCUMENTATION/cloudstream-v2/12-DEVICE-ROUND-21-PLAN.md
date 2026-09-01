@@ -196,3 +196,10 @@ LibraryScreen, DownloadedFilesScreen, AdsConfig, AdsCoordinator, AdsModule,
 SearchViewModel, SearchScreen, CloudstreamContentRepository, CsCategoryKey (new),
 CsCategoryViewModel (new), CsCategoryScreen (new), SearchModule, MainActivity,
 ImageLoaderFactory, AndroidConfig.
+
+Execution note 3 (post-CI): the first push FAILED on one conflict —
+ExtensionReorderList.kt carried its own PRIVATE 2-param ExtensionIconPlaceholder
+(identical signature to the newly size-parameterized shared one — "Conflicting
+overloads"); the private copy is deleted, the shared tile renders there now.
+CI is the compiler of record: the ONLY two `e:` lines in the whole log were this
+one conflict.

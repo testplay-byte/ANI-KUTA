@@ -241,31 +241,9 @@ private fun ExtensionIcon(icon: android.graphics.drawable.Drawable?, name: Strin
             modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
         )
     } else {
+        // Task 61 (round 21): the shared size-parameterized placeholder from
+        // ExtensionListChrome (this file's private 2-param copy is deleted —
+        // it CONFLICTED with the shared signature after the size param landed).
         ExtensionIconPlaceholder(name, size)
-    }
-}
-
-@Composable
-private fun ExtensionIconPlaceholder(name: String, size: androidx.compose.ui.unit.Dp) {
-    val firstLetter = name.firstOrNull()?.uppercase() ?: "?"
-    val colors = listOf(
-        Color(0xFFB1F256), Color(0xFF7CC8FA), Color(0xFFFF8A65),
-        Color(0xFFE57C9F), Color(0xFFFFB300),
-    )
-    val color = colors[name.hashCode().and(0x7FFFFFFF) % colors.size]
-    Surface(
-        color = color,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.size(size),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = firstLetter,
-                fontFamily = RobotoFamily,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.Black,
-            )
-        }
     }
 }
