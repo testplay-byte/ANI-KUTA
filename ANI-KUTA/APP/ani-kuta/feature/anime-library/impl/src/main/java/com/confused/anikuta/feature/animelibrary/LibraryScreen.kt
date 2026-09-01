@@ -623,6 +623,11 @@ fun LibraryScreen(
                         thickness = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                     )
+                    // Task 61 (round 21): breathing room between the category
+                    // section and the results below (the round-21 spec: "add
+                    // some spacing between the category section and the
+                    // bottom results themselves").
+                    Spacer(Modifier.height(8.dp))
                 }
             }
 
@@ -942,11 +947,37 @@ private fun CategoryTabsRow(
     onSelectCategory: (Long?) -> Unit,
     onLongPressCategory: (LibraryCategory) -> Unit,
 ) {
+    // Task 61 (round 21): the row's OWN state — needed for the auto-scroll
+    // (the selected category must be IN VIEW when the library page opens).
+    val listState = rememberLazyListState()
+
+    // Task 61 (round 21 — the device report: "if I have selected the very
+    // first or very last category then when I open up the library page it
+    // opens it up in the middle. The right or left categories are not
+    // shown"): when the page composes (and whenever the selection or the
+    // category list changes), the row SCROLLS to the SELECTED chip so it is
+    // fully in view — first/last categories included. scrollToItem (no
+    // animation) lands with the first frame; index -1 = nothing to do.
+    LaunchedEffect(categories, selectedCategoryId, showAllTab) {
+        val selectedIndex = when {
+            selectedCategoryId == null && showAllTab -> 0
+            selectedCategoryId == null -> -1
+            else -> {
+                val categoryIndex = categories.indexOfFirst { it.id == selectedCategoryId }
+                if (categoryIndex >= 0 && showAllTab) categoryIndex + 1 else categoryIndex
+            }
+        }
+        if (selectedIndex >= 0) {
+            listState.scrollToItem(selectedIndex)
+        }
+    }
+
     LazyRow(
+        state = listState,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+            .padding(vertical = 0.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         // ── "All" tab (null selection) — only when 2+ categories have items ──
@@ -979,8 +1010,15 @@ private fun CategoryTabsRow(
 /**
  * A single text-based category tab with an underline indicator.
  *
- * - Selected: primary color, FontWeight.ExtraBold, 2dp primary underline.
+ * - Selected: primary color, FontWeight.ExtraBold, 3dp primary underline.
  * - Unselected: onSurfaceVariant, FontWeight.Medium, transparent underline.
+ *
+ * Task 61 (round 21) — the underline reworked per the device spec:
+ *  - it is as WIDE as the category text itself (the Column wraps the text;
+ *    the bar fills it — was a fixed 20dp);
+ *  - a little THICKER (2dp → 3dp) and CLOSER to the text (4dp → 2dp gap);
+ *  - the tab's internal vertical padding shrank (4dp → 2dp) with the row's
+ *    paddings — a tighter category section overall.
  *
  * Long-press is only wired up when [onLongClick] is non-null (i.e. for real
  * categories, not the "All" tab). No background — just text + underline,
@@ -1002,7 +1040,7 @@ private fun CategoryTab(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
@@ -1015,12 +1053,12 @@ private fun CategoryTab(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(4.dp))
-        // ── Underline indicator (animated alpha via the isSelected state) ──
+        // ── Underline indicator — as wide as the text, 3dp thick, 2dp gap ──
+        Spacer(Modifier.height(2.dp))
         Box(
             modifier = Modifier
-                .width(20.dp)
-                .height(2.dp)
+                .fillMaxWidth()
+                .height(3.dp)
                 .background(
                     color = if (isSelected) MaterialTheme.colorScheme.primary
                             else Color.Transparent,

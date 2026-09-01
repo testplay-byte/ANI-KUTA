@@ -2700,3 +2700,45 @@ The round-19 overlay Text passed `fontSize` but NOT `lineHeight` — material3's
 - **Files:** CsSourceListUi.kt, CsResolveSheet.kt, CsPlayerSheets.kt, ResolverSheet.kt, PlayerSheets.kt, CsSharedPluginFormat.kt (+ test), PluginImportActivity.kt, ExtensionsSettingsKey.kt, ExtensionsSettingsScreen.kt, MainActivity.kt, DownloadsScreen.kt, DownloadedFilesScreen.kt, DownloadViewModel.kt.
 - **Status:** ✅ Implemented (Task 60 / round 20, v0.4.8/73).
 - **Date:** 2026-09-01.
+
+### D-394 — Task 61: never-blank image slots (SubcomposeAsyncImage fallbacks + http-only export iconUrls)
+
+The "no plugin icon anywhere" report had TWO causes: (1) every icon URL slot was a bare `AsyncImage` — a failed load (404 / network / a `file://` iconUrl that points at the SENDER's device — the share path exported the receiver-meaningless local URI into export.json) rendered a BLANK box, no error fallback; (2) the "Plugin added" card never rendered the plugin's icon at all. The rule now: EVERY image slot that can fail renders fallbacks in BOTH the loading and error slots (`SubcomposeAsyncImage`) — the extensions list/detail letter tile, the import confirm glyph, the added-card glyph — and export.json only carries http(s) iconUrls (the embedded bytes are the cross-device transport; a file:// URI is never written).
+- **Files:** ExtensionListChrome.kt (CsPluginIcon + size-parameterized placeholder), PluginImportActivity.kt (ConfirmCard + DoneCard + PluginGlyphFallback + the outcome's iconUrl), CloudstreamPluginDetailScreen.kt (share-side filter).
+- **Status:** ✅ Implemented (Task 61 / round 21, v0.4.9/74).
+- **Date:** 2026-09-08.
+
+### D-395 — Task 61: the Format-sources menu anchors ABOVE via Popup BottomStart; a guaranteed label↔toggle gap needs a FIXED spacer + a min menu width
+
+(1) The user's "it should show above it": a `DropdownMenu` only anchors below + a fragile negative offset; a `Popup(Alignment.BottomStart, PopupProperties(focusable = true))` puts the menu's BOTTOM edge on the heading's bottom edge — it always grows upward, deterministically, with the same outside-tap/back dismissal. (2) The "add some spacing" complaint: a `Spacer(weight(1f))` in a WRAP-CONTENT menu collapses to zero (the row is only as wide as its content) — the fix is a FIXED 24dp spacer + `widthIn(min = 220.dp)` so the weight has real space to fill. (3) The label is exactly "Format sources" (not "Formatted sources"). Replicated across the 3 local copies (CsFormattingTitle, ResolverFormattingTitle, WatchFormattingTitle).
+- **Files:** CsSourceListUi.kt, ResolverSheet.kt, PlayerSheets.kt.
+- **Status:** ✅ Implemented (Task 61 / round 21, v0.4.9/74).
+- **Date:** 2026-09-08.
+
+### D-396 — Task 61: the search pagination architecture (PagingMode identity + approach-bottom in composition + soft-fail appends)
+
+(1) The ViewModel records WHICH loader produced the content (`PagingMode`: AniList trending/search, aniyomi popular/search, CS search) + `lastLoadedPage`; `loadMore()` re-runs that loader at page+1 and APPENDS with the grids' key-identity dedupe (the D-304 duplicate-key guard — page overlaps can never crash the grid). `beginRequest()` cancels the in-flight load-more like any superseded request. (2) The UI trigger reads `gridState.layoutInfo` IN COMPOSITION — the item-count read re-keys the LaunchedEffect on every append, so the near-bottom check re-fires and scrolling stays continuous (a snapshotFlow would NOT re-emit while the boolean stays true); the 6-item (~2 rows) threshold implements the "about to reach the bottom" pre-fetch, and the full-span "Loading more…" footer covers the beat-the-prefetch case. (3) A failed page load is SOFT — the footer disappears, the results stay, the next trigger retries. (4) AniList pages by the full-page heuristic (its API hides pageInfo); aniyomi reads `AnimesPage.hasNextPage`; CS reads the repository's `hasNext`.
+- **Files:** SearchViewModel.kt, SearchScreen.kt.
+- **Status:** ✅ Implemented (Task 61 / round 21, v0.4.9/74).
+- **Date:** 2026-09-08.
+
+### D-397 — Task 61: randomized CS sections keep their ORIGINAL shelf index; the category subpages page via browseShelf
+
+(1) The user's randomization ("every single time the user enters the search page") shuffles the section ROW ORDER at both ViewModel landing sites + onScreenResume (activity entry) + onPageEntered (composition entry: tab switches, subpage returns) — blank query only. The shelf's ORIGINAL provider.mainPage index is captured BEFORE the shuffle (a shuffled index could not resolve the shelf later) and rides the new `ExtensionBrowseSection.shelfIndex`. (2) The category subpage: `CsCategoryKey(providerName, sectionTitle, shelfIndex)` → `CsCategoryScreen` (CollapsingHeader + 3-column grid + the SAME approach-bottom/footer pattern) + `CsCategoryViewModel` (Koin viewModelOf; idempotent load; dedupe-on-append) + the repository's `browseShelf(provider, shelfIndex, page)` (paged getMainPage, NO section cap, honest errors). The section titles on the search page are the touch targets (rounded ripple row).
+- **Files:** SearchViewModel.kt, SearchScreen.kt, CsCategoryKey.kt, CsCategoryViewModel.kt, CsCategoryScreen.kt, SearchModule.kt, CloudstreamContentRepository.kt, MainActivity.kt.
+- **Status:** ✅ Implemented (Task 61 / round 21, v0.4.9/74).
+- **Date:** 2026-09-08.
+
+### D-398 — Task 61: the image-loading performance contract (a dedicated 2-request OkHttp clone under Coil)
+
+The user's "load 1-2 at a time; finish current → in-view → offscreen" is implemented as a REAL concurrency cap: the Coil ImageLoader's network fetcher rides a `newBuilder()` CLONE of the app's OkHttpClient whose `Dispatcher(maxRequests = 2, maxRequestsPerHost = 2)` throttles ONLY image fetches (the app client's dispatcher is shared state — capping it would throttle everything; the clone shares the connection pool + interceptors but has its own dispatcher). FIFO ordering + Lazy composition (only visible cards + the prefetch window compose) gives exactly the requested priority: in-flight completes, then the visible cards' queued requests, then the offscreen ones. The 500MB disk + 25% memory caches stay; the search/category cards render over a dim `surfaceVariant(0.4f)` placeholder (no white pop-in flash).
+- **Files:** ImageLoaderFactory.kt, SearchScreen.kt, CsCategoryScreen.kt.
+- **Status:** ✅ Implemented (Task 61 / round 21, v0.4.9/74).
+- **Date:** 2026-09-08.
+
+### D-399 — Task 61: the downloaded-episodes two-step delete + the ads offline gate
+
+(1) The two-step delete ("not a full-screen one, a button ON TOP of the delete button"): per-card `confirmDeleteKey` state — the first tap ARMS the button (error tint + `DeleteForever`), the second tap on the SAME button deletes, ANY other interaction (row play, header, chevron, another delete button) disarms. Applies to the per-episode buttons AND delete-all. (2) The ads offline gate: when the ad is DUE but ConnectivityManager reports no INTERNET+VALIDATED network, `requestNavigation` proceeds WITHOUT the popup AND WITHOUT recording the ad (no cooldown starts — the user's "it will wait for the next time the user has internet"); the coordinator takes the app context via Koin `androidContext()` (the module already had koin-android). The URL is the real sponsor link; minTimeOutsideMs 15s → 5s.
+- **Files:** DownloadedFilesScreen.kt, AdsConfig.kt, AdsCoordinator.kt, AdsModule.kt.
+- **Status:** ✅ Implemented (Task 61 / round 21, v0.4.9/74).
+- **Date:** 2026-09-08.

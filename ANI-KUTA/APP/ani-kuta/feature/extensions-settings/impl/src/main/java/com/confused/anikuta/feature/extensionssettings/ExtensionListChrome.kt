@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import com.confused.anikuta.core.common.HapticHelper
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.providerapi.InstallStep
@@ -472,18 +473,27 @@ internal fun ActionIconButton(
  * the shared colorful letter tile as fallback. Moved to the shared chrome in
  * session 3 so the plugin DETAIL screen renders the same icon treatment as the
  * list rows.
+ *
+ * Task 61 (round 21 — the "no icon shown anywhere" device report): the URL
+ * branch used a bare AsyncImage with NO error state — a failed load (a 404,
+ * the network, or a `file://` iconUrl exported from ANOTHER device's shared
+ * file) rendered a BLANK box. Now a SubcomposeAsyncImage: BOTH the loading and
+ * the error slots render the colorful letter tile, so the icon area is NEVER
+ * empty — the user's "a default icon rather than showing nothing".
  */
 @Composable
 internal fun CsPluginIcon(iconUrl: String?, name: String, size: Dp = 40.dp) {
     val resolved = iconUrl?.replace("%size%", "64")?.replace("%exact_size%", "64")
     if (resolved != null) {
-        AsyncImage(
+        SubcomposeAsyncImage(
             model = resolved,
             contentDescription = "$name icon",
             modifier = Modifier.size(size).clip(RoundedCornerShape(8.dp)),
+            loading = { ExtensionIconPlaceholder(name.removeSuffix("Provider"), size) },
+            error = { ExtensionIconPlaceholder(name.removeSuffix("Provider"), size) },
         )
     } else {
-        ExtensionIconPlaceholder(name.removeSuffix("Provider"))
+        ExtensionIconPlaceholder(name.removeSuffix("Provider"), size)
     }
 }
 
@@ -502,8 +512,12 @@ internal fun ExtensionIcon(icon: Drawable?, fallbackName: String) {
     }
 }
 
+/**
+ * The colorful letter tile — the shared "default icon" for extensions/plugins
+ * (Task 61: parameterized size — the plugin DETAIL page renders 56dp rows).
+ */
 @Composable
-internal fun ExtensionIconPlaceholder(name: String) {
+internal fun ExtensionIconPlaceholder(name: String, size: Dp = 40.dp) {
     val firstLetter = name.firstOrNull()?.uppercase() ?: "?"
     val colors = listOf(
         Color(0xFFB1F256), Color(0xFF7CC8FA), Color(0xFFFF8A65),
@@ -513,7 +527,7 @@ internal fun ExtensionIconPlaceholder(name: String) {
     Surface(
         color = color,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.size(40.dp),
+        modifier = Modifier.size(size),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(

@@ -148,12 +148,38 @@ class SearchViewModel(
     private var searchJob: Job? = null
     private var requestGeneration = 0
 
+    // ── Task 61 (round 21): the search page's LOAD-MORE paging state ──
+    /** Which loader produced the current content — [loadMore] re-runs it at page+1. */
+    private var pagingMode: PagingMode? = null
+
+    /** The page of the CURRENT content (loadMore fetches page+1). */
+    private var lastLoadedPage = 1
+
+    /** The in-flight load-more job (canceled by [beginRequest] like the others). */
+    private var loadMoreJob: Job? = null
+
+    /**
+     * Task 61 (round 21): the loader identities [loadMore] can continue —
+     * one per content-producing path (the CS BROWSE feed pages in its own
+     * category subpages, not here).
+     */
+    private enum class PagingMode {
+        ANILIST_TRENDING,
+        ANILIST_SEARCH,
+        ANIYOMI_POPULAR,
+        ANIYOMI_SEARCH,
+        CS_SEARCH,
+    }
+
     /** D-305: starts a new request — cancels superseded loads, returns its generation. */
     private fun beginRequest(): Int {
         searchJob?.cancel()
         defaultsJob?.cancel()
+        loadMoreJob?.cancel()
         searchJob = null
         defaultsJob = null
+        loadMoreJob = null
+        pagingMode = null
         // The "defaults are showing" bookkeeping is invalidated by any new
         // request; the loader re-establishes it when it actually serves defaults.
         showingDefaults = false
@@ -464,6 +490,20 @@ class SearchViewModel(
     var pendingWebViewRefresh: Boolean = false
         private set
 
+    /**
+     * Task 61 (round 21): called from the screen's LaunchedEffect(Unit) —
+     * fires on every FRESH composition of the search screen (tab switches,
+     * returns from the category subpages) complementing [onScreenResume]'s
+     * activity-level entries. Same rule: blank query + sectioned browse →
+     * reshuffle the row order.
+     */
+    fun onPageEntered() {
+        val current = _uiState.value
+        if (_query.value.isBlank() && current is SearchUiState.ExtensionBrowseSuccess) {
+            _uiState.value = current.copy(sections = current.sections.shuffled())
+        }
+    }
+
     /** D-210: Called by the SearchScreen when the user taps "Open in WebView". */
     fun onOpenWebView() {
         pendingWebViewRefresh = true
@@ -480,6 +520,16 @@ class SearchViewModel(
         // a blank query (e.g. trending failed earlier), restore the defaults.
         if (_query.value.isBlank() && _uiState.value is SearchUiState.Idle) {
             loadDefaults()
+        }
+        // Task 61 (round 21 — the randomized CloudStream sections): EVERY entry
+        // into the search page reshuffles the section ROW ORDER (a fresh
+        // random each time — "every single time the user enters the search
+        // page, those results will be shown as randomized"). The shelf
+        // CONTENTS stay intact; only the rows move. Search results (a query
+        // is active) are not sectioned — nothing to shuffle.
+        val current = _uiState.value
+        if (_query.value.isBlank() && current is SearchUiState.ExtensionBrowseSuccess) {
+            _uiState.value = current.copy(sections = current.sections.shuffled())
         }
     }
 
@@ -605,10 +655,14 @@ class SearchViewModel(
                 if (_query.value.isBlank()) return@launch
                 // D-305: a newer request superseded this one — drop the result.
                 if (!isCurrent(gen)) return@launch
+                // Task 61 (round 21): record the paging context — the grid's
+                // approach-bottom trigger continues THIS search at page 2+.
+                pagingMode = PagingMode.ANILIST_SEARCH
+                lastLoadedPage = 1
                 _uiState.value = if (results.isEmpty()) {
                     SearchUiState.Empty
                 } else {
-                    SearchUiState.Success(results = results)
+                    SearchUiState.Success(results = results, hasMore = results.size >= 30)
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -676,7 +730,14 @@ class SearchViewModel(
                     if (cachedResults.isNotEmpty() && _query.value.isBlank() && isCurrent(gen)) {
                         Logger.i(TAG) { "Serving ${cachedResults.size} cached trending as default" }
                         showingDefaults = true
-                        _uiState.value = SearchUiState.Success(results = cachedResults)
+                        // Task 61 (round 21): the cached feed pages too (the
+                        // network refresh below re-establishes the context).
+                        pagingMode = PagingMode.ANILIST_TRENDING
+                        lastLoadedPage = 1
+                        _uiState.value = SearchUiState.Success(
+                            results = cachedResults,
+                            hasMore = cachedResults.size >= 30,
+                        )
                     }
                 }
             }
@@ -696,7 +757,14 @@ class SearchViewModel(
                     if (!showingDefaults) _uiState.value = SearchUiState.Idle
                 } else {
                     showingDefaults = true
-                    _uiState.value = SearchUiState.Success(results = results)
+                    // Task 61 (round 21): record the paging context (page 1;
+                    // a full page means "probably more").
+                    pagingMode = PagingMode.ANILIST_TRENDING
+                    lastLoadedPage = 1
+                    _uiState.value = SearchUiState.Success(
+                        results = results,
+                        hasMore = results.size >= 30,
+                    )
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -756,6 +824,10 @@ class SearchViewModel(
                 if (_query.value.isNotBlank()) return@launch
                 // D-305: a newer request superseded this one — drop the result.
                 if (!isCurrent(gen)) return@launch
+                // Task 61 (round 21): record the paging context — AnimesPage
+                // carries hasNextPage natively.
+                pagingMode = PagingMode.ANIYOMI_POPULAR
+                lastLoadedPage = 1
                 _uiState.value = if (results.isEmpty()) {
                     // D-209: distinguish extension-empty from AniList-empty so the
                     // UI can show the source name + a Refresh button (the empty result
@@ -763,7 +835,7 @@ class SearchViewModel(
                     SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
                 } else {
                     showingDefaults = true
-                    SearchUiState.ExtensionSuccess(results = results)
+                    SearchUiState.ExtensionSuccess(results = results, hasMore = page.hasNextPage)
                 }
             } catch (e: Throwable) {
                 // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
@@ -829,11 +901,15 @@ class SearchViewModel(
                 if (_query.value.isBlank()) return@launch
                 // D-305: a newer request superseded this one — drop the result.
                 if (!isCurrent(gen)) return@launch
+                // Task 61 (round 21): record the paging context — the grid's
+                // approach-bottom trigger continues THIS search at page 2+.
+                pagingMode = PagingMode.ANIYOMI_SEARCH
+                lastLoadedPage = 1
                 _uiState.value = if (results.isEmpty()) {
                     // D-209: distinguish extension-empty from AniList-empty.
                     SearchUiState.ExtensionEmpty(source.name, (source as? AnimeHttpSource)?.baseUrl)
                 } else {
-                    SearchUiState.ExtensionSuccess(results = results)
+                    SearchUiState.ExtensionSuccess(results = results, hasMore = page.hasNextPage)
                 }
             } catch (e: Throwable) {
                 // Catch Throwable (not Exception) — binary-incompat throws NoClassDefFoundError.
@@ -897,15 +973,24 @@ class SearchViewModel(
                 showingDefaults = true
                 _uiState.value = SearchUiState.ExtensionBrowseSuccess(
                     sourceName = providerName,
-                    sections = cached.map { section ->
-                        ExtensionBrowseSection(
-                            title = section.title,
-                            results = section.items.map { it.toExtensionAnime() },
-                        )
-                    },
+                    // Task 61 (round 21): the section ORDER is randomized on
+                    // every load — the user's "their order will be changed and
+                    // randomly shown" spec. A fresh random each time (also
+                    // re-shuffled on every page re-entry — onScreenResume).
+                    // The ORIGINAL shelf index is captured BEFORE the shuffle
+                    // (the category subpages resolve their shelf by it).
+                    sections = cached.mapIndexed { index, section -> index to section }
+                        .shuffled()
+                        .map { (index, section) ->
+                            ExtensionBrowseSection(
+                                title = section.title,
+                                shelfIndex = index,
+                                results = section.items.map { it.toExtensionAnime() },
+                            )
+                        },
                 )
                 Logger.i(TAG) {
-                    "Browse cache HIT for '$providerName' — rendered ${cached.size} section(s) instantly"
+                    "Browse cache HIT for '$providerName' — rendered ${cached.size} section(s) instantly (randomized order)"
                 }
             } else {
                 if (!isCurrent(gen)) return@launch
@@ -965,12 +1050,19 @@ class SearchViewModel(
                     showingDefaults = true
                     SearchUiState.ExtensionBrowseSuccess(
                         sourceName = source.providerName,
-                        sections = sections.map { section ->
-                            ExtensionBrowseSection(
-                                title = section.title,
-                                results = section.items.map { it.toExtensionAnime() },
-                            )
-                        },
+                        // Task 61 (round 21): randomized section order (the
+                        // user's spec — every load AND every page re-entry);
+                        // the ORIGINAL shelf index is captured BEFORE the
+                        // shuffle (the category subpages resolve by it).
+                        sections = sections.mapIndexed { index, section -> index to section }
+                            .shuffled()
+                            .map { (index, section) ->
+                                ExtensionBrowseSection(
+                                    title = section.title,
+                                    shelfIndex = index,
+                                    results = section.items.map { it.toExtensionAnime() },
+                                )
+                            },
                     )
                 }
             } catch (e: Throwable) {
@@ -1035,12 +1127,16 @@ class SearchViewModel(
                 Logger.i(TAG) { "Got ${results.size} results from $providerName" }
                 if (_query.value.isBlank()) return@launch
                 if (!isCurrent(gen)) return@launch
+                // Task 61 (round 21): record the paging context — the CS
+                // search page carries hasNext from the repository.
+                pagingMode = PagingMode.CS_SEARCH
+                lastLoadedPage = 1
                 _uiState.value = if (results.isEmpty()) {
                     // Task 45: pass the provider's site URL — the empty card's
                     // "Open in WebView" button needs it.
                     SearchUiState.ExtensionEmpty(source.providerName, source.mainUrl.takeHttpUrl())
                 } else {
-                    SearchUiState.ExtensionSuccess(results)
+                    SearchUiState.ExtensionSuccess(results, hasMore = page.hasNext)
                 }
             } catch (e: Throwable) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -1099,6 +1195,219 @@ class SearchViewModel(
         year = year,
     )
 
+    // ── Task 61 (round 21): the search page's LOAD-MORE + refresh ───────────
+
+    /**
+     * Task 61 (round 21): the search page's LOAD-MORE — appends page+1 of
+     * whatever produced the current content. The UI fires this as the user
+     * APPROACHES the bottom (a pre-fetch, ~2 rows before the end) and shows a
+     * "Loading more…" footer while it runs.
+     *
+     * Guards: content states only (Success / ExtensionSuccess), no re-entry
+     * while one is in flight, no paging once `hasMore` is false. A failure is
+     * SOFT — the footer spinner disappears and the next approach-bottom
+     * trigger retries (a pagination hiccup must never blank the page).
+     */
+    fun loadMore() {
+        val state = _uiState.value
+        val canPage = when (state) {
+            is SearchUiState.Success -> !state.loadingMore && state.hasMore
+            is SearchUiState.ExtensionSuccess -> !state.loadingMore && state.hasMore
+            else -> false
+        }
+        if (!canPage) return
+        val mode = pagingMode ?: return
+        val sourceId = _selectedSourceId.value
+        val providerName = _selectedCsProvider.value
+        val query = _query.value
+        val nextPage = lastLoadedPage + 1
+
+        // Flip the footer ON (a copy of the current state — results preserved).
+        when (state) {
+            is SearchUiState.Success -> _uiState.value = state.copy(loadingMore = true)
+            is SearchUiState.ExtensionSuccess -> _uiState.value = state.copy(loadingMore = true)
+            else -> return
+        }
+
+        loadMoreJob = viewModelScope.launch {
+            try {
+                when (mode) {
+                    PagingMode.ANILIST_TRENDING -> {
+                        val more = anilistApi.fetchTrending(page = nextPage, perPage = 30)
+                        appendAniList(more, mode, nextPage, hasMore = more.size >= 30)
+                    }
+
+                    PagingMode.ANILIST_SEARCH -> {
+                        val more = anilistApi.searchAnime(
+                            query = query,
+                            page = nextPage,
+                            perPage = 30,
+                            sort = _sort.value.apiValue,
+                        )
+                        // AniList's search API hides pageInfo — a full page
+                        // means "probably more" (the standard heuristic).
+                        appendAniList(more, mode, nextPage, hasMore = more.size >= 30)
+                    }
+
+                    PagingMode.ANIYOMI_POPULAR -> {
+                        val source = sourceId?.let { extensionManager.getSource(it) }
+                            as? AnimeCatalogueSource
+                        if (source == null) {
+                            clearLoadingMore()
+                            return@launch
+                        }
+                        val page = withContext(Dispatchers.IO) {
+                            source.getPopularAnime(nextPage)
+                        }
+                        appendExtension(
+                            page.animes.distinctBy { it.url }
+                                .map { it.toExtensionAnime(source.id, source.name) },
+                            mode,
+                            nextPage,
+                            hasMore = page.hasNextPage,
+                        )
+                    }
+
+                    PagingMode.ANIYOMI_SEARCH -> {
+                        val source = sourceId?.let { extensionManager.getSource(it) }
+                            as? AnimeCatalogueSource
+                        if (source == null) {
+                            clearLoadingMore()
+                            return@launch
+                        }
+                        val page = withContext(Dispatchers.IO) {
+                            source.getSearchAnime(nextPage, query, AnimeFilterList())
+                        }
+                        appendExtension(
+                            page.animes.distinctBy { it.url }
+                                .map { it.toExtensionAnime(source.id, source.name) },
+                            mode,
+                            nextPage,
+                            hasMore = page.hasNextPage,
+                        )
+                    }
+
+                    PagingMode.CS_SEARCH -> {
+                        if (providerName == null) {
+                            clearLoadingMore()
+                            return@launch
+                        }
+                        val page = cloudstreamRepository.search(providerName, query, nextPage)
+                        appendExtension(
+                            page.items.map { it.toExtensionAnime() },
+                            mode,
+                            nextPage,
+                            hasMore = page.hasNext,
+                        )
+                    }
+                }
+            } catch (e: Throwable) {
+                // Soft-fail: Cancellation must propagate (a superseded request
+                // or a cleared loadMoreJob); anything else just drops the footer.
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Logger.w(TAG, e) {
+                    "loadMore failed (mode=$mode page=$nextPage) — footer dismissed; the next trigger retries"
+                }
+                clearLoadingMore()
+            }
+        }
+    }
+
+    /** Turns the footer off without touching the results (the soft-fail path). */
+    private fun clearLoadingMore() {
+        when (val state = _uiState.value) {
+            is SearchUiState.Success -> _uiState.value = state.copy(loadingMore = false)
+            is SearchUiState.ExtensionSuccess -> _uiState.value = state.copy(loadingMore = false)
+            else -> Unit
+        }
+    }
+
+    /**
+     * Task 61: the AniList append — deduped by AniList id (a page overlap must
+     * never duplicate a LazyGrid key). An empty page ENDS the paging.
+     */
+    private fun appendAniList(more: List<AniListAnime>, mode: PagingMode, page: Int, hasMore: Boolean) {
+        val state = _uiState.value as? SearchUiState.Success ?: return
+        if (more.isEmpty()) {
+            _uiState.value = state.copy(loadingMore = false, hasMore = false)
+            return
+        }
+        pagingMode = mode
+        lastLoadedPage = page
+        val existingIds = state.results.mapTo(mutableSetOf()) { it.id }
+        val merged = state.results + more.filter { it.id !in existingIds }
+        _uiState.value = state.copy(results = merged, loadingMore = false, hasMore = hasMore)
+        Logger.i(TAG) { "loadMore (AniList, $mode page=$page) — +${merged.size - state.results.size} new" }
+    }
+
+    /**
+     * Task 61: the extension append (aniyomi + CloudStream search grids) —
+     * deduped by the grids' key identity ("sourceKey|url"), the same D-304
+     * duplicate-key crash guard the first pages use. An empty page ENDS paging.
+     */
+    private fun appendExtension(
+        more: List<ExtensionAnime>,
+        mode: PagingMode,
+        page: Int,
+        hasMore: Boolean,
+    ) {
+        val state = _uiState.value as? SearchUiState.ExtensionSuccess ?: return
+        if (more.isEmpty()) {
+            _uiState.value = state.copy(loadingMore = false, hasMore = false)
+            return
+        }
+        pagingMode = mode
+        lastLoadedPage = page
+        val keyOf: (ExtensionAnime) -> String = { "${it.sourceKey ?: it.sourceId}:${it.url}" }
+        val existingKeys = state.results.mapTo(mutableSetOf()) { keyOf(it) }
+        val merged = state.results + more.filter { keyOf(it) !in existingKeys }
+        _uiState.value = state.copy(results = merged, loadingMore = false, hasMore = hasMore)
+        Logger.i(TAG) { "loadMore (extension, $mode page=$page) — +${merged.size - state.results.size} new" }
+    }
+
+    /**
+     * Task 61 (round 21): the search page's PULL-TO-REFRESH — reloads the
+     * current mode's page 1. For the CS browse the cached feed is invalidated
+     * FIRST (the user's spec: "the old cache will be deleted after the refresh
+     * is successful"), then the fresh (randomized) sections land; for the
+     * other modes this is just the page-1 reload.
+     */
+    fun refreshCurrent() {
+        when (_source.value) {
+            SearchSource.ANILIST -> {
+                if (_query.value.isNotBlank()) {
+                    search(_query.value)
+                } else {
+                    // No force flag needed — loadTrending() always runs the
+                    // network refresh (the cached payload renders instantly,
+                    // then the fresh page-1 lands).
+                    loadTrending()
+                }
+            }
+
+            SearchSource.EXTENSION -> {
+                if (_selectedKind.value == SelectedSourceKind.CLOUDSTREAM) {
+                    // The CS provider's cached browse must go FIRST — the
+                    // user's "old cache deleted" spec; after the invalidate,
+                    // loadCloudstreamPopular's cache-first path finds nothing
+                    // and runs the FULL fresh (randomized) load.
+                    _selectedCsProvider.value?.let { cloudstreamRepository.invalidateBrowseCache(it) }
+                    if (_query.value.isNotBlank()) {
+                        searchCloudstream(_query.value)
+                    } else {
+                        loadCloudstreamPopular()
+                    }
+                } else {
+                    if (_query.value.isNotBlank()) {
+                        searchExtension(_query.value)
+                    } else {
+                        loadExtensionPopular()
+                    }
+                }
+            }
+        }
+    }
+
     // ── Recents persistence ──
 
     private fun loadRecents() {
@@ -1126,10 +1435,15 @@ class SearchViewModel(
  * [SearchUiState.ExtensionBrowseSuccess] — the ViewModel-side view of
  * CsBrowseSection, carrying the shared grid model so the rows reuse the
  * existing result cards.
+ *
+ * Task 61 (round 21): [shelfIndex] — the shelf's ORIGINAL index in the
+ * provider's mainPage list (captured BEFORE the random shuffle — the category
+ * subpage resolves its shelf by this index to paginate getMainPage).
  */
 data class ExtensionBrowseSection(
     val title: String,
     val results: List<ExtensionAnime>,
+    val shelfIndex: Int = 0,
 )
 
 // ── UI state ──
@@ -1139,13 +1453,29 @@ sealed interface SearchUiState {
     data object Idle : SearchUiState
     data object Loading : SearchUiState
     data object Empty : SearchUiState
-    data class Success(val results: List<AniListAnime>) : SearchUiState
+    data class Success(
+        val results: List<AniListAnime>,
+        /** Task 61 (round 21): more pages available (the grid load-more footer). */
+        val hasMore: Boolean = false,
+        /** Task 61: a load-more is in flight (the "loading more…" footer spinner). */
+        val loadingMore: Boolean = false,
+    ) : SearchUiState
     /** AniList failed — friendly "tsundere" message per spec. */
     data object Error : SearchUiState
     /** Extension source selected but no source chosen, or source uninstalled. */
     data object ExtensionNotAvailable : SearchUiState
-    /** Extension source browse/search success. */
-    data class ExtensionSuccess(val results: List<ExtensionAnime>) : SearchUiState
+    /**
+     * Extension source browse/search success. Task 61 (round 21): carries the
+     * paging flags for the grid's approach-bottom load-more (search results +
+     * the blank-query popular feed — both flat grids).
+     */
+    data class ExtensionSuccess(
+        val results: List<ExtensionAnime>,
+        /** Task 61 (round 21): more pages available (the grid load-more footer). */
+        val hasMore: Boolean = false,
+        /** Task 61: a load-more is in flight (the "loading more…" footer spinner). */
+        val loadingMore: Boolean = false,
+    ) : SearchUiState
 
     /**
      * Task 44: SECTIONED CloudStream browse success — each provider shelf

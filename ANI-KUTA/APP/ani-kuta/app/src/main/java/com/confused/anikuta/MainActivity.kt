@@ -396,6 +396,9 @@ private val allowedUpdateSheetKeys = setOf(
     ProfileKey::class,
     com.confused.anikuta.feature.updates.UpdatesKey::class,
     com.confused.anikuta.feature.animehistory.HistoryKey::class,
+    // Task 61 (round 21): the category subpages — content-grid pages (no
+    // bottom sheets of their own), same as Browse.
+    com.confused.anikuta.feature.animesearch.CsCategoryKey::class,
 )
 
 /**
@@ -941,7 +944,42 @@ fun AppRoot() {
                         ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 },
+                // Task 61 (round 21 — the category subpages): tapping a CloudStream
+                // section's TITLE opens that category's own page.
+                onNavigateToCategory = { providerName, sectionTitle, sectionIndex ->
+                    backstack.add(
+                        com.confused.anikuta.feature.animesearch.CsCategoryKey(
+                            providerName = providerName,
+                            sectionTitle = sectionTitle,
+                            shelfIndex = sectionIndex,
+                        )
+                    )
+                },
             )
+            // Task 61 (round 21 — the category subpages): one provider shelf as
+            // its own page — the category heading + a full grid + the same
+            // approach-bottom pagination as the search page.
+            is com.confused.anikuta.feature.animesearch.CsCategoryKey -> {
+                val categoryKey = currentKey as com.confused.anikuta.feature.animesearch.CsCategoryKey
+                com.confused.anikuta.feature.animesearch.CsCategoryScreen(
+                    providerName = categoryKey.providerName,
+                    sectionTitle = categoryKey.sectionTitle,
+                    shelfIndex = categoryKey.shelfIndex,
+                    onBack = pop,
+                    onNavigateToExtensionAnime = { anime ->
+                        navigateToDetails(
+                            AnimeDetailsKey.Extension(
+                                anime.sourceId,
+                                anime.url,
+                                anime.title,
+                                anime.thumbnailUrl,
+                                year = anime.year,
+                                transitionKey = searchCoverKey(anime.thumbnailUrl),
+                            )
+                        )
+                    },
+                )
+            }
             is MoreKey -> MoreScreen(
                 onOpenSettings = { backstack.add(SettingsKey) },
                 onOpenDownloads = { backstack.add(DownloadsKey) },

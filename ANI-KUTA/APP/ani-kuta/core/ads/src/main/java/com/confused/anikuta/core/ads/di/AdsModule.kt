@@ -6,6 +6,7 @@ import com.confused.anikuta.core.ads.AdsRepository
 import com.confused.anikuta.core.ads.AdsRepositoryImpl
 import com.confused.anikuta.core.ads.AppLifecycleObserver
 import com.confused.anikuta.core.preferences.PreferenceStore
+import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 
 /**
@@ -36,5 +37,7 @@ val adsModule = module {
     single { AdPreferences(get<PreferenceStore>()) }
     single<AdsRepository> { AdsRepositoryImpl(get()) }
     single { AppLifecycleObserver() }
-    single { AdsCoordinator(get(), get()) }
+    // Task 61 (round 21): the application context rides the constructor for
+    // the offline gate (ConnectivityManager) — see AdsCoordinator.isOnline.
+    single { AdsCoordinator(get(), get(), androidContext()) }
 }

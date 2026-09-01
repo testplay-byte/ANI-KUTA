@@ -827,7 +827,15 @@ private suspend fun sharePluginFile(
             val iconBytes = meta?.iconUrl?.let { fetchIconBytes(it) }
             val info = CsExportInfo(
                 repoUrl = repoUrl,
-                iconUrl = meta?.iconUrl,
+                // Task 61 (round 21 — root-cause hardening): a DEVICE-LOCAL
+                // `file://` iconUrl (a plugin that was itself imported from a
+                // shared file) must NOT ride the export metadata — it points
+                // at the SENDER's filesystem and guarantees an AsyncImage
+                // failure on the receiver (the round-20 "no icon anywhere"
+                // report). The local bytes were already embedded above
+                // (fetchIconBytes reads file:// URIs); only http(s) URLs ride
+                // the fallback field.
+                iconUrl = meta?.iconUrl?.takeIf { it.startsWith("http", ignoreCase = true) },
                 name = meta?.name,
                 version = meta?.version,
                 language = meta?.language,

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -32,7 +33,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -297,12 +299,18 @@ internal fun rememberCopyFeedback(): (String, String) -> Unit {
  *  - the TITLE TEXT is the only touch target (intrinsic width, ellipsized —
  *    taps on the surrounding header area do nothing, per the earlier
  *    round-19 "only the episode number and text are clickable" spec);
- *  - tapping it pops a small DropdownMenu anchored UNDER the heading: a
- *    14dp-cornered, flat surface with a DISTINCT 1dp outline border and ONE
- *    row — "Formatted sources" + a trailing Switch;
+ *  - tapping it pops a small menu anchored ABOVE the heading (Task 61, round
+ *    21 — the user's "it should show above it"): a Popup with
+ *    Alignment.BottomStart sits the menu's BOTTOM edge on the heading's
+ *    bottom edge, so it always grows upward — deterministic, unlike the
+ *    DropdownMenu it replaces (which only anchors below + a fragile offset).
+ *    A 14dp-cornered, flat surface with a DISTINCT 1dp outline border and ONE
+ *    row — "Format sources" + a trailing Switch (exact label + guaranteed
+ *    24dp gap between the label and the toggle, per the round-21 spec);
  *  - toggling (the row OR the switch) flips the formatted/raw view and the
  *    menu STAYS OPEN so the user can flip it back; outside-tap or back
- *    dismisses. The list behind re-renders live.
+ *    dismisses (PopupProperties(focusable = true)). The list behind re-renders
+ *    live.
  *
  * The aniyomi sheets implement the SAME interaction with their own local
  * copies (the two stacks share the preference, not code — the replication
@@ -329,38 +337,53 @@ internal fun CsFormattingTitle(
             modifier = Modifier.clickable { menuOpen = true },
         )
         // The small menu with the DISTINCT border (shape + flat surface +
-        // 1dp outline via Modifier.border — version-proof on material3).
-        DropdownMenu(
-            expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-            shape = RoundedCornerShape(14.dp),
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 0.dp,
-            modifier = Modifier.border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outline,
-                shape = RoundedCornerShape(14.dp),
-            ),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onToggleFormatting(!formatted) }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        // 1dp outline via Modifier.border — version-proof on material3),
+        // anchored ABOVE the heading via Popup BottomStart.
+        if (menuOpen) {
+            Popup(
+                alignment = Alignment.BottomStart,
+                onDismissRequest = { menuOpen = false },
+                properties = PopupProperties(focusable = true),
             ) {
-                Text(
-                    text = "Formatted sources",
-                    fontFamily = RobotoFamily,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.weight(1f))
-                Switch(
-                    checked = formatted,
-                    onCheckedChange = { onToggleFormatting(it) },
-                )
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .widthIn(min = 220.dp)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(14.dp),
+                        ),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleFormatting(!formatted) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Format sources",
+                            fontFamily = RobotoFamily,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        // Round 21: a GUARANTEED 24dp gap between the label and
+                        // the toggle (a weight-only spacer collapses to zero
+                        // when the row wraps its content) + the weight fills
+                        // whatever the 220dp minimum menu width leaves.
+                        Spacer(Modifier.width(24.dp))
+                        Spacer(Modifier.weight(1f))
+                        Switch(
+                            checked = formatted,
+                            onCheckedChange = { onToggleFormatting(it) },
+                        )
+                    }
+                }
             }
         }
     }

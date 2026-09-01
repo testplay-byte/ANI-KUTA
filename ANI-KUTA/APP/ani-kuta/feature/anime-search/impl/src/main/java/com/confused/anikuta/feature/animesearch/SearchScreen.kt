@@ -41,10 +41,13 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SentimentDissatisfied
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -93,6 +96,7 @@ import org.koin.compose.viewmodel.koinViewModel
  * CORE_RULES §22: smooth animations (300ms FastOutSlowInEasing, scale on press).
  * CORE_RULES §23: reactive state (StateFlow from ViewModel).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     // D-320: passes the full anime so the nav key can carry the cover/title
@@ -109,6 +113,11 @@ fun SearchScreen(
     // Task 45: +userAgent — CloudStream providers must solve with the CS client's
     // pinned UA (clearance cookies are UA-bound); null = aniyomi default.
     onOpenCloudflareWebView: (url: String, sourceName: String, userAgent: String?) -> Unit = { _, _, _ -> },
+    // Task 61 (round 21 — the category subpages): tapping a CloudStream
+    // section's TITLE opens that category's own page (heading + grid +
+    // infinite scroll). The provider name + the shelf's index identify the
+    // category (the subpage resolves the shelf from provider.mainPage).
+    onNavigateToCategory: (providerName: String, sectionTitle: String, sectionIndex: Int) -> Unit = { _, _, _ -> },
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -139,6 +148,13 @@ fun SearchScreen(
     val cloudflareWebViewUserAgent: String? = when (selectedKind) {
         SelectedSourceKind.CLOUDSTREAM -> com.lagradost.cloudstream3.USER_AGENT
         SelectedSourceKind.ANIYOMI -> null
+    }
+
+    // Task 61 (round 21): every FRESH composition of the search screen (tab
+    // switch, return from a category subpage) reshuffles the CS browse
+    // sections — "every single time the user enters the search page".
+    LaunchedEffect(Unit) {
+        viewModel.onPageEntered()
     }
 
     val scrollState = rememberScrollState()
@@ -201,6 +217,24 @@ fun SearchScreen(
         )
 
         // Scrollable content
+        // Task 61 (round 21): PULL-TO-REFRESH — the official m3 PullToRefreshBox
+        // (the same component as the Library page). The pull only activates
+        // while the inner lazy list is at the top; onRefresh reloads the current
+        // mode's page 1 (the CS browse cache is invalidated first — the user's
+        // "old cache deleted" spec). Any settled uiState emission dismisses the
+        // indicator (content landed — that IS the refresh's visible result).
+        var pullRefreshing by remember { mutableStateOf(false) }
+        val ptrState = rememberPullToRefreshState()
+        LaunchedEffect(uiState) { pullRefreshing = false }
+        PullToRefreshBox(
+            isRefreshing = pullRefreshing,
+            onRefresh = {
+                pullRefreshing = true
+                viewModel.refreshCurrent()
+            },
+            state = ptrState,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // D-242-fix3: Show recents ABOVE the results (collapsed by default)
             // when results are displayed. Previously recents only showed in Idle
@@ -348,11 +382,15 @@ fun SearchScreen(
                 }
 
                 is SearchUiState.Success -> {
-                    val results = (effectiveState as SearchUiState.Success).results
+                    val state = effectiveState as SearchUiState.Success
                     ResultsGrid(
-                        results = results,
+                        results = state.results,
                         gridState = gridState,
                         onResultTap = onNavigateToDetails,
+                        // Task 61 (round 21): the approach-bottom load-more.
+                        loadingMore = state.loadingMore,
+                        canLoadMore = state.hasMore,
+                        onLoadMore = viewModel::loadMore,
                         // D-248: recents coexist with the default/trending results — shown as
                         // the grid's header (scrolls away with content; the top bar collapses
                         // to title + compact search bar). They hide only when the user
@@ -364,9 +402,9 @@ fun SearchScreen(
                 }
 
                 is SearchUiState.ExtensionSuccess -> {
-                    val results = (effectiveState as SearchUiState.ExtensionSuccess).results
+                    val state = effectiveState as SearchUiState.ExtensionSuccess
                     ExtensionResultsGrid(
-                        results = results,
+                        results = state.results,
                         gridState = gridState,
                         onResultTap = { anime ->
                             onNavigateToExtensionAnime(
@@ -378,6 +416,10 @@ fun SearchScreen(
                                 anime.year,
                             )
                         },
+                        // Task 61 (round 21): the approach-bottom load-more.
+                        loadingMore = state.loadingMore,
+                        canLoadMore = state.hasMore,
+                        onLoadMore = viewModel::loadMore,
                         recentsHeader = if (query.isBlank() && recents.isNotEmpty()) {
                             RecentsHeaderData(recents, viewModel::onPickRecent, viewModel::onRemoveRecent, viewModel::onClearRecents)
                         } else null,
@@ -393,6 +435,11 @@ fun SearchScreen(
                     ExtensionBrowseSections(
                         sections = browse.sections,
                         listState = browseListState,
+                        // Task 61 (round 21): the provider's name + the shelf's
+                        // ORIGINAL index — tapping a section TITLE opens the
+                        // category subpage (heading + grid + infinite scroll).
+                        providerName = browse.sourceName,
+                        onNavigateToCategory = onNavigateToCategory,
                         onResultTap = { anime ->
                             onNavigateToExtensionAnime(
                                 anime.sourceId,
@@ -429,6 +476,7 @@ fun SearchScreen(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         }
+        } // Task 61: closes the PullToRefreshBox wrapper.
     }
 
     // ── Filter sheet ──
@@ -488,13 +536,77 @@ private class RecentsHeaderData(
     val onClear: () -> Unit,
 )
 
+/**
+ * Task 61 (round 21): the approach-bottom threshold — the load-more fires
+ * ~2 grid rows (6 items) BEFORE the end, per the user's spec ("as the user
+ * scrolls… he is about to reach the bottom, then the pagination will start").
+ */
+private const val LOAD_MORE_THRESHOLD_ITEMS = 6
+
+/**
+ * Task 61 (round 21): the shared approach-bottom trigger for the results
+ * grids. Reading [totalItemsCount] / [visibleItemsInfo] in composition
+ * subscribes to item-count changes, so after EVERY append the near-bottom
+ * check re-runs (the LaunchedEffect keys change) — continuous infinite scroll
+ * without snapshotFlow plumbing.
+ */
+@Composable
+private fun ApproachBottomEffect(
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    canLoadMore: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    val total = gridState.layoutInfo.totalItemsCount
+    val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+    val nearBottom = total > 0 && lastVisible >= total - LOAD_MORE_THRESHOLD_ITEMS
+    LaunchedEffect(nearBottom, total, canLoadMore) {
+        if (canLoadMore && nearBottom) onLoadMore()
+    }
+}
+
+/**
+ * Task 61 (round 21): the grid's load-more footer — a spinner + "Loading
+ * more…" label. Rendered as the grid's last (full-span) item while a page
+ * is in flight, so a user who BEATS the approach-bottom pre-fetch sees the
+ * loading animation at the bottom (the user's spec).
+ */
+@Composable
+private fun LoadingMoreFooter() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 18.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            strokeWidth = 2.dp,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "Loading more…",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 @Composable
 private fun ResultsGrid(
     results: List<AniListAnime>,
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onResultTap: (AniListAnime) -> Unit,
     recentsHeader: RecentsHeaderData? = null,
+    // Task 61 (round 21): the approach-bottom load-more.
+    loadingMore: Boolean = false,
+    canLoadMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
 ) {
+    ApproachBottomEffect(gridState, canLoadMore, onLoadMore)
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(3),
@@ -520,6 +632,15 @@ private fun ResultsGrid(
         }
         items(results, key = { it.id }) { anime ->
             ResultCard(anime, onResultTap)
+        }
+        // Task 61 (round 21): the load-more footer (full span).
+        if (loadingMore) {
+            item(
+                key = "load-more-footer",
+                span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) },
+            ) {
+                LoadingMoreFooter()
+            }
         }
     }
 }
@@ -560,6 +681,11 @@ private fun ResultCard(anime: AniListAnime, onClick: (AniListAnime) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
+                // Task 61 (round 21 — the performance round): a dim placeholder
+                // surface behind the cover — the loading phase shows a quiet tone
+                // (no white pop-in flash) + the global crossfade lands the image
+                // softly. Cheap (no subcomposition) + zero jank.
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                 .coverSharedElement(transitionKey)
                 .clip(RoundedCornerShape(12.dp)),
         )
@@ -699,6 +825,10 @@ private fun ExtensionResultsGrid(
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onResultTap: (ExtensionAnime) -> Unit,
     recentsHeader: RecentsHeaderData? = null,
+    // Task 61 (round 21): the approach-bottom load-more.
+    loadingMore: Boolean = false,
+    canLoadMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
 ) {
     // D-304 defense-in-depth: even though the ViewModel dedupes by URL, the
     // grid keys rows by "sourceId:url" — a duplicate would CRASH LazyGrid
@@ -709,6 +839,7 @@ private fun ExtensionResultsGrid(
         // aniyomi Long id as fallback — unique across BOTH ecosystems.
         results.distinctBy { "${it.sourceKey ?: it.sourceId}:${it.url}" }
     }
+    ApproachBottomEffect(gridState, canLoadMore, onLoadMore)
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(3),
@@ -735,6 +866,15 @@ private fun ExtensionResultsGrid(
         items(distinctResults, key = { "${it.sourceKey ?: it.sourceId}:${it.url}" }) { anime ->
             ExtensionResultCard(anime, onResultTap)
         }
+        // Task 61 (round 21): the load-more footer (full span).
+        if (loadingMore) {
+            item(
+                key = "load-more-footer",
+                span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) },
+            ) {
+                LoadingMoreFooter()
+            }
+        }
     }
 }
 
@@ -753,6 +893,10 @@ private fun ExtensionBrowseSections(
     listState: androidx.compose.foundation.lazy.LazyListState,
     onResultTap: (ExtensionAnime) -> Unit,
     recentsHeader: RecentsHeaderData? = null,
+    // Task 61 (round 21): the category subpages — tapping a section's TITLE
+    // opens that category's page (heading + grid + infinite scroll).
+    providerName: String = "",
+    onNavigateToCategory: (providerName: String, sectionTitle: String, sectionIndex: Int) -> Unit = { _, _, _ -> },
 ) {
     LazyColumn(
         state = listState,
@@ -779,15 +923,29 @@ private fun ExtensionBrowseSections(
                     section.results.distinctBy { "${it.sourceKey ?: it.sourceId}:${it.url}" }
                 }
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = section.title,
-                        fontFamily = RobotoFamily,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
-                            ?: MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
+                    // Task 61 (round 21): the TITLE is now a touch target —
+                    // tapping it opens the category's subpage (heading + grid
+                    // + infinite scroll); the shelf's ORIGINAL provider index
+                    // (captured before the random shuffle) identifies it.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                onNavigateToCategory(providerName, section.title, section.shelfIndex)
+                            }
+                            .padding(vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = section.title,
+                            fontFamily = RobotoFamily,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = LocalCardHeadingColor.current.takeIf { it != Color.Unspecified }
+                                ?: MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -843,6 +1001,9 @@ private fun ExtensionResultCard(anime: ExtensionAnime, onClick: (ExtensionAnime)
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
+                // Task 61 (round 21 — the performance round): the dim loading
+                // placeholder (see ResultCard).
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                 .coverSharedElement(transitionKey)
                 .clip(RoundedCornerShape(12.dp)),
         )

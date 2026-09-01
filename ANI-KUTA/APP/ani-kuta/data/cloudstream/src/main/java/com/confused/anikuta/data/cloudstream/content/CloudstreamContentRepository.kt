@@ -295,6 +295,42 @@ class CloudstreamContentRepository(
         sections
     }
 
+    /**
+     * Task 61 (round 21 — the category subpages): ONE provider shelf, PAGED.
+     * Resolves the shelf by its ORIGINAL mainPage index (the search page
+     * captured it BEFORE the random shuffle) + calls getMainPage(page,
+     * request) with the same mapping + dedupe discipline as [browseSections]
+     * — but WITHOUT the section item cap (the subpage grid shows everything
+     * the provider returns). A Cloudflare block or any failure THROWS (the
+     * honest-error contract); a null response parses as an empty page.
+     */
+    suspend fun browseShelf(providerName: String, shelfIndex: Int, page: Int): CsContentPage = withContext(Dispatchers.IO) {
+        val provider = resolveProvider(providerName)
+        val shelf = provider.mainPage.getOrNull(shelfIndex)
+            ?: throw IllegalStateException(
+                "Provider '$providerName' has no shelf at index $shelfIndex (its main page changed?)",
+            )
+        val started = System.currentTimeMillis()
+        Logger.i(TAG) { "browseShelf: $providerName shelf '${shelf.name}' page=$page" }
+        val request = MainPageRequest(
+            name = shelf.name,
+            data = shelf.data,
+            horizontalImages = shelf.horizontalImages,
+        )
+        val response = provider.getMainPage(page, request)
+            ?: return@withContext CsContentPage(emptyList())
+        val cards = response.items
+            .flatMap { it.list }
+            .distinctBy { it.url } // D-304 duplicate-key crash guard
+            .map { it.toCard(providerName, provider.mainUrl) }
+        Logger.i(TAG) {
+            "browseShelf: $providerName shelf '${shelf.name}' page=$page -> " +
+                "${cards.size} item(s) hasNext=${response.hasNext} " +
+                "in ${System.currentTimeMillis() - started}ms"
+        }
+        CsContentPage(cards, response.hasNext)
+    }
+
     /** MainAPI.search(query, page) — the live-query path. */
     suspend fun search(providerName: String, query: String, page: Int = 1): CsContentPage = withContext(Dispatchers.IO) {
         val provider = resolveProvider(providerName)

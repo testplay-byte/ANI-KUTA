@@ -146,8 +146,25 @@ object AndroidConfig {
     // controls with lock/canvas-seekbar/speed sheet), and the player sheets
     // adopt the Qualities-and-Servers / Subtitles / Speed sheet languages.
     // Aniyomi remains byte-untouched — parity via replicated design tokens.
-    const val versionCode = 73
-    const val versionName = "0.4.8"
+    // ── Task 61 (round 21) — the QoL release ─────────────────────────────────
+    // 0.4.9 lands the v0.4.8 device round's QoL batch (doc cloudstream-v2/12):
+    // the plugin icons NEVER render blank (SubcomposeAsyncImage fallbacks on
+    // the extensions list/detail/import-confirm/added pages + export.json only
+    // carries http(s) iconUrls), the Format-sources menu opens ABOVE the heading
+    // with the exact "Format sources" label + a guaranteed label↔toggle gap,
+    // real SEARCH PAGINATION (approach-bottom pre-fetch + the Loading-more
+    // footer) on AniList + aniyomi extensions + CloudStream search, the
+    // CloudStream browse sections RANDOMIZE on every search-page entry, the
+    // section titles open CATEGORY SUBPAGES (heading + grid + infinite scroll),
+    // the image loader rides a dedicated 2-concurrent-request client with dim
+    // card placeholders (the performance pass), PULL-TO-REFRESH on the search
+    // page (the CS browse cache invalidated first), the library category chips
+    // auto-scroll the selection into view + the text-width underline rework, the
+    // downloaded-episodes UI (collapsed by default, animated expand, separators,
+    // the two-step morph delete, expand-left/delete-right, the EP count tag), and
+    // the ads system (the real sponsor URL, 5s min-time, the offline deferral).
+    const val versionCode = 74
+    const val versionName = "0.4.9"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

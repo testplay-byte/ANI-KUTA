@@ -51,7 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -270,6 +270,12 @@ class PluginImportActivity : ComponentActivity() {
                             internalName = result.record.internalName,
                             name = result.record.name,
                             linkedToRepository = result.linkedRepoUrl != null,
+                            // Task 61 (round 21): the record's iconUrl rides the
+                            // outcome so the "Plugin added" card renders the
+                            // plugin's OWN icon (the materialized local copy of
+                            // the embedded icon, or the remote URL) — the
+                            // device round reported NO icon on this page.
+                            iconUrl = result.record.iconUrl,
                         )
                     }
 
@@ -318,6 +324,8 @@ sealed interface PluginImportOutcome {
         val internalName: String,
         val name: String,
         val linkedToRepository: Boolean,
+        /** Task 61: the plugin's icon URL — the "Plugin added" badge renders it. */
+        val iconUrl: String? = null,
     ) : PluginImportOutcome
 
     data class AlreadyInstalled(val internalName: String, val name: String) : PluginImportOutcome
@@ -436,18 +444,20 @@ private fun ConfirmCard(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    stage.iconUrl != null -> AsyncImage(
+                    // Task 61 (round 21 — "no logo on the add-plugin page"): the
+                    // iconUrl branch used a bare AsyncImage with NO error state
+                    // — when the URL fails (404 / a file:// URI that points at
+                    // the SENDER's device / network), the 72dp badge rendered
+                    // EMPTY. The error slot now falls back to the same generic
+                    // glyph as the no-URL case — never a blank badge.
+                    stage.iconUrl != null -> SubcomposeAsyncImage(
                         model = stage.iconUrl,
                         contentDescription = "Plugin icon",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
+                        error = { PluginGlyphFallback() },
                     )
-                    else -> Icon(
-                        imageVector = Icons.Filled.Extension,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(34.dp),
-                    )
+                    else -> PluginGlyphFallback()
                 }
             }
         }
@@ -495,6 +505,30 @@ private fun ConfirmCard(
                 Spacer(Modifier.width(6.dp))
                 Text("Add Plugin", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
             }
+        }
+    }
+}
+
+/**
+ * Task 61 (round 21): the shared badge fallback for the import flow's icon
+ * slots — the primaryContainer circle + the generic extension glyph. Used by
+ * the confirm page's badge (no URL / a URL that FAILED to load) and the Added
+ * card's badge, so the icon area is NEVER blank (the user's "a default icon
+ * rather than showing nothing").
+ */
+@Composable
+private fun PluginGlyphFallback() {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = CircleShape,
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Icon(
+                imageVector = Icons.Filled.Extension,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(34.dp),
+            )
         }
     }
 }
@@ -557,17 +591,41 @@ private fun DoneCard(
                     delay(ADDED_CONFIRMATION_MS)
                     onAutoContinue()
                 }
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = CircleShape,
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(72.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(34.dp),
+                // Task 61 (round 21 — "no icon on the plugin-added confirmation
+                // page"): the plugin's OWN icon now renders in the badge (the
+                // record's iconUrl — the materialized local copy of the embedded
+                // icon or the remote URL), with a small check badge at the
+                // corner. Neither loads → the generic glyph, never a blank.
+                Box(modifier = Modifier.size(72.dp)) {
+                    if (outcome.iconUrl != null) {
+                        SubcomposeAsyncImage(
+                            model = outcome.iconUrl,
+                            contentDescription = "Plugin icon",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            loading = { PluginGlyphFallback() },
+                            error = { PluginGlyphFallback() },
                         )
+                    } else {
+                        PluginGlyphFallback()
+                    }
+                    // The confirmation check — a compact primary badge at the
+                    // icon's corner (was the FULL 72dp glyph before Task 61).
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(26.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
