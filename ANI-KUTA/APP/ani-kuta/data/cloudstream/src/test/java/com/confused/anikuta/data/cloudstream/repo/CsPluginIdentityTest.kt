@@ -167,7 +167,11 @@ class CsPluginIdentityTest {
     @Test
     fun `normalize lowercases and keeps only letters and digits`() {
         assertEquals("moviebox", CsPluginIdentity.normalize("Movie_Box"))
-        assertEquals("moviebox", CsPluginIdentity.normalize("movie-box.cs3"))
+        // NOTE: normalize deliberately does NOT strip file extensions — it
+        // only drops separators. Callers pass internalNames/stems (the
+        // extension handling lives in CsSharedPluginFormat), but a stray
+        // ".cs3" tail simply contributes its letters/digits.
+        assertEquals("movieboxcs3", CsPluginIdentity.normalize("movie-box.cs3"))
         assertEquals("moviebox", CsPluginIdentity.normalize("  Movie Box  "))
         assertEquals("", CsPluginIdentity.normalize("___-."))
         assertEquals("moviebox2", CsPluginIdentity.normalize("MovieBox (2)"))
