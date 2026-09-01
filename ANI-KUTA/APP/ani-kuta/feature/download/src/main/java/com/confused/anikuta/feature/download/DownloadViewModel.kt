@@ -57,38 +57,53 @@ class DownloadViewModel(
                 preferences.downloadFolderUri.changes,
             ) { active, downloaded, folderUri ->
                 // Group the downloaded episodes by anime.
-                val grouped = downloaded.groupBy { it.content }.map { (content, _) ->
-                    val firstEpisode = downloaded.first { it.content == content }
+                //
+                // Task 60 (round 20 — the Downloaded-page CRASH, "Key
+                // 'downloaded_<contentId>' was already used" when scrolling to
+                // the bottom): the table DENORMALIZES the content metadata per
+                // row (title/cover/coverColor…), so two rows of the SAME anime
+                // written by different paths (a cover set on one, null on the
+                // other) carry the same contentId but DIFFERENT Content objects
+                // — `groupBy { it.content }` split them into TWO groups whose
+                // LazyColumn keys are the SAME string, and the list crashed the
+                // moment the second card composed. Group by the STABLE
+                // contentId instead: ONE group per contentId by construction
+                // (unique keys), with the display metadata taken from the
+                // richest record (first non-blank cover, else the first).
+                val grouped = downloaded.groupBy { it.content.contentId }.map { (contentId, records) ->
+                    val content = (
+                        records.firstOrNull { !it.content.coverUrl.isNullOrBlank() }
+                            ?: records.first()
+                        ).content
                     DownloadedAnimeKey(
-                        contentId = content.contentId,
+                        contentId = contentId,
                         mainId = content.mainId,
                         title = content.title,
                         coverUrl = content.coverUrl,
                         coverColor = content.coverColor,
-                    ) to downloaded.filter { it.content == content }
-                        .map { dEp ->
-                            // Re-wrap as a DownloadTask for the UI (the UI reuses the
-                            // task's request fields — videoServer/quality/audio).
-                            // D-151-fix: populate videoServer + videoAudio + sourceId +
-                            // downloadedBytes so the downloaded-files page shows the
-                            // real resolver server + audio version + file size.
-                            DownloadTask(
-                                id = dEp.episode.episodeKey.hashCode().toLong(),
-                                content = dEp.content,
-                                episode = dEp.episode,
-                                videoUrl = dEp.videoUri,
-                                videoUri = dEp.videoUri,
-                                videoQuality = dEp.quality ?: "",
-                                status = DownloadStatus.COMPLETED,
-                                progress = 100,
-                                totalBytes = dEp.sizeBytes,
-                                downloadedBytes = dEp.sizeBytes,
-                                completedAt = dEp.completedAt,
-                                videoServer = dEp.videoServer ?: "",
-                                videoAudio = dEp.videoAudio ?: "",
-                                sourceId = dEp.sourceId,
-                            )
-                        }
+                    ) to records.map { dEp ->
+                        // Re-wrap as a DownloadTask for the UI (the UI reuses the
+                        // task's request fields — videoServer/quality/audio).
+                        // D-151-fix: populate videoServer + videoAudio + sourceId +
+                        // downloadedBytes so the downloaded-files page shows the
+                        // real resolver server + audio version + file size.
+                        DownloadTask(
+                            id = dEp.episode.episodeKey.hashCode().toLong(),
+                            content = dEp.content,
+                            episode = dEp.episode,
+                            videoUrl = dEp.videoUri,
+                            videoUri = dEp.videoUri,
+                            videoQuality = dEp.quality ?: "",
+                            status = DownloadStatus.COMPLETED,
+                            progress = 100,
+                            totalBytes = dEp.sizeBytes,
+                            downloadedBytes = dEp.sizeBytes,
+                            completedAt = dEp.completedAt,
+                            videoServer = dEp.videoServer ?: "",
+                            videoAudio = dEp.videoAudio ?: "",
+                            sourceId = dEp.sourceId,
+                        )
+                    }
                 }.toMap()
                 DownloadUiState(
                     queue = active,

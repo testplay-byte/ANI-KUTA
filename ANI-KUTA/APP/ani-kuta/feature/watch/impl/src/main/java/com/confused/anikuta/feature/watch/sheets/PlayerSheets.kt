@@ -35,15 +35,16 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -55,7 +56,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -371,34 +371,25 @@ fun QualitySheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: the distinct bordered formatting toggle (Task 59 —
-            // ABOVE the title, its own clearly-bounded control; display-layer
-            // only), then the "Qualities and Servers" title + close row (the
-            // title is NOT a click target anymore — the v0.4.6 design made
-            // the whole row clickable and popped a menu over the title).
-            WatchFormattingToggle(
-                formatted = formatted,
-                onToggle = {
-                    formatted = it
-                    playerPreferences.resolveSheetFormatted = it
-                },
-                modifier = Modifier.padding(top = 14.dp),
-            )
+            // ── Header (Task 60 — round 20 — display-layer only): the
+            // "Qualities and Servers" HEADING carries the formatting control
+            // — tapping the TITLE TEXT pops the small bordered menu with the
+            // Formatted-sources toggle (see [WatchFormattingTitle] at the
+            // bottom of this file); the round-19 pill above the title is gone.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 4.dp),
+                    .padding(top = 16.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "Qualities and Servers",
-                    fontFamily = RobotoFamily,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                WatchFormattingTitle(
+                    title = "Qualities and Servers",
+                    formatted = formatted,
+                    onToggle = {
+                        formatted = it
+                        playerPreferences.resolveSheetFormatted = it
+                    },
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 // Task 58: the header-level "copy the whole report" action —
                 // OFF unless enabled in Settings → Debug options (the mirror
@@ -911,66 +902,81 @@ private fun rememberQualityCopyFeedback(): (String, String) -> Unit {
 
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Task 59 (round 19 — display-layer only): the formatting toggle pill
+//  Task 60 (round 20 — display-layer only): the formatting menu on the heading
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * The distinct BORDED formatting toggle shown at the TOP of the in-player
- * qualities sheet — ABOVE the "Qualities and Servers" title (the v0.4.6
- * design made the whole title row clickable and popped a DropdownMenu over
- * it; the round-19 device round wants the control at the top with its own
- * border). Tap toggles the formatted/raw view DIRECTLY — no menu.
+ * Task 60 (round 20 — the v0.4.7 device round): the formatting control lives
+ * ON the in-player sheet's HEADING — the round-19 design was a standalone
+ * "Formatted sources" pill above the title, and the user's spec superseded
+ * it: "when I click on the [episode] heading… it should open up a small menu
+ * with a distinct border around it; in that I should be able to toggle it on
+ * and off."
  *
- * The same design as the entry sheets' toggles (the stacks share the
- * preference, not code — the replication rule).
+ *  - the TITLE TEXT is the only touch target (intrinsic width, ellipsized);
+ *  - tapping it pops a small DropdownMenu anchored UNDER the heading: a
+ *    14dp-cornered, flat surface with a DISTINCT 1dp outline border and ONE
+ *    row — "Formatted sources" + a trailing Switch;
+ *  - toggling (the row OR the switch) flips the formatted/raw view and the
+ *    menu STAYS OPEN; outside-tap or back dismisses.
+ *
+ * The same design as the entry sheets' heading components (the stacks share
+ * the preference, not code — the replication rule).
  */
 @Composable
-private fun WatchFormattingToggle(
+private fun WatchFormattingTitle(
+    title: String,
     formatted: Boolean,
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .border(
+    var menuOpen by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        // ONLY the title text opens the menu — the user's spec.
+        Text(
+            text = title,
+            fontFamily = RobotoFamily,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { menuOpen = true },
+        )
+        // The small menu with the DISTINCT border (shape + flat surface +
+        // 1dp outline via Modifier.border — version-proof on material3).
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            modifier = Modifier.border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline,
-                shape = RoundedCornerShape(50),
-            )
-            .clickable { onToggle(!formatted) }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Default.FormatListBulleted,
-            contentDescription = null,
-            tint = if (formatted) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(16.dp),
-        )
-        Text(
-            text = "Formatted sources",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (formatted) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-        if (formatted) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "On",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(14.dp),
-            )
+                shape = RoundedCornerShape(14.dp),
+            ),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggle(!formatted) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Formatted sources",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = formatted,
+                    onCheckedChange = { onToggle(it) },
+                )
+            }
         }
     }
 }

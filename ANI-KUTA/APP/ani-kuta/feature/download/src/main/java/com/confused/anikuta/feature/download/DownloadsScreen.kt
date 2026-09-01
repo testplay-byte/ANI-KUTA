@@ -450,7 +450,8 @@ private fun AnimeSectionCard(
 private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
     // D-213: restructured layout:
     //   Row 1: [Episode Name (weight 1f)] [3-dot button]   ← 3-dot is ONLY here, next to the name
-    //   Row 2: [server][audio][quality][size] ... [45%]     ← full width, percentage on the right
+    //   Row 2: [server(flex+…)][audio][quality][size] | [45%] ← pills in a weighted inner row,
+    //          the status/percentage pill OUTSIDE it (Task 60: always visible)
     //   Row 3: [progress bar — full width, 6dp]             ← old-style inline bar
     //   Row 4: [error text] (if error)
     // The 3-dot is NOT full-height — it's in the top row only. The info row + progress
@@ -505,7 +506,16 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
             }
         }
 
-        // ── Row 2: Info pills (full width) + percentage on the right ──
+        // ── Row 2: Info pills + percentage on the right ──
+        // Task 60 (round 20): the server name FLEXES now — a weighted,
+        // shrinkable pill that ellipsizes with a trailing "…" when the
+        // resolver's label is long (the user: "the server name should be
+        // shortened and three dots should be shown at the end"), so the
+        // percentage pill NEVER loses its space (the v0.4.7 finding: a long
+        // server label pushed it out of view). The inner Row owns the pills;
+        // the status/percentage pill sits OUTSIDE it — guaranteed visible.
+        // The row is shared by BOTH stacks (CS + aniyomi queue rows render
+        // through this component), so one fix covers both.
         // D-215: reduced spacer from 4dp → 2dp (~50% reduction as requested).
         Spacer(Modifier.height(2.dp))
         Row(
@@ -513,18 +523,25 @@ private fun EpisodeRow(task: DownloadTask, onMenu: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (task.videoServer.isNotBlank()) InfoPill(task.videoServer)
-            if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
-            if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
-            if (task.status == DownloadStatus.DOWNLOADING ||
-                task.status == DownloadStatus.PAUSED
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                val sizeText = if (task.totalBytes > 0)
-                    "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
-                else formatBytes(task.downloadedBytes)
-                SizePill(sizeText)
+                if (task.videoServer.isNotBlank()) {
+                    ServerInfoPill(task.videoServer, Modifier.weight(1f, fill = false))
+                }
+                if (task.videoAudio.isNotBlank()) InfoPill(task.videoAudio.uppercase())
+                if (task.videoQuality.isNotBlank()) InfoPill(task.videoQuality)
+                if (task.status == DownloadStatus.DOWNLOADING ||
+                    task.status == DownloadStatus.PAUSED
+                ) {
+                    val sizeText = if (task.totalBytes > 0)
+                        "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
+                    else formatBytes(task.downloadedBytes)
+                    SizePill(sizeText)
+                }
             }
-            Spacer(Modifier.weight(1f))
             when (task.status) {
                 DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED -> {
                     PercentagePill("${task.progress}%")
@@ -650,6 +667,37 @@ private fun InfoPill(text: String, highlight: Boolean = false) {
             else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             softWrap = false,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+    }
+}
+
+/**
+ * Task 60 (round 20 — the v0.4.7 device finding): the SERVER pill — the one
+ * label that can run long (resolver server names like "HD-1 - Sub - 1080p"
+ * or a CS provider's server string). The call site passes
+ * `weight(1f, fill = false)` so the pill FLEXES: intrinsic width when the
+ * row has room, shrinking with a trailing "…" (the user's "three dots at
+ * the end") when it doesn't — the percentage pill always keeps its space.
+ * Same styling as [InfoPill] otherwise.
+ */
+@Composable
+private fun ServerInfoPill(text: String, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.outlineVariant,
+        modifier = modifier,
+    ) {
+        Text(
+            text,
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
     }

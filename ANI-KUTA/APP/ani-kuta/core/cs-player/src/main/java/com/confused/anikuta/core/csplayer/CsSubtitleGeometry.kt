@@ -36,7 +36,19 @@ package com.confused.anikuta.core.csplayer
  * leading, not two) and draws every decoration pass (background boxes, shadow
  * stroke, border stroke) from the SAME [androidx.compose.ui.text.TextLayoutResult]
  * the fill uses — the passes are structurally incapable of detaching. The one
- * new geometry constant is the horizontal inset below.
+ * new geometry constant was the horizontal inset.
+ *
+ * **Task 60 (round 20 — the v0.4.7 device round, "the gap between the two
+ * lines is very bad… way too much / way too minimal / overlapping"):** the
+ * round-19 `Text` set `fontSize` but NOT `lineHeight`, so the AMBIENT
+ * `LocalTextStyle` (Material3 provides `bodyLarge` — lineHeight **24sp, a
+ * FIXED value**) leaked into the overlay: at small effective fonts (16:9 box,
+ * scale 0.5×, ≈11sp) the fixed 24sp line box read as a huge gap; at large ones
+ * (scale 2×/4×, 21–43sp) the line box was SMALLER than the glyphs → overlap
+ * and distortion. The fix is structural: the overlay now passes an EXPLICIT
+ * `lineHeight = fontSizeSp × [LINE_HEIGHT_RATIO]` — the gap is a CONSTANT
+ * fraction of the effective font at every size and scale, and no ambient
+ * style can influence the overlay's line metric again.
  */
 object CsSubtitleGeometry {
 
@@ -45,6 +57,16 @@ object CsSubtitleGeometry {
 
     /** MPV sub-font-size default (the unit base for border/shadow too). */
     const val DEFAULT_FONT_SIZE = 55f
+
+    /**
+     * Task 60: the cue's line-height ratio — `lineHeight = fontSize × this`.
+     * 1.2 keeps a clean, constant inter-line gap (~20% of the glyph height)
+     * that is slightly ABOVE Roboto's natural line box (≈1.18em, ascent +
+     * descent), so adjacent lines never touch at any size while the gap stays
+     * tight enough to read as one subtitle block — identical in both display
+     * modes and at every font/scale combination.
+     */
+    const val LINE_HEIGHT_RATIO = 1.2f
 
     /** The engine's sub-pos → bottom-padding cap (Media3 parity). */
     const val MAX_BOTTOM_FRACTION = 0.12f
@@ -69,6 +91,15 @@ object CsSubtitleGeometry {
     fun fontFraction(fontSize: Int, fontScale: Float): Float =
         FONT_FRACTION * (fontSize.coerceAtLeast(1) / DEFAULT_FONT_SIZE) *
             fontScale.coerceIn(0.25f, 4f)
+
+    /**
+     * Task 60: the cue's line height (sp) for a given effective font size —
+     * `fontSize × [LINE_HEIGHT_RATIO]` (the overlay passes this EXPLICITLY so
+     * the ambient LocalTextStyle's fixed lineHeight can never leak in — the
+     * v0.4.7 "way too much / overlapping" line-gap bug).
+     */
+    fun lineHeightSp(fontSizeSp: Float): Float =
+        (fontSizeSp * LINE_HEIGHT_RATIO).coerceAtLeast(1f)
 
     /**
      * The border width as a fraction of the FONT height — MPV units: the

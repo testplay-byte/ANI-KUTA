@@ -110,6 +110,11 @@ fun ExtensionsSettingsScreen(
     onOpenRepoSettings: () -> Unit,
     onOpenExtensionDetail: (String) -> Unit = {},
     onOpenCloudstreamPluginDetail: (String) -> Unit = {},
+    // Task 60 (round 20): the tab to open on arrival — "aniyomi" (default) or
+    // "cloudstream" (the post-plugin-import landing: the user added a CS
+    // plugin, so the page opens on the CLOUDSTREAM section, not the aniyomi
+    // tab — the round-20 device finding).
+    initialTab: String = "aniyomi",
     extensionManager: ExtensionManager = koinInject(),
     repoRepository: ExtensionRepoRepository = koinInject(),
     csManager: com.confused.anikuta.data.cloudstream.CloudstreamPluginManager = koinInject(),
@@ -133,6 +138,9 @@ fun ExtensionsSettingsScreen(
     // Session 3: UNTRUSTED plugins count too — a fresh install lands in the
     // Untrusted section (trust flow), so the tab must survive before the first
     // trust even with the repo already deleted.
+    // Task 60: the initial tab comes from the caller (the plugin-import
+    // hand-off pushes "cloudstream") — rememberSaveable(initialTab) seeds the
+    // state with it and re-keys if a future push arrives with a different one.
     val csInstalled by csManager.installed.collectAsState()
     val csUntrusted by csManager.untrusted.collectAsState()
     val csErrored by csManager.errored.collectAsState()
@@ -140,7 +148,9 @@ fun ExtensionsSettingsScreen(
     val csRepos by csRepoRepository.repos.collectAsState()
     val csHasContent = csRepos.isNotEmpty() || csInstalled.isNotEmpty() ||
         csUntrusted.isNotEmpty() || csErrored.isNotEmpty()
-    var activeTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf("aniyomi") }
+    var activeTab by androidx.compose.runtime.saveable.rememberSaveable(initialTab) {
+        androidx.compose.runtime.mutableStateOf(initialTab)
+    }
     val showCloudstreamTab = activeTab == "cloudstream" && csHasContent
 
     val scope = rememberCoroutineScope()

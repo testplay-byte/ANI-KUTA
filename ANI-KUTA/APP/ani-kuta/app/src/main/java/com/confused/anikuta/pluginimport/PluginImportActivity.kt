@@ -2,11 +2,13 @@ package com.confused.anikuta.pluginimport
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,12 +41,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -172,12 +179,24 @@ class PluginImportActivity : ComponentActivity() {
                     }
                     return@launch
                 }
+                // Task 60 (round 20 — the v0.4.7 device finding "at the very top
+                // it did not show me the logo"): read the SENDER's export
+                // metadata + the EMBEDDED icon bytes now so the CONFIRM page
+                // can render the plugin's real logo in its badge (the embedded
+                // bytes win; the exported iconUrl is the network fallback).
+                val exportInfo = CsSharedPluginFormat.readExportInfo(temp)
+                val exportIconBytes = CsSharedPluginFormat.readExportIcon(temp)
                 Logger.i(TAG) {
                     "parsed shared plugin: '$displayName' → ${manifest.name} " +
-                        "v${manifest.version} (${temp.length() / 1024} KB)"
+                        "v${manifest.version} (${temp.length() / 1024} KB) " +
+                        "[icon=${if (exportIconBytes != null) "embedded" else "none"}]"
                 }
                 withContext(Dispatchers.Main) {
-                    stage.value = PluginImportStage.Confirm(temp, displayName, manifest, temp.length())
+                    stage.value = PluginImportStage.Confirm(
+                        temp, displayName, manifest, temp.length(),
+                        iconBytes = exportIconBytes,
+                        iconUrl = exportInfo?.iconUrl,
+                    )
                 }
             } catch (t: Throwable) {
                 Logger.e(TAG, t) { "share parse failed" }
@@ -280,6 +299,10 @@ sealed interface PluginImportStage {
         val displayName: String,
         val manifest: BasePlugin.Manifest,
         val fileSizeBytes: Long,
+        /** Task 60: the sender's EMBEDDED icon bytes (anikuta/icon.png), if any. */
+        val iconBytes: ByteArray? = null,
+        /** Task 60: the exported iconUrl — the fallback when no bytes are embedded. */
+        val iconUrl: String? = null,
     ) : PluginImportStage
 
     /** The confirmed import is running. */
@@ -386,18 +409,46 @@ private fun ConfirmCard(
     onCancel: () -> Unit,
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        // The plugin badge.
+        // The plugin badge — Task 60 (the v0.4.7 device finding "at the very
+        // top it did not show me the logo"): the sender's EMBEDDED icon
+        // renders here (decoded once, remembered per stage), the exported
+        // iconUrl is the network fallback, and only a file with NEITHER falls
+        // back to the generic extension glyph.
+        val embeddedIcon = remember(stage.iconBytes) {
+            stage.iconBytes?.let { bytes ->
+                runCatching {
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }.getOrNull()?.asImageBitmap()
+            }
+        }
         Surface(
             color = MaterialTheme.colorScheme.primaryContainer,
             shape = CircleShape,
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(72.dp)) {
-                Icon(
-                    imageVector = Icons.Filled.Extension,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(34.dp),
-                )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(72.dp).clip(CircleShape),
+            ) {
+                when {
+                    embeddedIcon != null -> Image(
+                        bitmap = embeddedIcon,
+                        contentDescription = "Plugin icon",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    stage.iconUrl != null -> AsyncImage(
+                        model = stage.iconUrl,
+                        contentDescription = "Plugin icon",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    else -> Icon(
+                        imageVector = Icons.Filled.Extension,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(34.dp),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(16.dp))

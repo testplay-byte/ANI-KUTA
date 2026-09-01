@@ -280,10 +280,15 @@ private fun DownloadedAnimeCard(
                                 ) {
                                     // Server name — D-215: now has a proper background (primary.copy(0.15f))
                                     // matching the Downloads page InfoPill(highlight=true) style.
+                                    // Task 60 (round 20): the chip FLEXES — weight(1f, fill = false)
+                                    // + ellipsis, so a long resolver server name shortens with a
+                                    // trailing "…" instead of overflowing the row (the user's
+                                    // "three dots" spec; applies to BOTH stacks' downloaded rows).
                                     if (hasServer) {
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
                                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                            modifier = Modifier.weight(1f, fill = false),
                                         ) {
                                             Text(
                                                 task.videoServer,
@@ -295,6 +300,7 @@ private fun DownloadedAnimeCard(
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                                 maxLines = 1,
                                                 softWrap = false,
+                                                overflow = TextOverflow.Ellipsis,
                                             )
                                         }
                                     }

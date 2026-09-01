@@ -95,9 +95,15 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getInt(KEY_SUB_BORDER_SIZE, 5)
         set(value) = store.putInt(KEY_SUB_BORDER_SIZE, value)
 
-    /** Bold subtitles. Default: false. */
+    /**
+     * Bold subtitles. Default: **true** — Task 60 (round 20, the user's
+     * spec: "by default the bold should be turned on… make both of them as
+     * accurate to each other as possible"). One preference drives BOTH
+     * stacks (MPV `sub-bold` and the CS overlay's FontWeight), so the sheets
+     * and the engine land bold-on out of the box.
+     */
     var boldSubtitles: Boolean
-        get() = store.getBoolean(KEY_BOLD_SUBS, false)
+        get() = store.getBoolean(KEY_BOLD_SUBS, true)
         set(value) = store.putBoolean(KEY_BOLD_SUBS, value)
 
     /** Italic subtitles. Default: false. */
@@ -145,9 +151,9 @@ class PlayerPreferences(private val store: PreferenceStore) {
      * one write (the shared backing for BOTH subtitle settings sheets' Reset
      * buttons — the aniyomi sheet and the CS sheet). Defaults per the user's
      * spec: font size MAX (100), scale 0.5×, border 5; everything else back to
-     * its out-of-box value (Sans Serif, bold/italic off, white text, black
-     * border, transparent background, position 100, shadow 0, delay 0,
-     * ASS-override off).
+     * its out-of-box value (Sans Serif, **bold ON** — Task 60, italic off,
+     * white text, black border, transparent background, position 100,
+     * shadow 0, delay 0, ASS-override off).
      *
      * Callers fire their `onApplySettings` after this so the live preview and
      * the engine (MPV / Media3) pick the reset state up immediately.
@@ -157,7 +163,7 @@ class PlayerPreferences(private val store: PreferenceStore) {
         subtitleFontSize = 100
         subtitleFontScale = 0.5f
         subtitleBorderSize = 5
-        boldSubtitles = false
+        boldSubtitles = true
         italicSubtitles = false
         textColorSubtitles = 0xFFFFFFFF.toInt()
         borderColorSubtitles = 0xFF000000.toInt()

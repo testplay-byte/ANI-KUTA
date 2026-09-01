@@ -28,21 +28,21 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public  // D-210: resolver Error "Open in WebView" icon
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -53,7 +53,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -94,6 +93,13 @@ import android.widget.Toast
  * OFF = a raw flat list: one row per resolved video (server · audio · quality,
  * unformatted labels), tap = pick directly. Default ON. The formatted path is
  * byte-identical to before.
+ *
+ * Task 60 (round 20 — the v0.4.7 device round): the formatting control moved
+ * ONTO the heading itself — tapping the "Episode N" TITLE TEXT (only the
+ * text) pops a small DISTINCT-BORDER menu anchored UNDER it with a
+ * "Formatted sources" switch (the round-19 standalone pill is gone; see
+ * [ResolverFormattingTitle]). The toggle behavior is unchanged (shared pref,
+ * read at open, live re-render).
  *
  * Task 58 (round 18 — the BOTH-STACKS debug toolkit): the same gated debug
  * affordances the CloudStream resolve lists gained in round 17 (Task 57 / P4),
@@ -163,24 +169,18 @@ fun ResolverSheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: the distinct bordered formatting toggle (Task 59 —
-            // ABOVE the title, its own clearly-bounded control; display-layer
-            // only), then the "Episode N" title + close row (plain text — the
-            // title is NOT a click target anymore; empty-area header taps do
-            // nothing). The v0.4.6 design made the whole title row clickable
-            // and popped a DropdownMenu over the episode number.
-            ResolverFormattingToggle(
-                formatted = formatted,
-                onToggle = {
-                    formatted = it
-                    playerPreferences.resolveSheetFormatted = it
-                },
-                modifier = Modifier.padding(top = 14.dp),
-            )
+            // ── Header (Task 60 — round 20 — display-layer only): the
+            // "Episode N" / "Download EP N" HEADING carries the formatting
+            // control — tapping the TITLE TEXT (only the text itself) pops
+            // the small bordered menu with the Formatted-sources toggle (see
+            // [ResolverFormattingTitle] at the bottom of this file). The
+            // round-19 standalone pill above the title is gone — the user's
+            // v0.4.7 spec: "when I click on the episode heading… it should
+            // open up a small menu with a distinct border around it."
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 14.dp),
+                    .padding(top = 16.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val headerText = if (downloadMode) {
@@ -188,15 +188,14 @@ fun ResolverSheet(
                 } else {
                     "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
                 }
-                Text(
-                    text = headerText,
-                    fontFamily = RobotoFamily,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                ResolverFormattingTitle(
+                    title = headerText,
+                    formatted = formatted,
+                    onToggle = {
+                        formatted = it
+                        playerPreferences.resolveSheetFormatted = it
+                    },
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 // Task 58: the header-level "copy the whole report" action —
                 // OFF unless enabled in Settings → Debug options (the mirror
@@ -796,67 +795,84 @@ private fun rememberResolverCopyFeedback(): (String, String) -> Unit {
 
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Task 59 (round 19 — display-layer only): the formatting toggle pill
+//  Task 60 (round 20 — display-layer only): the formatting menu on the heading
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * The distinct BORDED formatting toggle shown at the TOP of the resolve
- * sheet — ABOVE the "Episode N" title (the v0.4.6 design made the whole
- * title row clickable and popped a DropdownMenu over the episode number;
- * the round-19 device round: "it should be shown at the top, not on top of
- * the episode number itself but above it… give it a distinct border around
- * it"). Tap toggles the formatted/raw view DIRECTLY — no menu.
+ * Task 60 (round 20 — the v0.4.7 device round): the formatting control lives
+ * ON the resolve sheet's HEADING — the round-19 design was a standalone
+ * "Formatted sources" pill above the title, and the user's spec superseded
+ * it: "when I click on the episode heading at the top of the bottom-up menu
+ * of the resolved video streams, it should open up a small menu with a
+ * distinct border around it; in that I should be able to toggle it on and
+ * off."
  *
- * The CS sheets' [CsFormattingToggle] is the same design (the stacks share
- * the preference, not code — the replication rule).
+ *  - the TITLE TEXT is the only touch target (intrinsic width, ellipsized —
+ *    taps on the surrounding header area do nothing);
+ *  - tapping it pops a small DropdownMenu anchored UNDER the heading: a
+ *    14dp-cornered, flat surface with a DISTINCT 1dp outline border and ONE
+ *    row — "Formatted sources" + a trailing Switch;
+ *  - toggling (the row OR the switch) flips the formatted/raw view and the
+ *    menu STAYS OPEN so the user can flip it back; outside-tap or back
+ *    dismisses.
+ *
+ * The CS sheets' [CsFormattingTitle] is the same design (the stacks share the
+ * preference, not code — the replication rule).
  */
 @Composable
-private fun ResolverFormattingToggle(
+private fun ResolverFormattingTitle(
+    title: String,
     formatted: Boolean,
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .border(
+    var menuOpen by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        // ONLY the title text opens the menu — the user's spec.
+        Text(
+            text = title,
+            fontFamily = RobotoFamily,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { menuOpen = true },
+        )
+        // The small menu with the DISTINCT border (shape + flat surface +
+        // 1dp outline via Modifier.border — version-proof on material3).
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            modifier = Modifier.border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline,
-                shape = RoundedCornerShape(50),
-            )
-            .clickable { onToggle(!formatted) }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Default.FormatListBulleted,
-            contentDescription = null,
-            tint = if (formatted) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(16.dp),
-        )
-        Text(
-            text = "Formatted sources",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (formatted) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-        if (formatted) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "On",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(14.dp),
-            )
+                shape = RoundedCornerShape(14.dp),
+            ),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggle(!formatted) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Formatted sources",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = formatted,
+                    onCheckedChange = { onToggle(it) },
+                )
+            }
         }
     }
 }

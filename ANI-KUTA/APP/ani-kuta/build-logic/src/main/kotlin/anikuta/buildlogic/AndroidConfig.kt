@@ -81,6 +81,29 @@ object AndroidConfig {
     // the plugin's name, and Add shows a clean 1.5s "Plugin added" then
     // hands off to the EXTENSIONS page.
     //
+    // ── Task 60 (round 20) — the v0.4.7 device-round fixes ────────────────
+    // 0.4.8 fixes the nine v0.4.7 device findings (doc cloudstream-v2/11):
+    // (1) the CS subtitle overlay's line-gap bug ROOT-CAUSED — the fill Text
+    // set fontSize but not lineHeight, so Material3's ambient bodyLarge
+    // leaked a FIXED 24sp line box in (huge gap at 0.5x scale, overlapping
+    // glyphs at 2x+); the overlay now passes an EXPLICIT font-proportional
+    // lineHeight (1.2x) so the inter-line gap is a constant ~20% of the glyph
+    // height at every size and scale; (2) BOLD subtitles default ON on BOTH
+    // stacks (MPV sub-bold + the CS overlay); (3) the subtitle sheets' Reset
+    // asks for CONFIRMATION first (both stacks, same dialog); (4) the
+    // resolve/quality sheets' formatting toggle moved ONTO the episode
+    // HEADING — tapping the title text pops a small DISTINCT-BORDER menu with
+    // the Formatted-sources switch (the round-19 standalone pill removed, all
+    // four sheets); (5) the .WHITECAT share format drops the legacy
+    // .moviebox.WHITECAT compatibility (the user: no old-format support) and
+    // the import CONFIRM page shows the plugin's embedded ICON; (6) the
+    // post-Add hand-off lands on the CLOUDSTREAM tab of the extensions page
+    // (was the aniyomi tab); (7) the download rows' server name flexes with a
+    // trailing "…" so the progress percentage always stays visible (both
+    // stacks); (8) the Downloaded-page crash (duplicate LazyColumn keys from
+    // the denormalized content grouping) fixed by grouping on the stable
+    // contentId.
+    //
     // ── Task 58 (round 18) — the both-stacks-debug + downloads + share ────
     // 0.4.6 fixes the v0.4.5 device findings + lands the two requested
     // features (doc cloudstream-v2/09): (1) the debug toolkit now covers BOTH
@@ -123,8 +146,8 @@ object AndroidConfig {
     // controls with lock/canvas-seekbar/speed sheet), and the player sheets
     // adopt the Qualities-and-Servers / Subtitles / Speed sheet languages.
     // Aniyomi remains byte-untouched — parity via replicated design tokens.
-    const val versionCode = 72
-    const val versionName = "0.4.7"
+    const val versionCode = 73
+    const val versionName = "0.4.8"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

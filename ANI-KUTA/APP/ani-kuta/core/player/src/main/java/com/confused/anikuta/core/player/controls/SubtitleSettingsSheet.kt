@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,6 +36,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -93,6 +95,63 @@ fun SubtitleSettingsSheet(
     // blocks re-read the freshly-written preferences.
     var resetTick by remember { mutableIntStateOf(0) }
 
+    // Task 60 (round 20 — additive): the Reset action ASKS FIRST (the v0.4.7
+    // device round: "it should have asked me for confirmation on whether I
+    // wanted to reset it or not") — one tap on the header icon opens the
+    // confirm dialog; only its Reset button writes the defaults. Identical
+    // to the CS sheet's dialog (the replication rule).
+    var showResetConfirm by remember { mutableStateOf(false) }
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = {
+                Text(
+                    text = "Reset subtitle settings?",
+                    fontFamily = RobotoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            },
+            text = {
+                Text(
+                    text = "Every subtitle setting returns to its default — " +
+                        "font size 100%, scale 0.5×, border 5, bold on.",
+                    fontFamily = RobotoFamily,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showResetConfirm = false
+                        playerPreferences.resetSubtitleSettings()
+                        resetTick++
+                        onApplySettings()
+                    },
+                ) {
+                    Text(
+                        "Reset",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) {
+                    Text(
+                        "Cancel",
+                        fontFamily = RobotoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+        )
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -127,13 +186,13 @@ fun SubtitleSettingsSheet(
                     // setting's out-of-box value. The shared
                     // PlayerPreferences.resetSubtitleSettings writes the
                     // defaults; resetTick re-keys the panel's state below.
+                    // Task 60: the tap now opens the CONFIRMATION dialog above
+                    // — the reset only runs on its Reset button.
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(50),
                         modifier = Modifier.size(32.dp).clickable {
-                            playerPreferences.resetSubtitleSettings()
-                            resetTick++
-                            onApplySettings()
+                            showResetConfirm = true
                         },
                     ) {
                         Box(contentAlignment = Alignment.Center) {

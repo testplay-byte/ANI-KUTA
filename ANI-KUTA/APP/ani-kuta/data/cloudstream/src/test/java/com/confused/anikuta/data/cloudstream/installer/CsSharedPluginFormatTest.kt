@@ -15,12 +15,14 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 /**
- * Task 58 (round 18) / Task 59 (round 19): locks the shared-plugin file
- * format — the `<internalName>.WHITECAT` naming (+ the legacy
- * `.moviebox.WHITECAT` still accepted on import), the case-insensitive stem
- * extraction, the classloader-free manifest.json reader, and the round-19
- * EXPORT METADATA (the `anikuta/export.json` + `anikuta/icon.png` entries
- * the share writes and the import reads).
+ * Task 58 (round 18) / Task 59 (round 19) / Task 60 (round 20): locks the
+ * shared-plugin file format — the `<internalName>.WHITECAT` naming (Task 60:
+ * `.WHITECAT` is the ONLY recognized extension — the round-18
+ * `.moviebox.WHITECAT` name is deliberately NOT a shared-plugin name
+ * anymore, per the user's round-20 "no legacy compatibility" spec), the
+ * case-insensitive stem extraction, the classloader-free manifest.json
+ * reader, and the round-19 EXPORT METADATA (the `anikuta/export.json` +
+ * `anikuta/icon.png` entries the share writes and the import reads).
  */
 class CsSharedPluginFormatTest {
 
@@ -55,14 +57,16 @@ class CsSharedPluginFormatTest {
     }
 
     @Test
-    fun `isSharedPluginFile matches current and legacy extensions case-insensitively`() {
+    fun `isSharedPluginFile matches only the WHITECAT extension case-insensitively`() {
         // The round-19 extension (.WHITECAT).
         assertTrue(CsSharedPluginFormat.isSharedPluginFile("MovieBoxProvider.WHITECAT"))
         assertTrue(CsSharedPluginFormat.isSharedPluginFile("x.whitecat"))
         assertTrue(CsSharedPluginFormat.isSharedPluginFile("X.WHITECAT"))
-        // The round-18 legacy name is still ACCEPTED on import.
-        assertTrue(CsSharedPluginFormat.isSharedPluginFile("MovieBoxProvider.moviebox.WHITECAT"))
-        assertTrue(CsSharedPluginFormat.isSharedPluginFile("x.moviebox.whitecat"))
+        // Task 60: the round-18 legacy name is NOT recognized — a file
+        // carrying it is "just a renamed file" (content-first import, no
+        // shared-name semantics).
+        assertFalse(CsSharedPluginFormat.isSharedPluginFile("MovieBoxProvider.moviebox.WHITECAT"))
+        assertFalse(CsSharedPluginFormat.isSharedPluginFile("x.moviebox.whitecat"))
         assertFalse(CsSharedPluginFormat.isSharedPluginFile("MovieBoxProvider.cs3"))
         assertFalse(CsSharedPluginFormat.isSharedPluginFile("moviebox.WHITECAT.txt"))
         assertFalse(CsSharedPluginFormat.isSharedPluginFile(""))
@@ -78,11 +82,10 @@ class CsSharedPluginFormatTest {
             "MovieBoxProvider",
             CsSharedPluginFormat.internalNameFrom("MovieBoxProvider.whitecat"),
         )
-        // The legacy tail strips the same way.
-        assertEquals(
-            "MovieBoxProvider",
-            CsSharedPluginFormat.internalNameFrom("MovieBoxProvider.moviebox.WHITECAT"),
-        )
+        // Task 60: no old-format handling — the legacy double tail is
+        // REJECTED (internalNameFrom → null; the content-first path then
+        // derives the identity from the manifest, never the old stem).
+        assertNull(CsSharedPluginFormat.internalNameFrom("MovieBoxProvider.moviebox.WHITECAT"))
         assertEquals(
             "Some Plugin",
             CsSharedPluginFormat.internalNameFrom("Some Plugin.WhiteCat"),

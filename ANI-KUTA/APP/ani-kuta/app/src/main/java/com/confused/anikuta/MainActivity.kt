@@ -548,12 +548,16 @@ fun AppRoot() {
     // Add, the 1.5s "Plugin added" confirmation hands off to the extensions
     // page — PluginImportActivity launches us HERE and this consumer lands
     // the user on the list).
+    // Task 60 (round 20): the push carries initialTab = "cloudstream" — a
+    // CLOUDSTREAM plugin import lands on the CLOUDSTREAM section, not the
+    // aniyomi tab (the user: "I added the cloud streaming plugin or extension
+    // so it should lead me to the cloud stream section by default").
     fun checkPendingCsPluginNav() {
         val pendingName = com.confused.anikuta.pluginimport.PendingCsPluginNav.consume(appContext)
         if (pendingName != null) {
-            Logger.i("Anikuta:AppRoot") { "pending CS plugin import → extensions page: $pendingName" }
+            Logger.i("Anikuta:AppRoot") { "pending CS plugin import → extensions page (cloudstream tab): $pendingName" }
             if (currentKey !is ExtensionsSettingsKey) {
-                backstack.add(ExtensionsSettingsKey)
+                backstack.add(ExtensionsSettingsKey(initialTab = "cloudstream"))
             }
         }
     }
@@ -1007,7 +1011,7 @@ fun AppRoot() {
             )
             is SettingsKey -> SettingsScreen(
                 onOpenAppearance = { backstack.add(AppearanceKey) },
-                onOpenExtensions = { backstack.add(ExtensionsSettingsKey) },
+                onOpenExtensions = { backstack.add(ExtensionsSettingsKey()) },
                 onOpenAutoLink = { backstack.add(AutoLinkSettingsKey) },
                 onOpenNotifications = { backstack.add(UpdatesSettingsKey) },
                 onOpenPlayerSettings = { backstack.add(PlayerSettingsKey) },
@@ -1070,6 +1074,9 @@ fun AppRoot() {
                 onOpenExtensionDetail = { backstack.add(ExtensionDetailKey(it)) },
                 // CloudStream V2: the CS plugin detail page (trust/uninstall/retry hub).
                 onOpenCloudstreamPluginDetail = { backstack.add(CloudstreamPluginDetailKey(it)) },
+                // Task 60: the tab the key asked for (the plugin-import hand-off
+                // pushes "cloudstream"; the branch smart-casts currentKey).
+                initialTab = currentKey.initialTab,
             )
             is ExtensionRepoSettingsKey -> ExtensionRepoSettingsScreen(
                 onBack = pop,

@@ -31,11 +31,12 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -45,7 +46,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -282,73 +282,86 @@ internal fun rememberCopyFeedback(): (String, String) -> Unit {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  The formatting toggle (Task 59 — the distinct bordered pill at the top)
+//  Task 60 (round 20): the formatting menu ON the sheet's heading
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Task 59 (round 19 — the v0.4.6 device findings): the formatting control is
- * a DISTINCT BORDED pill shown at the TOP of the sheet — ABOVE the
- * "Episode N" title, never on top of it — with its own outline so it reads
- * as a separate, clearly-bounded control (the v0.4.6 design made the whole
- * title row clickable and popped a DropdownMenu over the episode number;
- * empty-area taps in the header opened it too).
+ * Task 60 (round 20 — the v0.4.7 device round): the formatting control lives
+ * ON the sheet's HEADING now — the round-19 design was a standalone
+ * "Formatted sources" pill above the title, and the user's spec superseded
+ * it: "when I click on the episode heading at the top of the bottom-up menu
+ * of the resolved video streams, it should open up a small menu with a
+ * distinct border around it; in that I should be able to toggle it on and
+ * off."
  *
- * Tap toggles the formatted/raw view DIRECTLY (no menu): ON (default) = the
- * aniyomi server/audio accordion; OFF = the raw flat list. The sheet title
- * is plain text now — this pill is the only formatting control.
+ *  - the TITLE TEXT is the only touch target (intrinsic width, ellipsized —
+ *    taps on the surrounding header area do nothing, per the earlier
+ *    round-19 "only the episode number and text are clickable" spec);
+ *  - tapping it pops a small DropdownMenu anchored UNDER the heading: a
+ *    14dp-cornered, flat surface with a DISTINCT 1dp outline border and ONE
+ *    row — "Formatted sources" + a trailing Switch;
+ *  - toggling (the row OR the switch) flips the formatted/raw view and the
+ *    menu STAYS OPEN so the user can flip it back; outside-tap or back
+ *    dismisses. The list behind re-renders live.
  *
  * The aniyomi sheets implement the SAME interaction with their own local
- * copies (the two stacks share only the preference, not code).
+ * copies (the two stacks share the preference, not code — the replication
+ * rule).
  */
 @Composable
-internal fun CsFormattingToggle(
+internal fun CsFormattingTitle(
+    title: String,
     formatted: Boolean,
     onToggleFormatting: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            // The distinct border — the user's spec: "give it a distinct
-            // border around it so that it looks different, clearer, cleaner".
-            .border(
+    var menuOpen by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        // ONLY the title text opens the menu — the user's spec.
+        Text(
+            text = title,
+            fontFamily = RobotoFamily,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { menuOpen = true },
+        )
+        // The small menu with the DISTINCT border (shape + flat surface +
+        // 1dp outline via Modifier.border — version-proof on material3).
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            modifier = Modifier.border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outline,
-                shape = RoundedCornerShape(50),
-            )
-            .clickable { onToggleFormatting(!formatted) }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Default.FormatListBulleted,
-            contentDescription = null,
-            tint = if (formatted) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(16.dp),
-        )
-        Text(
-            text = "Formatted sources",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (formatted) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-        if (formatted) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "On",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(14.dp),
-            )
+                shape = RoundedCornerShape(14.dp),
+            ),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleFormatting(!formatted) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Formatted sources",
+                    fontFamily = RobotoFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.weight(1f))
+                Switch(
+                    checked = formatted,
+                    onCheckedChange = { onToggleFormatting(it) },
+                )
+            }
         }
     }
 }

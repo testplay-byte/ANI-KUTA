@@ -8,6 +8,13 @@ import org.junit.Test
  * behind the v0.4.5 device-round fixes ("border size is not shown properly",
  * background/border geometry) and the byte-parity with the engine's Media3
  * mapping.
+ *
+ * Task 60 (round 20): locks the LINE-HEIGHT contract — the v0.4.7 overlay
+ * passed only `fontSize`, so Material3's ambient bodyLarge leaked a FIXED
+ * 24sp lineHeight in ("way too much gap" at 0.5× scale, "overlapping" at
+ * 2×+). The overlay now passes an explicit `lineHeight = fontSize ×
+ * LINE_HEIGHT_RATIO` — the ratio locks below pin the gap as a constant
+ * fraction of the font at every size and scale.
  */
 class CsSubtitleGeometryTest {
 
@@ -92,5 +99,49 @@ class CsSubtitleGeometryTest {
         assertEquals(172, CsSubtitleGeometry.horizontalInsetPx(4300))
         assertEquals(0, CsSubtitleGeometry.horizontalInsetPx(0))
         assertEquals(0, CsSubtitleGeometry.horizontalInsetPx(-5))
+    }
+
+    // ── Task 60: the line-height contract (the v0.4.7 line-gap fix) ───────
+
+    @Test
+    fun `line height is a constant ratio of the font size`() {
+        // The ratio is locked at 1.2 — the inter-line gap is ~20% of the
+        // glyph height, above Roboto's natural ~1.17-1.18 line box so lines
+        // never touch, tight enough to read as one block.
+        assertEquals(1.2f, CsSubtitleGeometry.LINE_HEIGHT_RATIO, 1e-6f)
+        assertEquals(12f, CsSubtitleGeometry.lineHeightSp(10f), 1e-6f)
+        assertEquals(24f, CsSubtitleGeometry.lineHeightSp(20f), 1e-6f)
+        // 1e-4 tolerance: 43f * 1.2f is 51.600002 in IEEE-754 single precision.
+        assertEquals(51.6f, CsSubtitleGeometry.lineHeightSp(43f), 1e-4f)
+    }
+
+    @Test
+    fun `line height scales PROPORTIONALLY with the font at every device scale`() {
+        // The three v0.4.7 failure settings, simulated at 16:9-box effective
+        // fonts: the line height must track the font LINEARLY — never a fixed
+        // sp value (the leaked 24sp) and never sub-font.
+        val small = 11f   // font 100, scale 0.5x
+        val double = 21f  // font 100, scale 2x
+        val maxScale = 43f // font 100, scale ~4x
+        assertEquals(
+            CsSubtitleGeometry.lineHeightSp(small) / small,
+            CsSubtitleGeometry.lineHeightSp(double) / double,
+            1e-6f,
+        )
+        assertEquals(
+            CsSubtitleGeometry.lineHeightSp(small) / small,
+            CsSubtitleGeometry.lineHeightSp(maxScale) / maxScale,
+            1e-6f,
+        )
+        // The gap (lineHeight - font) is 20% of the font everywhere.
+        assertEquals(0.2f * small, CsSubtitleGeometry.lineHeightSp(small) - small, 1e-4f)
+        assertEquals(0.2f * maxScale, CsSubtitleGeometry.lineHeightSp(maxScale) - maxScale, 1e-4f)
+    }
+
+    @Test
+    fun `line height never drops below a minimum and tolerates degenerate input`() {
+        assertEquals(1f, CsSubtitleGeometry.lineHeightSp(0f), 1e-6f)
+        assertEquals(1f, CsSubtitleGeometry.lineHeightSp(-5f), 1e-6f)
+        assertEquals(1.2f, CsSubtitleGeometry.lineHeightSp(1f), 1e-6f)
     }
 }

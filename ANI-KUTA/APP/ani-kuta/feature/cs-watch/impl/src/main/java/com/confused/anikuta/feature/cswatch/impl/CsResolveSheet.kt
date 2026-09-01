@@ -40,7 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
@@ -318,40 +317,33 @@ fun CsResolveSheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: the distinct bordered formatting toggle (Task 59 —
-            // ABOVE the title, its own clearly-bounded control), then the
-            // "Episode N" / "Download EP N" title + close row (plain text —
-            // the title is NOT a click target anymore; empty-area taps in
-            // the header do nothing).
-            CsFormattingToggle(
-                formatted = formatted,
-                onToggleFormatting = {
-                    formatted = it
-                    playerPreferences.resolveSheetFormatted = it
-                    Logger.i(SHEET_TAG) { "source formatting → ${if (it) "formatted" else "raw"}" }
-                },
-                modifier = Modifier.padding(top = 14.dp),
-            )
+            // ── Header (Task 60 — round 20): the "Episode N" / "Download EP N"
+            // HEADING carries the formatting control now — tapping the TITLE
+            // TEXT (only the text itself) pops the small bordered menu with
+            // the Formatted-sources toggle (see [CsFormattingTitle]). The
+            // round-19 standalone pill above the title is gone — the user's
+            // v0.4.7 spec: "when I click on the episode heading… it should
+            // open up a small menu with a distinct border around it."
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 14.dp),
+                    .padding(top = 16.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = if (downloadMode) {
+                CsFormattingTitle(
+                    title = if (downloadMode) {
                         // Task 58: the aniyomi ResolverSheet's download-mode wording.
                         "Download EP ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(key.episodeNumber)}"
                     } else {
                         "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(key.episodeNumber)}"
                     },
-                    fontFamily = RobotoFamily,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    formatted = formatted,
+                    onToggleFormatting = {
+                        formatted = it
+                        playerPreferences.resolveSheetFormatted = it
+                        Logger.i(SHEET_TAG) { "source formatting → ${if (it) "formatted" else "raw"}" }
+                    },
                     modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 if (copyEnabled) {
                     // Task 57 (P4): copies the WHOLE resolve report (header +

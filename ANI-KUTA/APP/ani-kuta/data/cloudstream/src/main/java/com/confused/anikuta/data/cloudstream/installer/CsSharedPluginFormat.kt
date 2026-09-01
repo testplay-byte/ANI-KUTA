@@ -15,9 +15,7 @@ import java.util.zip.ZipOutputStream
  *
  * Round 19 changes (the v0.4.6 device round):
  *  - the extension is now just **`.WHITECAT`** (the user: "what I wanted the
- *    extension of the shared plugin to be only (.WHITECAT)") — the round-18
- *    `.moviebox.WHITECAT` name is still ACCEPTED on import (backward
- *    compatibility with files already shared);
+ *    extension of the shared plugin to be only (.WHITECAT)");
  *  - the export is no longer a byte-for-byte .cs3 copy — it CARRIES METADATA
  *    ([CsExportInfo] at [EXPORT_INFO_ENTRY]: the source repository URL, the
  *    icon URL, the catalog display fields) and optionally the actual ICON
@@ -26,6 +24,16 @@ import java.util.zip.ZipOutputStream
  *    repo-less, icon-less record (the v0.4.6 findings). Extra zip entries
  *    are ignored by `PathClassLoader`/the loader (no signature/CRC gate —
  *    verified), so the file stays DexClassLoader-compatible as-is.
+ *
+ * Task 60 (round 20 — the v0.4.7 device round): **NO LEGACY COMPATIBILITY.**
+ * The user: "the extension is proper but making the old one compatible is
+ * not a good idea. I don't want it to be compatible with the old one."
+ * The round-18 `.moviebox.WHITECAT` name is NOT recognized anywhere anymore —
+ * `.WHITECAT` is the ONE format. A file still carrying the old double tail is
+ * "just a renamed file": it is not a shared-plugin NAME
+ * ([isSharedPluginFile] → false) and, like every renamed file, it can still
+ * import through the CONTENT-FIRST path (the zip's manifest.json) — with no
+ * old-format special-casing (the stem keeps whatever infix the name has).
  *
  * The format is "temporarily our own" (testing/distribution between users):
  * the BYTES are the untouched .cs3 zip (plus our two `anikuta/` entries);
@@ -78,10 +86,14 @@ object CsSharedPluginFormat {
     const val SHARED_EXTENSION = "WHITECAT"
 
     /**
-     * The round-18 extension — still ACCEPTED on import so files shared by
-     * v0.4.6 devices keep working ("moviebox.WHITECAT").
+     * Task 60: the round-18 DOUBLE TAIL, kept ONLY as a REJECTION marker —
+     * names carrying it are deliberately NOT recognized (no legacy
+     * compatibility, the user's round-20 spec). It must be checked FIRST:
+     * "X.moviebox.WHITECAT" also ends with ".WHITECAT", so the plain
+     * current-format check would otherwise treat the old name as a valid
+     * share (the offline test run caught exactly this).
      */
-    private const val LEGACY_SHARED_EXTENSION = "moviebox.WHITECAT"
+    private const val REJECTED_LEGACY_TAIL = "moviebox.WHITECAT"
 
     /** The synthetic repo "URL" used to salt the shared-install path (repo-less installs). */
     const val SHARED_PATH_SALT = "shared-file"
@@ -100,31 +112,34 @@ object CsSharedPluginFormat {
         "$internalName.$SHARED_EXTENSION"
 
     /**
-     * True when a display name carries our custom extension — the CURRENT
-     * `.WHITECAT` or the legacy `.moviebox.WHITECAT` (case-insensitive).
+     * True when a display name carries our custom extension `.WHITECAT`
+     * (case-insensitive). Task 60: the round-18 `.moviebox.WHITECAT` name is
+     * deliberately NOT recognized — no legacy compatibility (the user's
+     * round-20 spec).
      */
     fun isSharedPluginFile(displayName: String): Boolean =
         sharedExtensionOf(displayName) != null
 
     /**
-     * Which custom extension the display name carries (the current one or
-     * the legacy round-18 name), or null. The LEGACY tail is checked FIRST —
-     * it is the LONGER one and ends with the current extension too
-     * ("X.moviebox.WHITECAT" also matches ".WHITECAT"), so the current-only
-     * check would otherwise leave the ".moviebox" infix in the stem.
+     * The `.WHITECAT` tail the display name carries, or null (case-
+     * insensitive — file managers may lowercase it). Task 60: the round-18
+     * `.moviebox.WHITECAT` double tail is REJECTED here (no legacy
+     * compatibility — a file still carrying it is "just a renamed file" on
+     * the content-first path, its identity from the MANIFEST, not the stem).
      */
     private fun sharedExtensionOf(displayName: String): String? = when {
-        displayName.endsWith(".$LEGACY_SHARED_EXTENSION", ignoreCase = true) -> LEGACY_SHARED_EXTENSION
+        displayName.endsWith(".$REJECTED_LEGACY_TAIL", ignoreCase = true) -> null
         displayName.endsWith(".$SHARED_EXTENSION", ignoreCase = true) -> SHARED_EXTENSION
         else -> null
     }
 
     /**
      * The internalName from a shared file's display name — the stem before
-     * the custom extension ("MovieBoxProvider.WHITECAT" → "MovieBoxProvider";
-     * the legacy "MovieBoxProvider.moviebox.WHITECAT" → "MovieBoxProvider").
-     * Null when the name doesn't carry an extension. Case-insensitive on the
-     * extension (file managers may lowercase it).
+     * the `.WHITECAT` extension ("MovieBoxProvider.WHITECAT" →
+     * "MovieBoxProvider"). Null when the name doesn't carry the extension.
+     * Case-insensitive on the extension (file managers may lowercase it).
+     * Task 60: the old double tail returns null too (rejected) — such a
+     * file's identity comes from the MANIFEST on the content-first path.
      */
     fun internalNameFrom(displayName: String): String? {
         val ext = sharedExtensionOf(displayName) ?: return null

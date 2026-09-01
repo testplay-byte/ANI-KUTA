@@ -21,11 +21,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.csplayer.CsCue
 import com.confused.anikuta.core.csplayer.CsSubtitleGeometry
 import com.confused.anikuta.core.csplayer.CsSubtitleStyle
@@ -202,10 +205,37 @@ internal fun CsSubtitleOverlay(
                 //    (natural line spacing; measures the box; publishes the
                 //    layout the passes above render). No maxLines truncation
                 //    (MPV never truncates; long cues wrap at the inset).
+                //
+                //    Task 60 (round 20 — the v0.4.7 line-gap findings): the
+                //    lineHeight is EXPLICIT — fontSizeSp × LINE_HEIGHT_RATIO —
+                //    with a Proportional/None lineHeightStyle. The round-19
+                //    Text overrode only `fontSize`, so the AMBIENT
+                //    LocalTextStyle's fixed 24sp lineHeight (Material3's
+                //    bodyLarge) leaked in: at 0.5× scale the 24sp line box was
+                //    ~2× the glyphs ("way too much gap"), at 2×+ the glyphs
+                //    outgrew it ("overlapping, distorted"). One explicit,
+                //    font-proportional line height keeps the inter-line gap a
+                //    CONSTANT ~20% of the glyph height at every size, scale,
+                //    and display mode — and immune to any ambient style.
+                //    Proportional alignment distributes the extra space by
+                //    ascent/descent (leading-like), Trim.None keeps the block's
+                //    outer padding so the decoration passes' line boxes stay
+                //    symmetric top and bottom.
                 Text(
                     text = active.text,
                     color = textColor,
                     fontSize = fontSizeSp,
+                    lineHeight = CsSubtitleGeometry.lineHeightSp(fontSizeSp.value).sp,
+                    // The lineHeightStyle rides the STYLE param (Text has no
+                    // lineHeightStyle parameter) — a BARE TextStyle, not a
+                    // merge over LocalTextStyle: the overlay's line metric is
+                    // fully self-contained (see the Task-60 note above).
+                    style = TextStyle(
+                        lineHeightStyle = LineHeightStyle(
+                            alignment = LineHeightStyle.Alignment.Proportional,
+                            trim = LineHeightStyle.Trim.None,
+                        ),
+                    ),
                     fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
                     fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
                     fontFamily = FontFamily(typeface),
