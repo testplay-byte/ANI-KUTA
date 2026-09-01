@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,10 +35,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -62,7 +62,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -372,57 +371,35 @@ fun QualitySheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: "Qualities and Servers" (tappable → formatting popup, Task 55) + close ──
+            // ── Header: the distinct bordered formatting toggle (Task 59 —
+            // ABOVE the title, its own clearly-bounded control; display-layer
+            // only), then the "Qualities and Servers" title + close row (the
+            // title is NOT a click target anymore — the v0.4.6 design made
+            // the whole row clickable and popped a menu over the title).
+            WatchFormattingToggle(
+                formatted = formatted,
+                onToggle = {
+                    formatted = it
+                    playerPreferences.resolveSheetFormatted = it
+                },
+                modifier = Modifier.padding(top = 14.dp),
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 4.dp),
+                    .padding(top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                var menuOpen by remember { mutableStateOf(false) }
-                Box(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Qualities and Servers",
-                        fontFamily = RobotoFamily,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { menuOpen = true },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    DropdownMenu(
-                        expanded = menuOpen,
-                        onDismissRequest = { menuOpen = false },
-                        offset = DpOffset(0.dp, (-72).dp),
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "Formatted sources",
-                                    fontFamily = RobotoFamily,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            },
-                            leadingIcon = {
-                                if (formatted) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "On",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            },
-                            onClick = {
-                                menuOpen = false
-                                formatted = !formatted
-                                playerPreferences.resolveSheetFormatted = formatted
-                            },
-                        )
-                    }
-                }
+                Text(
+                    text = "Qualities and Servers",
+                    fontFamily = RobotoFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 // Task 58: the header-level "copy the whole report" action —
                 // OFF unless enabled in Settings → Debug options (the mirror
                 // of the entry sheets' header action, same 32dp circle slot).
@@ -929,5 +906,71 @@ private fun rememberQualityCopyFeedback(): (String, String) -> Unit {
             Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
         }
         copy
+    }
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Task 59 (round 19 — display-layer only): the formatting toggle pill
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The distinct BORDED formatting toggle shown at the TOP of the in-player
+ * qualities sheet — ABOVE the "Qualities and Servers" title (the v0.4.6
+ * design made the whole title row clickable and popped a DropdownMenu over
+ * it; the round-19 device round wants the control at the top with its own
+ * border). Tap toggles the formatted/raw view DIRECTLY — no menu.
+ *
+ * The same design as the entry sheets' toggles (the stacks share the
+ * preference, not code — the replication rule).
+ */
+@Composable
+private fun WatchFormattingToggle(
+    formatted: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(50),
+            )
+            .clickable { onToggle(!formatted) }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.FormatListBulleted,
+            contentDescription = null,
+            tint = if (formatted) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = "Formatted sources",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (formatted) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        if (formatted) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "On",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+            )
+        }
     }
 }

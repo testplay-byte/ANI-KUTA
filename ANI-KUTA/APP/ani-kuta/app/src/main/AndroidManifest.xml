@@ -86,15 +86,17 @@
             android:theme="@style/Theme.ANIKUTA"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode" />
 
-        <!-- Task 58 (round 18 — the plugin-share receiver): exported so other
-             apps (file managers, chat apps) can hand us shared
-             .moviebox.WHITECAT plugin files. Android can't match intent
-             filters on FILE EXTENSIONS for content:// URIs, so the filters
-             are deliberately MIME-based: unknown-extension files resolve to
-             application/octet-stream (and .cs3/.moviebox.WHITECAT zips to
-             application/zip) — the ACTIVITY validates the display name's
-             custom extension + the zip's manifest.json and rejects anything
-             else gracefully ("not a plugin file"). Covers:
+        <!-- Task 58 (round 18 — the plugin-share receiver) / Task 59 (round 19):
+             exported so other apps (file managers, chat apps) can hand us
+             shared .WHITECAT plugin files. Android can't match intent filters
+             on FILE EXTENSIONS for content:// URIs, so the filters are
+             deliberately MIME-based: unknown-extension files (incl. .bin —
+             renamed in transit by share targets) resolve to
+             application/octet-stream (and .cs3/.WHITECAT zips to
+             application/zip) — the ACTIVITY validates CONTENT-FIRST (Task 59:
+             the zip's manifest.json + pluginClassName; the display name's
+             extension is only an identity hint) and rejects anything else
+             gracefully ("not a plugin file"). Covers:
              - ACTION_VIEW (open from a file manager / download) — content +
                file schemes, octet-stream + zip;
              - ACTION_SEND (shared directly into ANI-KUTA) — octet-stream. -->

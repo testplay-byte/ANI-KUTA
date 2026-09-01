@@ -1,9 +1,10 @@
 package com.confused.anikuta.core.csplayer
 
 /**
- * Task 58 (round 18) — the PURE subtitle-overlay geometry math, extracted from
- * CsSubtitleOverlay/CsPlayerEngine so it is unit-testable (the overlay is
- * Compose; CI compiles it, but the numbers are the contract).
+ * Task 58 (round 18) / **Task 59 (round 19 — the accuracy round 2)** — the PURE
+ * subtitle-overlay geometry math, extracted from CsSubtitleOverlay/CsPlayerEngine
+ * so it is unit-testable (the overlay is Compose; CI compiles it, but the
+ * numbers are the contract).
  *
  * All fractions are of the OVERLAY HEIGHT (the player box the overlay fills —
  * the 16:9 minimized box or the fullscreen surface), matching Media3's
@@ -23,6 +24,19 @@ package com.confused.anikuta.core.csplayer
  *  - `sub-pos` (0..100, 100 = flush bottom) → the ((100 - pos)/100) × 0.12
  *    bottom-padding fraction (unchanged — byte parity with the engine's
  *    Media3 mapping).
+ *
+ * Task 59 (the v0.4.6 device round — "way too much spacing between the lines"
+ * / "lines overlapping" / "the border was showing somewhere else from the
+ * font"): the v0.4.6 overlay rendered each cue LINE as a separate `Text` in a
+ * `Column`, so every line carried its own full platform line box (ascent +
+ * descent + leading) — the inter-line gap was DOUBLE-ledged and uncontrolled,
+ * and the stroke passes poked into the next line's box unopposed at large
+ * fonts. The round-19 overlay renders the WHOLE cue as ONE multi-line `Text`
+ * (the platform's natural, Media3-SubtitleView-parity line spacing — one
+ * leading, not two) and draws every decoration pass (background boxes, shadow
+ * stroke, border stroke) from the SAME [androidx.compose.ui.text.TextLayoutResult]
+ * the fill uses — the passes are structurally incapable of detaching. The one
+ * new geometry constant is the horizontal inset below.
  */
 object CsSubtitleGeometry {
 
@@ -40,6 +54,13 @@ object CsSubtitleGeometry {
 
     /** Sanity clamp for extreme shadow settings. */
     const val MAX_SHADOW_FRACTION = 0.30f
+
+    /**
+     * Task 59: the horizontal inset fraction of the OVERLAY WIDTH — the cue
+     * block wraps at this margin from each side so long lines never touch the
+     * screen edge (MPV wraps its sub layout with a margin too). 4% per side.
+     */
+    const val HORIZONTAL_INSET_FRACTION = 0.04f
 
     /**
      * The font-size fraction of the overlay height: Media3's 0.0533 scaled by
@@ -71,4 +92,11 @@ object CsSubtitleGeometry {
      */
     fun bottomPaddingFraction(position: Int): Float =
         ((100 - position.coerceIn(0, 100)) / 100f) * MAX_BOTTOM_FRACTION
+
+    /**
+     * Task 59: the horizontal inset (px) for a given overlay width — the cue
+     * block's wrap margin (see [HORIZONTAL_INSET_FRACTION]).
+     */
+    fun horizontalInsetPx(overlayWidthPx: Int): Int =
+        (overlayWidthPx.coerceAtLeast(0) * HORIZONTAL_INSET_FRACTION).toInt()
 }

@@ -542,14 +542,18 @@ fun AppRoot() {
     // note (SharedPreferences — survives process death). Consume it here on
     // cold start AND on every ON_RESUME (the import activity runs OUTSIDE the
     // main task — the user returns to whatever they were doing, and the note
-    // routes them to the freshly-added plugin's detail page when they next
-    // see the app).
+    // routes them when they next see the app).
+    // Task 59 (round 19): the note now routes to the EXTENSIONS page (the
+    // round-18 flow pushed the plugin's detail page; the user's spec: after
+    // Add, the 1.5s "Plugin added" confirmation hands off to the extensions
+    // page — PluginImportActivity launches us HERE and this consumer lands
+    // the user on the list).
     fun checkPendingCsPluginNav() {
         val pendingName = com.confused.anikuta.pluginimport.PendingCsPluginNav.consume(appContext)
         if (pendingName != null) {
-            Logger.i("Anikuta:AppRoot") { "pending CS plugin import → detail page: $pendingName" }
-            if (currentKey !is CloudstreamPluginDetailKey) {
-                backstack.add(CloudstreamPluginDetailKey(pendingName))
+            Logger.i("Anikuta:AppRoot") { "pending CS plugin import → extensions page: $pendingName" }
+            if (currentKey !is ExtensionsSettingsKey) {
+                backstack.add(ExtensionsSettingsKey)
             }
         }
     }

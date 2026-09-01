@@ -497,7 +497,7 @@ class CloudstreamPluginManager(
         }
     }
 
-    // ── Task 58 (round 18): the shared-file import (.moviebox.WHITECAT) ─────────
+    // ── Task 58/59: the shared-file import (.WHITECAT + export metadata) ──────
 
     /**
      * The result of [importSharedPlugin] — the import activity renders each
@@ -517,16 +517,22 @@ class CloudstreamPluginManager(
 
     /**
      * Task 58 (round 18) — installs a plugin from a SHARED
-     * `<internalName>.moviebox.WHITECAT` file (the user's spec: plugins shared
+     * `<internalName>.WHITECAT` file (the user's spec: plugins shared
      * device-to-device, added REGARDLESS of repositories).
      *
-     * The bytes are the untouched .cs3 zip; the file NAME carries the identity
-     * (the stem = internalName, mirroring the repo .cs3 naming). Works with or
-     * without repositories:
+     * The bytes are the .cs3 zip (plus the sender's `anikuta/` metadata
+     * entries — Task 59); the file NAME carries the identity (the stem =
+     * internalName, mirroring the repo .cs3 naming; renamed/.bin files fall
+     * back to the manifest name — the activity validates by CONTENT first
+     * now). Works with or without repositories:
      *  - a repo that catalogs the SAME internalName LINKS the record to it
      *    (repoUrl set — update checks + repo updates then apply);
-     *  - otherwise the record is repo-less (repoUrl null, path salted by
-     *    [CsSharedPluginFormat.SHARED_PATH_SALT]) and shows as a shared file.
+     *  - otherwise the record is repo-less (path salted by
+     *    [CsSharedPluginFormat.SHARED_PATH_SALT]) — Task 59: the EXPORT
+     *    METADATA still rides along (the source repository URL, the icon,
+     *    the catalog display fields) so the row + detail page render exactly
+     *    like the sender's, and an embedded icon lands as a LOCAL file the
+     *    record points at (no network needed).
      *
      * The confirm dialog happened in the activity BEFORE this call — an
      * [CsImportResult.Added] IS the user's consent. Like every fresh install,
@@ -570,6 +576,11 @@ class CloudstreamPluginManager(
                 }
             }
 
+            // Task 59 — the sender's export metadata: the fallback for the
+            // repo-less case (source repository URL, icon, catalog fields).
+            // Null for plain .cs3 files (the round-18 behavior).
+            val exportInfo = CsSharedPluginFormat.readExportInfo(sourceFile)
+
             // Place the file: the repo-salted path when linked, the shared
             // salt otherwise (repo-less installs coexist with repo installs).
             val target = CloudstreamPluginInstaller.pluginPath(
@@ -589,20 +600,40 @@ class CloudstreamPluginManager(
                 tmp.delete()
             }
 
+            // Task 59 — the embedded icon (when the sender could fetch it):
+            // materialized as a LOCAL file the record points at (a file://
+            // URI — Coil's AsyncImage loads it directly; no network, no
+            // placeholder). Falls back to the catalog/URL icons.
+            val localIconUri = CsSharedPluginFormat.readExportIcon(sourceFile)?.let { bytes ->
+                runCatching {
+                    val iconDir = File(context.filesDir, "plugin_icons").apply { mkdirs() }
+                    val iconFile = File(iconDir, "$internalName.png")
+                    iconFile.writeBytes(bytes)
+                    iconFile.toURI().toString()
+                }.onFailure { t ->
+                    Logger.w(TAG) { "importSharedPlugin — could not write the embedded icon: ${t.message}" }
+                }.getOrNull()
+            }
+
             val record = CsPluginRecord(
                 internalName = internalName,
                 name = manifest.name ?: internalName,
                 url = online?.first?.url,
                 filePath = target.absolutePath,
                 version = manifest.version ?: online?.first?.version ?: 1,
-                repoUrl = linkedRepoUrl,
+                // Task 59: the source repository URL rides the record even
+                // repo-less (displayed on the detail page; update math still
+                // keys on ADDED repositories).
+                repoUrl = linkedRepoUrl ?: exportInfo?.repoUrl,
                 fileHash = online?.first?.fileHash,
-                language = online?.first?.language,
-                iconUrl = online?.first?.iconUrl,
+                language = online?.first?.language ?: exportInfo?.language,
+                // Task 59: the LOCAL embedded icon wins, then the catalog's,
+                // then the exported URL.
+                iconUrl = localIconUri ?: online?.first?.iconUrl ?: exportInfo?.iconUrl,
                 isNsfw = false,
-                authors = online?.first?.authors ?: emptyList(),
-                description = online?.first?.description,
-                tvTypes = online?.first?.tvTypes ?: emptyList(),
+                authors = online?.first?.authors ?: exportInfo?.authors ?: emptyList(),
+                description = online?.first?.description ?: exportInfo?.description,
+                tvTypes = online?.first?.tvTypes ?: exportInfo?.tvTypes ?: emptyList(),
                 fileSizeBytes = sourceFile.length(),
                 // Fresh import = untrusted (the session-3 trust model; the
                 // activity's confirm dialog adds the FILE, trust gates CODE).
@@ -614,7 +645,8 @@ class CloudstreamPluginManager(
             refreshLocked()
             Logger.i(TAG) {
                 "importSharedPlugin — placed $internalName v${record.version} " +
-                    "(repo=${linkedRepoUrl ?: "shared file"}, untrusted, " +
+                    "(repo=${linkedRepoUrl ?: exportInfo?.repoUrl ?: "shared file"}, untrusted, " +
+                    "icon=${if (localIconUri != null) "embedded" else if (record.iconUrl != null) "url" else "none"}, " +
                     "${sourceFile.length() / 1024} KB)"
             }
             CsImportResult.Added(record, linkedRepoUrl)

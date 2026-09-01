@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -103,6 +104,14 @@ import org.koin.compose.koinInject
  * PAUSED or playing) and re-applies the snapshot to the Media3 view
  * ([CsPlayerEngine.applySubtitleStyle]). The signature is unchanged from the
  * Task-55 sheet (CsWatchScreen's call site needs no edits).
+ *
+ * Task 59 (round 19): a RESET button in the sticky header —
+ * [PlayerPreferences.resetSubtitleSettings] writes every default back (font
+ * size MAX 100 / scale 0.5× / border 5 per the user's spec) in one shot; the
+ * panel's local state re-keys on a `resetTick` counter (its `remember`
+ * blocks re-read the freshly-written prefs) and `onApplySettings` fires so
+ * the live preview + Media3 view update immediately. The aniyomi sheet gains
+ * the same button — one behavior, both stacks.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +123,10 @@ internal fun CsSubtitleSettingsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxHeight = screenHeight * 0.65f
+
+    // Task 59: bumped on reset — the panel's remember blocks re-read the
+    // freshly-written preferences (see CsSubtitleSettingsPanel).
+    var resetTick by remember { mutableIntStateOf(0) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -142,20 +155,45 @@ internal fun CsSubtitleSettingsSheet(
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clickable(onClick = onDismiss),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Task 59: one tap restores the default subtitle look
+                    // (font size MAX, scale 0.5×, border 5 — the user's spec)
+                    // and every other subtitle setting's out-of-box value.
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clickable {
+                                playerPreferences.resetSubtitleSettings()
+                                resetTick++
+                                onApplySettings()
+                            },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Reset to defaults",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clickable(onClick = onDismiss),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -174,6 +212,7 @@ internal fun CsSubtitleSettingsSheet(
                 CsSubtitleSettingsPanel(
                     playerPreferences = playerPreferences,
                     onSettingsChanged = onApplySettings,
+                    resetTick = resetTick,
                 )
             }
         }
@@ -184,21 +223,24 @@ internal fun CsSubtitleSettingsSheet(
 private fun CsSubtitleSettingsPanel(
     playerPreferences: PlayerPreferences,
     onSettingsChanged: () -> Unit,
+    // Task 59: changes when the header's Reset fires — every remember block
+    // below re-initializes from the (just-reset) preferences.
+    resetTick: Int = 0,
 ) {
     // Local state — initialized from the shared preferences, written back on
     // every change (live-apply through onSettingsChanged).
-    var font by remember { mutableStateOf(playerPreferences.subtitleFont) }
-    var fontSize by remember { mutableIntStateOf(playerPreferences.subtitleFontSize) }
-    var fontScale by remember { mutableStateOf(playerPreferences.subtitleFontScale) }
-    var borderSize by remember { mutableIntStateOf(playerPreferences.subtitleBorderSize) }
-    var bold by remember { mutableStateOf(playerPreferences.boldSubtitles) }
-    var italic by remember { mutableStateOf(playerPreferences.italicSubtitles) }
-    var textColor by remember { mutableIntStateOf(playerPreferences.textColorSubtitles) }
-    var borderColor by remember { mutableIntStateOf(playerPreferences.borderColorSubtitles) }
-    var bgColor by remember { mutableIntStateOf(playerPreferences.backgroundColorSubtitles) }
-    var position by remember { mutableIntStateOf(playerPreferences.subtitlePosition) }
-    var shadowOffset by remember { mutableIntStateOf(playerPreferences.subtitleShadowOffset) }
-    var delay by remember { mutableIntStateOf(playerPreferences.subtitlesDelay) }
+    var font by remember(resetTick) { mutableStateOf(playerPreferences.subtitleFont) }
+    var fontSize by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitleFontSize) }
+    var fontScale by remember(resetTick) { mutableStateOf(playerPreferences.subtitleFontScale) }
+    var borderSize by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitleBorderSize) }
+    var bold by remember(resetTick) { mutableStateOf(playerPreferences.boldSubtitles) }
+    var italic by remember(resetTick) { mutableStateOf(playerPreferences.italicSubtitles) }
+    var textColor by remember(resetTick) { mutableIntStateOf(playerPreferences.textColorSubtitles) }
+    var borderColor by remember(resetTick) { mutableIntStateOf(playerPreferences.borderColorSubtitles) }
+    var bgColor by remember(resetTick) { mutableIntStateOf(playerPreferences.backgroundColorSubtitles) }
+    var position by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitlePosition) }
+    var shadowOffset by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitleShadowOffset) }
+    var delay by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitlesDelay) }
 
     // Dialog state — which setting is being edited via keypad / color picker.
     var editingDialog by remember { mutableStateOf<String?>(null) }

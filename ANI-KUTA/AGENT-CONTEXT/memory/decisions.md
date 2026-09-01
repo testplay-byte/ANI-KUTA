@@ -2658,3 +2658,31 @@ Android cannot intent-filter on file extensions for content:// URIs, so the mani
 - **Files:** CsSharedPluginFormat.kt (NEW), CsSharedPluginFormatTest.kt (NEW), CloudstreamPluginManager.kt (importSharedPlugin + CsImportResult), CloudstreamPluginDetailScreen.kt (Share row + sharePluginFile + "Shared file" row), PluginImportActivity.kt (NEW), AndroidManifest.xml, MainActivity.kt (pending-nav).
 - **Status:** ✅ Implemented (Task 58 / round 18, v0.4.6/71).
 - **Date:** 2026-08-31.
+
+### D-388 — Task 59: the row-level download button was a DEAD-CALLBACK regression class — UI lambdas must be re-pointed at their LIVE call sites after refactors move the rendering
+
+Round 18 wired the CS download gate into `EpisodesSection`'s `onDownloadEpisode` param — dead code since the D-228 refactor moved the episode ROWS into the outer LazyColumn (EpisodesSection kept only the header). The row's real download button used a hardcoded classic-resolver lambda that was never updated, so every CS-bridged download tap hit the CS-guard error — shipped green because CI compiles, not navigates, and no unit test covers the wiring. Lesson: when a refactor moves rendering from a section composable into the outer list, EVERY callback param the section used to receive must be traced to its new live lambda — grep the consumer, not the section. The fix re-points the live lambda at the same gated branch (isLinkedSourceCloudStream → routeToCsDownload; else the classic resolver sheet).
+- **Files:** DetailsScreen.kt (the row-level onDownload lambda).
+- **Status:** ✅ Implemented (Task 59 / round 19, v0.4.7/72).
+- **Date:** 2026-09-01.
+
+### D-389 — Task 59: the overlay subtitle renderer is ONE Text + shared-layout decoration passes — per-line composables double-lead the line spacing and let strokes visually collide
+
+The v0.4.6 overlay rendered each cue line as a separate `Text` in a `Column`: every line box carried the full platform leading, so the inter-line gap was double-ledged ("way too much spacing" at small sizes), while the stroke passes (which extend past glyph bounds) poked into the next line's box unopposed at large sizes ("overlapping"); the offset shadow stroke read as "the border showing somewhere else from the font". Round 19 renders the WHOLE cue as ONE multi-line `Text` (the platform's natural, Media3-SubtitleView-parity line spacing — a constant fraction at every scale) and draws every decoration in a `drawBehind` UNDER the fill from the SAME `TextLayoutResult` the fill's `onTextLayout` publishes: per-line back-color rects (getLineLeft/Right/Top/Bottom padded by the border width — ASS BorderStyle=3), the shadow stroke at +shadowPx (border-colored, 75% alpha, MPV semantics), the border stroke — all on one layout object, so passes cannot detach; the fill of line N+1 covers line N's stroke bleed; a 4% horizontal inset wraps long lines.
+- **Files:** CsSubtitleOverlay.kt (rewritten), CsSubtitleGeometry.kt (horizontalInsetPx + docs), CsSubtitleGeometryTest.kt.
+- **Status:** ✅ Implemented (Task 59 / round 19, v0.4.7/72).
+- **Date:** 2026-09-01.
+
+### D-390 — Task 59: subtitle defaults are the user's spec (font MAX 100 / scale 0.5x / border 5) + a shared reset; MPV parity preserved because 100×0.5 ≈ the old 55
+
+PlayerPreferences defaults changed to fontSize 100 / fontScale 0.5f / borderSize 5 (CsSubtitleStyle mirrors). The composition keeps the old RENDERED size on the aniyomi/MPV stack (sub-font-size 100 × sub-scale 0.5 ≈ the old 55 default) while the CS overlay computes 0.0533 × (100/55) × 0.5 — the same fraction — so both stacks' out-of-box rendering is unchanged in size and only the user's preferred units/slots move. `PlayerPreferences.resetSubtitleSettings()` is the ONE shared reset (both sheets' header Refresh buttons call it; the panel's local state re-keys on a resetTick counter so `remember(resetTick)` re-reads the freshly-written prefs). The aniyomi sheet change is additive-only.
+- **Files:** PlayerPreferences.kt, CsSubtitleStyle.kt, CsSubtitleSettingsSheet.kt, SubtitleSettingsSheet.kt.
+- **Status:** ✅ Implemented (Task 59 / round 19, v0.4.7/72).
+- **Date:** 2026-09-01.
+
+### D-391 — Task 59: the shared-plugin format v2 — .WHITECAT + in-zip metadata (anikuta/export.json + anikuta/icon.png), content-first import gate, extensions-page hand-off
+
+The extension is now just `.WHITECAT` (the round-18 `.moviebox.WHITECAT` remains importable). The export is a zip REWRITE: every original .cs3 entry byte-for-byte + `anikuta/export.json` (CsExportInfo: repoUrl, iconUrl, name, version, language, authors, description, tvTypes, exportedAt) + `anikuta/icon.png` when the icon could be fetched (best-effort HttpURLConnection, 2.5s timeouts, 512KB cap — stdlib, no new deps). Extra entries are ignored by PathClassLoader (no signature/CRC gate — verified), so the file stays loadable. The import reads them: the embedded icon lands as filesDir/plugin_icons/<internalName>.png (the record points at a file:// URI — Coil's AsyncImage loads it directly), and the repo-less record carries the source repoUrl + catalog fields from the export info (displayed on the detail page). The import GATE is content-first now (a zip with a readable manifest.json + non-blank pluginClassName IS a plugin — .bin/renamed files resolve through it; the display name is only the identity hint), the confirm dialog is titled with the plugin's name, and the post-Add flow shows a 1.5s "Plugin added" (no body, no Done) → launches MainActivity → the pending-nav note routes to ExtensionsSettingsKey (the round-18 note pushed the plugin's detail page and the activity just finished back to the sender).
+- **Files:** CsSharedPluginFormat.kt (format v2 + CsExportInfo), CloudstreamPluginManager.kt (importSharedPlugin), CloudstreamPluginDetailScreen.kt (share rewrite + copy cleanup), PluginImportActivity.kt, MainActivity.kt, AndroidManifest.xml (comment), CsSharedPluginFormatTest.kt.
+- **Status:** ✅ Implemented (Task 59 / round 19, v0.4.7/72).
+- **Date:** 2026-09-01.

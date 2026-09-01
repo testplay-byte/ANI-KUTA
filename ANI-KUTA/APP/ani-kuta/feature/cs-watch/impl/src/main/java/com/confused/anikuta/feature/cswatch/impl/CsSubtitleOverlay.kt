@@ -1,30 +1,31 @@
 package com.confused.anikuta.feature.cswatch.impl
 
 import android.graphics.Typeface
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.csplayer.CsCue
 import com.confused.anikuta.core.csplayer.CsSubtitleGeometry
 import com.confused.anikuta.core.csplayer.CsSubtitleStyle
@@ -48,21 +49,39 @@ import com.confused.anikuta.core.csplayer.CsSubtitleStyle
  *
  * Task 58 (round 18 — the formatting/accuracy round, the v0.4.5 device
  * findings "border size is not shown properly" + "the background, like
- * borders, does not show in the correct positions"):
+ * borders, does not show in the correct positions"): MPV unit parity for the
+ * border/shadow widths (see [CsSubtitleGeometry]).
  *
- *  - BORDER: MPV unit parity — the width is `borderSize / 55` of the font
- *    height (the v0.4.5 0.035f-per-unit was ≈1.9× MPV and its 0.15 fraction
- *    cap saturated every setting ≥ 5). LINEAR across the sheet's 0..10 range
- *    now (see [CsSubtitleGeometry.borderWidthFraction]).
- *  - BACKGROUND: ASS BorderStyle=3 / MPV sub-back-color semantics — the box
- *    is drawn PER LINE, hugs the line's glyph bounds, and is padded by the
- *    BORDER width in the same scaled units (the v0.4.5 fixed 6.dp/2.dp
- *    padding didn't scale with the font and let the outline poke outside).
- *    No fixed dp anywhere; no 1.25× lineHeight half-leading padding artifacts.
- *  - SHADOW: drawn IN ADDITION to the border (MPV behavior — v0.4.5
- *    suppressed the shadow whenever a border was set), stacked UNDER the
- *    border + fill passes.
- *  - No maxLines=4 truncation (MPV never truncates; long cues wrap).
+ * **Task 59 (round 19 — the accuracy round 2, the v0.4.6 device findings
+ * "way too much spacing between the lines" / "lines overlapping" / "the
+ * border was showing somewhere else from the font — subtitle at top, border
+ * at bottom") — THE LAYOUT IS ONE PASS NOW:**
+ *
+ *  - v0.4.6 rendered each cue LINE as its own `Text` inside a `Column`, so
+ *    every line carried a FULL platform line box (ascent + descent + leading)
+ *    — the inter-line gap was double-ledged and uncontrolled ("way too much
+ *    spacing" at small sizes), while the stroke passes (which extend beyond
+ *    the glyph bounds) poked into the next line's box unopposed at large
+ *    sizes ("no line spacing, like they were overlapping").
+ *  - Round 19 renders the WHOLE cue as ONE multi-line `Text` — the platform's
+ *    natural line spacing (what Media3's own SubtitleView and every normal
+ *    text renderer use): ONE leading per line break, a CONSTANT fraction of
+ *    the font at every size, identical in both display modes.
+ *  - Every decoration pass — the per-line background boxes (ASS
+ *    BorderStyle=3 / MPV sub-back-color), the shadow stroke and the border
+ *    stroke — is drawn from the SAME [TextLayoutResult] the fill pass
+ *    measured (captured via `onTextLayout`, rendered through
+ *    [drawText]/`drawRect` in a `drawBehind` scope UNDER the fill). The
+ *    passes share one layout object, so a stroke can never detach from its
+ *    glyphs ("the border was showing somewhere else from the font" is
+ *    structurally impossible now); the fill of line N+1 covers line N's
+ *    stroke bleed, so the visible inter-line gap is exactly the line spacing.
+ *  - The SHADOW stays MPV's semantics: drawn IN ADDITION to the border,
+ *    offset DOWN by the shadow width, border-colored at 75% alpha (the
+ *    v0.4.6 offset stroke was exactly what read as "a border showing at the
+ *    bottom" — it now provably renders at the glyphs' position + the offset).
+ *  - The cue block wraps at [CsSubtitleGeometry.HORIZONTAL_INSET_FRACTION]
+ *    from each side — long lines never touch the screen edge.
  *
  * The active cue lookup is O(n) over sorted cues at the 100 ms ticker cadence
  * (episode files carry hundreds, not millions, of cues).
@@ -92,13 +111,17 @@ internal fun CsSubtitleOverlay(
         val fontSizePx = constraints.maxHeight *
             CsSubtitleGeometry.fontFraction(style.fontSize, style.fontScale)
         val fontSizeSp = with(density) { fontSizePx.coerceAtLeast(8f).toSp() }
-        // Task 58: MPV unit parity (linear, generous ceiling) — see the object KDoc.
+        // MPV unit parity (linear, generous ceiling) — see the geometry object.
         val borderWidthPx = fontSizePx * CsSubtitleGeometry.borderWidthFraction(style.borderSize)
-        // Task 58: the shadow follows the border's MPV units, drawn IN ADDITION.
+        // The shadow follows the border's MPV units, drawn IN ADDITION.
         val shadowPx = fontSizePx * CsSubtitleGeometry.shadowFraction(style.shadowOffset)
         // Position: MPV sub-pos → bottom padding fraction (the engine mapping).
         val bottomFraction = CsSubtitleGeometry.bottomPaddingFraction(style.position)
         val bottomPadding = with(density) { (constraints.maxHeight * bottomFraction).toDp() }
+        // Task 59: the cue block's wrap margin — 4% of the overlay width/side.
+        val horizontalInset = with(density) {
+            CsSubtitleGeometry.horizontalInsetPx(constraints.maxWidth).toDp()
+        }
 
         val typeface = Typeface.create(
             familyOf(style.fontFamilyName),
@@ -114,12 +137,7 @@ internal fun CsSubtitleOverlay(
         val bgColor = Color(style.backgroundColor)
         val hasBg = style.backgroundColor ushr 24 != 0
         val hasBorder = style.borderSize > 0
-        // Task 58: MPV draws sub-shadow-offset IN ADDITION to the border.
         val hasShadow = style.shadowOffset > 0
-
-        // The ASS border-width box padding (in Dp for Modifier.padding).
-        val boxPaddingDp = with(density) { borderWidthPx.toDp() }
-        val shadowDp = with(density) { shadowPx.toDp() }
 
         Box(
             modifier = Modifier
@@ -127,123 +145,75 @@ internal fun CsSubtitleOverlay(
                 .padding(bottom = bottomPadding),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            // Task 58: PER-LINE rendering — one box per cue line (ASS draws the
-            // back-color box per line, hugging that line's glyphs). Lines are
-            // centered relative to the widest line (a centered multi-line Text
-            // behaves the same); each line's box sizes to ITS OWN glyphs, so
-            // short lines get short boxes — no full-width slab.
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                active.text.split('\n').forEach { line ->
-                    SubtitleLineBox(
-                        line = line,
-                        hasBg = hasBg,
-                        bgColor = bgColor,
-                        hasBorder = hasBorder,
-                        borderColor = borderColor,
-                        borderWidthPx = borderWidthPx,
-                        hasShadow = hasShadow,
-                        shadowPx = shadowPx,
-                        shadowDp = shadowDp,
-                        textColor = textColor,
-                        fontSizeSp = fontSizeSp,
-                        typeface = typeface,
-                        bold = style.bold,
-                        italic = style.italic,
-                        boxPaddingDp = boxPaddingDp,
-                    )
-                }
+            // Task 59: THE layout the decoration passes share with the fill —
+            // assigned by the fill Text's onTextLayout (fires on every
+            // measure: cue change, style change, size change). Reading it
+            // inside drawBehind re-executes the pass when a new layout lands.
+            var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = horizontalInset)
+                    // All decoration passes, drawn UNDER the fill (drawBehind
+                    // runs before the content) from the SAME layout the fill
+                    // renders — the alignment is structural, not simulated.
+                    .drawBehind {
+                        val layout = textLayout ?: return@drawBehind
+                        // 1) Per-line BACK-COLOR boxes (ASS BorderStyle=3):
+                        //    each line's glyph bounds padded by the border
+                        //    width — short lines get short boxes, positions
+                        //    guaranteed correct (they ARE the fill's lines).
+                        if (hasBg) {
+                            for (line in 0 until layout.lineCount) {
+                                val left = layout.getLineLeft(line) - borderWidthPx
+                                val right = layout.getLineRight(line) + borderWidthPx
+                                val top = layout.getLineTop(line) - borderWidthPx
+                                val bottom = layout.getLineBottom(line) + borderWidthPx
+                                drawRect(
+                                    color = bgColor,
+                                    topLeft = Offset(left, top),
+                                    size = Size(right - left, bottom - top),
+                                )
+                            }
+                        }
+                        // 2) The SHADOW pass — MPV sub-shadow: border-colored,
+                        //    75% alpha, offset DOWN by the shadow width, drawn
+                        //    in ADDITION to the border, UNDER everything.
+                        if (hasShadow) {
+                            drawText(
+                                textLayoutResult = layout,
+                                color = borderColor.copy(alpha = 0.75f),
+                                topLeft = Offset(0f, shadowPx),
+                                drawStyle = Stroke(width = shadowPx * 1.5f),
+                            )
+                        }
+                        // 3) The BORDER stroke pass — the outline exactly on
+                        //    the fill's glyphs (same layout object).
+                        if (hasBorder) {
+                            drawText(
+                                textLayoutResult = layout,
+                                color = borderColor,
+                                drawStyle = Stroke(width = borderWidthPx),
+                            )
+                        }
+                    },
+            ) {
+                // 4) THE fill pass — the whole multi-line cue as ONE Text
+                //    (natural line spacing; measures the box; publishes the
+                //    layout the passes above render). No maxLines truncation
+                //    (MPV never truncates; long cues wrap at the inset).
+                Text(
+                    text = active.text,
+                    color = textColor,
+                    fontSize = fontSizeSp,
+                    fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Normal,
+                    fontStyle = if (style.italic) FontStyle.Italic else FontStyle.Normal,
+                    fontFamily = FontFamily(typeface),
+                    textAlign = TextAlign.Center,
+                    onTextLayout = { textLayout = it },
+                )
             }
         }
-    }
-}
-
-/**
- * ONE cue line: the stacked passes (shadow → border → fill) inside a box that
- * hugs the line's glyph bounds and — when the background is on — is padded by
- * the border width (ASS BorderStyle=3 / MPV sub-back-color semantics).
- *
- * The fill pass sizes the box; the stroke/shadow passes overlay the exact same
- * text (`matchParentSize` — the stacked-Box technique; a Column would stack
- * them vertically). No fixed dp padding anywhere; no maxLines truncation.
- */
-@Composable
-private fun SubtitleLineBox(
-    line: String,
-    hasBg: Boolean,
-    bgColor: Color,
-    hasBorder: Boolean,
-    borderColor: Color,
-    borderWidthPx: Float,
-    hasShadow: Boolean,
-    shadowPx: Float,
-    shadowDp: Dp,
-    textColor: Color,
-    fontSizeSp: TextUnit,
-    typeface: Typeface,
-    bold: Boolean,
-    italic: Boolean,
-    boxPaddingDp: Dp,
-) {
-    Box(
-        modifier = Modifier
-            .then(
-                if (hasBg) {
-                    // ASS: the box padding IS the border width (same scaled
-                    // units) — it scales with the font and always covers the
-                    // outline's outer half (the v0.4.5 2.dp vertical padding
-                    // let thick outlines poke outside the box).
-                    Modifier
-                        .background(bgColor)
-                        .padding(horizontal = boxPaddingDp, vertical = boxPaddingDp)
-                } else {
-                    Modifier
-                },
-            ),
-    ) {
-        // The SHADOW pass — stacked UNDER everything (MPV draws the shadow in
-        // addition to the border; v0.4.5 suppressed it when a border was set).
-        // The same stacked-stroke technique shifted downward + slightly
-        // translucent (NOT TextStyle.textShadow: that API has no precedent in
-        // this repo's pinned Compose and CI is the only compiler).
-        if (hasShadow) {
-            Text(
-                text = line,
-                color = borderColor.copy(alpha = 0.75f),
-                fontSize = fontSizeSp,
-                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-                fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
-                fontFamily = FontFamily(typeface),
-                textAlign = TextAlign.Center,
-                style = TextStyle(drawStyle = Stroke(width = shadowPx * 1.5f)),
-                modifier = Modifier
-                    .matchParentSize()
-                    .offset(y = shadowDp),
-            )
-        }
-        // The BORDER stroke pass UNDER the fill pass.
-        if (hasBorder) {
-            Text(
-                text = line,
-                color = borderColor,
-                fontSize = fontSizeSp,
-                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-                fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
-                fontFamily = FontFamily(typeface),
-                textAlign = TextAlign.Center,
-                style = TextStyle(drawStyle = Stroke(width = borderWidthPx)),
-                modifier = Modifier.matchParentSize(),
-            )
-        }
-        // The fill pass — sizes the box.
-        Text(
-            text = line,
-            color = textColor,
-            fontSize = fontSizeSp,
-            fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-            fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
-            fontFamily = FontFamily(typeface),
-            textAlign = TextAlign.Center,
-        )
     }
 }
 

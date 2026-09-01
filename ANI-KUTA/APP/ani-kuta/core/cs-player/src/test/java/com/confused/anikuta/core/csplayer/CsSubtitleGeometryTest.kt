@@ -83,4 +83,14 @@ class CsSubtitleGeometryTest {
         assertEquals(0f, CsSubtitleGeometry.bottomPaddingFraction(150), 1e-6f)
         assertEquals(0.12f, CsSubtitleGeometry.bottomPaddingFraction(-20), 1e-6f)
     }
+
+    // ── Task 59: the horizontal wrap inset ────────────────────────────────
+
+    @Test
+    fun `horizontal inset is 4 percent of the overlay width`() {
+        assertEquals(43, CsSubtitleGeometry.horizontalInsetPx(1080))
+        assertEquals(172, CsSubtitleGeometry.horizontalInsetPx(4300))
+        assertEquals(0, CsSubtitleGeometry.horizontalInsetPx(0))
+        assertEquals(0, CsSubtitleGeometry.horizontalInsetPx(-5))
+    }
 }

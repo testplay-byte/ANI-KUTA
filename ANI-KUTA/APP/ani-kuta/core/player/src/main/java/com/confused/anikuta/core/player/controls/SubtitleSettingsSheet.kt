@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -88,6 +89,10 @@ fun SubtitleSettingsSheet(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxHeight = screenHeight * 0.65f
 
+    // Task 59 (round 19 — additive): bumped on reset — the panel's remember
+    // blocks re-read the freshly-written preferences.
+    var resetTick by remember { mutableIntStateOf(0) }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -115,18 +120,44 @@ fun SubtitleSettingsSheet(
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(50),
-                    modifier = Modifier.size(32.dp).clickable { onDismiss() },
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Task 59 (round 19 — additive): one tap restores the
+                    // default subtitle look (font size MAX, scale 0.5x,
+                    // border 5 — the user's spec) and every other subtitle
+                    // setting's out-of-box value. The shared
+                    // PlayerPreferences.resetSubtitleSettings writes the
+                    // defaults; resetTick re-keys the panel's state below.
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.size(32.dp).clickable {
+                            playerPreferences.resetSubtitleSettings()
+                            resetTick++
+                            onApplySettings()
+                        },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Reset to defaults",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.size(32.dp).clickable { onDismiss() },
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -145,6 +176,7 @@ fun SubtitleSettingsSheet(
                 SubtitleSettingsPanel(
                     playerPreferences = playerPreferences,
                     onSettingsChanged = onApplySettings,
+                    resetTick = resetTick,
                 )
             }
         }
@@ -155,21 +187,24 @@ fun SubtitleSettingsSheet(
 private fun SubtitleSettingsPanel(
     playerPreferences: PlayerPreferences,
     onSettingsChanged: () -> Unit,
+    // Task 59 (round 19 — additive): changes when the header's Reset fires —
+    // every remember block below re-initializes from the (just-reset) prefs.
+    resetTick: Int = 0,
 ) {
     // Local state — initialized from preferences, written back on change.
-    var font by remember { mutableStateOf(playerPreferences.subtitleFont) }
-    var fontSize by remember { mutableIntStateOf(playerPreferences.subtitleFontSize) }
-    var fontScale by remember { mutableStateOf(playerPreferences.subtitleFontScale) }
-    var borderSize by remember { mutableIntStateOf(playerPreferences.subtitleBorderSize) }
-    var bold by remember { mutableStateOf(playerPreferences.boldSubtitles) }
-    var italic by remember { mutableStateOf(playerPreferences.italicSubtitles) }
-    var textColor by remember { mutableIntStateOf(playerPreferences.textColorSubtitles) }
-    var borderColor by remember { mutableIntStateOf(playerPreferences.borderColorSubtitles) }
-    var bgColor by remember { mutableIntStateOf(playerPreferences.backgroundColorSubtitles) }
-    var position by remember { mutableIntStateOf(playerPreferences.subtitlePosition) }
-    var shadowOffset by remember { mutableIntStateOf(playerPreferences.subtitleShadowOffset) }
-    var overrideASS by remember { mutableStateOf(playerPreferences.overrideSubsAss) }
-    var delay by remember { mutableIntStateOf(playerPreferences.subtitlesDelay) }
+    var font by remember(resetTick) { mutableStateOf(playerPreferences.subtitleFont) }
+    var fontSize by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitleFontSize) }
+    var fontScale by remember(resetTick) { mutableStateOf(playerPreferences.subtitleFontScale) }
+    var borderSize by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitleBorderSize) }
+    var bold by remember(resetTick) { mutableStateOf(playerPreferences.boldSubtitles) }
+    var italic by remember(resetTick) { mutableStateOf(playerPreferences.italicSubtitles) }
+    var textColor by remember(resetTick) { mutableIntStateOf(playerPreferences.textColorSubtitles) }
+    var borderColor by remember(resetTick) { mutableIntStateOf(playerPreferences.borderColorSubtitles) }
+    var bgColor by remember(resetTick) { mutableIntStateOf(playerPreferences.backgroundColorSubtitles) }
+    var position by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitlePosition) }
+    var shadowOffset by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitleShadowOffset) }
+    var overrideASS by remember(resetTick) { mutableStateOf(playerPreferences.overrideSubsAss) }
+    var delay by remember(resetTick) { mutableIntStateOf(playerPreferences.subtitlesDelay) }
 
     // Dialog state — which setting is being edited via keypad/dialog.
     var editingDialog by remember { mutableStateOf<String?>(null) }

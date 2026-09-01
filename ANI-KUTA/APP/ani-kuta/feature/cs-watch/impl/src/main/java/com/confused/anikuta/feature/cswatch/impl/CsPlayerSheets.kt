@@ -1,6 +1,7 @@
 package com.confused.anikuta.feature.cswatch.impl
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -45,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -231,24 +234,36 @@ internal fun CsLinksSheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: "Qualities and Servers" (tappable → formatting popup) + close ──
+            // ── Header: the distinct bordered formatting toggle (Task 59 —
+            // ABOVE the title, its own clearly-bounded control), then the
+            // "Qualities and Servers" title + close row (plain title — not a
+            // click target).
             // Task 55: the "via/still-resolving/subtitle-count" hint line and
             // the hidden/DRM/failed footer are GONE (round-15 device feedback:
             // parity with the aniyomi QualitySheet — ONE hint line only).
+            CsFormattingToggle(
+                formatted = formatted,
+                onToggleFormatting = {
+                    formatted = it
+                    playerPreferences.resolveSheetFormatted = it
+                },
+                modifier = Modifier.padding(top = 14.dp),
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 4.dp),
+                    .padding(top = 10.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CsFormattingHeader(
-                    title = "Qualities and Servers",
-                    formatted = formatted,
-                    onToggleFormatting = {
-                        formatted = it
-                        playerPreferences.resolveSheetFormatted = it
-                    },
+                Text(
+                    text = "Qualities and Servers",
+                    fontFamily = RobotoFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 CsSheetCloseButton(onDismiss)
             }

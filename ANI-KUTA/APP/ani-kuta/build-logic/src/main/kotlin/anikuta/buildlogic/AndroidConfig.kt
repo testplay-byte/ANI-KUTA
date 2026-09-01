@@ -54,6 +54,33 @@ object AndroidConfig {
     // player hardening (30 s retained back-buffer so backward seeks serve
     // from memory, live-state seekRelative, safe clamps, 100 ms ticker).
     //
+    // ── Task 59 (round 19) — the v0.4.6 device-round fixes ────────────────
+    // 0.4.7 fixes the v0.4.6 device findings (doc cloudstream-v2/10): (1)
+    // the CS DOWNLOADS dead-callback fix — the episode row's download button
+    // was still wired to the classic resolver (round 18 gated a dead
+    // EpisodesSection param, not the live row lambda), so CS-bridged
+    // downloads hit the CS-guard error instead of opening the CS source
+    // picker; (2) the subtitle OVERLAY rewrite — the whole cue renders as ONE
+    // multi-line Text now (natural line spacing — the v0.4.6 per-line Texts
+    // double-ledged the inter-line gap and let the strokes overlap at large
+    // fonts) with every decoration pass (per-line back-color boxes, shadow,
+    // border) drawn from the SAME TextLayoutResult (a pass can no longer
+    // detach from the glyphs — the "subtitle at top, border at bottom"
+    // finding) + a 4% horizontal wrap inset; (3) the subtitle DEFAULTS +
+    // RESET — font size MAX (100), scale 0.5x, border 5 per the user's spec,
+    // with a Reset button on BOTH subtitle settings sheets (the aniyomi
+    // change additive-only); (4) the resolve sheets' formatting toggle is a
+    // distinct BORDED pill ABOVE the episode title (the v0.4.6 header was
+    // click-anywhere + popped a menu over the title); (5) the .WHITECAT
+    // plugin share format v2 — the extension is just .WHITECAT (the legacy
+    // .moviebox.WHITECAT still imports), the export carries METADATA
+    // (anikuta/export.json: source repo URL + icon URL + catalog fields +
+    // anikuta/icon.png embedded icon bytes) so the receiver keeps the icon
+    // + repository, the import gate is CONTENT-FIRST (.bin/renamed files
+    // analyzed by their zip manifest), the confirm dialog is titled with
+    // the plugin's name, and Add shows a clean 1.5s "Plugin added" then
+    // hands off to the EXTENSIONS page.
+    //
     // ── Task 58 (round 18) — the both-stacks-debug + downloads + share ────
     // 0.4.6 fixes the v0.4.5 device findings + lands the two requested
     // features (doc cloudstream-v2/09): (1) the debug toolkit now covers BOTH
@@ -96,8 +123,8 @@ object AndroidConfig {
     // controls with lock/canvas-seekbar/speed sheet), and the player sheets
     // adopt the Qualities-and-Servers / Subtitles / Speed sheet languages.
     // Aniyomi remains byte-untouched — parity via replicated design tokens.
-    const val versionCode = 71
-    const val versionName = "0.4.6"
+    const val versionCode = 72
+    const val versionName = "0.4.7"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.

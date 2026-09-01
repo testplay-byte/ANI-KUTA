@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,36 +48,47 @@ import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
 import com.confused.anikuta.core.designsystem.theme.AnikutaTheme
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
+import com.confused.anikuta.MainActivity
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
 import com.confused.anikuta.data.cloudstream.installer.CsSharedPluginFormat
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Task 58 (round 18 — the plugin-share receiver): the exported activity that
- * makes ANI-KUTA a handler for SHARED `.moviebox.WHITECAT` plugin files.
+ * Task 58 (round 18 — the plugin-share receiver) / Task 59 (round 19 — the
+ * import UX round): the exported activity that makes ANI-KUTA a handler for
+ * SHARED `.WHITECAT` plugin files.
  *
  * **The user's spec, as built:**
  *  - a plugin shared from another device's ANI-KUTA (the plugin detail page's
  *    Share action) arrives as `application/octet-stream`; opening it from a
  *    file manager / chat app offers ANI-KUTA (the manifest's VIEW intent
  *    filters cover content/file + octet-stream + zip);
- *  - THIS activity validates (the display name's custom extension + the zip's
- *    manifest.json), shows the plugin's details and asks ONE confirmation —
- *    Add or Cancel (nothing is installed outright by opening the file);
+ *  - THIS activity validates CONTENT-FIRST (Task 59: the display name's
+ *    extension is a HINT, not the gate — `.bin` files and other renamed
+ *    shares are analyzed by their zip content: a readable manifest.json with
+ *    a non-blank pluginClassName IS a plugin; the round-18 name-gate
+ *    rejected them before looking);
+ *  - the confirm dialog is titled with the PLUGIN's name (Task 59: "Add
+ *    <plugin>", not the generic "Add CloudStream plugin?") and carries no
+ *    footer caption;
  *  - Add installs REGARDLESS of repositories: an added repository that
  *    catalogs the same plugin LINKS to it (updates then flow); otherwise the
- *    record is repo-less ("Shared file");
+ *    shared file's EXPORT METADATA rides the record (Task 59 — the source
+ *    repository URL + the embedded icon);
  *  - the record lands UNTRUSTED (the app's trust model — the confirm adds the
  *    file, trusting gates the code);
- *  - after adding, a pending-navigation note routes the MAIN app to the
- *    plugin's detail page (see [PendingCsPluginNav] — read on the next
- *    MainActivity resume/create, so it works even when the app was killed).
+ *  - after adding, a clean "Plugin added" confirmation shows for 1.5 s, then
+ *    the MAIN app launches and lands on the EXTENSIONS page (Task 59: the
+ *    round-18 flow just finished back to the sender app; the pending-nav
+ *    note — [PendingCsPluginNav] — now routes there, read on MainActivity's
+ *    cold start + ON_RESUME so it works even when the app was killed).
  *
  * Non-plugin files that reach us through the broad octet-stream filter are
  * rejected gracefully ("not a plugin file") — never a crash.
@@ -100,6 +112,11 @@ class PluginImportActivity : ComponentActivity() {
                     stage = stage.value,
                     onAdd = { runImport(stage) },
                     onClose = { finish() },
+                    // Task 59: the Added confirmation auto-advances after 1.5s —
+                    // launch the MAIN app (the pending-nav note routes it to the
+                    // extensions page) and finish, instead of dropping the user
+                    // back into the sender app.
+                    onAutoContinue = { launchMainAndFinish() },
                 )
             }
         }
@@ -118,21 +135,13 @@ class PluginImportActivity : ComponentActivity() {
                 val displayName = runCatching { resolveDisplayName(uri) }.getOrNull()
                     ?: uri.lastPathSegment
                     ?: "shared-file"
-                // Reject non-plugin files BEFORE anything else: the custom
-                // extension is the format gate (case-insensitive — file
-                // managers may lowercase it).
-                if (!CsSharedPluginFormat.isSharedPluginFile(displayName)) {
-                    Logger.w(TAG) { "not a .${CsSharedPluginFormat.SHARED_EXTENSION} file: '$displayName'" }
-                    withContext(Dispatchers.Main) {
-                        stage.value = PluginImportStage.Done(
-                            PluginImportOutcome.Invalid(
-                                "\"$displayName\" is not an ANI-KUTA plugin file (expected " +
-                                    "a .${CsSharedPluginFormat.SHARED_EXTENSION} extension).",
-                            ),
-                        )
-                    }
-                    return@launch
-                }
+                // Task 59 — CONTENT-FIRST validation: the display name's
+                // extension is a HINT for the identity (the stem), NOT the
+                // gate. `.bin` files and other renamed shares (apps rewrite
+                // extensions in transit) are analyzed by their CONTENT below —
+                // a zip with a readable manifest.json + a non-blank
+                // pluginClassName IS a plugin file. The round-18 name-gate
+                // rejected these before ever looking at the bytes.
                 // Copy to a cache temp we own (content streams can't be re-read
                 // and the manager's import copies from a real File).
                 val temp = File(cacheDir, "plugin-import-${System.currentTimeMillis()}.tmp")
@@ -153,11 +162,11 @@ class PluginImportActivity : ComponentActivity() {
                 val manifest = CsSharedPluginFormat.readManifest(temp)
                 if (manifest == null || manifest.pluginClassName.isNullOrBlank()) {
                     temp.delete()
+                    Logger.w(TAG) { "not a plugin file (content): '$displayName'" }
                     withContext(Dispatchers.Main) {
                         stage.value = PluginImportStage.Done(
                             PluginImportOutcome.Invalid(
-                                "The file carries the plugin extension but no valid " +
-                                    "CloudStream manifest — it may be corrupted.",
+                                "\"$displayName\" is not an ANI-KUTA plugin file.",
                             ),
                         )
                     }
@@ -179,6 +188,25 @@ class PluginImportActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Task 59 — the post-Add hand-off: brings the MAIN app forward (its
+     * pending-nav consumer routes to the extensions page — see
+     * [PendingCsPluginNav]) and finishes the import activity. NEW_TASK so
+     * the app's own task comes forward even when we run inside the sender's
+     * task (file manager / chat app).
+     */
+    private fun launchMainAndFinish() {
+        runCatching {
+            startActivity(
+                Intent(this, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            )
+        }.onFailure { t ->
+            Logger.w(TAG, t) { "could not launch the main app — finishing anyway" }
+        }
+        finish()
     }
 
     /** VIEW carries the uri in data; SEND carries it in EXTRA_STREAM. */
@@ -237,6 +265,9 @@ class PluginImportActivity : ComponentActivity() {
         }
     }
 }
+
+/** Task 59: the Added confirmation's dwell time before the auto-advance. */
+private const val ADDED_CONFIRMATION_MS = 1500L
 
 /** The import flow's stage machine (top-level for the screen's when()). */
 sealed interface PluginImportStage {
@@ -304,6 +335,8 @@ private fun PluginImportScreen(
     stage: PluginImportStage,
     onAdd: () -> Unit,
     onClose: () -> Unit,
+    // Task 59: fired when the Added confirmation's 1.5s elapses.
+    onAutoContinue: () -> Unit,
 ) {
     Box(
         modifier = Modifier
@@ -322,7 +355,7 @@ private fun PluginImportScreen(
                 is PluginImportStage.Parsing -> ParsingCard()
                 is PluginImportStage.Confirm -> ConfirmCard(stage, onAdd, onClose)
                 is PluginImportStage.Adding -> AddingCard(stage.displayName)
-                is PluginImportStage.Done -> DoneCard(stage.outcome, onClose)
+                is PluginImportStage.Done -> DoneCard(stage.outcome, onClose, onAutoContinue)
             }
         }
     }
@@ -368,8 +401,10 @@ private fun ConfirmCard(
             }
         }
         Spacer(Modifier.height(16.dp))
+        // Task 59: the dialog is titled with the PLUGIN's name ("Add
+        // MovieBoxProvider"), not a generic "Add CloudStream plugin?".
         Text(
-            text = "Add CloudStream plugin?",
+            text = "Add ${stage.manifest.name ?: stage.displayName}?",
             fontFamily = RobotoFamily,
             fontSize = 20.sp,
             fontWeight = FontWeight.ExtraBold,
@@ -393,16 +428,6 @@ private fun ConfirmCard(
                 InfoLine("File", stage.displayName)
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "Adding places the plugin in your CloudStream extensions — it stays " +
-                "untrusted until you trust it from its detail page. Only share plugins " +
-                "from sources you trust.",
-            fontFamily = RobotoFamily,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(
@@ -465,17 +490,36 @@ private fun AddingCard(displayName: String) {
 }
 
 @Composable
-private fun DoneCard(outcome: PluginImportOutcome, onClose: () -> Unit) {
+private fun DoneCard(
+    outcome: PluginImportOutcome,
+    onClose: () -> Unit,
+    // Task 59: the Added card auto-advances after 1.5 s (no body text, no
+    // Done button — "Plugin added", then the extensions page).
+    onAutoContinue: () -> Unit,
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         when (outcome) {
             is PluginImportOutcome.Added -> {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(56.dp),
-                )
-                Spacer(Modifier.height(12.dp))
+                // Task 59: the clean 1.5-second confirmation. No caption, no
+                // button — the auto-advance hands off to the main app.
+                LaunchedEffect(Unit) {
+                    delay(ADDED_CONFIRMATION_MS)
+                    onAutoContinue()
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = CircleShape,
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(72.dp)) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
                 Text(
                     text = "Plugin added",
                     fontFamily = RobotoFamily,
@@ -484,19 +528,11 @@ private fun DoneCard(outcome: PluginImportOutcome, onClose: () -> Unit) {
                     color = MaterialTheme.colorScheme.onBackground,
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    text = buildString {
-                        append("${outcome.name} is in your CloudStream extensions")
-                        if (outcome.linkedToRepository) {
-                            append(" — linked to a repository you have added, so updates flow")
-                        } else {
-                            append(" (no repository — a shared file)")
-                        }
-                        append(". Trust it from its detail page to load its providers.")
-                    },
+                    text = outcome.name,
                     fontFamily = RobotoFamily,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
@@ -554,12 +590,17 @@ private fun DoneCard(outcome: PluginImportOutcome, onClose: () -> Unit) {
                 )
             }
         }
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = onClose,
-            modifier = Modifier.fillMaxWidth().height(46.dp),
-        ) {
-            Text("Done", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+        // Task 59: the Added card has NO close button — the 1.5s
+        // auto-advance owns the hand-off (the user's spec). The deliberate
+        // outcomes (already installed / invalid) keep their Done button.
+        if (outcome !is PluginImportOutcome.Added) {
+            Spacer(Modifier.height(24.dp))
+            Button(
+                onClick = onClose,
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+            ) {
+                Text("Done", fontFamily = RobotoFamily, fontWeight = FontWeight.ExtraBold)
+            }
         }
     }
 }

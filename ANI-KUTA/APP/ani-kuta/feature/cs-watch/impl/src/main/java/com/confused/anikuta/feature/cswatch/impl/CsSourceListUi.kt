@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,9 +31,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -45,12 +45,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.csplayer.CsAudioTag
@@ -282,66 +282,72 @@ internal fun rememberCopyFeedback(): (String, String) -> Unit {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  The formatting popup (header anchor)
+//  The formatting toggle (Task 59 — the distinct bordered pill at the top)
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * A tappable sheet-title row. Tapping opens a SMALL DropdownMenu ABOVE the
- * anchor (user spec: "a small menu which will show above it", not a bottom
- * sheet) with the source-formatting toggle.
- * ON  (default) = the aniyomi server/audio accordion.
- * OFF = the raw flat list (unformatted labels, tap = play directly).
+ * Task 59 (round 19 — the v0.4.6 device findings): the formatting control is
+ * a DISTINCT BORDED pill shown at the TOP of the sheet — ABOVE the
+ * "Episode N" title, never on top of it — with its own outline so it reads
+ * as a separate, clearly-bounded control (the v0.4.6 design made the whole
+ * title row clickable and popped a DropdownMenu over the episode number;
+ * empty-area taps in the header opened it too).
+ *
+ * Tap toggles the formatted/raw view DIRECTLY (no menu): ON (default) = the
+ * aniyomi server/audio accordion; OFF = the raw flat list. The sheet title
+ * is plain text now — this pill is the only formatting control.
  *
  * The aniyomi sheets implement the SAME interaction with their own local
  * copies (the two stacks share only the preference, not code).
  */
 @Composable
-internal fun CsFormattingHeader(
-    title: String,
+internal fun CsFormattingToggle(
     formatted: Boolean,
     onToggleFormatting: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Box(modifier = modifier) {
-        Text(
-            text = title,
-            fontFamily = RobotoFamily,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { menuOpen = true },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            // The distinct border — the user's spec: "give it a distinct
+            // border around it so that it looks different, clearer, cleaner".
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(50),
+            )
+            .clickable { onToggleFormatting(!formatted) }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.FormatListBulleted,
+            contentDescription = null,
+            tint = if (formatted) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(16.dp),
         )
-        DropdownMenu(
-            expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-            offset = DpOffset(0.dp, (-72).dp),
-        ) {
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        text = "Formatted sources",
-                        fontFamily = RobotoFamily,
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                leadingIcon = {
-                    if (formatted) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "On",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
-                onClick = {
-                    menuOpen = false
-                    onToggleFormatting(!formatted)
-                },
+        Text(
+            text = "Formatted sources",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (formatted) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        if (formatted) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "On",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
             )
         }
     }

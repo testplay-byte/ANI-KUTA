@@ -39,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
@@ -56,10 +57,16 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.data.cloudstream.CloudstreamPluginManager
+import com.confused.anikuta.data.cloudstream.installer.CsExportInfo
 import com.confused.anikuta.data.cloudstream.installer.CsSharedPluginFormat
 import com.confused.anikuta.data.cloudstream.model.CloudstreamExtension
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 /**
@@ -216,16 +223,6 @@ fun CloudstreamPluginDetailScreen(
                                     )
                                 }
                             }
-                            item(key = "trust-note") {
-                                Text(
-                                    text = "This plugin is installed but not trusted — its code has never " +
-                                        "run. Trusting it loads its providers so they appear in Search.",
-                                    fontFamily = RobotoFamily,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                )
-                            }
                             // Task 58 (round 18 — plugin sharing): the untrusted
                             // state gets the SAME Share row (sharing needs only
                             // the file on disk, not trust).
@@ -234,6 +231,8 @@ fun CloudstreamPluginDetailScreen(
                                     SharePluginRow(
                                         filePath = diskFilePath,
                                         internalName = internalName,
+                                        repoUrl = recordRepoUrl,
+                                        meta = meta,
                                         context = shareContext,
                                     )
                                 }
@@ -441,6 +440,8 @@ fun CloudstreamPluginDetailScreen(
                                     SharePluginRow(
                                         filePath = diskFilePath,
                                         internalName = internalName,
+                                        repoUrl = recordRepoUrl,
+                                        meta = meta,
                                         context = shareContext,
                                     )
                                 }
@@ -747,20 +748,32 @@ private fun formatBytes(diskBytes: Long?, catalogBytes: Long?): String {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Task 58 (round 18): the plugin SHARE export (.moviebox.WHITECAT)
+//  Task 58 (round 18) / Task 59 (round 19): the plugin SHARE export (.WHITECAT)
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
  * The full-width "Share" action (the user's spec: every plugin detail page —
  * trusted OR untrusted — carries ONE share option). Exports the installed
  * .cs3 bytes under our custom extension via the system share sheet.
+ *
+ * Task 59 (the v0.4.6 device round): the export now CARRIES METADATA —
+ * [CsExportInfo] (the source repository URL, the icon URL, the catalog
+ * display fields) + the actual ICON BYTES when they can be fetched — so the
+ * receiving device renders the plugin with the SAME icon/cover and knows its
+ * source repository, even with no repository added. The button shows a
+ * spinner while the (best-effort, 2.5s-timeout) icon fetch + zip rewrite run
+ * on Dispatchers.IO.
  */
 @Composable
 private fun SharePluginRow(
     filePath: String,
     internalName: String,
+    repoUrl: String?,
+    meta: PluginMeta?,
     context: android.content.Context,
 ) {
+    val scope = rememberCoroutineScope()
+    var sharing by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -768,35 +781,70 @@ private fun SharePluginRow(
         DetailAction(
             text = "Share",
             icon = Icons.Filled.IosShare,
-            onClick = { sharePluginFile(context, filePath, internalName) },
+            loading = sharing,
+            onClick = {
+                if (!sharing) {
+                    sharing = true
+                    scope.launch {
+                        try {
+                            sharePluginFile(context, filePath, internalName, repoUrl, meta)
+                        } finally {
+                            sharing = false
+                        }
+                    }
+                }
+            },
             modifier = Modifier.weight(1f),
         )
     }
-    Text(
-        text = "Exports this plugin as a .${CsSharedPluginFormat.SHARED_EXTENSION} file — " +
-            "the receiver opens it with ANI-KUTA to install.",
-        fontFamily = RobotoFamily,
-        fontSize = 12.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(start = 4.dp, top = 6.dp),
-    )
 }
 
 /**
- * The export itself — the ConsoleLogsScreen.shareLogReport pattern: a fresh
- * copy in cacheDir/exports/ (the FileProvider already exposes the whole
- * cacheDir) named `<internalName>.moviebox.WHITECAT`, then the system share
- * sheet with a granted read URI. The copy (not the installed original) is
- * shared so the exported NAME is deterministic regardless of the install
- * path's repo salt — and the .setReadOnly() original stays untouched.
+ * The export itself — the ConsoleLogsScreen.shareLogReport pattern, now with
+ * the Task-59 metadata: a fresh rewritten copy in cacheDir/exports/ (the
+ * FileProvider already exposes the whole cacheDir) named
+ * `<internalName>.WHITECAT` — every original .cs3 entry byte-for-byte plus
+ * `anikuta/export.json` (+ `anikuta/icon.png` when the icon could be
+ * fetched) — then the system share sheet with a granted read URI. The copy
+ * (not the installed original) is shared so the exported NAME is
+ * deterministic regardless of the install path's repo salt — and the
+ * .setReadOnly() original stays untouched.
  */
-private fun sharePluginFile(context: android.content.Context, filePath: String, internalName: String) {
-    runCatching {
-        val exportDir = java.io.File(context.cacheDir, "exports").apply { mkdirs() }
-        val export = java.io.File(exportDir, CsSharedPluginFormat.sharedFileName(internalName))
-        java.io.File(filePath).copyTo(export, overwrite = true)
-        // The share target only READS it — make sure the export isn't read-only
-        // from a copied flag (copyTo copies the source's permissions).
+private suspend fun sharePluginFile(
+    context: android.content.Context,
+    filePath: String,
+    internalName: String,
+    repoUrl: String?,
+    meta: PluginMeta?,
+) {
+    val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+    val export = File(exportDir, CsSharedPluginFormat.sharedFileName(internalName))
+    try {
+        withContext(Dispatchers.IO) {
+            // Best-effort icon fetch BEFORE the rewrite (the bytes must be
+            // in hand when the zip is written). 2.5s timeouts; failures fall
+            // back to the URL riding export.json.
+            val iconBytes = meta?.iconUrl?.let { fetchIconBytes(it) }
+            val info = CsExportInfo(
+                repoUrl = repoUrl,
+                iconUrl = meta?.iconUrl,
+                name = meta?.name,
+                version = meta?.version,
+                language = meta?.language,
+                authors = meta?.authors ?: emptyList(),
+                description = meta?.description,
+                tvTypes = meta?.tvTypes ?: emptyList(),
+                exportedAtMs = System.currentTimeMillis(),
+            )
+            CsSharedPluginFormat.writeSharedFile(
+                source = File(filePath),
+                target = export,
+                info = info,
+                iconBytes = iconBytes,
+            )
+        }
+        // The share target only READS it — make sure the export isn't
+        // read-only from a copied flag (the loader sets the source RO).
         export.setReadable(true, false)
 
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", export)
@@ -807,13 +855,55 @@ private fun sharePluginFile(context: android.content.Context, filePath: String, 
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             clipData = android.content.ClipData.newRawUri("plugin", uri)
         }
-        context.startActivity(Intent.createChooser(intent, "Share plugin"))
-        com.confused.anikuta.core.common.Logger.i("Anikuta:CS:PluginDetail") {
-            "shared plugin $internalName as ${export.name} (${export.length() / 1024} KB)"
+        withContext(Dispatchers.Main) {
+            context.startActivity(Intent.createChooser(intent, "Share plugin"))
         }
-    }.onFailure { t ->
+        com.confused.anikuta.core.common.Logger.i("Anikuta:CS:PluginDetail") {
+            "shared plugin $internalName as ${export.name} (${export.length() / 1024} KB, " +
+                "icon=${if (export.length() > File(filePath).length()) "embedded" else "url-only"})"
+        }
+    } catch (t: Throwable) {
         com.confused.anikuta.core.common.Logger.e("Anikuta:CS:PluginDetail", t) { "share failed" }
-        Toast.makeText(context, "Couldn't share the plugin file", Toast.LENGTH_SHORT).show()
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Couldn't share the plugin file", Toast.LENGTH_SHORT).show()
+        }
     }
 }
+
+/**
+ * The best-effort icon fetch for the export (Task 59): http(s) URLs stream
+ * up to 512 KB with 2.5s timeouts; `file://` URIs (a plugin that was itself
+ * imported from a shared file) read the local bytes. Null on ANY failure —
+ * the export.json URL is the fallback, never a failed share.
+ */
+private fun fetchIconBytes(iconUrl: String): ByteArray? = runCatching {
+    if (iconUrl.startsWith("file://", ignoreCase = true)) {
+        File(java.net.URI(iconUrl)).takeIf { it.exists() && it.length() in 1..MAX_ICON_BYTES }
+            ?.readBytes()
+    } else if (iconUrl.startsWith("http")) {
+        val connection = URL(iconUrl).openConnection() as HttpURLConnection
+        connection.connectTimeout = ICON_FETCH_TIMEOUT_MS
+        connection.readTimeout = ICON_FETCH_TIMEOUT_MS
+        connection.instanceFollowRedirects = true
+        try {
+            if (connection.responseCode !in 200..299) return@runCatching null
+            val length = connection.contentLengthLong
+            if (length > MAX_ICON_BYTES) return@runCatching null
+            connection.inputStream.use { input ->
+                val bytes = input.readBytes()
+                if (bytes.isEmpty() || bytes.size > MAX_ICON_BYTES) null else bytes
+            }
+        } finally {
+            connection.disconnect()
+        }
+    } else {
+        null
+    }
+}.getOrNull()
+
+/** The embedded-icon size ceiling (a real plugin icon is a few KB). */
+private const val MAX_ICON_BYTES = 512 * 1024
+
+/** The icon fetch timeout (connect + read) — best effort, never blocks long. */
+private const val ICON_FETCH_TIMEOUT_MS = 2500
 

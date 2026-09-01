@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,12 +33,11 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public  // D-210: resolver Error "Open in WebView" icon
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +61,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
@@ -164,13 +163,24 @@ fun ResolverSheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: "Episode N" left, close button right ──
-            // Task 55: the title is tappable → the formatting popup (a small
-            // DropdownMenu ABOVE the anchor — user spec, not a bottom sheet).
+            // ── Header: the distinct bordered formatting toggle (Task 59 —
+            // ABOVE the title, its own clearly-bounded control; display-layer
+            // only), then the "Episode N" title + close row (plain text — the
+            // title is NOT a click target anymore; empty-area header taps do
+            // nothing). The v0.4.6 design made the whole title row clickable
+            // and popped a DropdownMenu over the episode number.
+            ResolverFormattingToggle(
+                formatted = formatted,
+                onToggle = {
+                    formatted = it
+                    playerPreferences.resolveSheetFormatted = it
+                },
+                modifier = Modifier.padding(top = 14.dp),
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 16.dp),
+                    .padding(top = 10.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val headerText = if (downloadMode) {
@@ -178,50 +188,16 @@ fun ResolverSheet(
                 } else {
                     "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(episodeNumber)}"
                 }
-                var menuOpen by remember { mutableStateOf(false) }
-                Box(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = headerText,
-                        fontFamily = RobotoFamily,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { menuOpen = true },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    DropdownMenu(
-                        expanded = menuOpen,
-                        onDismissRequest = { menuOpen = false },
-                        offset = DpOffset(0.dp, (-72).dp),
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "Formatted sources",
-                                    fontFamily = RobotoFamily,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            },
-                            leadingIcon = {
-                                if (formatted) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "On",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            },
-                            onClick = {
-                                menuOpen = false
-                                formatted = !formatted
-                                playerPreferences.resolveSheetFormatted = formatted
-                            },
-                        )
-                    }
-                }
+                Text(
+                    text = headerText,
+                    fontFamily = RobotoFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 // Task 58: the header-level "copy the whole report" action —
                 // OFF unless enabled in Settings → Debug options (the mirror
                 // of the CS sheet's header action, same 32dp circle slot).
@@ -815,5 +791,72 @@ private fun rememberResolverCopyFeedback(): (String, String) -> Unit {
             Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
         }
         copy
+    }
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Task 59 (round 19 — display-layer only): the formatting toggle pill
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The distinct BORDED formatting toggle shown at the TOP of the resolve
+ * sheet — ABOVE the "Episode N" title (the v0.4.6 design made the whole
+ * title row clickable and popped a DropdownMenu over the episode number;
+ * the round-19 device round: "it should be shown at the top, not on top of
+ * the episode number itself but above it… give it a distinct border around
+ * it"). Tap toggles the formatted/raw view DIRECTLY — no menu.
+ *
+ * The CS sheets' [CsFormattingToggle] is the same design (the stacks share
+ * the preference, not code — the replication rule).
+ */
+@Composable
+private fun ResolverFormattingToggle(
+    formatted: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(50),
+            )
+            .clickable { onToggle(!formatted) }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.FormatListBulleted,
+            contentDescription = null,
+            tint = if (formatted) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = "Formatted sources",
+            fontFamily = RobotoFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (formatted) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        if (formatted) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "On",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(14.dp),
+            )
+        }
     }
 }

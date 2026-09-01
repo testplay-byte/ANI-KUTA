@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.common.Logger
@@ -317,27 +318,40 @@ fun CsResolveSheet(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
-            // ── Header: "Episode N" / "Download EP N" (tappable → formatting popup) + close ──
+            // ── Header: the distinct bordered formatting toggle (Task 59 —
+            // ABOVE the title, its own clearly-bounded control), then the
+            // "Episode N" / "Download EP N" title + close row (plain text —
+            // the title is NOT a click target anymore; empty-area taps in
+            // the header do nothing).
+            CsFormattingToggle(
+                formatted = formatted,
+                onToggleFormatting = {
+                    formatted = it
+                    playerPreferences.resolveSheetFormatted = it
+                    Logger.i(SHEET_TAG) { "source formatting → ${if (it) "formatted" else "raw"}" }
+                },
+                modifier = Modifier.padding(top = 14.dp),
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 16.dp),
+                    .padding(top = 10.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CsFormattingHeader(
-                    title = if (downloadMode) {
+                Text(
+                    text = if (downloadMode) {
                         // Task 58: the aniyomi ResolverSheet's download-mode wording.
                         "Download EP ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(key.episodeNumber)}"
                     } else {
                         "Episode ${com.confused.anikuta.core.common.EpisodeTitleParser.formatEpisodeNumber(key.episodeNumber)}"
                     },
-                    formatted = formatted,
-                    onToggleFormatting = {
-                        formatted = it
-                        playerPreferences.resolveSheetFormatted = it
-                        Logger.i(SHEET_TAG) { "source formatting → ${if (it) "formatted" else "raw"}" }
-                    },
+                    fontFamily = RobotoFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (copyEnabled) {
                     // Task 57 (P4): copies the WHOLE resolve report (header +

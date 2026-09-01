@@ -1228,7 +1228,30 @@ fun DetailsScreen(
                                         onClick = { onEpisodeClick(episode, false) },
                                         downloadState = downloadState,
                                         fallbackCoverUrl = anime.coverUrl,
-                                        onDownload = { currentEpisode = episode; resolverDownloadMode = true; viewModel.resolveEpisode(episode); showResolverSheet = true },
+                                        // Task 59 (round 19 — the downloads wiring
+                                        // fix): the row-level download button takes
+                                        // the SAME gated branch the (dead)
+                                        // EpisodesSection.onDownloadEpisode param
+                                        // got in round 18 — v0.4.6 shipped with this
+                                        // lambda still hardcoded to the CLASSIC
+                                        // resolver path, so tapping download on a
+                                        // CS-bridged episode hit the CS-guard error
+                                        // ("Failed to resolve videos…") instead of
+                                        // opening the CS source picker.
+                                        // CS-bridged → the CS resolve sheet in
+                                        // DOWNLOAD mode (routeToCsDownload); the
+                                        // classic aniyomi flow is otherwise unchanged.
+                                        onDownload = {
+                                            currentEpisode = episode
+                                            if (viewModel.isLinkedSourceCloudStream()) {
+                                                resolverDownloadMode = false
+                                                routeToCsDownload(episode)
+                                            } else {
+                                                resolverDownloadMode = true
+                                                viewModel.resolveEpisode(episode)
+                                                showResolverSheet = true
+                                            }
+                                        },
                                         onPause = { viewModel.pauseEpisodeDownload(episode) },
                                         onResume = { viewModel.resumeEpisodeDownload(episode) },
                                         onCancel = { viewModel.cancelEpisodeDownload(episode) },

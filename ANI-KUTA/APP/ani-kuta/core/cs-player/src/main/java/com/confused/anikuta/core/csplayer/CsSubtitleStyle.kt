@@ -24,10 +24,10 @@ package com.confused.anikuta.core.csplayer
  * Defaults mirror PlayerPreferences' own defaults (MPV scale, ARGB ints).
  */
 data class CsSubtitleStyle(
-    /** MPV sub-font-size scale (20..100; default 55). */
-    val fontSize: Int = 55,
-    /** Outline/border size (0..10; >0 enables the outline edge). */
-    val borderSize: Int = 3,
+    /** MPV sub-font-size scale (20..100; default 100 — Task 59, the user's spec). */
+    val fontSize: Int = 100,
+    /** Outline/border size (0..10; >0 enables the outline edge; default 5 — Task 59). */
+    val borderSize: Int = 5,
     /** Bold text. */
     val bold: Boolean = false,
     /** Italic text. */
@@ -42,8 +42,8 @@ data class CsSubtitleStyle(
     val shadowOffset: Int = 0,
     /** Vertical position (0..100; 100 = flush bottom — MPV sub-pos). */
     val position: Int = 100,
-    /** Task 57: overlay text scale multiplier (MPV sub-scale; default 1f). */
-    val fontScale: Float = 1f,
+    /** Task 57: overlay text scale multiplier (MPV sub-scale; default 0.5f — Task 59, the user's spec). */
+    val fontScale: Float = 0.5f,
     /** Task 57: font family name ("sans-serif"/"serif"/"monospace"; null = default sans). */
     val fontFamilyName: String? = null,
     /** Task 57: subtitle delay in ms (positive = show later — MPV sub-delay). */

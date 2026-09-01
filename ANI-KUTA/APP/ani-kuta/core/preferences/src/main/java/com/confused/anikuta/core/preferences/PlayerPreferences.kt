@@ -69,19 +69,30 @@ class PlayerPreferences(private val store: PreferenceStore) {
         get() = store.getString(KEY_SUB_FONT, "Sans Serif")
         set(value) = store.putString(KEY_SUB_FONT, value)
 
-    /** Subtitle font size (MPV sub-font-size). Default: 55. Range: 20..100. */
+    /**
+     * Subtitle font size (MPV sub-font-size). Default: **100 (max)** — Task 59
+     * (round 19, the user's spec: the default subtitle look is font size MAX,
+     * scale 0.5×, border 5; 100 × 0.5 renders ≈ the old 55 default). Range:
+     * 20..100.
+     */
     var subtitleFontSize: Int
-        get() = store.getInt(KEY_SUB_FONT_SIZE, 55)
+        get() = store.getInt(KEY_SUB_FONT_SIZE, 100)
         set(value) = store.putInt(KEY_SUB_FONT_SIZE, value)
 
-    /** Subtitle font scale multiplier. Default: 1.0. Range: 0.5..3.0. */
+    /**
+     * Subtitle font scale multiplier. Default: **0.5×** — Task 59 (the user's
+     * spec; see [subtitleFontSize]). Range: 0.5..3.0.
+     */
     var subtitleFontScale: Float
-        get() = store.getFloat(KEY_SUB_SCALE, 1.0f)
+        get() = store.getFloat(KEY_SUB_SCALE, 0.5f)
         set(value) = store.putFloat(KEY_SUB_SCALE, value)
 
-    /** Subtitle border/outline size. Default: 3. Range: 0..10. */
+    /**
+     * Subtitle border/outline size. Default: **5** — Task 59 ("a comfortable
+     * 5", the user's spec). Range: 0..10.
+     */
     var subtitleBorderSize: Int
-        get() = store.getInt(KEY_SUB_BORDER_SIZE, 3)
+        get() = store.getInt(KEY_SUB_BORDER_SIZE, 5)
         set(value) = store.putInt(KEY_SUB_BORDER_SIZE, value)
 
     /** Bold subtitles. Default: false. */
@@ -128,6 +139,34 @@ class PlayerPreferences(private val store: PreferenceStore) {
     var subtitlesDelay: Int
         get() = store.getInt(KEY_SUB_DELAY, 0)
         set(value) = store.putInt(KEY_SUB_DELAY, value)
+
+    /**
+     * Task 59 (round 19) — resets EVERY subtitle preference to its default in
+     * one write (the shared backing for BOTH subtitle settings sheets' Reset
+     * buttons — the aniyomi sheet and the CS sheet). Defaults per the user's
+     * spec: font size MAX (100), scale 0.5×, border 5; everything else back to
+     * its out-of-box value (Sans Serif, bold/italic off, white text, black
+     * border, transparent background, position 100, shadow 0, delay 0,
+     * ASS-override off).
+     *
+     * Callers fire their `onApplySettings` after this so the live preview and
+     * the engine (MPV / Media3) pick the reset state up immediately.
+     */
+    fun resetSubtitleSettings() {
+        subtitleFont = "Sans Serif"
+        subtitleFontSize = 100
+        subtitleFontScale = 0.5f
+        subtitleBorderSize = 5
+        boldSubtitles = false
+        italicSubtitles = false
+        textColorSubtitles = 0xFFFFFFFF.toInt()
+        borderColorSubtitles = 0xFF000000.toInt()
+        backgroundColorSubtitles = 0x00000000
+        subtitlePosition = 100
+        subtitleShadowOffset = 0
+        subtitlesDelay = 0
+        overrideSubsAss = false
+    }
 
     // ── Task 55 (round 15): source-list formatting + CS subtitle language ────
     //
