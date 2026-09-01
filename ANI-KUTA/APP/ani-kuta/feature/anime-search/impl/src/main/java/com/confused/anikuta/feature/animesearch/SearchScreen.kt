@@ -150,9 +150,12 @@ fun SearchScreen(
         SelectedSourceKind.ANIYOMI -> null
     }
 
-    // Task 61 (round 21): every FRESH composition of the search screen (tab
-    // switch, return from a category subpage) reshuffles the CS browse
-    // sections — "every single time the user enters the search page".
+    // Task 62 (round 22 — the randomization TRIGGER rework): every fresh
+    // composition of the search screen (tab return, subpage return) calls
+    // onPageEntered, which re-shuffles ONLY when the user actually LEFT the
+    // search tab in between (SearchTabExitSignal — marked by MainActivity's
+    // bottom-nav). Subpage/details returns and app resumes keep the
+    // arrangement; cold reopens restore the persisted one.
     LaunchedEffect(Unit) {
         viewModel.onPageEntered()
     }

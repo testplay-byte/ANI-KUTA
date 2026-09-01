@@ -258,14 +258,20 @@ private fun DownloadedAnimeCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(4.dp))
-                    // Task 61: the count as a highlighted TAG — the primary-tinted
-                    // pill style (matches the resolver's server chip), not text.
+                    // Task 62 (round 22): the count as a highlighted TAG — the
+                    // primary-tinted pill style (matches the resolver's server
+                    // chip). The device round asked for the FULL detail in the
+                    // tag ("(5 Episodes Downloaded)"), not the old "5 EP".
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     ) {
                         Text(
-                            text = "${episodes.size} EP",
+                            text = if (episodes.size == 1) {
+                                "(1 Episode Downloaded)"
+                            } else {
+                                "(${episodes.size} Episodes Downloaded)"
+                            },
                             fontFamily = RobotoFamily,
                             fontSize = 10.sp,
                             lineHeight = 14.sp,
@@ -274,6 +280,7 @@ private fun DownloadedAnimeCard(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             maxLines = 1,
                             softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -270,53 +271,32 @@ fun LibraryScreen(
         viewModel.loadLibrary()
     }
 
+    // ── Task 62 (round 22 — M3, the root recomposition amplifier) ──────────
+    // This root used to run 34 collectAsState() calls at the top of a
+    // ~4,300-line file: ANY of them emitting (a keystroke, a selection tap, a
+    // settings toggle, the PTR spinner, the category counts) re-executed the
+    // ENTIRE root body. The reads now live in the LOWEST composable that
+    // consumes them:
+    //  • searchQuery            → the search-bar section below;
+    //  • the ~19 customize-sheet states → [LibraryCustomizeSheetHost] (only
+    //    composed while the sheet is open — a settings toggle now recomposes
+    //    the sheet, not this root);
+    //  • the chips states        → [LibraryCategorySection];
+    //  • the grid/list settings  → [LibraryGrid]/[LibraryList] themselves;
+    //  • isRefreshing            → [LibraryPullRefreshArea];
+    //  • the dialog states       → [LibraryDialogsHost].
+    // The root keeps only the states that genuinely drive its structure: the
+    // content state, the display mode (grid/list branch), the header count,
+    // and the selection state.
     val state by viewModel.state.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val sortType by viewModel.sortType.collectAsState()
-    val sortAscending by viewModel.sortAscending.collectAsState()
     val displayMode by viewModel.displayMode.collectAsState()
-    val columns by viewModel.columns.collectAsState()
-    val titleLines by viewModel.titleLines.collectAsState()
-    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
-    val episodeBadgePosition by viewModel.episodeBadgePosition.collectAsState()
-    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
-    val scoreBadgePosition by viewModel.scoreBadgePosition.collectAsState()
-    val showContinueWatching by viewModel.showContinueWatching.collectAsState()
-    val showTotalEntries by viewModel.showTotalEntries.collectAsState()
-    // D-140: per-category item counts + show-counts toggle.
-    val categoryCounts by viewModel.categoryCounts.collectAsState()
-    val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
-    // D-242-fix14: advanced RELEASED badge sub-options.
-    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
-    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
-    // D-242-fix17: cover border settings.
-    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
-    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
-    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
-    // D-242-fix18: All Caught Up tag + list mode settings.
-    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
-    val listDensity by viewModel.listDensity.collectAsState()
-    val listTitlePosition by viewModel.listTitlePosition.collectAsState()
-    // D-242-fix21: Comfortable border mode.
-    val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
-    // D-251: hide-titles toggle for Comfortable mode.
-    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
     // D-140: total entries (for the header title "{n} in Library").
+    val showTotalEntries by viewModel.showTotalEntries.collectAsState()
     val totalEntries by viewModel.totalEntries.collectAsState()
-    // D.5: refresh state for pull-to-refresh.
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
-
-    // D-138: category tabs state — list of categories, currently selected
-    // category (null = "All"), and the category to show delete/rename dialog for.
-    val categories by viewModel.categories.collectAsState()
-    val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
-    val categoryToManage by viewModel.categoryToManage.collectAsState()
 
     // D-141: Multi-select state.
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val selectedMainIds by viewModel.selectedMainIds.collectAsState()
-    val showMultiSelectCategorySheet by viewModel.showMultiSelectCategorySheet.collectAsState()
-    val showDeleteConfirmation by viewModel.showDeleteConfirmation.collectAsState()
 
     // D-143: Sync selection mode to the shared LibrarySelectionMode so AppRoot
     // can replace the bottom nav bar with the selection action bar.
@@ -393,11 +373,20 @@ fun LibraryScreen(
     // false → true transition, so it never buzzes continuously.
     // Uses HapticHelper (Vibrator service) for reliability across devices +
     // battery-saver modes.
-    val thresholdCrossed = ptrState.distanceFraction >= 1f
-    LaunchedEffect(thresholdCrossed) {
-        if (thresholdCrossed) {
-            HapticHelper.stageCross(context)
-        }
+    // Task 62 (round 22 — M1): the threshold is now read inside a
+    // snapshotFlow + distinctUntilChanged. The old composition-scope read
+    // `val thresholdCrossed = ptrState.distanceFraction >= 1f` subscribed the
+    // ENTIRE root composable (this ~4,300-line screen) to EVERY pull-drag
+    // frame — a whole-screen recomposition per frame; the flow reads it in
+    // the observer's scope instead.
+    LaunchedEffect(ptrState) {
+        snapshotFlow { ptrState.distanceFraction >= 1f }
+            .distinctUntilChanged()
+            .collect { crossed ->
+                if (crossed) {
+                    HapticHelper.stageCross(context)
+                }
+            }
     }
 
     val isList = displayMode == LibraryDisplayMode.LIST
@@ -556,6 +545,10 @@ fun LibraryScreen(
                 enter = fadeIn(tween(Motion.DurationStandard, easing = FastOutSlowInEasing)),
                 exit = fadeOut(tween(Motion.DurationShort, easing = FastOutSlowInEasing)),
             ) {
+                // Task 62 (M3): the query is collected HERE — every keystroke
+                // re-executes only this small section (the old root-level read
+                // recomposed the entire screen per character).
+                val searchQuery by viewModel.searchQuery.collectAsState()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -581,55 +574,14 @@ fun LibraryScreen(
             }
 
             // ── Category tabs (D-138, D-140) — hidden in selection mode ──
-            // Smart visibility rules:
-            //  - "All" tab only shows when 2+ categories have ≥1 item.
-            //  - "Default" (permanent) tab only shows when it has ≥1 item.
-            //  - Non-permanent categories always show (the user created them).
-            //  - No "+" button — categories are created from the details page
-            //    (long-press bookmark), not from the library page.
-            //  - D-141: hidden entirely in selection mode (the quick options row
-            //    above takes its place).
-            //  - D-141: thin 1dp divider below the tabs separates them from the
-            //    grid content.
-            val categoriesWithItems = categories.count { (categoryCounts[it.id] ?: 0) > 0 }
-            val showAllTab = categoriesWithItems >= 2
-            val visibleCategories = categories.filter { cat ->
-                if (cat.isPermanent) {
-                    // Default — hide when empty.
-                    (categoryCounts[cat.id] ?: 0) > 0
-                } else {
-                    // User-created — always visible.
-                    true
-                }
-            }
-            if (visibleCategories.isNotEmpty() && !isSelectionMode) {
-                Column {
-                    CategoryTabsRow(
-                        categories = visibleCategories,
-                        categoryCounts = categoryCounts,
-                        showCounts = showCategoryCounts,
-                        showAllTab = showAllTab,
-                        selectedCategoryId = selectedCategoryId,
-                        onSelectCategory = viewModel::selectCategory,
-                        onLongPressCategory = { category ->
-                            // Permanent categories ("Default") can't be managed.
-                            if (!category.isPermanent) {
-                                viewModel.showCategoryManagement(category)
-                            }
-                        },
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                    )
-                    // Task 61 (round 21): breathing room between the category
-                    // section and the results below (the round-21 spec: "add
-                    // some spacing between the category section and the
-                    // bottom results themselves").
-                    Spacer(Modifier.height(8.dp))
-                }
-            }
+            // Task 62 (M3): the chips states (categories, counts, the
+            // show-counts toggle, the selection) are collected inside
+            // [LibraryCategorySection] — count changes no longer recompose
+            // this root. See its KDoc for the visibility rules.
+            LibraryCategorySection(
+                viewModel = viewModel,
+                isSelectionMode = isSelectionMode,
+            )
 
             // ── Content ──
             // Pull-to-refresh uses the official Material 3 PullToRefreshBox, which
@@ -714,51 +666,32 @@ fun LibraryScreen(
                                 icon = Icons.Filled.SearchOff,
                             )
                         } else if (!isList) {
+                            // Task 62 (M3): the ~15 grid settings (columns,
+                            // title lines, badges, borders…) are collected
+                            // INSIDE LibraryGrid — a settings toggle now
+                            // recomposes the grid, not this root.
                             LibraryGrid(
+                                viewModel = viewModel,
                                 entries = s.entries,
                                 gridState = gridState,
                                 staggeredState = viewModel.staggeredState,
                                 reveal = revealController,
-                                columns = columns,
-                                titleLines = titleLines,
+                                displayMode = displayMode,
                                 isSelectionMode = isSelectionMode,
                                 selectedMainIds = selectedMainIds,
                                 onClickEntry = onEntryClick,
                                 onLongClickEntry = onEntryLongClick,
-                                episodeBadgeMode = episodeBadgeMode,
-                                episodeBadgePosition = episodeBadgePosition,
-                                showScoreBadge = showScoreBadge,
-                                scoreBadgePosition = scoreBadgePosition,
-                                releasedAudioFilter = releasedAudioFilter,
-                                releasedUnwatchedOnly = releasedUnwatchedOnly,
-                                coverBorderEnabled = coverBorderEnabled,
-                                coverBorderColor = coverBorderColor,
-                                coverBorderWidth = coverBorderWidth,
-                                displayMode = displayMode,
-                                showAllCaughtUpTag = showAllCaughtUpTag,
-                                comfortableBorderMode = comfortableBorderMode,
-                                hideTitlesInComfortable = hideTitlesInComfortable,
                             )
                         } else {
                             LibraryList(
+                                viewModel = viewModel,
                                 entries = s.entries,
                                 listState = listState,
                                 reveal = revealController,
-                                titleLines = titleLines,
                                 isSelectionMode = isSelectionMode,
                                 selectedMainIds = selectedMainIds,
                                 onClickEntry = onEntryClick,
                                 onLongClickEntry = onEntryLongClick,
-                                episodeBadgeMode = episodeBadgeMode,
-                                showScoreBadge = showScoreBadge,
-                                releasedAudioFilter = releasedAudioFilter,
-                                releasedUnwatchedOnly = releasedUnwatchedOnly,
-                                showAllCaughtUpTag = showAllCaughtUpTag,
-                                coverBorderEnabled = coverBorderEnabled,
-                                coverBorderColor = coverBorderColor,
-                                coverBorderWidth = coverBorderWidth,
-                                listDensity = listDensity,
-                                listTitlePosition = listTitlePosition,
                             )
                         }
                     }
@@ -787,11 +720,11 @@ fun LibraryScreen(
                     libraryContent()
                 }
             } else {
-                PullToRefreshBox(
-                    isRefreshing = isRefreshing,
-                    onRefresh = { viewModel.refreshLibrary() },
-                    state = ptrState,
-                    modifier = Modifier.fillMaxSize(),
+                // Task 62 (M3): isRefreshing is collected inside the PTR area —
+                // the spinner's lifecycle no longer recomposes this root.
+                LibraryPullRefreshArea(
+                    viewModel = viewModel,
+                    ptrState = ptrState,
                 ) {
                     libraryContent()
                 }
@@ -800,118 +733,276 @@ fun LibraryScreen(
 
         // ── Library settings bottom sheet ──
         if (showSettingsSheet) {
-            CustomizeSheet(
+            // Task 62 (M3): the ~19 customize-sheet-only states are collected
+            // inside the host — toggling a setting re-executes the sheet, not
+            // this root.
+            LibraryCustomizeSheetHost(
+                viewModel = viewModel,
                 displayMode = displayMode,
-                columns = columns,
-                titleLines = titleLines,
-                episodeBadgeMode = episodeBadgeMode,
-                showScoreBadge = showScoreBadge,
-                showContinueWatching = showContinueWatching,
-                showTotalEntries = showTotalEntries,
-                showCategoryCounts = showCategoryCounts,
-                sortType = sortType,
-                sortAscending = sortAscending,
-                releasedAudioFilter = releasedAudioFilter,
-                releasedUnwatchedOnly = releasedUnwatchedOnly,
-                coverBorderEnabled = coverBorderEnabled,
-                coverBorderColor = coverBorderColor,
-                coverBorderWidth = coverBorderWidth,
-                showAllCaughtUpTag = showAllCaughtUpTag,
-                listDensity = listDensity,
-                listTitlePosition = listTitlePosition,
-                onDisplayModeChange = viewModel::setDisplayMode,
-                onColumnsChange = viewModel::setColumns,
-                onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
-                onShowScoreBadgeChange = viewModel::setShowScoreBadge,
-                onShowContinueWatchingChange = viewModel::setShowContinueWatching,
-                onShowTotalEntriesChange = viewModel::setShowTotalEntries,
-                onShowCategoryCountsChange = viewModel::setShowCategoryCounts,
-                onTitleLinesChange = viewModel::setTitleLines,
-                onSortChange = viewModel::setSort,
-                onReleasedAudioFilterChange = viewModel::setReleasedAudioFilter,
-                onReleasedUnwatchedOnlyChange = viewModel::setReleasedUnwatchedOnly,
-                onCoverBorderEnabledChange = viewModel::setCoverBorderEnabled,
-                onCoverBorderColorChange = viewModel::setCoverBorderColor,
-                onCoverBorderWidthChange = viewModel::setCoverBorderWidth,
-                onShowAllCaughtUpTagChange = viewModel::setShowAllCaughtUpTag,
-                onListDensityChange = viewModel::setListDensity,
-                onListTitlePositionChange = viewModel::setListTitlePosition,
                 activeTab = customizeSheetActiveTab,
                 onActiveTabChange = { customizeSheetActiveTab = it },
-                comfortableBorderMode = comfortableBorderMode,
-                onComfortableBorderModeChange = viewModel::setComfortableBorderMode,
-                hideTitlesInComfortable = hideTitlesInComfortable,
-                onHideTitlesInComfortableChange = viewModel::setHideTitlesInComfortable,
                 onDismiss = { showSettingsSheet = false },
             )
         }
 
-        // ── Category management dialog (long-press on a category tab) ──
-        // categoryToManage is set by ViewModel.showCategoryManagement. For
-        // permanent categories the long-press handler bails out early, so this
-        // dialog only ever appears for user-created (non-permanent) categories.
-        // D-140: delete confirmation offers 3 options — Cancel, Delete (items
-        // removed), Move to Default (items moved to Default then category deleted).
-        // D-141: itemCount now comes from categoryCounts (not entries.size) so
-        // it reflects the TRUE count in the category even if the current view
-        // is filtered by search or another category is selected.
-        categoryToManage?.let { category ->
-            CategoryManagementDialog(
-                category = category,
-                itemCount = categoryCounts[category.id] ?: 0,
-                onRename = { newName ->
-                    viewModel.renameCategory(category.id, newName)
-                },
-                onDelete = {
-                    viewModel.deleteCategory(category.id)
-                },
-                onDeleteMoveToDefault = {
-                    viewModel.deleteCategoryAndMoveToDefault(category.id)
-                },
-                onDismiss = viewModel::dismissCategoryManagement,
-            )
-        }
+        // ── Dialogs (category management, multi-select picker, delete
+        // confirmation) ──
+        // Task 62 (M3): their states (categoryToManage, the picker's
+        // visibility + membership, the delete confirmation) are collected
+        // inside [LibraryDialogsHost] — opening/closing a dialog no longer
+        // recomposes this root. See the host's KDoc for the dialog behaviors.
+        LibraryDialogsHost(
+            viewModel = viewModel,
+            selectedCount = selectedMainIds.size,
+        )
+    }
+}
 
-        // D-143: The selection bottom bar is now handled by AppRoot — it
-        // replaces the nav bar's content directly. No SelectionBottomBar here.
+// ════════════════════════════════════════════════════════════════════════════
+//  Task 62 (round 22 — M3): the leaf state-owner composables
+// ════════════════════════════════════════════════════════════════════════════
 
-        // ── D-141: Multi-select category picker ──
-        // AlertDialog with a checkbox per category — same style as the
-        // CategoryPickerSheet on the details page. Tapping a checked category
-        // removes all selected entries from it; tapping an unchecked one adds
-        // all selected entries to it. getCategoriesForSelected() returns the
-        // initial checkbox state (true if ALL selected entries are in that cat).
-        if (showMultiSelectCategorySheet) {
-            // D-146: Use the ViewModel's membership set (reactive — updates on toggle).
-            val membership by viewModel.multiSelectCategoryMembership.collectAsState()
-            val selectedMap = categories.associate { cat ->
-                cat.id to (cat.id in membership)
-            }
-            MultiSelectCategoryPicker(
-                categories = categories,
-                selectedMap = selectedMap,
-                onToggle = { categoryId, isChecked ->
-                    if (isChecked) {
-                        viewModel.removeSelectedFromCategory(categoryId)
-                    } else {
-                        viewModel.addSelectedToCategory(categoryId)
-                    }
-                },
-                onDismiss = { viewModel.doneMultiSelectCategorySheet() },
-            )
-        }
+/**
+ * Task 62 (round 22 — M3): the category chips section. Collects its own
+ * states (categories, per-category counts, the show-counts toggle, the
+ * selection) so a count change recomposes only this section.
+ *
+ * Smart visibility rules (D-138/D-140, unchanged):
+ *  - "All" tab only shows when 2+ categories have ≥1 item.
+ *  - "Default" (permanent) tab only shows when it has ≥1 item.
+ *  - Non-permanent categories always show (the user created them).
+ *  - No "+" button — categories are created from the details page
+ *    (long-press bookmark), not from the library page.
+ *  - D-141: hidden entirely in selection mode (the quick options row above
+ *    takes its place); thin 1dp divider below the tabs + an 8dp spacer before
+ *    the results (the round-21 spec).
+ */
+@Composable
+private fun LibraryCategorySection(
+    viewModel: LibraryViewModel,
+    isSelectionMode: Boolean,
+) {
+    val categories by viewModel.categories.collectAsState()
+    val categoryCounts by viewModel.categoryCounts.collectAsState()
+    val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
+    val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
 
-        // ── D-141: Delete confirmation ──
-        // "Delete X entries from library?" with Cancel (dismissButton) + Delete
-        // (confirmButton, error color).
-        if (showDeleteConfirmation) {
-            DeleteSelectedDialog(
-                count = selectedMainIds.size,
-                onConfirm = { viewModel.deleteSelected() },
-                onDismiss = { viewModel.dismissDeleteConfirmation() },
-            )
+    val categoriesWithItems = categories.count { (categoryCounts[it.id] ?: 0) > 0 }
+    val showAllTab = categoriesWithItems >= 2
+    val visibleCategories = categories.filter { cat ->
+        if (cat.isPermanent) {
+            // Default — hide when empty.
+            (categoryCounts[cat.id] ?: 0) > 0
+        } else {
+            // User-created — always visible.
+            true
         }
     }
+    if (visibleCategories.isNotEmpty() && !isSelectionMode) {
+        Column {
+            CategoryTabsRow(
+                categories = visibleCategories,
+                categoryCounts = categoryCounts,
+                showCounts = showCategoryCounts,
+                showAllTab = showAllTab,
+                selectedCategoryId = selectedCategoryId,
+                onSelectCategory = viewModel::selectCategory,
+                onLongPressCategory = { category ->
+                    // Permanent categories ("Default") can't be managed.
+                    if (!category.isPermanent) {
+                        viewModel.showCategoryManagement(category)
+                    }
+                },
+            )
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+            )
+            // Task 61 (round 21): breathing room between the category section
+            // and the results below (the round-21 spec: "add some spacing
+            // between the category section and the bottom results themselves").
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/**
+ * Task 62 (round 22 — M3): the pull-to-refresh area. Collects [isRefreshing]
+ * internally so the spinner's lifecycle recomposes only this wrapper. The
+ * [content] receiver is [BoxScope] — the caller's local libraryContent()
+ * composable is a BoxScope extension (it aligns the scroll-blur overlay to
+ * the top center) and PullToRefreshBox's own content scope provides the
+ * same receiver.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryPullRefreshArea(
+    viewModel: LibraryViewModel,
+    ptrState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refreshLibrary() },
+        state = ptrState,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        content()
+    }
+}
+
+/**
+ * Task 62 (round 22 — M3): the dialogs host. Collects the category-management
+ * target, the multi-select picker's visibility + membership + categories, and
+ * the delete confirmation — opening/closing any of them recomposes only this
+ * host.
+ *
+ * Behaviors (unchanged, see the individual dialogs):
+ *  - CategoryManagementDialog — delete offers Cancel / Delete / Move to
+ *    Default; itemCount comes from categoryCounts (the TRUE count).
+ *  - MultiSelectCategoryPicker — a checkbox per category; tapping a checked
+ *    category removes all selected entries from it, tapping an unchecked one
+ *    adds them; Done closes + exits selection mode.
+ *  - DeleteSelectedDialog — "Delete X entries from library?".
+ */
+@Composable
+private fun LibraryDialogsHost(
+    viewModel: LibraryViewModel,
+    selectedCount: Int,
+) {
+    val categoryToManage by viewModel.categoryToManage.collectAsState()
+
+    categoryToManage?.let { category ->
+        val categoryCounts by viewModel.categoryCounts.collectAsState()
+        CategoryManagementDialog(
+            category = category,
+            itemCount = categoryCounts[category.id] ?: 0,
+            onRename = { newName ->
+                viewModel.renameCategory(category.id, newName)
+            },
+            onDelete = {
+                viewModel.deleteCategory(category.id)
+            },
+            onDeleteMoveToDefault = {
+                viewModel.deleteCategoryAndMoveToDefault(category.id)
+            },
+            onDismiss = viewModel::dismissCategoryManagement,
+        )
+    }
+
+    val showMultiSelectCategorySheet by viewModel.showMultiSelectCategorySheet.collectAsState()
+    if (showMultiSelectCategorySheet) {
+        // D-146: Use the ViewModel's membership set (reactive — updates on toggle).
+        val membership by viewModel.multiSelectCategoryMembership.collectAsState()
+        val categories by viewModel.categories.collectAsState()
+        val selectedMap = categories.associate { cat ->
+            cat.id to (cat.id in membership)
+        }
+        MultiSelectCategoryPicker(
+            categories = categories,
+            selectedMap = selectedMap,
+            onToggle = { categoryId, isChecked ->
+                if (isChecked) {
+                    viewModel.removeSelectedFromCategory(categoryId)
+                } else {
+                    viewModel.addSelectedToCategory(categoryId)
+                }
+            },
+            onDismiss = { viewModel.doneMultiSelectCategorySheet() },
+        )
+    }
+
+    val showDeleteConfirmation by viewModel.showDeleteConfirmation.collectAsState()
+    if (showDeleteConfirmation) {
+        DeleteSelectedDialog(
+            count = selectedCount,
+            onConfirm = { viewModel.deleteSelected() },
+            onDismiss = { viewModel.dismissDeleteConfirmation() },
+        )
+    }
+}
+
+/**
+ * Task 62 (round 22 — M3): the customize-sheet host. The ~19 settings states
+ * the sheet consumes are collected HERE (the host only composes while the
+ * sheet is open) — every toggle in the sheet re-executes the sheet's own
+ * subtree, never the library root. The values + callbacks are forwarded to
+ * [CustomizeSheet] exactly as the root used to pass them.
+ */
+@Composable
+private fun LibraryCustomizeSheetHost(
+    viewModel: LibraryViewModel,
+    displayMode: LibraryDisplayMode,
+    activeTab: Int,
+    onActiveTabChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val columns by viewModel.columns.collectAsState()
+    val titleLines by viewModel.titleLines.collectAsState()
+    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
+    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
+    val showContinueWatching by viewModel.showContinueWatching.collectAsState()
+    val showTotalEntries by viewModel.showTotalEntries.collectAsState()
+    val showCategoryCounts by viewModel.showCategoryCounts.collectAsState()
+    val sortType by viewModel.sortType.collectAsState()
+    val sortAscending by viewModel.sortAscending.collectAsState()
+    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
+    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
+    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
+    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
+    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
+    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
+    val listDensity by viewModel.listDensity.collectAsState()
+    val listTitlePosition by viewModel.listTitlePosition.collectAsState()
+    val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
+    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
+
+    CustomizeSheet(
+        displayMode = displayMode,
+        columns = columns,
+        titleLines = titleLines,
+        episodeBadgeMode = episodeBadgeMode,
+        showScoreBadge = showScoreBadge,
+        showContinueWatching = showContinueWatching,
+        showTotalEntries = showTotalEntries,
+        showCategoryCounts = showCategoryCounts,
+        sortType = sortType,
+        sortAscending = sortAscending,
+        releasedAudioFilter = releasedAudioFilter,
+        releasedUnwatchedOnly = releasedUnwatchedOnly,
+        coverBorderEnabled = coverBorderEnabled,
+        coverBorderColor = coverBorderColor,
+        coverBorderWidth = coverBorderWidth,
+        showAllCaughtUpTag = showAllCaughtUpTag,
+        listDensity = listDensity,
+        listTitlePosition = listTitlePosition,
+        onDisplayModeChange = viewModel::setDisplayMode,
+        onColumnsChange = viewModel::setColumns,
+        onEpisodeBadgeModeChange = viewModel::setEpisodeBadgeMode,
+        onShowScoreBadgeChange = viewModel::setShowScoreBadge,
+        onShowContinueWatchingChange = viewModel::setShowContinueWatching,
+        onShowTotalEntriesChange = viewModel::setShowTotalEntries,
+        onShowCategoryCountsChange = viewModel::setShowCategoryCounts,
+        onTitleLinesChange = viewModel::setTitleLines,
+        onSortChange = viewModel::setSort,
+        onReleasedAudioFilterChange = viewModel::setReleasedAudioFilter,
+        onReleasedUnwatchedOnlyChange = viewModel::setReleasedUnwatchedOnly,
+        onCoverBorderEnabledChange = viewModel::setCoverBorderEnabled,
+        onCoverBorderColorChange = viewModel::setCoverBorderColor,
+        onCoverBorderWidthChange = viewModel::setCoverBorderWidth,
+        onShowAllCaughtUpTagChange = viewModel::setShowAllCaughtUpTag,
+        onListDensityChange = viewModel::setListDensity,
+        onListTitlePositionChange = viewModel::setListTitlePosition,
+        activeTab = activeTab,
+        onActiveTabChange = onActiveTabChange,
+        comfortableBorderMode = comfortableBorderMode,
+        onComfortableBorderModeChange = viewModel::setComfortableBorderMode,
+        hideTitlesInComfortable = hideTitlesInComfortable,
+        onHideTitlesInComfortableChange = viewModel::setHideTitlesInComfortable,
+        onDismiss = onDismiss,
+    )
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1040,6 +1131,15 @@ private fun CategoryTab(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
+            // Task 62 (round 22 — the INVISIBLE underline fix): LazyRow measures
+            // its items with UNBOUNDED main-axis width, so the underline's
+            // fillMaxWidth() below was a NO-OP (0-width sliver — the round-22
+            // device report: "there previously was a line but now there is no
+            // line"). width(IntrinsicSize.Min) bounds the Column to its widest
+            // child (the Text), which makes fillMaxWidth() resolve to EXACTLY
+            // the text width again — and it also gives the clickable area the
+            // text's width instead of the whole row slot.
+            .width(IntrinsicSize.Min)
             .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1053,8 +1153,10 @@ private fun CategoryTab(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        // ── Underline indicator — as wide as the text, 3dp thick, 2dp gap ──
-        Spacer(Modifier.height(2.dp))
+        // ── Underline indicator — as wide as the text, 3dp thick, 1dp gap ──
+        // Task 62: the gap tightened 2dp → 1dp (the device spec: the line
+        // should sit "very close to the bottom of the text").
+        Spacer(Modifier.height(1.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2686,36 +2788,54 @@ private fun SectionSeparator(title: String) {
 
 @Composable
 private fun LibraryGrid(
+    viewModel: LibraryViewModel,
     entries: List<LibraryEntry>,
     gridState: LazyGridState,
     staggeredState: LazyStaggeredGridState,
     reveal: CoverRevealController?,
-    columns: Int,
-    titleLines: Int,
+    displayMode: LibraryDisplayMode,
     isSelectionMode: Boolean,
     selectedMainIds: Set<String>,
     onClickEntry: (LibraryEntry) -> Unit,
     onLongClickEntry: (LibraryEntry) -> Unit,
-    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
-    episodeBadgePosition: BadgePosition = BadgePosition.TOP_END,
-    showScoreBadge: Boolean = false,
-    scoreBadgePosition: BadgePosition = BadgePosition.TOP_START,
-    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
-    releasedUnwatchedOnly: Boolean = false,
-    coverBorderEnabled: Boolean = false,
-    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
-    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
-    displayMode: LibraryDisplayMode = LibraryDisplayMode.COMPACT_GRID,
-    showAllCaughtUpTag: Boolean = false,
-    comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
-    hideTitlesInComfortable: Boolean = false,
 ) {
+    // Task 62 (round 22 — M3): the grid settings are collected HERE (columns,
+    // title lines, badge + border options) — a settings toggle recomposes
+    // the grid, not the library root that hosts it.
+    val columns by viewModel.columns.collectAsState()
+    val titleLines by viewModel.titleLines.collectAsState()
+    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
+    val episodeBadgePosition by viewModel.episodeBadgePosition.collectAsState()
+    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
+    val scoreBadgePosition by viewModel.scoreBadgePosition.collectAsState()
+    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
+    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
+    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
+    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
+    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
+    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
+    val comfortableBorderMode by viewModel.comfortableBorderMode.collectAsState()
+    val hideTitlesInComfortable by viewModel.hideTitlesInComfortable.collectAsState()
+
+    // Task 62 (round 22 — M2): the shared-element gate, hoisted OUT of the
+    // per-cell LibraryCoverImage (which koinInject-ed AppPreferences and did
+    // a synchronous SharedPreferences read on EVERY recomposition of EVERY
+    // cell). ONE read per grid recomposition here, gated OFF while the
+    // layout is actively scrolling — fling-recycled cells skip the
+    // SharedTransition registry churn, and a tap can't start the cover morph
+    // mid-drag anyway. At rest the registration re-attaches (the morph from
+    // a settled tap is unchanged).
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val coverTransitionEnabled = appPrefs.coverTransitionEnabled
+
     // D-242-fix21: Comfortable grid uses LazyVerticalStaggeredGrid (masonry
     // layout) so items in a column can have different heights (shorter items
     // don't force taller items to have gaps). All other modes use LazyVerticalGrid.
     // D-290: staggeredState is VM-held (survives tab switches) — was
     // rememberLazyStaggeredGridState() which died with the composable.
     if (displayMode == LibraryDisplayMode.COMFORTABLE_GRID) {
+        val coverSharedElementsActive =
+            coverTransitionEnabled && !staggeredState.isScrollInProgress
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(columns.coerceIn(2, 5)),
             state = staggeredState,
@@ -2751,6 +2871,7 @@ private fun LibraryGrid(
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
                     hideTitles = hideTitlesInComfortable,
+                    coverSharedElementsActive = coverSharedElementsActive,
                 )
             }
         }
@@ -2759,6 +2880,8 @@ private fun LibraryGrid(
         // between neighbors (horizontal AND vertical) and no side/top padding;
         // covers run edge-to-edge. COMPACT_GRID keeps the standard layout.
         val isCoverOnly = displayMode == LibraryDisplayMode.COVER_ONLY
+        val coverSharedElementsActive =
+            coverTransitionEnabled && !gridState.isScrollInProgress
         // D-141: in selection mode, reserve extra bottom space for the action bar.
         LazyVerticalGrid(
             state = gridState,
@@ -2800,6 +2923,7 @@ private fun LibraryGrid(
                     displayMode = displayMode,
                     showAllCaughtUpTag = showAllCaughtUpTag,
                     comfortableBorderMode = comfortableBorderMode,
+                    coverSharedElementsActive = coverSharedElementsActive,
                 )
             }
         }
@@ -2845,6 +2969,11 @@ private fun LibraryCoverImage(
     contentScale: ContentScale = ContentScale.Crop,
     revealKey: String? = null,
     reveal: CoverRevealController? = null,
+    // Task 62 (round 22 — M2): the shared-element gate, computed ONCE at the
+    // grid/list level (the pref read + the scroll gate) — the per-cell
+    // koinInject + synchronous SharedPreferences read on every recomposition
+    // of every cell is gone.
+    sharedElementsActive: Boolean = false,
 ) {
     val context = LocalContext.current
     // D-320/D-328: shared-element key for the experimental cover transition.
@@ -2852,8 +2981,7 @@ private fun LibraryCoverImage(
     // collide with a Search card showing the SAME anime — during a Library ⇄
     // Search switch both screens compose at once, and pre-D-328 both built
     // "cover:<url>", making the shared cover fly BETWEEN the two pages.
-    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
-    val sharedElementKey = if (appPrefs.coverTransitionEnabled) {
+    val sharedElementKey = if (sharedElementsActive) {
         libraryCoverKey(url)
     } else null
     val request = remember(url, context) {
@@ -2938,6 +3066,9 @@ private fun LibraryGridCard(
     showAllCaughtUpTag: Boolean = false,
     comfortableBorderMode: ComfortableBorderMode = ComfortableBorderMode.COVER_AND_TITLE,
     hideTitles: Boolean = false,
+    // Task 62 (round 22 — M2): the grid-level shared-element gate (see
+    // LibraryGrid) — threaded to [LibraryCoverImage].
+    coverSharedElementsActive: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -3044,6 +3175,7 @@ private fun LibraryGridCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(cardShape),
+                    sharedElementsActive = coverSharedElementsActive,
                 )
 
                 // Cover badges (same as compact grid).
@@ -3184,6 +3316,7 @@ private fun LibraryGridCard(
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
                     .clip(cardShape),
+                sharedElementsActive = coverSharedElementsActive,
             )
 
             // D-242-fix15: Cover badges — positions hardcoded (no user-selectable position).
@@ -3358,25 +3491,35 @@ private data class ListDetailTag(val text: String, val container: Color, val con
 
 @Composable
 private fun LibraryList(
+    viewModel: LibraryViewModel,
     entries: List<LibraryEntry>,
     listState: LazyListState,
     reveal: CoverRevealController? = null,
-    titleLines: Int,
     isSelectionMode: Boolean,
     selectedMainIds: Set<String>,
     onClickEntry: (LibraryEntry) -> Unit,
     onLongClickEntry: (LibraryEntry) -> Unit,
-    episodeBadgeMode: EpisodeBadgeMode = EpisodeBadgeMode.OFF,
-    showScoreBadge: Boolean = false,
-    releasedAudioFilter: ReleasedAudioFilter = ReleasedAudioFilter.BOTH,
-    releasedUnwatchedOnly: Boolean = false,
-    showAllCaughtUpTag: Boolean = false,
-    coverBorderEnabled: Boolean = false,
-    coverBorderColor: CoverBorderColor = CoverBorderColor.GRAY,
-    coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
-    listDensity: ListDensity = ListDensity.NORMAL,
-    listTitlePosition: ListTitlePosition = ListTitlePosition.BOTTOM,
 ) {
+    // Task 62 (round 22 — M3): the list settings are collected HERE — a
+    // settings toggle recomposes the list, not the library root.
+    val titleLines by viewModel.titleLines.collectAsState()
+    val episodeBadgeMode by viewModel.episodeBadgeMode.collectAsState()
+    val showScoreBadge by viewModel.showScoreBadge.collectAsState()
+    val releasedAudioFilter by viewModel.releasedAudioFilter.collectAsState()
+    val releasedUnwatchedOnly by viewModel.releasedUnwatchedOnly.collectAsState()
+    val showAllCaughtUpTag by viewModel.showAllCaughtUpTag.collectAsState()
+    val coverBorderEnabled by viewModel.coverBorderEnabled.collectAsState()
+    val coverBorderColor by viewModel.coverBorderColor.collectAsState()
+    val coverBorderWidth by viewModel.coverBorderWidth.collectAsState()
+    val listDensity by viewModel.listDensity.collectAsState()
+    val listTitlePosition by viewModel.listTitlePosition.collectAsState()
+
+    // Task 62 (round 22 — M2): the shared-element gate (see LibraryGrid) —
+    // ONE prefs read per list recomposition, OFF while the list scrolls.
+    val appPrefs = koinInject<com.confused.anikuta.core.preferences.AppPreferences>()
+    val coverSharedElementsActive =
+        appPrefs.coverTransitionEnabled && !listState.isScrollInProgress
+
     // D-141: in selection mode, reserve extra bottom space for the action bar.
     LazyColumn(
         state = listState,
@@ -3407,6 +3550,7 @@ private fun LibraryList(
                 coverBorderWidth = coverBorderWidth,
                 listDensity = listDensity,
                 listTitlePosition = listTitlePosition,
+                coverSharedElementsActive = coverSharedElementsActive,
             )
         }
     }
@@ -3439,6 +3583,9 @@ private fun LibraryListRow(
     coverBorderWidth: CoverBorderWidth = CoverBorderWidth.THIN,
     listDensity: ListDensity = ListDensity.NORMAL,
     listTitlePosition: ListTitlePosition = ListTitlePosition.BOTTOM,
+    // Task 62 (round 22 — M2): the list-level shared-element gate (see
+    // LibraryList) — threaded to [LibraryCoverImage].
+    coverSharedElementsActive: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -3564,6 +3711,7 @@ private fun LibraryListRow(
                     .width(listDensity.coverWidth.dp)
                     .height(listDensity.coverHeight.dp)
                     .clip(RoundedCornerShape(8.dp)),
+                sharedElementsActive = coverSharedElementsActive,
             )
             if (isSelectionMode) {
                 Box(

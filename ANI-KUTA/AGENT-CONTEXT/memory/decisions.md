@@ -2742,3 +2742,24 @@ The user's "load 1-2 at a time; finish current → in-view → offscreen" is imp
 - **Files:** DownloadedFilesScreen.kt, AdsConfig.kt, AdsCoordinator.kt, AdsModule.kt.
 - **Status:** ✅ Implemented (Task 61 / round 21, v0.4.9/74).
 - **Date:** 2026-09-08.
+
+### D-400 — Task 62: the plugin identity ladder (linkage across drifted names)
+
+Identity between an installed CsPluginRecord and an online SitePlugin is an ORDERED ladder (CsPluginIdentity): exact internalName → repoInternalName (the catalog's name captured at link time, persisted on the record) → download URL → sha256 fileHash ("sha256-<hex>", now computed at manual import) → normalized internalName → normalized display-name. Exact rungs first (zero false positives), fuzzy rungs only when both sides carry the data. The linkage back-fill in rebuildLists is IDEMPOTENT (writes only on change), installPlugin resolves the existing record through the ladder and updates IN PLACE (same record name + file path — no second record/file can appear), and repo removal never deletes CS plugin records (no deleteForRepo caller — stale repoUrls self-heal when a live repo re-matches).
+- **Files:** CsPluginIdentity.kt (new), CloudstreamPluginStore.kt, CloudstreamPluginManager.kt, CloudstreamExtensionsSection.kt, CsPluginIdentityTest.kt (18 locks).
+- **Status:** ✅ Implemented (Task 62 / round 22, v0.4.10/75).
+- **Date:** 2026-09-09.
+
+### D-401 — Task 62: the randomization trigger + persistence model
+
+Randomization is now an EXPLICIT trigger system, not a composition side effect: SearchTabExitSignal (in-memory, zeroed by process death) is marked ONLY by MainActivity's bottom-nav when leaving the search ROOT tab; the search screen's fresh-composition entry reshuffles iff lastTabExit > lastShuffle. The arrangement itself (CsBrowseDisplay: row shelf indexes + per-row item urls) is persisted ON the browse cache snapshot (diskMutex-serialized async writes) and restored EXACTLY when valid — cold reopens and background refreshes keep the page stable; PTR invalidates → fresh smart shuffle. The smart shuffle enforces the round-22 spec: no item in the top-4 of two sections (url-claimed, processed in shuffled row order); sections that can't claim 4 unclaimed urls stay unrandomized but still claim their original top-4.
+- **Files:** SearchTabExitSignal.kt (new), CloudstreamBrowseCache.kt, CloudstreamContentRepository.kt, SearchViewModel.kt, MainActivity.kt.
+- **Status:** ✅ Implemented (Task 62 / round 22, v0.4.10/75).
+- **Date:** 2026-09-09.
+
+### D-402 — Task 62: the library performance architecture (H1/H2/M1/M2/M3/M4)
+
+The library's write paths run on dispatchers.io (DispatcherProvider injected via Koin auto-resolution); the filter pipeline is ONE combine(query, sortType, ascending).debounce(200).collect → runFiltersOffMain on Default with a stale-emission guard; the PTR haptic threshold reads via snapshotFlow+distinctUntilChanged; the shared-element gate (one prefs read, OFF while scrolling) is computed at the grid/list level and threaded down as coverSharedElementsActive; the root's 34 collectAsState calls live in leaf state-owner composables (LibraryCategorySection / LibraryPullRefreshArea / LibraryDialogsHost / LibraryCustomizeSheetHost + grid/list-internal collection); loadPreferences runs on Default BEFORE the first loadLibraryImpl. The scroll state hoisting (D-286/290), the reveal-once system (D-291), the adaptive-color gating (D-292) and the derivedStateOf collapse (D-269) are preserved untouched.
+- **Files:** LibraryViewModel.kt, LibraryScreen.kt.
+- **Status:** ✅ Implemented (Task 62 / round 22, v0.4.10/75).
+- **Date:** 2026-09-09.

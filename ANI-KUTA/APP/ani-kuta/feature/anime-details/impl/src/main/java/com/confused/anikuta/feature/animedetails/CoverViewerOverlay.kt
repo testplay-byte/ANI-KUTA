@@ -56,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -141,6 +142,16 @@ fun CoverViewerOverlay(
     // Pinch/pan to inspect any part of the cover; when the fingers lift, the
     // zoom + pan animate back to rest (user spec: "The zoom-in will not stay;
     // it will automatically zoom out after the user lifts his fingers").
+    //
+    // Task 62 (round 22 — FOCAL-POINT zoom): the round-21 device report —
+    // "if I maybe try to zoom in on the top right corner, then instead of
+    // zooming in on the top right corner it would zoom in on the center".
+    // rememberTransformableState's callback receives no centroid, and
+    // graphicsLayer had no transformOrigin — so every pinch pivoted on the
+    // image CENTER. The fix tracks the fingers' average position (the
+    // observer pointerInput below) and folds it into the pan so the image
+    // point UNDER the fingers stays under the fingers (focal math in the
+    // callback). Pan-while-zoomed is kept, along with the auto-reset.
     var zoomScale by remember { mutableFloatStateOf(1f) }
     var zoomPanX by remember { mutableFloatStateOf(0f) }
     var zoomPanY by remember { mutableFloatStateOf(0f) }
@@ -149,20 +160,47 @@ fun CoverViewerOverlay(
     // would fight the running reset animation — cancel it the moment a fresh
     // gesture delivers its first transform event.
     var zoomResetJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // Task 62: the average position of the pressed fingers, written by the
+    // non-consuming observer pointerInput below. Read ONLY inside the
+    // transform callback (never in composition) — updating it costs zero
+    // recompositions.
+    var gestureCentroid by remember { mutableStateOf(Offset.Zero) }
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         zoomResetJob?.let { job -> if (job.isActive) job.cancel() }
-        val newScale = (zoomScale * zoomChange).coerceIn(1f, 6f)
-        zoomScale = newScale
-        if (newScale > 1f && imageBoxSize != IntSize.Zero) {
-            // Clamp the pan so the image always covers the viewport.
-            val maxX = imageBoxSize.width * (newScale - 1f) / 2f
-            val maxY = imageBoxSize.height * (newScale - 1f) / 2f
-            zoomPanX = (zoomPanX + panChange.x).coerceIn(-maxX, maxX)
-            zoomPanY = (zoomPanY + panChange.y).coerceIn(-maxY, maxY)
-        } else {
-            zoomPanX = 0f
-            zoomPanY = 0f
+        val oldScale = zoomScale
+        val newScale = (oldScale * zoomChange).coerceIn(1f, 6f)
+        if (imageBoxSize != IntSize.Zero) {
+            // Task 62: FOCAL-POINT math. The layer renders an image point p at
+            //   screen(p) = (p − C)·s + C + t      (C = box center, s = scale,
+            //   t = translation — graphicsLayer's default pivot is the center).
+            // Keeping the screen point c (the gesture centroid) glued to the
+            // SAME image point across s → s' solves to
+            //   t' = (c − C)·(1 − s'/s) + t·(s'/s).
+            // Sanity checks: c = C (center pinch) → t' = t·(s'/s), the pure
+            // center-pivot zoom; first-ever pinch (s = 1, t = 0) at the
+            // top-right corner → t' = (C)(1 − s') < 0 — the corner stays put
+            // and the zoomed content flows toward the finger.
+            val ratio = if (oldScale > 0f) newScale / oldScale else 1f
+            val c = gestureCentroid
+            val centerX = imageBoxSize.width / 2f
+            val centerY = imageBoxSize.height / 2f
+            val focalX = (c.x - centerX) * (1f - ratio) + zoomPanX * ratio
+            val focalY = (c.y - centerY) * (1f - ratio) + zoomPanY * ratio
+            if (newScale > 1f) {
+                // Pan (screen-space drag) applies AFTER the focal adjustment,
+                // clamped so the image always covers the viewport — the
+                // top-4 corners stay reachable by dragging (the kept
+                // "realign the zoom by scrolling" flexibility).
+                val maxX = imageBoxSize.width * (newScale - 1f) / 2f
+                val maxY = imageBoxSize.height * (newScale - 1f) / 2f
+                zoomPanX = (focalX + panChange.x).coerceIn(-maxX, maxX)
+                zoomPanY = (focalY + panChange.y).coerceIn(-maxY, maxY)
+            } else {
+                zoomPanX = 0f
+                zoomPanY = 0f
+            }
         }
+        zoomScale = newScale
     }
     // Gesture-end detection (foundation 1.7 has no onGestureEnd overload):
     // observe the state's isTransformInProgress flag — when the fingers lift
@@ -330,6 +368,29 @@ fun CoverViewerOverlay(
                     modifier = Modifier
                         .fillMaxSize()
                         .onSizeChanged { imageBoxSize = it }
+                        // Task 62 (round 22 — the centroid OBSERVER): a
+                        // NON-CONSUMING pointerInput placed BEFORE
+                        // .transformable in the chain — it records the average
+                        // position of the pressed fingers for the focal-point
+                        // math above. It never consumes anything (a bare
+                        // awaitPointerEvent loop on the INITIAL pass), so the
+                        // transformable detector below still sees every event
+                        // on the Main pass — and the Initial pass runs FIRST,
+                        // so the centroid is updated BEFORE the detector
+                        // processes the same event.
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val pressed = event.changes.filter { it.pressed }
+                                    if (pressed.isNotEmpty()) {
+                                        gestureCentroid = pressed.fold(Offset.Zero) { acc, change ->
+                                            acc + change.position
+                                        } / pressed.size.toFloat()
+                                    }
+                                }
+                            }
+                        }
                         .transformable(transformState)
                         .graphicsLayer {
                             scaleX = zoomScale

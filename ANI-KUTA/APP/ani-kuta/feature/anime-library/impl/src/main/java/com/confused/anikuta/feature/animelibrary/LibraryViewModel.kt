@@ -12,6 +12,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -35,6 +37,12 @@ class LibraryViewModel(
     private val dataCacheRepository: com.confused.anikuta.core.datacache.DataCacheRepository,
     // D-242-fix10: injected for unwatched episode count badges
     private val watchProgressStore: com.confused.anikuta.core.watchprogress.WatchProgressStore? = null,
+    // Task 62 (round 22 — the library performance round): the bulk DB
+    // mutations (H1) + the debounced filter/sort pipeline (H2) + the
+    // preference preload (M4) run OFF the Main thread through this. Registered
+    // in Koin by anilistModule (DefaultDispatcherProvider) — the auto-resolved
+    // constructor param keeps the DI wiring untouched.
+    private val dispatchers: com.confused.anikuta.core.common.DispatcherProvider,
 ) : ViewModel() {
 
     companion object {
@@ -204,8 +212,40 @@ class LibraryViewModel(
     val hideTitlesInComfortable: StateFlow<Boolean> = _hideTitlesInComfortable
 
     init {
-        loadPreferences()
-        loadLibrary()
+        // Task 62 (round 22 — H2, the un-debounced per-keystroke sort): every
+        // character typed used to run the FULL filter+sort (O(n log n) + a new
+        // 653-entry list emission) SYNCHRONOUSLY on the Main thread inside the
+        // text-input frame. The pipeline below collapses query/sort changes
+        // through ONE combined, debounced collector that runs the actual
+        // filter+sort on the Default dispatcher — typing stays butter-smooth.
+        startFilterPipeline()
+        // Task 62 (round 22 — M4, the 23 synchronous SharedPreferences reads in
+        // VM init): the first construction used to parse the whole prefs XML on
+        // the Main thread inside the first composition frame. The reads now run
+        // on Default; the library load runs AFTER them (its single emission
+        // applies the loaded preferences — the ordering is the whole point).
+        viewModelScope.launch {
+            withContext(dispatchers.default) { loadPreferences() }
+            if (_state.value !is LibraryState.Success) _state.value = LibraryState.Loading
+            loadLibraryImpl()
+        }
+    }
+
+    /**
+     * Task 62 (H2): the debounced query/sort pipeline (see init). Its own
+     * function so the FlowPreview opt-in (debounce) scopes cleanly.
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun startFilterPipeline() {
+        viewModelScope.launch {
+            combine(
+                _searchQuery,
+                _sortType,
+                _sortAscending,
+            ) { query, sort, ascending -> Triple(query, sort, ascending) }
+                .debounce(200L)
+                .collect { runFiltersOffMain() }
+        }
     }
 
     // ── D-286: scroll state survives tab switches ──────────────────────────
@@ -473,8 +513,10 @@ class LibraryViewModel(
     fun setSearchQuery(query: String) {
         val changed = _searchQuery.value != query
         _searchQuery.value = query
-        applyFilters()
-        // D-290: a changed query is a changed dataset — present it from the top.
+        // Task 62 (H2): NO synchronous applyFilters() here — the debounced
+        // pipeline in init re-derives the list off Main (200ms after the last
+        // keystroke). The scroll reset stays immediate: a changed query is a
+        // changed dataset, and it presents from the top.
         if (changed) resetScrollToTop()
     }
 
@@ -538,39 +580,52 @@ class LibraryViewModel(
     }
 
     fun deleteCategory(categoryId: Long) {
-        contentRepository.deleteCategory(categoryId)
-        _categoryToManage.value = null
-        if (_selectedCategoryId.value == categoryId) {
-            _selectedCategoryId.value = null
+        // Task 62 (round 22 — H1, synchronous SQLite on Main): the category
+        // mutations + the follow-up reload now run on the IO dispatcher — the
+        // old path executed the writes (and for the move-to-default variant a
+        // per-item COUNT+INSERT loop) inside the click handler on Main, an
+        // ANR risk on large libraries.
+        viewModelScope.launch(dispatchers.io) {
+            contentRepository.deleteCategory(categoryId)
+            _categoryToManage.value = null
+            if (_selectedCategoryId.value == categoryId) {
+                _selectedCategoryId.value = null
+            }
+            loadLibraryImpl()
         }
-        loadLibrary()
     }
 
     fun deleteCategoryAndMoveToDefault(categoryId: Long) {
-        val defaultCat = contentRepository.getDefaultCategory()
-        if (defaultCat != null) {
-            val mainIds = contentRepository.getMainIdsByCategory(categoryId)
-            for (mainId in mainIds) {
-                contentRepository.addToCategory(mainId, defaultCat.id)
+        viewModelScope.launch(dispatchers.io) {
+            val defaultCat = contentRepository.getDefaultCategory()
+            if (defaultCat != null) {
+                val mainIds = contentRepository.getMainIdsByCategory(categoryId)
+                for (mainId in mainIds) {
+                    contentRepository.addToCategory(mainId, defaultCat.id)
+                }
             }
+            contentRepository.deleteCategory(categoryId)
+            _categoryToManage.value = null
+            if (_selectedCategoryId.value == categoryId) {
+                _selectedCategoryId.value = null
+            }
+            loadLibraryImpl()
         }
-        contentRepository.deleteCategory(categoryId)
-        _categoryToManage.value = null
-        if (_selectedCategoryId.value == categoryId) {
-            _selectedCategoryId.value = null
-        }
-        loadLibrary()
     }
 
     fun renameCategory(categoryId: Long, newName: String) {
-        contentRepository.renameCategory(categoryId, newName)
-        _categoryToManage.value = null
-        loadLibrary()
+        viewModelScope.launch(dispatchers.io) {
+            contentRepository.renameCategory(categoryId, newName)
+            _categoryToManage.value = null
+            loadLibraryImpl()
+        }
     }
 
     fun createCategory(name: String) {
-        contentRepository.createCategory(name)
-        loadLibrary()
+        viewModelScope.launch(dispatchers.io) {
+            contentRepository.createCategory(name)
+            loadLibraryImpl()
+        }
     }
 
     // ── D-141: Multi-select ──
@@ -625,41 +680,54 @@ class LibraryViewModel(
     /** Show the category picker popup (from multi-select bottom bar). */
     fun showMultiSelectCategorySheet() {
         // D-146: Initialize the membership set before showing the sheet.
-        _multiSelectCategoryMembership.value = getCategoriesForSelected()
-            .filter { it.value }
-            .map { it.key }
-            .toSet()
-        _showMultiSelectCategorySheet.value = true
+        // Task 62 (H1): the categories×selected point queries used to run on
+        // Main inside this click handler — they run on IO now; the sheet
+        // opens a beat later with the ready membership.
+        viewModelScope.launch(dispatchers.io) {
+            _multiSelectCategoryMembership.value = getCategoriesForSelected()
+                .filter { it.value }
+                .map { it.key }
+                .toSet()
+            _showMultiSelectCategorySheet.value = true
+        }
     }
 
     fun dismissMultiSelectCategorySheet() {
         _showMultiSelectCategorySheet.value = false
     }
 
-    /**
-     * Add all selected entries to a category.
-     * D-146: Does NOT close the sheet — user can select multiple categories.
-     * The sheet is closed via dismissMultiSelectCategorySheet() (Done button).
-     */
     fun addSelectedToCategory(categoryId: Long) {
-        for (mainId in _selectedMainIds.value) {
-            contentRepository.addToCategory(mainId, categoryId)
+        // Task 62 (H1): the N×(COUNT+INSERT) loop for the selected entries ran
+        // SYNCHRONOUSLY on Main inside this click handler (200 selected ≈ 400
+        // SQL statements — a visible freeze). Off Main now; the selection is
+        // snapshotted at tap time (the sheet stays open for further toggles).
+        // D-146: Does NOT close the sheet — user can select multiple categories.
+        // The sheet is closed via dismissMultiSelectCategorySheet() (Done button).
+        val selected = _selectedMainIds.value.toList()
+        viewModelScope.launch(dispatchers.io) {
+            for (mainId in selected) {
+                contentRepository.addToCategory(mainId, categoryId)
+            }
+            Logger.i(TAG) { "Added ${selected.size} entries to category $categoryId" }
+            // Update the category membership state (for checkbox display).
+            _multiSelectCategoryMembership.value = _multiSelectCategoryMembership.value + categoryId
         }
-        Logger.i(TAG) { "Added ${_selectedMainIds.value.size} entries to category $categoryId" }
-        // Update the category membership state (for checkbox display).
-        _multiSelectCategoryMembership.value = _multiSelectCategoryMembership.value + categoryId
     }
 
     /**
      * Remove all selected entries from a category.
      * D-146: Does NOT close the sheet — user can deselect multiple categories.
+     * Task 62 (H1): the N×DELETE loop runs off Main (see addSelectedToCategory).
      */
     fun removeSelectedFromCategory(categoryId: Long) {
-        for (mainId in _selectedMainIds.value) {
-            contentRepository.removeFromCategory(mainId, categoryId)
+        val selected = _selectedMainIds.value.toList()
+        viewModelScope.launch(dispatchers.io) {
+            for (mainId in selected) {
+                contentRepository.removeFromCategory(mainId, categoryId)
+            }
+            Logger.i(TAG) { "Removed ${selected.size} entries from category $categoryId" }
+            _multiSelectCategoryMembership.value = _multiSelectCategoryMembership.value - categoryId
         }
-        Logger.i(TAG) { "Removed ${_selectedMainIds.value.size} entries from category $categoryId" }
-        _multiSelectCategoryMembership.value = _multiSelectCategoryMembership.value - categoryId
     }
 
     /**
@@ -687,15 +755,19 @@ class LibraryViewModel(
 
     /**
      * Delete all selected entries from the library.
+     * Task 62 (H1): the N×DELETE (CASCADE) loop runs off Main.
      */
     fun deleteSelected() {
-        for (mainId in _selectedMainIds.value) {
-            contentRepository.removeFromLibrary(mainId)
+        val selected = _selectedMainIds.value.toList()
+        viewModelScope.launch(dispatchers.io) {
+            for (mainId in selected) {
+                contentRepository.removeFromLibrary(mainId)
+            }
+            Logger.i(TAG) { "Deleted ${selected.size} entries from library" }
+            _showDeleteConfirmation.value = false
+            exitSelectionMode()
+            loadLibraryImpl()
         }
-        Logger.i(TAG) { "Deleted ${_selectedMainIds.value.size} entries from library" }
-        _showDeleteConfirmation.value = false
-        exitSelectionMode()
-        loadLibrary()
     }
 
     /** Get categories that ALL selected entries are in (for the category picker). */
@@ -711,16 +783,19 @@ class LibraryViewModel(
     }
 
     // ── Sort setters ──
+    // Task 62 (H2): none of these call the filter pipeline directly anymore —
+    // the combined+debounced collector in init picks up the flow change and
+    // re-derives the list off Main (the sort lands ~200ms after the tap,
+    // imperceptibly). The preference writes stay (a single SharedPreferences
+    // edit per tap).
     fun setSortType(sort: LibrarySortType) {
         _sortType.value = sort
         preferenceStore.putString(KEY_SORT_TYPE, sort.name)
-        applyFilters()
     }
 
     fun setSortAscending(value: Boolean) {
         _sortAscending.value = value
         preferenceStore.putBoolean(KEY_SORT_ASCENDING, value)
-        applyFilters()
     }
 
     fun setSort(sort: LibrarySortType, ascending: Boolean) {
@@ -728,7 +803,6 @@ class LibraryViewModel(
         _sortAscending.value = ascending
         preferenceStore.putString(KEY_SORT_TYPE, sort.name)
         preferenceStore.putBoolean(KEY_SORT_ASCENDING, ascending)
-        applyFilters()
     }
 
     // ── Display & badge setters ──
@@ -958,26 +1032,40 @@ class LibraryViewModel(
         _selectedCategoryId.value = if (savedCatId == -1L) null else savedCatId
     }
 
-    private fun applyFilters() {
+    /**
+     * Task 62 (round 22 — H2): the debounced pipeline's body. Applies the
+     * filter+sort OFF Main and emits; the emission is guarded so a concurrent
+     * master-list reload (its own single emission already applies these
+     * inputs) always wins over a stale derived list.
+     */
+    private suspend fun runFiltersOffMain() {
         val current = _state.value
         if (current !is LibraryState.Success) return
 
         // D-290: re-derive from the MASTER list, not the already-filtered
         // state (the old re-filter could never restore entries removed by a
         // previous query once the query was cleared).
-        _state.value = LibraryState.Success(
-            filterAndSort(
-                entries = masterEntries,
-                query = _searchQuery.value,
-                sortType = _sortType.value,
-                ascending = _sortAscending.value,
-            ),
-        )
+        val query = _searchQuery.value
+        val sortType = _sortType.value
+        val ascending = _sortAscending.value
+        val entries = masterEntries
+        val filtered = withContext(dispatchers.default) {
+            filterAndSort(entries, query, sortType, ascending)
+        }
+        // Emit only when the inputs are STILL the ones this result was
+        // derived from (a library reload that already emitted supersedes it).
+        if (_searchQuery.value == query &&
+            _sortType.value == sortType &&
+            _sortAscending.value == ascending &&
+            _state.value === current
+        ) {
+            _state.value = LibraryState.Success(filtered)
+        }
     }
 
     /**
      * D-290: the pure filter+sort pipeline shared by [loadLibraryImpl] (single
-     * emission) and [applyFilters] (query/sort changes). No state writes —
+     * emission) and [runFiltersOffMain] (query/sort changes). No state writes —
      * callers decide what to emit.
      */
     private fun filterAndSort(

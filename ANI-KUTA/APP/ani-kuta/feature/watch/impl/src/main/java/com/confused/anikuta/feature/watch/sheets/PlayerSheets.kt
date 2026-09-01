@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -61,10 +62,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import com.confused.anikuta.core.designsystem.theme.RobotoFamily
 import com.confused.anikuta.core.player.VideoTrack
@@ -916,11 +922,11 @@ private fun rememberQualityCopyFeedback(): (String, String) -> Unit {
  * and off."
  *
  *  - the TITLE TEXT is the only touch target (intrinsic width, ellipsized);
- *  - tapping it pops a small menu anchored ABOVE the heading (Task 61, round
- *    21 — the user's "it should show above it"): a Popup with
- *    Alignment.BottomStart sits the menu's BOTTOM edge on the heading's
- *    bottom edge, so it always grows upward — deterministic, unlike the
- *    DropdownMenu it replaces (which only anchors below + a fragile offset).
+ *  - tapping it pops a small menu floating ABOVE the heading (Task 62, round
+ *    22 — the user's "it was supposed to show above it … outside the bottom
+ *    menu"): a custom PopupPositionProvider sits the menu's BOTTOM edge a
+ *    8dp gap ABOVE the heading's TOP edge, so it never covers the heading
+ *    and floats fully OUTSIDE the sheet (over the scrim).
  *    A 14dp-cornered, flat surface with a DISTINCT 1dp outline border and ONE
  *    row — "Format sources" + a trailing Switch (exact label + guaranteed
  *    24dp gap between the label and the toggle, per the round-21 spec);
@@ -939,6 +945,35 @@ private fun WatchFormattingTitle(
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    // Task 62 (round 22 — the menu POSITION rework): the round-21
+    // Popup(Alignment.BottomStart) sat the menu's BOTTOM edge on the
+    // heading's BOTTOM edge — i.e. the menu covered the heading itself
+    // (the "Episode N" text) instead of sitting above it. The device spec:
+    // "it was supposed to show above it … and it was supposed to show
+    // outside the bottom menu". A custom PopupPositionProvider now places
+    // the menu's BOTTOM edge a 8dp gap ABOVE the heading's TOP edge — since
+    // the heading is only ~16-30dp below the sheet's top edge, the menu
+    // floats fully OUTSIDE the sheet, over the scrim (the ModalBottomSheet's
+    // dialog window is full-screen MATCH_PARENT, and a Popup is a real
+    // TYPE_APPLICATION_SUB_PANEL sub-window of it — it renders above the
+    // sheet's content, clipped only to the screen).
+    val menuGapPx = with(LocalDensity.current) { 8.dp.roundToPx() }
+    // NOTE: PopupPositionProvider is a plain (non-fun) interface in Compose
+    // UI 1.10 — a SAM-constructor lambda does NOT compile; an object
+    // expression implements it.
+    val aboveAnchorPositionProvider = remember(menuGapPx) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ): IntOffset = IntOffset(
+                x = anchorBounds.left,
+                y = anchorBounds.top - popupContentSize.height - menuGapPx,
+            )
+        }
+    }
     Box(modifier = modifier) {
         // ONLY the title text opens the menu — the user's spec.
         Text(
@@ -953,10 +988,10 @@ private fun WatchFormattingTitle(
         )
         // The small menu with the DISTINCT border (shape + flat surface +
         // 1dp outline via Modifier.border — version-proof on material3),
-        // anchored ABOVE the heading via Popup BottomStart.
+        // floating ABOVE the heading — fully outside the sheet.
         if (menuOpen) {
             Popup(
-                alignment = Alignment.BottomStart,
+                popupPositionProvider = aboveAnchorPositionProvider,
                 onDismissRequest = { menuOpen = false },
                 properties = PopupProperties(focusable = true),
             ) {

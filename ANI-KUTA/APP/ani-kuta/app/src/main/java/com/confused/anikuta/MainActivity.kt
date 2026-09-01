@@ -559,7 +559,28 @@ fun AppRoot() {
         val pendingName = com.confused.anikuta.pluginimport.PendingCsPluginNav.consume(appContext)
         if (pendingName != null) {
             Logger.i("Anikuta:AppRoot") { "pending CS plugin import → extensions page (cloudstream tab): $pendingName" }
-            if (currentKey !is ExtensionsSettingsKey) {
+            // Task 62 (round 22 — the post-import CRASH fix): the ON_RESUME
+            // observer below captures THIS local function from the composition
+            // where it registered, so its `currentKey` val goes STALE (it
+            // keeps the value from that old composition). When the user
+            // returned from PluginImportActivity while ALREADY sitting on the
+            // extensions page, the stale guard passed and a SECOND
+            // ExtensionsSettingsKey was pushed on top of the first → the
+            // AnimatedContent transition then composed BOTH
+            // SaveableStateProviders under the SAME class-name key →
+            // "Key ExtensionsSettingsKey was used multiple times" crash.
+            //
+            // The fix: read the LIVE backstack INSIDE the function (the list
+            // reference is stable across recompositions — only the captured
+            // `currentKey` val was stale) and NEVER stack a duplicate. An
+            // ExtensionsSettingsKey that already exists anywhere in the
+            // backstack is REVEALED (everything above it is popped) instead.
+            val existingIndex = backstack.indexOfLast { it is ExtensionsSettingsKey }
+            if (existingIndex >= 0) {
+                while (backstack.size > existingIndex + 1) {
+                    backstack.removeAt(backstack.lastIndex)
+                }
+            } else {
                 backstack.add(ExtensionsSettingsKey(initialTab = "cloudstream"))
             }
         }
@@ -1287,6 +1308,17 @@ fun AppRoot() {
                     // Browse → More → close → reopen restores Browse.
                     if (route == "browse" || route == "library") {
                         appPreferences.lastTab = route
+                    }
+                    // Task 62 (round 22 — the search randomization TRIGGER):
+                    // leaving the SEARCH root tab is the ONLY "leave the search
+                    // page" event that may re-randomize the CloudStream
+                    // sections on the next entry (a subpage push stays inside
+                    // the tab — returning from a category subpage or a details
+                    // page must NOT re-shuffle; the round-22 device spec:
+                    // "the randomization should only happen if I leave the
+                    // search page and then come back to the search page").
+                    if (route != "search" && currentKey is AnimeSearchKey) {
+                        com.confused.anikuta.feature.animesearch.SearchTabExitSignal.markTabExit()
                     }
                     backstack.clear()
                     when (route) {

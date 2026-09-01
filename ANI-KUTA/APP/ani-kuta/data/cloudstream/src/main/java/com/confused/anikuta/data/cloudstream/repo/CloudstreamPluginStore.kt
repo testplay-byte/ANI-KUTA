@@ -38,6 +38,18 @@ data class CsPluginRecord(
     val filePath: String,
     val version: Int,
     val repoUrl: String?,
+    /**
+     * Task 62 (round 22 — plugin ↔ repo linkage): the internalName under which
+     * the LINKED repository catalogs this plugin. Null until a repository that
+     * matches this record (exact/normalized identity, URL, or file hash — see
+     * [CsPluginIdentity]) has been seen; the linkage back-fill in
+     * CloudstreamPluginManager.rebuildLists writes it. Making future
+     * comparisons EXACT is the whole point: a manually imported plugin whose
+     * derived internalName drifted from the repo's still resolves to the same
+     * catalog entry forever after. `ignoreUnknownKeys = true` decodes old
+     * persisted records with this null (they link on the next refresh).
+     */
+    val repoInternalName: String? = null,
     val fileHash: String? = null,
     val language: String? = null,
     val iconUrl: String? = null,

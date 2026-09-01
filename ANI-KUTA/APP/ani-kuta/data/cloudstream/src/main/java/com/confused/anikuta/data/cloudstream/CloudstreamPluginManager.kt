@@ -14,6 +14,7 @@ import com.confused.anikuta.data.cloudstream.model.CsProviderInfoFactory
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamPluginStore
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoApi
 import com.confused.anikuta.data.cloudstream.repo.CloudstreamRepoRepository
+import com.confused.anikuta.data.cloudstream.repo.CsPluginIdentity
 import com.confused.anikuta.data.cloudstream.repo.CsPluginRecord
 import com.lagradost.cloudstream3.PROVIDER_STATUS_DOWN
 import com.lagradost.cloudstream3.CommonActivity
@@ -351,14 +352,57 @@ class CloudstreamPluginManager(
     /** Rebuilds the Available list + update/disable flags. Under [installMutex]. */
     private fun rebuildLists() {
         val records = pluginStore.loadAll()
-        val installedNames = records.map { it.internalName }.toSet()
+        // Task 62 (round 22 — plugin ↔ repository LINKAGE): match installed
+        // records — INCLUDING manual imports whose derived internalName
+        // drifted from the repo's — against the online catalog with the
+        // ordered identity ladder (CsPluginIdentity: exact name → linked repo
+        // name → URL → file hash → normalized names). On a hit, back-fill the
+        // record's repoUrl/repoInternalName/url/fileHash so a manually
+        // installed plugin behaves EXACTLY like a repo install the moment its
+        // repository shows up (update pills, kill-switch) — the round-22
+        // device report: "it can properly recognize the cloud stream
+        // extensions and their repositories even after the repository was
+        // added later on". Idempotent: the store write only happens when a
+        // value actually changed, so the frequent rebuilds stay cheap.
+        val recordOnline = HashMap<String, Pair<SitePlugin, Pair<String, String>>>()
+        val linkedRecords = records.map { record ->
+            val online = onlinePlugins.firstOrNull { CsPluginIdentity.matches(record, it.first) }
+            if (online == null) {
+                record
+            } else {
+                recordOnline[record.internalName] = online
+                val plugin = online.first
+                val updated = record.copy(
+                    repoUrl = online.second.first,
+                    repoInternalName = plugin.internalName,
+                    url = record.url ?: plugin.url,
+                    fileHash = record.fileHash ?: plugin.fileHash,
+                )
+                if (updated != record) {
+                    Logger.i(TAG) {
+                        "rebuildLists — linked '${record.internalName}' to repository " +
+                            "${online.second.second} (catalog internalName '${plugin.internalName}')"
+                    }
+                    scope.launch {
+                        pluginStore.update(record.internalName) { updated }
+                    }
+                }
+                updated
+            }
+        }
+        // The Available list drops every catalog entry that matches ANY
+        // installed record under the same ladder — the duplicate-row fix (a
+        // manually imported plugin no longer ALSO renders as "available").
         _available.value = onlinePlugins
-            .filter { (plugin, _) -> plugin.internalName !in installedNames && plugin.url.isNotBlank() }
+            .filter { (plugin, _) ->
+                plugin.url.isNotBlank() &&
+                    linkedRecords.none { CsPluginIdentity.matches(it, plugin) }
+            }
             .map { (plugin, repo) -> CloudstreamExtension.Available(plugin, repo.first, repo.second) }
 
         // Update pills + repo kill-switch state on installed entries.
         val installedNow = _installed.value.map { current ->
-            val online = onlinePlugins.firstOrNull { it.first.internalName == current.internalName }?.first
+            val online = recordOnline[current.internalName]?.first
             current.copy(
                 availableUpdateVersion = online?.takeIf { isUpdate(it.version, current.version) }?.version,
                 isDisabledByRepo = online?.status == PROVIDER_STATUS_DOWN,
@@ -375,6 +419,23 @@ class CloudstreamPluginManager(
 
     /** The documented update predicate (doc 04 §4.5). */
     fun isUpdate(onlineVersion: Int, savedVersion: Int): Boolean = isCsUpdate(onlineVersion, savedVersion)
+
+    /**
+     * Task 62 (round 22): the Available-row target an INSTALLED plugin's Update
+     * pill should install. A LINKED manual import is no longer present in the
+     * Available list under its own (drifted) internalName — the old exact-name
+     * lookup in the extensions section missed it and the pill did nothing.
+     * This resolves the ONLINE catalog entry through the identity ladder and
+     * wraps it as [CloudstreamExtension.Available] for [installPlugin] (which
+     * is itself linkage-aware — it updates the existing record in place).
+     */
+    fun availableUpdateTarget(internalName: String): CloudstreamExtension.Available? {
+        val record = pluginStore.loadAll().firstOrNull { it.internalName == internalName }
+            ?: return null
+        val online = onlinePlugins.firstOrNull { CsPluginIdentity.matches(record, it.first) }
+            ?: return null
+        return CloudstreamExtension.Available(online.first, online.second.first, online.second.second)
+    }
 
     /** Public entry the UI calls on screen entry (30-min throttle, D-301 pattern). */
     fun checkForUpdates(force: Boolean = false) {
@@ -433,7 +494,21 @@ class CloudstreamPluginManager(
                     // stale duplicate already finished and must not re-run.
                     val currentStep = _installStates.value[internalName]
                     if (currentStep == null || currentStep == InstallStep.Pending) {
-                        val target = CloudstreamPluginInstaller.pluginPath(context.filesDir, internalName, extension.repoUrl)
+                        // Task 62 (round 22 — linkage-aware installs): resolve
+                        // the existing record through the identity ladder
+                        // BEFORE the download. An exact-name repo install is the
+                        // historical path; a LINKED manual import (whose stored
+                        // internalName drifted from the catalog's) updates IN
+                        // PLACE — the SAME record name + the SAME file path —
+                        // so no second record/file can ever appear (the
+                        // round-22 duplicate-row bug, update-side).
+                        val existingRecord = pluginStore.loadAll().firstOrNull { record ->
+                            record.internalName == internalName ||
+                                CsPluginIdentity.matches(record, plugin)
+                        }
+                        val recordInternalName = existingRecord?.internalName ?: internalName
+                        val target = existingRecord?.filePath?.let(::File)
+                            ?: CloudstreamPluginInstaller.pluginPath(context.filesDir, internalName, extension.repoUrl)
                         installer.download(plugin.url, plugin.fileHash, target).collect { step ->
                             _installStates.value = _installStates.value + (internalName to step)
                         }
@@ -447,14 +522,16 @@ class CloudstreamPluginManager(
 
                             // Preserve the existing trust state (updates never demote);
                             // genuinely new installs land untrusted.
-                            val previous = pluginStore.loadAll().firstOrNull { it.internalName == internalName }
                             val record = CsPluginRecord(
-                                internalName = internalName,
+                                internalName = recordInternalName,
                                 name = plugin.name,
                                 url = plugin.url,
                                 filePath = target.absolutePath,
                                 version = plugin.version,
                                 repoUrl = extension.repoUrl,
+                                // Task 62: the catalog name is captured for exact
+                                // future identity comparisons either way.
+                                repoInternalName = plugin.internalName,
                                 fileHash = plugin.fileHash,
                                 language = plugin.language,
                                 iconUrl = plugin.iconUrl,
@@ -463,7 +540,7 @@ class CloudstreamPluginManager(
                                 description = plugin.description,
                                 tvTypes = plugin.tvTypes ?: emptyList(),
                                 fileSizeBytes = plugin.fileSize,
-                                isTrusted = previous?.isTrusted ?: false,
+                                isTrusted = existingRecord?.isTrusted ?: false,
                             )
                             pluginStore.upsert(record)
                             when (val result = loader.loadPlugin(target)) {
@@ -551,11 +628,25 @@ class CloudstreamPluginManager(
         if (manifest.pluginClassName.isNullOrBlank()) {
             return CsImportResult.Invalid("The plugin file has no pluginClassName (incomplete export)")
         }
+        // Task 62 (round 22): the file's sha256 ("sha256-<hex>", the repo's
+        // own format). A raw .cs3 re-share of a repo-hosted file hashes
+        // IDENTICALLY to the catalog's fileHash — a strong identity rung for
+        // the already-installed check, the import-time repo linkage, AND the
+        // later back-fill in rebuildLists. (.WHITECAT exports carry extra
+        // anikuta/ entries and hash differently — the name/URL rungs cover
+        // those.) Computed on the caller's IO dispatcher; a read failure
+        // degrades to null (the ladder just loses that rung).
+        val importFileHash = computeFileHash(sourceFile)
 
         return installMutex.withLock {
-            // Already installed (same internalName — from a repo or an earlier
-            // share)? The shared file is redundant; report + no side effects.
-            val existing = pluginStore.loadAll().firstOrNull { it.internalName == internalName }
+            // Already installed — from a repo, an earlier share, or a record
+            // that was LINKED to a repo by the Task 62 back-fill (its identity
+            // may have drifted from this file's derived name — the identity
+            // ladder matches it anyway)? The shared file is redundant; report
+            // + no side effects.
+            val existing = pluginStore.loadAll().firstOrNull {
+                CsPluginIdentity.matchesImport(it, internalName, manifest.name, importFileHash)
+            }
             if (existing != null) {
                 Logger.i(TAG) {
                     "importSharedPlugin — $internalName already installed " +
@@ -566,8 +657,21 @@ class CloudstreamPluginManager(
 
             // Repo linkage (the user's spec): an added repository that catalogs
             // this plugin links the record to it — the plugin then behaves
-            // exactly like a repo install (update checks, repo updates).
-            val online = onlinePlugins.firstOrNull { it.first.internalName == internalName }
+            // exactly like a repo install (update checks, repo updates). The
+            // probe record carries the file's identity so the SAME ordered
+            // ladder decides the match (exact/normalized name, hash, display
+            // name) instead of the old exact-internalName-only check that
+            // missed drifted manual-import identities.
+            val probe = CsPluginRecord(
+                internalName = internalName,
+                name = manifest.name ?: internalName,
+                url = null,
+                filePath = "",
+                version = manifest.version ?: 1,
+                repoUrl = null,
+                fileHash = importFileHash,
+            )
+            val online = onlinePlugins.firstOrNull { CsPluginIdentity.matches(probe, it.first) }
             val linkedRepoUrl: String? = online?.second?.first
             if (online != null) {
                 Logger.i(TAG) {
@@ -625,7 +729,10 @@ class CloudstreamPluginManager(
                 // repo-less (displayed on the detail page; update math still
                 // keys on ADDED repositories).
                 repoUrl = linkedRepoUrl ?: exportInfo?.repoUrl,
-                fileHash = online?.first?.fileHash,
+                // Task 62: the catalog's internalName captured at link time —
+                // every FUTURE identity comparison for this record is exact.
+                repoInternalName = online?.first?.internalName,
+                fileHash = importFileHash ?: online?.first?.fileHash,
                 language = online?.first?.language ?: exportInfo?.language,
                 // Task 59: the LOCAL embedded icon wins, then the catalog's,
                 // then the exported URL.
@@ -696,6 +803,26 @@ class CloudstreamPluginManager(
 
     private fun isInstallActive(step: InstallStep?): Boolean =
         step is InstallStep.Pending || step is InstallStep.Downloading || step is InstallStep.Installing
+
+    /**
+     * Task 62 (round 22): the sha256 of a plugin FILE in the repo's own
+     * "sha256-<hex>" format (see CloudstreamPluginInstaller's verification) —
+     * the shared identity rung for manual imports. Streamed (a .cs3 is a few
+     * MB); a read failure returns null (the identity ladder degrades, never
+     * crashes).
+     */
+    private fun computeFileHash(file: File): String? = runCatching {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        "sha256-" + digest.digest().joinToString("") { "%02x".format(it) }
+    }.getOrNull()
 
     private fun CsPluginRecord.toInstalled(providers: List<CsProviderInfo>): CloudstreamExtension.Installed =
         CloudstreamExtension.Installed(

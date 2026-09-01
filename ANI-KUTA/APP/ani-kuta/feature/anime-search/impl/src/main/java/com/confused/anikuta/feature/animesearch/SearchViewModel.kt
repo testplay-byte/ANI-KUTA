@@ -10,6 +10,9 @@ import com.confused.anikuta.core.datacache.DataCacheRepository
 import com.confused.anikuta.core.preferences.AppPreferences
 import com.confused.anikuta.core.preferences.PreferenceStore
 import com.confused.anikuta.data.cloudstream.content.CloudstreamContentRepository
+import com.confused.anikuta.data.cloudstream.content.CsBrowseDisplay
+import com.confused.anikuta.data.cloudstream.content.CsBrowseDisplayRow
+import com.confused.anikuta.data.cloudstream.content.CsBrowseSection
 import com.confused.anikuta.data.cloudstream.content.CsContentCard
 import com.confused.anikuta.data.cloudstream.content.CsProviderSource
 import com.confused.anikuta.data.extension.manager.ExtensionManager
@@ -71,6 +74,14 @@ class SearchViewModel(
         private const val KEY_SELECTED_CS_PROVIDER = "search_selected_cs_provider"
         private const val DEBOUNCE_MS = 350L
         private const val MAX_RECENTS = 10
+
+        /**
+         * Task 62 (round 22): the cross-section uniqueness window of the smart
+         * shuffle — the first N items of any randomized category must not
+         * appear in the first N of any other one (the device spec: "the first
+         * four of any of the categories will not be the same as any other").
+         */
+        private const val TOP_UNIQUE_ITEMS = 4
 
         /** Persisted kind flag values (KEY_SELECTED_SOURCE_KIND). */
         private const val KIND_ANIYOMI = "aniyomi"
@@ -491,16 +502,30 @@ class SearchViewModel(
         private set
 
     /**
-     * Task 61 (round 21): called from the screen's LaunchedEffect(Unit) —
-     * fires on every FRESH composition of the search screen (tab switches,
-     * returns from the category subpages) complementing [onScreenResume]'s
-     * activity-level entries. Same rule: blank query + sectioned browse →
-     * reshuffle the row order.
+     * Task 62 (round 22 — the randomization TRIGGER rework): called from the
+     * screen's LaunchedEffect(Unit) — fires on every FRESH composition of the
+     * search screen (tab returns AND subpage returns). The v0.4.9 behavior
+     * (reshuffle on every entry) caused the round-22 device reports:
+     * returning from a category subpage or from content re-randomized the
+     * page. Now the reshuffle ONLY runs when the user actually LEFT the
+     * search tab in between (MainActivity's bottom-nav exit marks
+     * [SearchTabExitSignal] — subpage pushes stay INSIDE the tab) or after a
+     * pull-to-refresh. The persisted display arrangement handles cold
+     * reopens (restored in loadCloudstreamPopular — never re-shuffled).
      */
     fun onPageEntered() {
         val current = _uiState.value
         if (_query.value.isBlank() && current is SearchUiState.ExtensionBrowseSuccess) {
-            _uiState.value = current.copy(sections = current.sections.shuffled())
+            if (SearchTabExitSignal.shouldReshuffleOnEntry()) {
+                SearchTabExitSignal.markShuffled()
+                val shuffled = smartShuffleSections(current.sections)
+                _uiState.value = current.copy(sections = shuffled)
+                persistBrowseDisplay(current.sourceName, shuffled)
+                Logger.i(TAG) {
+                    "onPageEntered — search tab re-entered: ${shuffled.size} section(s) " +
+                        "re-randomized (cross-section top-4 uniqueness applied)"
+                }
+            }
         }
     }
 
@@ -521,16 +546,11 @@ class SearchViewModel(
         if (_query.value.isBlank() && _uiState.value is SearchUiState.Idle) {
             loadDefaults()
         }
-        // Task 61 (round 21 — the randomized CloudStream sections): EVERY entry
-        // into the search page reshuffles the section ROW ORDER (a fresh
-        // random each time — "every single time the user enters the search
-        // page, those results will be shown as randomized"). The shelf
-        // CONTENTS stay intact; only the rows move. Search results (a query
-        // is active) are not sectioned — nothing to shuffle.
-        val current = _uiState.value
-        if (_query.value.isBlank() && current is SearchUiState.ExtensionBrowseSuccess) {
-            _uiState.value = current.copy(sections = current.sections.shuffled())
-        }
+        // Task 62 (round 22): the round-21 "reshuffle on EVERY resume" branch is
+        // REMOVED — an activity-level ON_RESUME (returning from the launcher,
+        // the Cloudflare WebView, a chat app…) is NOT "leaving the search page".
+        // Re-randomization now happens ONLY on a real tab exit + return
+        // (SearchTabExitSignal, see onPageEntered) or a pull-to-refresh.
     }
 
     fun onSubmit() {
@@ -968,29 +988,33 @@ class SearchViewModel(
         return viewModelScope.launch {
             // ── Step 1: cache-first instant render (Task 48) ──
             val cached = cloudstreamRepository.cachedBrowseSections(providerName)
+            // Task 62 (round 22 — the STABLE randomized browse): the persisted
+            // display arrangement. Restored EXACTLY when valid → a cold app
+            // reopen shows the page the user last saw (the round-22 report:
+            // "it opens up on that exact same search page — the results are
+            // reloaded [randomized], this is not how things should be handled"
+            // is fixed: NO re-shuffle on reopen). Absent/invalid → the smart
+            // shuffle runs inside [arrangeBrowseSections] and is re-persisted.
+            val cachedDisplay = cloudstreamRepository.cachedBrowseDisplay(providerName)
             if (cached != null && cached.isNotEmpty()) {
                 if (!isCurrent(gen)) return@launch
                 showingDefaults = true
                 _uiState.value = SearchUiState.ExtensionBrowseSuccess(
                     sourceName = providerName,
-                    // Task 61 (round 21): the section ORDER is randomized on
-                    // every load — the user's "their order will be changed and
-                    // randomly shown" spec. A fresh random each time (also
-                    // re-shuffled on every page re-entry — onScreenResume).
-                    // The ORIGINAL shelf index is captured BEFORE the shuffle
-                    // (the category subpages resolve their shelf by it).
-                    sections = cached.mapIndexed { index, section -> index to section }
-                        .shuffled()
-                        .map { (index, section) ->
-                            ExtensionBrowseSection(
-                                title = section.title,
-                                shelfIndex = index,
-                                results = section.items.map { it.toExtensionAnime() },
-                            )
-                        },
+                    // Task 62: restore-when-valid, else smart-shuffle (row order
+                    // + item order under the cross-section first-4 uniqueness
+                    // constraint) + persist. The ORIGINAL shelf index is
+                    // captured in display order (the category subpages resolve
+                    // their shelf by it).
+                    sections = arrangeBrowseSections(
+                        raw = cached,
+                        display = cachedDisplay,
+                        providerName = providerName,
+                    ),
                 )
                 Logger.i(TAG) {
-                    "Browse cache HIT for '$providerName' — rendered ${cached.size} section(s) instantly (randomized order)"
+                    "Browse cache HIT for '$providerName' — rendered ${cached.size} section(s) instantly " +
+                        "(display ${if (cachedDisplay != null) "restored" else "shuffled"})"
                 }
             } else {
                 if (!isCurrent(gen)) return@launch
@@ -1050,19 +1074,24 @@ class SearchViewModel(
                     showingDefaults = true
                     SearchUiState.ExtensionBrowseSuccess(
                         sourceName = source.providerName,
-                        // Task 61 (round 21): randomized section order (the
-                        // user's spec — every load AND every page re-entry);
-                        // the ORIGINAL shelf index is captured BEFORE the
-                        // shuffle (the category subpages resolve by it).
-                        sections = sections.mapIndexed { index, section -> index to section }
-                            .shuffled()
-                            .map { (index, section) ->
-                                ExtensionBrowseSection(
-                                    title = section.title,
-                                    shelfIndex = index,
-                                    results = section.items.map { it.toExtensionAnime() },
-                                )
-                            },
+                        // Task 62 (round 22): restore-when-valid, else smart
+                        // shuffle + persist. A background refresh (stale cache)
+                        // KEEPS the arrangement the user is looking at — the
+                        // content swaps in place, the rows do not jump around;
+                        // a pull-to-refresh invalidated the cache AND its
+                        // display state first, so it lands here with null → a
+                        // genuinely fresh random arrangement.
+                        // The display is RE-READ here (not the step-1 local):
+                        // when step 1 smart-shuffled a cache that had no
+                        // persisted arrangement, saveDisplay already wrote the
+                        // fresh one to the MEMORY layer — reusing the stale
+                        // null local would shuffle a DIFFERENT arrangement
+                        // into place a second later.
+                        sections = arrangeBrowseSections(
+                            raw = sections,
+                            display = cloudstreamRepository.cachedBrowseDisplay(providerName),
+                            providerName = providerName,
+                        ),
                     )
                 }
             } catch (e: Throwable) {
@@ -1096,6 +1125,157 @@ class SearchViewModel(
                 }
             }
         }.also { defaultsJob = it }
+    }
+
+    // ── Task 62 (round 22): the stable + SMART randomized browse ────────────
+
+    /**
+     * Task 62 (round 22): builds the browse sections in DISPLAY order from the
+     * raw provider sections. When [display] is present AND still valid for the
+     * current raw list, the arrangement is RESTORED exactly (row order +
+     * per-row item order) — a cold app reopen shows the page the user last
+     * saw, never a re-shuffle. Otherwise the sections are SMART-SHUFFLED
+     * (randomized row order + randomized item order under the cross-section
+     * first-4 uniqueness constraint) and the arrangement is persisted onto
+     * the provider's snapshot for the next restore. The ORIGINAL shelf index
+     * rides each row either way (the category subpages resolve their shelf by
+     * it — captured before any shuffle).
+     */
+    private fun arrangeBrowseSections(
+        raw: List<CsBrowseSection>,
+        display: CsBrowseDisplay?,
+        providerName: String,
+    ): List<ExtensionBrowseSection> {
+        val restored = restoreBrowseDisplay(raw, display)
+        if (restored != null) {
+            Logger.i(TAG) { "Browse display RESTORED for '$providerName' (${restored.size} rows)" }
+            return restored
+        }
+        val shuffled = smartShuffleSections(
+            raw.mapIndexed { index, section ->
+                ExtensionBrowseSection(
+                    title = section.title,
+                    shelfIndex = index,
+                    results = section.items.map { it.toExtensionAnime() },
+                )
+            },
+        )
+        persistBrowseDisplay(providerName, shuffled)
+        return shuffled
+    }
+
+    /**
+     * Task 62: rebuilds the sections from a persisted display arrangement.
+     * Returns null when [display] is absent or INVALID for the current raw
+     * list (wrong row count, an out-of-range or repeated shelf index — the
+     * provider changed its mainPage): the caller falls back to the smart
+     * shuffle. Items are matched by URL (the stable cross-session identity):
+     * persisted urls still present keep their display slots, vanished ones
+     * drop, and genuinely new items append at the end of their row in the
+     * provider's original order.
+     */
+    private fun restoreBrowseDisplay(
+        raw: List<CsBrowseSection>,
+        display: CsBrowseDisplay?,
+    ): List<ExtensionBrowseSection>? {
+        if (display == null) return null
+        if (display.rows.size != raw.size) return null
+        val seenIndexes = HashSet<Int>(raw.size * 2)
+        for (row in display.rows) {
+            if (row.shelfIndex !in raw.indices) return null
+            if (!seenIndexes.add(row.shelfIndex)) return null
+        }
+        return display.rows.map { row ->
+            val section = raw[row.shelfIndex]
+            val byUrl = HashMap<String, CsContentCard>(section.items.size * 2)
+            for (card in section.items) {
+                if (card.url !in byUrl) byUrl[card.url] = card
+            }
+            val orderedUrls = HashSet(row.itemUrls)
+            val orderedItems = row.itemUrls.mapNotNull { byUrl[it] }
+            val appended = section.items.filter { it.url !in orderedUrls }
+            ExtensionBrowseSection(
+                title = section.title,
+                shelfIndex = row.shelfIndex,
+                results = (orderedItems + appended).map { it.toExtensionAnime() },
+            )
+        }
+    }
+
+    /**
+     * Task 62 (round 22 — the SMART shuffle, per the device round's spec):
+     * randomizes BOTH the row order AND the item order within each row, under
+     * the cross-section constraint: "the first four of any of the categories
+     * will not be the same as any other one of them" — no item (by url) may
+     * appear in the top-4 of two different sections.
+     *
+     * Sections are processed in the (already shuffled) display order; each
+     * RANDOMIZED section claims [TOP_UNIQUE_ITEMS] urls for its top-4 that no
+     * earlier section claimed. A section that cannot claim 4 unclaimed items
+     * (fewer than 4 items total, or its pool overlaps too heavily with earlier
+     * top-4s) is NOT randomized at all — the device spec's fallback: "if it
+     * cannot apply the proper randomization as needed, then it will just
+     * outright not apply the randomization" — but its ORIGINAL top-4 still
+     * counts as claimed, so sections processed later keep avoiding it.
+     */
+    private fun smartShuffleSections(
+        sections: List<ExtensionBrowseSection>,
+    ): List<ExtensionBrowseSection> {
+        if (sections.size < 2) return sections
+        val rows = sections.shuffled()
+        val claimedTopUrls = HashSet<String>()
+        val result = ArrayList<ExtensionBrowseSection>(rows.size)
+        var randomizedCount = 0
+        for (section in rows) {
+            val items = section.results
+            val tooSmall = items.size < TOP_UNIQUE_ITEMS
+            val enoughUnclaimed = !tooSmall &&
+                items.count { it.url !in claimedTopUrls } >= TOP_UNIQUE_ITEMS
+            if (!enoughUnclaimed) {
+                // NOT randomized — the original order stands; the original
+                // head still claims its urls for the later sections.
+                items.take(TOP_UNIQUE_ITEMS).forEach { claimedTopUrls.add(it.url) }
+                result += section
+                continue
+            }
+            val top = items.filter { it.url !in claimedTopUrls }
+                .shuffled()
+                .take(TOP_UNIQUE_ITEMS)
+            top.forEach { claimedTopUrls.add(it.url) }
+            val claimedSet = top.mapTo(HashSet()) { it.url }
+            val rest = items.filter { it.url !in claimedSet }.shuffled()
+            result += section.copy(results = top + rest)
+            randomizedCount++
+        }
+        Logger.i(TAG) {
+            "smartShuffle — ${randomizedCount}/${rows.size} section(s) randomized " +
+                "(${rows.size - randomizedCount} kept original order — not enough unique items)"
+        }
+        return result
+    }
+
+    /**
+     * Task 62: persists the arrangement (row shelf indexes + per-row item
+     * urls) onto the provider's browse snapshot so the NEXT cold reopen
+     * restores it exactly instead of re-shuffling.
+     */
+    private fun persistBrowseDisplay(providerName: String, sections: List<ExtensionBrowseSection>) {
+        if (sections.isEmpty()) return
+        runCatching {
+            cloudstreamRepository.saveBrowseDisplay(
+                providerName,
+                CsBrowseDisplay(
+                    rows = sections.map { section ->
+                        CsBrowseDisplayRow(
+                            shelfIndex = section.shelfIndex,
+                            itemUrls = section.results.map { it.url },
+                        )
+                    },
+                ),
+            )
+        }.onFailure { t ->
+            Logger.w(TAG, t) { "persistBrowseDisplay failed for '$providerName' — the next reopen shuffles fresh" }
+        }
     }
 
     /** Live-query search of the selected CloudStream provider (MainAPI.search). */

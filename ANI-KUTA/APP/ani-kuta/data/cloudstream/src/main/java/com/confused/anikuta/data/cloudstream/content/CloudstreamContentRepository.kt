@@ -197,6 +197,27 @@ class CloudstreamContentRepository(
     suspend fun cachedBrowseSections(providerName: String): List<CsBrowseSection>? =
         browseCache?.peek(providerName)?.sections
 
+    /**
+     * Task 62 (round 22 — the stable randomized browse): the persisted display
+     * arrangement (row order + per-row item order) for [providerName]'s cached
+     * browse — null when none was ever saved. The search page RESTORES it on a
+     * cold app reopen instead of re-shuffling (the round-22 device report: "I
+     * close the app completely and reopen it, it opens on that exact same
+     * search page — the results are reloaded [randomized], this is not how
+     * things should be handled").
+     */
+    suspend fun cachedBrowseDisplay(providerName: String): CsBrowseDisplay? =
+        browseCache?.peek(providerName)?.display
+
+    /**
+     * Task 62: persists the display arrangement onto [providerName]'s snapshot
+     * (memory + disk). Called after every shuffle so the NEXT cold reopen
+     * renders the exact same arrangement.
+     */
+    fun saveBrowseDisplay(providerName: String, display: CsBrowseDisplay) {
+        browseCache?.saveDisplay(providerName, display)
+    }
+
     /** True when the cached snapshot for [providerName] is younger than the TTL. */
     fun browseIsFresh(providerName: String): Boolean =
         browseCache?.isFresh(providerName) ?: false

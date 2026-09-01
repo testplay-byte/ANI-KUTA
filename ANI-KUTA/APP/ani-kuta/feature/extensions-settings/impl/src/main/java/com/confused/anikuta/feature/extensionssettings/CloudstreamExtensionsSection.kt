@@ -152,7 +152,14 @@ internal fun CloudstreamExtensionsSection(
                     installStep = installStates[ext.internalName],
                     onUpdate = ext.availableUpdateVersion?.let {
                         {
-                            available.firstOrNull { it.plugin.internalName == ext.internalName }
+                            // Task 62 (round 22): the online catalog target is
+                            // resolved through the identity ladder — a LINKED
+                            // manual import was never in the Available list
+                            // under its own (drifted) internalName, so the old
+                            // exact-name lookup missed it and the pill was a
+                            // no-op. installPlugin updates the existing record
+                            // in place.
+                            csManager.availableUpdateTarget(ext.internalName)
                                 ?.let(csManager::installPlugin)
                         }
                     },

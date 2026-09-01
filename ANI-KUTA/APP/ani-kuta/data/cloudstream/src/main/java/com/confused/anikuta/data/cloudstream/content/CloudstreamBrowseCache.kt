@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -53,6 +55,33 @@ data class CsBrowseSnapshot(
     val providerName: String,
     val sections: List<CsBrowseSection>,
     val fetchedAtMs: Long,
+    /**
+     * Task 62 (round 22 — the stable randomized browse): the LAST display
+     * arrangement (row order + per-row item order) the user saw on the search
+     * page, so a cold app reopen renders the EXACT same arrangement instead
+     * of re-shuffling. Null until the first shuffle lands. `ignoreUnknownKeys`
+     * decodes old snapshot files with this null (they shuffle fresh once, then
+     * persist).
+     */
+    val display: CsBrowseDisplay? = null,
+)
+
+/**
+ * Task 62: the persisted display arrangement — one row per displayed section,
+ * in DISPLAY order. [CsBrowseDisplayRow.shelfIndex] is the shelf's ORIGINAL
+ * index in the provider's mainPage (the category subpages resolve by it);
+ * [CsBrowseDisplayRow.itemUrls] is the row's item order (urls are the only
+ * stable cross-session item identity).
+ */
+@Serializable
+data class CsBrowseDisplay(
+    val rows: List<CsBrowseDisplayRow>,
+)
+
+@Serializable
+data class CsBrowseDisplayRow(
+    val shelfIndex: Int,
+    val itemUrls: List<String>,
 )
 
 class CloudstreamBrowseCache(
@@ -62,6 +91,10 @@ class CloudstreamBrowseCache(
     private val dir = File(context.filesDir, "cloudstream/browse")
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Task 62: serializes the ASYNC disk writes (put + saveDisplay) so a
+    // display update written right after a fresh browse can never land
+    // BEFORE the browse's own write and get overwritten by the older bytes.
+    private val diskMutex = Mutex()
 
     // ── Public API ─────────────────────────────────────────────────────────
 
@@ -118,12 +151,41 @@ class CloudstreamBrowseCache(
         val key = memKey(providerName)
         memory[key] = snapshot
         scope.launch {
-            runCatching {
-                if (!dir.exists()) dir.mkdirs()
-                snapshotFile(providerName).writeText(json.encodeToString(snapshot))
-                Logger.d(TAG) { "cache: stored ${sections.size} section(s) for '$providerName'" }
-            }.onFailure { t ->
-                Logger.w(TAG, t) { "cache: disk write failed for '$providerName' (memory copy kept)" }
+            diskMutex.withLock {
+                runCatching {
+                    if (!dir.exists()) dir.mkdirs()
+                    snapshotFile(providerName).writeText(json.encodeToString(snapshot))
+                    Logger.d(TAG) { "cache: stored ${sections.size} section(s) for '$providerName'" }
+                }.onFailure { t ->
+                    Logger.w(TAG, t) { "cache: disk write failed for '$providerName' (memory copy kept)" }
+                }
+            }
+        }
+    }
+
+    /**
+     * Task 62 (round 22): attaches the display arrangement to the CURRENT
+     * snapshot (memory synchronously, disk asynchronously — serialized with
+     * [diskMutex] against [put]'s write). No-op when no snapshot exists yet
+     * (the arrangement is meaningless without the sections) or when it is
+     * already the persisted one (the frequent tab-return reshuffles stay
+     * cheap: an identical order writes nothing).
+     */
+    fun saveDisplay(providerName: String, display: CsBrowseDisplay) {
+        val key = memKey(providerName)
+        val current = memory[key] ?: return
+        if (current.display == display) return
+        val updated = current.copy(display = display)
+        memory[key] = updated
+        scope.launch {
+            diskMutex.withLock {
+                runCatching {
+                    if (!dir.exists()) dir.mkdirs()
+                    snapshotFile(providerName).writeText(json.encodeToString(updated))
+                    Logger.d(TAG) { "cache: display order saved for '$providerName'" }
+                }.onFailure { t ->
+                    Logger.w(TAG, t) { "cache: display disk write failed for '$providerName'" }
+                }
             }
         }
     }
@@ -132,7 +194,13 @@ class CloudstreamBrowseCache(
     fun invalidate(providerName: String) {
         memory.remove(memKey(providerName))
         scope.launch {
-            runCatching { snapshotFile(providerName).delete() }
+            // Task 62: under the SAME disk mutex — a pending put/saveDisplay
+            // write must not resurrect the file after this delete (the
+            // pull-to-refresh invalidate → fresh browse → save sequence stays
+            // strictly ordered).
+            diskMutex.withLock {
+                runCatching { snapshotFile(providerName).delete() }
+            }
         }
     }
 

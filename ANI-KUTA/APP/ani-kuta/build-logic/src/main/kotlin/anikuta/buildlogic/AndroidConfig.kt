@@ -163,8 +163,28 @@ object AndroidConfig {
     // downloaded-episodes UI (collapsed by default, animated expand, separators,
     // the two-step morph delete, expand-left/delete-right, the EP count tag), and
     // the ads system (the real sponsor URL, 5s min-time, the offline deferral).
-    const val versionCode = 74
-    const val versionName = "0.4.9"
+    // ── Task 62 (round 22) — the v0.4.9 device round: stability + linkage ──
+    // 0.4.10 fixes the post-plugin-import CRASH (the stale-closure double
+    // push of ExtensionsSettingsKey under AnimatedContent → "Key
+    // ExtensionsSettingsKey was used multiple times"), links MANUALLY
+    // installed .cs3 plugins to repositories added LATER (the ordered
+    // CsPluginIdentity ladder: exact name → linked repo name → URL → file
+    // hash → normalized names; the linkage back-fill + the duplicate-row
+    // removal), floats the Format-sources menu fully ABOVE the heading /
+    // OUTSIDE the bottom sheet, retrains the CloudStream section
+    // RANDOMIZATION (only on a true search-tab exit + return or a
+    // pull-to-refresh; the arrangement is PERSISTED and restored across app
+    // restarts; the smart shuffle keeps the FIRST FOUR of every category
+    // unique across categories), restores the library chip UNDERLINE
+    // (fillMaxWidth collapsed to 0 inside the LazyRow — IntrinsicSize.Min),
+    // lands the library performance pass (H1/H2/M1/M2/M3/M4: off-main bulk DB
+    // mutations, the debounced off-main filter+sort, the snapshotFlow PTR
+    // threshold, the hoisted scroll-gated shared-element registration, the
+    // root recomposition split), shows "(N Episodes Downloaded)" on the
+    // downloaded cards, and adds FOCAL-POINT pinch zoom to the cover viewer
+    // (the fingers stay glued to the image point under them; pan kept).
+    const val versionCode = 75
+    const val versionName = "0.4.10"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
