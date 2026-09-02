@@ -183,8 +183,27 @@ object AndroidConfig {
     // root recomposition split), shows "(N Episodes Downloaded)" on the
     // downloaded cards, and adds FOCAL-POINT pinch zoom to the cover viewer
     // (the fingers stay glued to the image point under them; pan kept).
-    const val versionCode = 75
-    const val versionName = "0.4.10"
+    // ── Task 63 (round 23) — the library performance deep pass + 8 fixes ──
+    // 0.4.11 lifts the app-wide image fetch cap 2 → 8 (6/host) so the LIBRARY
+    // fling stops starving visible covers (the 5-6 FPS areas), makes category
+    // switches pure in-memory re-filters of a cached full set (~1-2ms vs the
+    // full 7-query DB pipeline), CENTERS the selected category chip (edges
+    // clamp), drops the brackets from the downloads tag and bolds ONLY the
+    // episode count, posts BACKGROUND-STATUS notifications while the update
+    // engine checks anime for new episodes (start/progress/finish, throttled,
+    // silent IMPORTANCE_LOW channel), REMOVES Developer tools + the whole
+    // console-logging toolkit (debug bubble, debug-api, ring buffer, report
+    // builders, console screen — clean release; w/e logs survive, i/d are
+    // debug-build-only), adds the Profile genres radar CATEGORY FILTER
+    // (All + library categories, persisted, default All), fixes the CS browse
+    // category MIXING (the shelf's ORIGINAL mainPage index now rides every
+    // section — one failed shelf no longer shifts later rows onto the wrong
+    // category) and MERGES duplicate same-name shelves into one row, moves
+    // the Watch Activity day labels up 4dp, and hardens the DB (the covering
+    // idx_library_item_main_added index + the transaction-wrapped
+    // delete-category-and-move batch).
+    const val versionCode = 76
+    const val versionName = "0.4.11"
 
     // HARD RULE (CORE_RULES.md §8, updated D-251 per user instruction): ONLY
     // arm64-v8a in SHIPPED APKs. No armeabi-v7a, no x86/x86_64.
