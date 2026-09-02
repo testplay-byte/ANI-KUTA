@@ -63,10 +63,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -170,12 +174,42 @@ fun SearchScreen(
     // Task 44: the sectioned CloudStream browse renders a LazyColumn of rows —
     // its own scroll state drives the top-bar collapse + blur overlay.
     val browseListState = rememberLazyListState()
-    // Collapse when EITHER the scroll column OR the grid is scrolled past 20px.
-    val collapsed = scrollState.value > 20 ||
-        gridState.firstVisibleItemIndex > 0 ||
-        gridState.firstVisibleItemScrollOffset > 20 ||
-        browseListState.firstVisibleItemIndex > 0 ||
-        browseListState.firstVisibleItemScrollOffset > 20
+
+    // D-395 (round 27): the top-bar reveal LATCH — a nested-scroll connection
+    // on the content Box, replacing the old derived `collapsed` expression
+    // that OR-ed all three scroll states' offsets. That expression had two
+    // device-visible bugs (the round-27 report: "when I scrolled to the very
+    // top, it did not show me the options again"):
+    //  1. STALE CROSS-MODE SIGNAL — the Idle column's [scrollState] object
+    //     SURVIVES mode switches (it is remembered at the screen level), so a
+    //     recents column scrolled away once latched `collapsed=true` in EVERY
+    //     later mode (browse/grid), no matter how far up the user scrolled;
+    //  2. TOP-ONLY REVEAL — the bar only re-expanded at the literal top
+    //     (offset ≤ 20px); an upward gesture that stopped mid-list left the
+    //     options hidden ("the animation did not play").
+    // The latch implements the standard app-bar pattern instead: any
+    // downward scroll delta COLLAPSES the bar, any upward delta REVEALS it
+    // (the horizontal rows' sideways scrolls produce dy≈0 and never trip
+    // it), and content-mode transitions re-reveal — fresh content means a
+    // fresh context. The threshold absorbs sub-pixel/jitter noise.
+    var collapsed by remember { mutableStateOf(false) }
+    val topBarRevealConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val dy = available.y
+                if (dy > SEARCH_BAR_DELTA_THRESHOLD_PX) {
+                    collapsed = true // scrolling down the content → hide the options
+                } else if (dy < -SEARCH_BAR_DELTA_THRESHOLD_PX) {
+                    collapsed = false // scrolling up → bring them back
+                }
+                return Offset.Zero // observe only — never consume
+            }
+        }
+    }
+    // Fresh content (Idle → Loading → results/browse, error → retry, …) starts
+    // with the full bar — the options row is the entry point to that content's
+    // filters + source picker, so it must be visible when the content lands.
+    LaunchedEffect(uiState::class) { collapsed = false }
 
     var showFilterSheet by remember { mutableStateOf(false) }
     var showSourcePicker by remember { mutableStateOf(false) }
@@ -243,7 +277,7 @@ fun SearchScreen(
             state = ptrState,
             modifier = Modifier.fillMaxSize(),
         ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().nestedScroll(topBarRevealConnection)) {
             // D-242-fix3: Show recents ABOVE the results (collapsed by default)
             // when results are displayed. Previously recents only showed in Idle
             // state — they disappeared as soon as results loaded.
@@ -574,6 +608,13 @@ private class RecentsHeaderData(
     val onRemove: (String) -> Unit,
     val onClear: () -> Unit,
 )
+
+/**
+ * D-395 (round 27): the scroll-delta threshold (px) that trips the top-bar
+ * reveal latch — small enough to react to a real gesture frame, large enough
+ * to ignore sub-pixel jitter from the horizontal rows' incidental dy noise.
+ */
+private const val SEARCH_BAR_DELTA_THRESHOLD_PX = 8f
 
 /**
  * Task 61 (round 21): the approach-bottom threshold — the load-more fires
