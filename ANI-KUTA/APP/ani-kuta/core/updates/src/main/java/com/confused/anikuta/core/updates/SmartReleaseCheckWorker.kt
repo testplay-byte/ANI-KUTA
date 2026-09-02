@@ -99,7 +99,7 @@ class SmartReleaseCheckWorker(
                 .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
                 // D-391: the tag the history page queries for the REAL next
                 // smart check time (min over ENQUEUED one-shots).
-                .addTags(SmartReleaseScheduler.WORK_TAG)
+                .addTag(SmartReleaseScheduler.WORK_TAG)
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
