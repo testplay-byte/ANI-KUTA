@@ -46,6 +46,8 @@ import com.confused.anikuta.feature.download.di.downloadFeatureModule
 import com.confused.anikuta.settings.ThemePreferences
 import com.confused.anikuta.settings.NotificationsSettingsViewModel
 import com.confused.anikuta.settings.NotificationsLibraryViewModel
+import com.confused.anikuta.settings.UpdateCheckLogViewModel
+import com.confused.anikuta.settings.UpdateCheckLogStore
 import com.confused.anikuta.settings.VideoCachingViewModel
 import com.confused.anikuta.profile.ProfileViewModel
 import eu.kanade.tachiyomi.animesource.ExtensionAppHolder
@@ -314,7 +316,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
             single<com.confused.anikuta.core.updates.UpdateProgressNotifier> {
                 com.confused.anikuta.notifications.UpdateProgressNotifierImpl(androidContext())
             }
-            single { com.confused.anikuta.settings.UpdateCheckLogStore(androidContext()) }
+            single { UpdateCheckLogStore(androidContext()) }
             single<com.confused.anikuta.core.updates.UpdateCheckLogger> {
                 get<com.confused.anikuta.settings.UpdateCheckLogStore>()
             }
@@ -340,7 +342,7 @@ class AnikutaApp : com.lagradost.cloudstream3.CloudStreamApp(),
 
             // ViewModels (app-level)
             viewModelOf(::NotificationsSettingsViewModel)
-            viewModelOf(::com.confused.anikuta.settings.UpdateCheckLogViewModel)
+            viewModelOf(::UpdateCheckLogViewModel)
             viewModelOf(::NotificationsLibraryViewModel)
             viewModelOf(::VideoCachingViewModel) // Video caching settings (test-feature branch)
             viewModelOf(::ProfileViewModel) // Profile page
