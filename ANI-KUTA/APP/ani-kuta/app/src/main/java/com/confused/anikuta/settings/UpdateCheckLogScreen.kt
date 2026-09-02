@@ -100,6 +100,9 @@ fun UpdateCheckLogScreen(
 ) {
     val sessions by viewModel.sessions.collectAsState()
     val nextCheck by viewModel.nextCheck.collectAsState()
+    // D-396 (round 27): the per-series LANDED one-shot fire times (WorkManager,
+    // live) — feeds the per-item schedule panels inside the session cards.
+    val landedSchedule by viewModel.landedSchedule.collectAsState()
     val lazyListState = rememberLazyListState()
     val collapsed = lazyListState.firstVisibleItemScrollOffset > 20 ||
         lazyListState.firstVisibleItemIndex > 0
@@ -153,7 +156,7 @@ fun UpdateCheckLogScreen(
                         }
                         item(key = "history-label") { SettingsSectionLabel("History") }
                         items(sessions.size, key = { sessions[it].id }) { index ->
-                            CheckSessionCard(sessions[index], onNavigateToDetails)
+                            CheckSessionCard(sessions[index], landedSchedule, onNavigateToDetails)
                         }
                     }
                 }
@@ -385,6 +388,7 @@ private fun DuePreviewRow(
 @Composable
 private fun CheckSessionCard(
     entry: UpdateCheckLogEntry,
+    landedSchedule: Map<String, Long>,
     onNavigateToDetails: (String) -> Unit,
 ) {
     var expanded by remember(entry.id) { mutableStateOf(false) }
@@ -471,7 +475,7 @@ private fun CheckSessionCard(
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     entry.items.forEachIndexed { itemIndex, item ->
                         if (itemIndex > 0) Spacer(Modifier.height(8.dp))
-                        CheckItemRow(item, onNavigateToDetails)
+                        CheckItemRow(item, landedSchedule[item.mainId], onNavigateToDetails)
                     }
                 }
             }
@@ -483,10 +487,14 @@ private fun CheckSessionCard(
  * One per-content outcome row: cover, title, outcome chip, detail, next
  * action. D-388 (round 25): the COVER renders (captured at check time) and
  * the row navigates to the anime's Details page.
+ * D-396 (round 27): [landedAt] — the series' LANDED WorkManager one-shot
+ * fire time (live query, null when none is enqueued) — feeds the schedule
+ * panel contrasting it with the check-time CALCULATED target.
  */
 @Composable
 private fun CheckItemRow(
     item: UpdateCheckItemLog,
+    landedAt: Long?,
     onNavigateToDetails: (String) -> Unit,
 ) {
     Row(
@@ -546,9 +554,131 @@ private fun CheckItemRow(
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            // D-396 (round 27): the smart-schedule panel — what the engine
+            // calculated at check time vs. what actually LANDED in WorkManager.
+            SmartSchedulePanel(item = item, landedAt = landedAt)
         }
         Spacer(Modifier.width(8.dp))
         OutcomeChip(item.outcome, item.newEpisodes)
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  D-396 (round 27): the per-series smart-schedule panel
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * D-396 (round 27): the round-27 report's ask, verbatim: "it would show me
+ * some info of the next times expected ones too, like what it CALCULATED,
+ * what it LANDED, the delay, and other stuff like that for that specific
+ * series — so that I know that it is working properly".
+ *
+ * Four fact lines, rendered only when at least one is known (legacy entries
+ * with no schedule data render exactly as before):
+ *  - **Next release** — the episode AniList says airs next + when (+ the live
+ *    countdown, or "aired Xh ago" for a past airing);
+ *  - **Learned delay** — the per-anime offset the engine applied (the gap
+ *    between the AniList airing and when the episode actually shows up on
+ *    the source, learned from every confirmed find; "+10m default (not
+ *    learned yet)" otherwise);
+ *  - **Calculated** — `release + learned delay` — the target the engine
+ *    aimed the one-shot at, captured AT CHECK TIME;
+ *  - **Landed** — WorkManager's REAL fire time for this series' one-shot
+ *    (live query) + the DRIFT versus the calculated target ("on time",
+ *    "+12m drift"), or "not scheduled — the periodic sweep covers it" when
+ *    no one-shot is enqueued (past airing, backoff, or manual mode).
+ */
+@Composable
+private fun SmartSchedulePanel(
+    item: UpdateCheckItemLog,
+    landedAt: Long?,
+) {
+    val hasAnyScheduleData = item.nextAiringAt != null ||
+        item.expectedCheckAt != null || landedAt != null
+    if (!hasAnyScheduleData) return
+
+    val now = System.currentTimeMillis()
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            // ── Next release ──
+            item.nextAiringAt?.let { airingAt ->
+                ScheduleFactRow(
+                    label = "Next release",
+                    value = buildString {
+                        item.nextAiringEpisode?.let { append("EP $it · ") }
+                        append(formatDeviceTime(airingAt))
+                        val delta = airingAt - now
+                        if (delta > 0) {
+                            append(" (in ${formatCountdown(delta)})")
+                        } else {
+                            append(" (aired ${formatCountdown(-delta)} ago)")
+                        }
+                    },
+                )
+            }
+            // ── Learned delay ──
+            ScheduleFactRow(
+                label = "Learned delay",
+                value = item.learnedOffsetMs?.let { "+${formatDelay(it)} (source lag)" }
+                    ?: "+10m default (not learned yet)",
+            )
+            // ── Calculated (at check time) ──
+            item.expectedCheckAt?.let { expected ->
+                ScheduleFactRow(
+                    label = "Calculated",
+                    value = "${formatDeviceTime(expected)} (release + delay)",
+                )
+            }
+            // ── Landed (WorkManager, live) + drift ──
+            when {
+                landedAt != null -> {
+                    val drift = landedAt - (item.expectedCheckAt ?: landedAt)
+                    val driftText = when {
+                        item.expectedCheckAt == null -> ""
+                        kotlin.math.abs(drift) < 60_000L -> " · on time"
+                        drift > 0 -> " · drift +${formatDelay(drift)}"
+                        else -> " · drift ${formatDelay(-drift)} early"
+                    }
+                    ScheduleFactRow(
+                        label = "Landed",
+                        value = formatDeviceTime(landedAt) + driftText +
+                            if (landedAt > now) " (in ${formatCountdown(landedAt - now)})" else "",
+                    )
+                }
+                item.expectedCheckAt != null -> ScheduleFactRow(
+                    label = "Landed",
+                    value = "not scheduled — the periodic sweep covers it",
+                )
+                // else: neither calculated nor landed — nothing to say.
+            }
+        }
+    }
+}
+
+/** One label → value line of the [SmartSchedulePanel]. */
+@Composable
+private fun ScheduleFactRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+        Text(
+            text = label,
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(86.dp),
+        )
+        Text(
+            text = value,
+            fontFamily = RobotoFamily,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -646,6 +776,23 @@ private fun formatDuration(ms: Long): String {
     return if (seconds < 60) "${seconds}s" else "${seconds / 60}m ${seconds % 60}s"
 }
 
+/**
+ * D-396 (round 27): compact offset/drift text — "+45m", "+2h 05m", "+30s";
+ * one unit pair max (unlike [formatDuration], no trailing "0s" noise).
+ */
+private fun formatDelay(ms: Long): String {
+    val totalMinutes = ms / 60_000L
+    return when {
+        totalMinutes == 0L -> "${ms / 1000L}s"
+        totalMinutes < 60L -> "${totalMinutes}m"
+        else -> {
+            val hours = totalMinutes / 60
+            val minutes = totalMinutes % 60
+            if (minutes == 0L) "${hours}h" else "${hours}h ${minutes.toString().padStart(2, '0')}m"
+        }
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 //  The ViewModel (D-388: extended with the next-check projection)
 // ══════════════════════════════════════════════════════════════════════════
@@ -710,6 +857,16 @@ class UpdateCheckLogViewModel(
     private val _nextCheck = MutableStateFlow<NextCheckInfo?>(null)
     val nextCheck: StateFlow<NextCheckInfo?> = _nextCheck.asStateFlow()
 
+    /**
+     * D-396 (round 27): each anime's LANDED smart-release one-shot fire time
+     * (epoch ms), resolved LIVE from WorkManager on every refresh — the
+     * per-series schedule panels in the history rows contrast this with the
+     * check-time CALCULATED target (`UpdateCheckItemLog.expectedCheckAt`) to
+     * expose any drift. Empty when no one-shots are enqueued.
+     */
+    private val _landedSchedule = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val landedSchedule: StateFlow<Map<String, Long>> = _landedSchedule.asStateFlow()
+
     companion object {
         /** How many due-anime preview rows the card shows. */
         private const val DUE_PREVIEW_ROWS = 3
@@ -723,6 +880,7 @@ class UpdateCheckLogViewModel(
         viewModelScope.launch {
             _sessions.value = store.sessions()
             _nextCheck.value = buildNextCheck(_sessions.value.firstOrNull())
+            _landedSchedule.value = queryLandedScheduleByAnime()
         }
     }
 
@@ -828,6 +986,42 @@ class UpdateCheckLogViewModel(
                 it.state == androidx.work.WorkInfo.State.ENQUEUED
             }.mapNotNull { it.nextScheduleTimeMillis }.minOrNull()
         }.getOrNull()
+    }
+
+    /**
+     * D-396 (round 27): every anime's LANDED one-shot fire time — walks the
+     * ENQUEUED smart-release works ONCE, groups by the per-anime tag
+     * (`sr_main_<mainId>`, stamped by
+     * [com.confused.anikuta.core.updates.SmartReleaseCheckWorker.schedule])
+     * and keeps each anime's EARLIEST fire time. One-shots scheduled before
+     * this release carry no per-anime tag — they are invisible here until the
+     * next re-aim (the ScheduleEngine re-aims after every schedule refresh,
+     * so the map self-heals within one refresh cycle).
+     */
+    private fun queryLandedScheduleByAnime(): Map<String, Long> {
+        return runCatching {
+            val wm = androidx.work.WorkManager.getInstance(appContext)
+            val infos = wm.getWorkInfosByTag(
+                com.confused.anikuta.core.updates.SmartReleaseScheduler.WORK_TAG,
+            ).get()
+            infos
+                .filter { it.state == androidx.work.WorkInfo.State.ENQUEUED }
+                .flatMap { info ->
+                    val fire = info.nextScheduleTimeMillis
+                        ?: return@flatMap emptyList<Pair<String, Long>>()
+                    info.tags.mapNotNull { tag ->
+                        if (tag.startsWith("sr_main_")) {
+                            tag.removePrefix("sr_main_") to fire
+                        } else {
+                            null
+                        }
+                    }
+                }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { (_, fires) ->
+                    checkNotNull(fires.minOrNull()) // non-empty by construction
+                }
+        }.getOrDefault(emptyMap())
     }
 
     /**

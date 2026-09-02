@@ -126,6 +126,13 @@ data class UpdateCheckLogEntry(
  * D-388 (round 25): [coverUrl] so the history rows + the notification's
  * large icon can show the anime's cover (null on legacy JSON entries —
  * `ignoreUnknownKeys` + a default keep old files decodable).
+ *
+ * D-396 (round 27): the SMART-SCHEDULE math captured at check time, so the
+ * history can show per-series "what it CALCULATED, what it LANDED (the
+ * WorkManager one-shot's real fire time, resolved live by the history
+ * screen), and the delay" — the round-27 report: "it would show me some
+ * info of the next times expected ones too… so that I know that it is
+ * working properly". All nullable-with-default → old JSON stays decodable.
  */
 @Serializable
 data class UpdateCheckItemLog(
@@ -144,6 +151,23 @@ data class UpdateCheckItemLog(
      *  fallback) — captured at check time for the history rows + the
      *  notification's large icon. */
     val coverUrl: String? = null,
+    // ── D-396 (round 27): the smart-schedule record ──
+    /** The episode number AniList says airs next (null when unknown). */
+    val nextAiringEpisode: Long? = null,
+    /** When that episode airs (epoch ms; null when unknown). May be in the
+     *  past by the time the history is read — the record of what the engine
+     *  KNEW at check time. */
+    val nextAiringAt: Long? = null,
+    /** The per-anime LEARNED release delay applied at check time (ms; null =
+     *  not learned yet — the +10min default was used). */
+    val learnedOffsetMs: Long? = null,
+    /**
+     * What the engine CALCULATED as the next check target —
+     * `nextAiringAt + learnedOffsetMs` (epoch ms; null when no FUTURE airing
+     * was known at check time). The history screen contrasts this with the
+     * LANDED WorkManager one-shot (queried live) to expose any drift.
+     */
+    val expectedCheckAt: Long? = null,
 )
 
 /**

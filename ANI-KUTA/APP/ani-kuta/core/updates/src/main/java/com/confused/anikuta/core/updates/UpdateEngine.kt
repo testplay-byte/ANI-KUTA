@@ -207,6 +207,24 @@ class UpdateEngine(
                     }
 
                     val result = checkSingleAnime(state, now)
+                    // D-396 (round 27): the smart-schedule record for this
+                    // item — captured from the SAME state the engine just
+                    // acted on, so the history can show "what it calculated,
+                    // what it landed, the delay" per series. The formula
+                    // mirrors [SmartReleaseScheduler.scheduleUpcomingChecks]
+                    // (airing + the per-anime learned/expected offset, same
+                    // default + clamp) — kept in sync deliberately.
+                    val nextAiringAt = state.nextAiringAt
+                    val learnedOffsetMs = state.learnedOffsetMs
+                    val expectedCheckAt = nextAiringAt?.let { airingAt ->
+                        if (airingAt > now) {
+                            val offset = (learnedOffsetMs ?: 10L * 60 * 1000)
+                                .coerceIn(0L, 24L * 60 * 60 * 1000)
+                            airingAt + offset
+                        } else {
+                            null // past airing — no future one-shot to calculate
+                        }
+                    }
                     synchronized(this@UpdateEngine) {
                         totalNew += result.newEpisodes
                         itemLogs.add(
@@ -221,6 +239,11 @@ class UpdateEngine(
                                 // time — the history rows + the notification's
                                 // large icon render it.
                                 coverUrl = coverUrl,
+                                // D-396 (round 27): the schedule math.
+                                nextAiringEpisode = state.nextAiringEpisode,
+                                nextAiringAt = nextAiringAt,
+                                learnedOffsetMs = learnedOffsetMs,
+                                expectedCheckAt = expectedCheckAt,
                             )
                         )
                     }

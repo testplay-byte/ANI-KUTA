@@ -45,6 +45,14 @@ class SmartReleaseCheckWorker(
         const val KEY_AIRING_AT = "airing_at"
         const val MAX_ATTEMPTS = 4
 
+        /**
+         * D-396 (round 27): the per-anime tag stamped on every one-shot of
+         * THIS anime — the update-check history page matches it against
+         * WorkInfo.tags to resolve each series' LANDED fire time (WorkInfo
+         * exposes tags, not unique work names).
+         */
+        fun mainTag(mainId: String): String = "sr_main_$mainId"
+
         // D-193 Phase 7: Progressive retry schedule (minutes after previous attempt).
         // Attempt 1: airing + 10min
         // Attempt 2: + 20min (total: airing + 30min)
@@ -100,6 +108,12 @@ class SmartReleaseCheckWorker(
                 // D-391: the tag the history page queries for the REAL next
                 // smart check time (min over ENQUEUED one-shots).
                 .addTag(SmartReleaseScheduler.WORK_TAG)
+                // D-396 (round 27): the PER-ANIME tag — the history page
+                // resolves each series' LANDED one-shot fire time by matching
+                // this tag (WorkInfo exposes tags; unique names don't), so a
+                // per-item row can contrast what was CALCULATED with what
+                // actually landed in WorkManager + the drift between them.
+                .addTag(SmartReleaseCheckWorker.mainTag(mainId))
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
