@@ -112,7 +112,17 @@ class CloudstreamBrowseCache(
                 if (!file.exists()) return@withContext null
                 val snapshot = json.decodeFromString<CsBrowseSnapshot>(file.readText())
                 // Guard against a corrupted/hand-edited file.
-                if (snapshot.providerName != providerName || snapshot.sections.isEmpty()) {
+                // Task 64 (round 24 — F): a snapshot whose sections carry no
+                // shelfIndex (< 0) is a LEGACY pre-field snapshot — its
+                // positional indexes can drive the category subpages onto the
+                // WRONG shelves. Treat it as stale: delete + refetch (one-time
+                // cost on the first open after the update; every put since
+                // writes real indexes).
+                val legacy = snapshot.sections.any { it.shelfIndex < 0 }
+                if (snapshot.providerName != providerName ||
+                    snapshot.sections.isEmpty() ||
+                    legacy
+                ) {
                     file.delete()
                     null
                 } else {

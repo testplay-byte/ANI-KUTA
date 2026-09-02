@@ -1152,10 +1152,16 @@ class SearchViewModel(
             return restored
         }
         val shuffled = smartShuffleSections(
-            raw.mapIndexed { index, section ->
+            // Task 64 (round 24 — F): the shelf index comes from the SECTION
+            // itself — the repository stamps every section with its ORIGINAL
+            // mainPage index (pre-compaction, pre-merge). The old
+            // `mapIndexed` position was the MIXING root cause: a failed shelf
+            // compacted the list and shifted every later row's subpage onto
+            // the WRONG category.
+            raw.map { section ->
                 ExtensionBrowseSection(
                     title = section.title,
-                    shelfIndex = index,
+                    shelfIndex = section.shelfIndex,
                     results = section.items.map { it.toExtensionAnime() },
                 )
             },
@@ -1180,13 +1186,24 @@ class SearchViewModel(
     ): List<ExtensionBrowseSection>? {
         if (display == null) return null
         if (display.rows.size != raw.size) return null
+        // Task 64 (round 24 — F): rows resolve by their ORIGINAL shelf index
+        // (the repository stamps every section with it), NOT by list position
+        // — the old positional lookup mis-restored whenever a failed shelf or
+        // a same-title merge changed the raw list's shape. Validation: every
+        // row's index must exist in the raw set exactly once (a provider that
+        // changed its mainPage fails this → fresh shuffle).
+        val rawByIndex = HashMap<Int, CsBrowseSection>(raw.size * 2)
+        for (section in raw) {
+            if (section.shelfIndex < 0) return null
+            if (rawByIndex.put(section.shelfIndex, section) != null) return null
+        }
         val seenIndexes = HashSet<Int>(raw.size * 2)
         for (row in display.rows) {
-            if (row.shelfIndex !in raw.indices) return null
+            if (row.shelfIndex !in rawByIndex) return null
             if (!seenIndexes.add(row.shelfIndex)) return null
         }
         return display.rows.map { row ->
-            val section = raw[row.shelfIndex]
+            val section = rawByIndex.getValue(row.shelfIndex)
             val byUrl = HashMap<String, CsContentCard>(section.items.size * 2)
             for (card in section.items) {
                 if (card.url !in byUrl) byUrl[card.url] = card

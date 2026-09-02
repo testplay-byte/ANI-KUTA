@@ -71,11 +71,19 @@ data class CsContentCard(
  * One browse shelf rendered as its own titled row on the search page (Task 44,
  * device round 3: "show a popular, latest and other sections in row format").
  * [title] is the provider's own shelf name ("Latest Updated", "Most Popular", …).
+ *
+ * Task 64 (round 24 — F): [shelfIndex] is the shelf's ORIGINAL index in the
+ * provider's mainPage — captured BEFORE any empty-shelf compaction or
+ * same-title merge. The category subpages ([browseShelf]) resolve their shelf
+ * by THIS index, so it must survive every list transformation downstream.
+ * -1 = a legacy cached snapshot from before the field existed (the cache
+ * treats those as stale and refetches).
  */
 @kotlinx.serialization.Serializable
 data class CsBrowseSection(
     val title: String,
     val items: List<CsContentCard>,
+    val shelfIndex: Int = -1,
 )
 
 // NOTE (Task 48): [CsBrowseSection] + [CsContentCard] are @Serializable so
@@ -303,8 +311,27 @@ class CloudstreamContentRepository(
                 .take(MAX_SECTION_ITEMS)
                 .map { it.toCard(providerName, provider.mainUrl) }
             Logger.i(TAG) { "browse: $providerName shelf '${shelf.name}' -> ${cards.size} item(s)" }
-            if (cards.isEmpty()) null else CsBrowseSection(title = shelf.name, items = cards)
+            // Task 64 (round 24 — F): shelfIndex = the ORIGINAL mainPage index
+            // (the loop index over [shelves], captured BEFORE the failed-shelf
+            // compaction of mapIndexedNotNull). This was the MIXING root cause:
+            // the search page used to derive the subpage shelf from the
+            // COMPACTED list position, so one failed shelf shifted every later
+            // row onto the WRONG category's subpage.
+            if (cards.isEmpty()) null else CsBrowseSection(
+                title = shelf.name,
+                items = cards,
+                shelfIndex = index,
+            )
         }
+
+        // Task 64 (round 24 — F): MERGE same-title sections (case-insensitive) —
+        // the DUPLICATE-category root cause: providers can declare several
+        // shelves with the same name (or the same name in different casing),
+        // and each rendered as its own identically-titled row. Merged row:
+        // concatenated items, deduped by url, re-capped, FIRST occurrence's
+        // shelfIndex (subpage taps open that shelf — same name, same content
+        // family). First-appearance order is preserved.
+        val sections = mergeSameTitleSections(sections)
         Logger.i(TAG) {
             "browse: $providerName -> ${sections.size} section(s) in ${System.currentTimeMillis() - started}ms"
         }
@@ -314,6 +341,37 @@ class CloudstreamContentRepository(
             browseCache?.put(providerName, sections)
         }
         sections
+    }
+
+    /**
+     * Task 64 (round 24 — F): merges sections whose titles match
+     * case-insensitively (after a trim) into ONE row — concatenated items,
+     * deduped by url, re-capped at [MAX_SECTION_ITEMS], first occurrence's
+     * shelfIndex, first-appearance row order. A no-op pass-through when every
+     * title is already distinct.
+     */
+    private fun mergeSameTitleSections(
+        sections: List<CsBrowseSection>,
+    ): List<CsBrowseSection> {
+        val byNormalizedTitle = LinkedHashMap<String, MutableList<CsBrowseSection>>()
+        for (section in sections) {
+            byNormalizedTitle.getOrPut(section.title.trim().lowercase()) { mutableListOf() }.add(section)
+        }
+        if (byNormalizedTitle.size == sections.size) return sections
+        Logger.i(TAG) {
+            "browse: merged ${sections.size} -> ${byNormalizedTitle.size} section(s) " +
+                "(same-title shelves combined)"
+        }
+        return byNormalizedTitle.values.map { group ->
+            val first = group.first()
+            CsBrowseSection(
+                title = first.title,
+                items = group.flatMap { it.items }
+                    .distinctBy { it.url }
+                    .take(MAX_SECTION_ITEMS),
+                shelfIndex = first.shelfIndex,
+            )
+        }
     }
 
     /**
