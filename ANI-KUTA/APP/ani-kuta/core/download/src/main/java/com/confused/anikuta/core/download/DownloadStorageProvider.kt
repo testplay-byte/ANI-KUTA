@@ -738,6 +738,231 @@ class DownloadStorageProvider(
         return failures
     }
 
+    // ── D-393 (round 27): the DISK-TRUTH episode file sweep ─────────────────
+    //
+    // Round-27 device finding: "the files are there — this time it didn't even
+    // delete the actual files themselves". The round-26 delete flow deleted
+    // files ONLY via the URIs recorded in `.data.json` — if that entry was
+    // missing (stale `.data.json` from the round-25 sync bug), had a null
+    // videoUri, or the URI delete silently returned false, the FILE SURVIVED
+    // while the DB row still died (the app showed it deleted). The sweep
+    // below makes the file deletion independent of ANY recorded state: it
+    // walks the actual folders and deletes by the deterministic FILENAME
+    // pattern (the same `episodeFileName`/subtitle convention every download
+    // publishes under), then VERIFIES by re-listing.
+
+    /**
+     * D-393 (round 27): deletes one episode's video + subtitle files by
+     * DISK TRUTH — a filename-pattern sweep of the content folder's
+     * `episodes/` + `subtitles/` subfolders (plus a legacy root-level check,
+     * for downloads published before the subfolder layout).
+     *
+     * Why pattern-based: the canonical video name is
+     * `<title> - E<00001>.<ext>` and every subtitle is
+     * `subtitle_E<00001>_<lang>_<idx>.<ext>` — the episode token is parsed
+     * OUT of each file name (regex, full-token comparison) so EP 1 never
+     * matches an `E00001.5` file and vice versa.
+     *
+     * Verification: after the deletion pass the folders are re-listed; any
+     * matching survivor triggers ONE retry round (after a settle pause) and
+     * is reported in [DiskSweepReport.survivors]. A clean report has zero
+     * survivors — that is the on-disk GUARANTEE the round-27 report asked
+     * for, independent of `.data.json` state.
+     *
+     * @param episodeNumber the episode's number (fractional `.5` supported) —
+     *   from the DB row (the app's truth), NOT from `.data.json`.
+     */
+    suspend fun deleteEpisodeFilesOnDisk(
+        folder: DocumentFile,
+        episodeNumber: Float,
+    ): DiskSweepReport = withContext(Dispatchers.IO) {
+        val targetToken = formatEpisodeNumber(episodeNumber)
+        DownloadLogger.i {
+            "deleteEpisodeFilesOnDisk — ENTER folder='${folder.name}', " +
+                "episodeNumber=$episodeNumber (token='$targetToken')"
+        }
+
+        // ── Census BEFORE: every file matching the episode's token. ──
+        val before = listEpisodeFilesForToken(folder, targetToken)
+        DownloadLogger.i {
+            "deleteEpisodeFilesOnDisk — census BEFORE: ${before.names.size} " +
+                "match(es) [${before.videos} video, ${before.subtitles} subtitle]: " +
+                before.names
+        }
+
+        // ── The deletion passes (a retry round runs only when a pass leaves
+        // survivors — some SAF providers need a settle beat between the
+        // sibling deletions). ──
+        var lastCensus = before
+        for (pass in 1..DISK_SWEEP_PASSES) {
+            val stillMatching = listEpisodeFilesForToken(folder, targetToken)
+            if (stillMatching.names.isEmpty()) break // nothing (left) to do
+            for (name in stillMatching.names) {
+                val deleted = deleteFileByName(folder, name)
+                DownloadLogger.i {
+                    "deleteEpisodeFilesOnDisk — pass $pass: '$name' " +
+                        "delete()=$deleted"
+                }
+            }
+            // Verify: re-list after the pass.
+            delay(DISK_SWEEP_VERIFY_PAUSE_MS) // tiny settle before the verify
+            lastCensus = listEpisodeFilesForToken(folder, targetToken)
+            if (lastCensus.names.isEmpty()) {
+                DownloadLogger.i {
+                    "deleteEpisodeFilesOnDisk — pass $pass CLEAN — all matches gone"
+                }
+                break
+            }
+            DownloadLogger.w {
+                "deleteEpisodeFilesOnDisk — pass $pass left " +
+                    "${lastCensus.names.size} survivor(s): ${lastCensus.names} — " +
+                    if (pass < DISK_SWEEP_PASSES) {
+                        "retrying after a settle pause"
+                    } else {
+                        "FINAL: files remain on disk (the SAF provider refused)"
+                    }
+            }
+            if (pass < DISK_SWEEP_PASSES) delay(DISK_SWEEP_RETRY_PAUSE_MS)
+        }
+
+        // ── Census AFTER: the report is (before − after), disk-verified. ──
+        val report = DiskSweepReport(
+            matchedFiles = before.videos + before.subtitles,
+            videosDeleted = (before.videos - lastCensus.videos).coerceAtLeast(0),
+            subtitlesDeleted = (before.subtitles - lastCensus.subtitles).coerceAtLeast(0),
+            survivors = lastCensus.names,
+        )
+        DownloadLogger.i {
+            "deleteEpisodeFilesOnDisk — RESULT for '${folder.name}' " +
+                "ep=$episodeNumber: matched=${report.matchedFiles}, " +
+                "videosDeleted=${report.videosDeleted}, " +
+                "subtitlesDeleted=${report.subtitlesDeleted}, " +
+                "survivors=${report.survivors}"
+        }
+        report
+    }
+
+    /**
+     * D-393: counts the episode VIDEO files that remain in [folder]'s
+     * `episodes/` subfolder (+ legacy root-level video names). Used by the
+     * series-folder cleanup as the DISK half of the "is anything still
+     * playable here?" decision.
+     */
+    fun countEpisodeVideoFiles(folder: DocumentFile): Int {
+        val dirs = buildList {
+            add(folder)
+            folder.listFiles()
+                .firstOrNull { it.name == "episodes" && it.isDirectory }
+                ?.let(::add)
+        }
+        return dirs.sumOf { dir ->
+            dir.listFiles().count { file ->
+                !file.isDirectory && isEpisodeVideoName(file.name ?: "")
+            }
+        }
+    }
+
+    /** D-393: the final census — names still on disk matching [token]. */
+    private fun listEpisodeFilesForToken(
+        folder: DocumentFile,
+        token: String,
+    ): RemainingEpisodeFiles {
+        val names = mutableListOf<String>()
+        var videos = 0
+        var subtitles = 0
+        val dirs = buildList {
+            add(folder)
+            folder.listFiles().forEach { child ->
+                if (child.isDirectory && (child.name == "episodes" || child.name == "subtitles")) {
+                    add(child)
+                }
+            }
+        }
+        for (dir in dirs) {
+            for (file in dir.listFiles()) {
+                if (file.isDirectory) continue
+                val name = file.name ?: continue
+                val isVideo = isEpisodeVideoName(name)
+                val isSub = isSubtitleName(name)
+                if (!isVideo && !isSub) continue
+                if (parseEpisodeToken(name) != token) continue
+                names.add(name)
+                if (isVideo) videos++ else subtitles++
+            }
+        }
+        return RemainingEpisodeFiles(names, videos, subtitles)
+    }
+
+    /**
+     * D-393: deletes ONE file by NAME — looks it up in [folder] and its
+     * `episodes/`/`subtitles/` subfolders (the census only reports names, so
+     * the delete pass resolves each name fresh; a vanished file counts as
+     * deleted — idempotent).
+     */
+    private fun deleteFileByName(folder: DocumentFile, name: String): Boolean {
+        val dirs = buildList {
+            add(folder)
+            folder.listFiles().forEach { child ->
+                if (child.isDirectory && (child.name == "episodes" || child.name == "subtitles")) {
+                    add(child)
+                }
+            }
+        }
+        for (dir in dirs) {
+            val target = dir.listFiles().firstOrNull { it.name == name }
+            if (target != null) {
+                return target.delete() || !target.exists()
+            }
+        }
+        return true // already gone — idempotent success
+    }
+
+    /** D-393: `<anything> - E00001.<ext>` — the canonical video file shape. */
+    private fun isEpisodeVideoName(name: String): Boolean =
+        VIDEO_NAME_REGEX.containsMatchIn(name)
+
+    /** D-393: `subtitle_E00001_…` — the canonical subtitle file shape. */
+    private fun isSubtitleName(name: String): Boolean =
+        name.startsWith("subtitle_")
+
+    /**
+     * D-393: parses the `E<token>` out of a canonical episode/subtitle file
+     * name. Full-token comparison (with any fractional part) so EP 1 never
+     * matches `E00001.5`.
+     */
+    private fun parseEpisodeToken(name: String): String? {
+        val videoMatch = VIDEO_NAME_REGEX.find(name)
+        if (videoMatch != null) return videoMatch.groupValues[1]
+        val subMatch = SUBTITLE_NAME_REGEX.find(name)
+        if (subMatch != null) return subMatch.groupValues[1]
+        return null
+    }
+
+    /**
+     * D-393 (round 27): the verified outcome of one episode's disk-truth
+     * sweep — what was matched, what actually died, and what (if anything)
+     * survived even after the retry round. `survivors.isEmpty()` is the
+     * on-disk guarantee; non-empty means the SAF provider refused the
+     * deletion (the log carries each refusal).
+     */
+    data class DiskSweepReport(
+        /** How many files matched the episode's token across the census pass. */
+        val matchedFiles: Int,
+        /** Video files confirmed deleted (census − survivors). */
+        val videosDeleted: Int,
+        /** Subtitle files confirmed deleted (census − survivors). */
+        val subtitlesDeleted: Int,
+        /** File names STILL on disk after all passes — empty on success. */
+        val survivors: List<String>,
+    )
+
+    /** D-393: internal final-census helper return. */
+    private data class RemainingEpisodeFiles(
+        val names: List<String>,
+        val videos: Int,
+        val subtitles: Int,
+    )
+
     /**
      * D-241: Replaces the entire `episodes` list of the `.data.json` for
      * [folder] with [episodes]. Used by [DownloadScanner.scan] when it
@@ -991,6 +1216,28 @@ class DownloadStorageProvider(
 
         /** D-392: settle pause between the `.data.json` write attempts (ms). */
         private const val DATA_JSON_RETRY_PAUSE_MS = 250L
+
+        // ── D-393 (round 27): the disk-truth sweep knobs ──
+        /** How many census→delete→verify passes the sweep makes (2 retries). */
+        private const val DISK_SWEEP_PASSES = 3
+
+        /** Settle pause between the delete pass + its verification census (ms). */
+        private const val DISK_SWEEP_VERIFY_PAUSE_MS = 150L
+
+        /** Settle pause between sweep retry rounds (ms). */
+        private const val DISK_SWEEP_RETRY_PAUSE_MS = 300L
+
+        /**
+         * D-393: the canonical video file shape — `<title> - E00001.<ext>`
+         * (group 1 = the full episode token incl. any fractional part).
+         */
+        private val VIDEO_NAME_REGEX = Regex(""" - E(\d{5}(?:\.\d+)?)\.[^.]+$""")
+
+        /**
+         * D-393: the canonical subtitle file shape —
+         * `subtitle_E00001_<lang>_<idx>.<ext>` (group 1 = the episode token).
+         */
+        private val SUBTITLE_NAME_REGEX = Regex("""^subtitle_E(\d{5}(?:\.\d+)?)_.+$""")
 
         /** Cap on the same-title collision loop (REVIEW-5 M53 — defensive). */
         private const val MAX_COLLISION_SUFFIX = 100
